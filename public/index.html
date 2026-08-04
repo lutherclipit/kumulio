@@ -1,0 +1,300 @@
+﻿<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>RabattArchiv</title>
+  <link rel="icon" href="/logo.svg" type="image/svg+xml">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#2fa45c">
+  <link rel="stylesheet" href="/style.css">
+  <!-- Für iOS/Android-Builds (Capacitor): hier die URL des gehosteten Servers eintragen,
+       z. B. window.RA_API_BASE = 'https://api.rabattarchiv.de'; -->
+  <script>window.RA_API_BASE = '';</script>
+  <script src="https://challenges.cloudflare.com/turnstile/api.js?render=explicit" async defer></script>
+</head>
+<body>
+
+  <!-- Öffnungs-Animation: Ordner + Geldscheine -->
+  <div id="splash" aria-hidden="true">
+    <svg viewBox="0 0 64 64" class="splash-logo" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="spFront" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#f4c14e"/><stop offset="1" stop-color="#e09b2d"/>
+        </linearGradient>
+        <linearGradient id="spBack" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#c98d26"/><stop offset="1" stop-color="#a8731c"/>
+        </linearGradient>
+        <clipPath id="spClip"><rect x="0" y="-20" width="64" height="43"/></clipPath>
+      </defs>
+      <g class="sp-back"><path d="M6 18 q0 -4 4 -4 h12 l4 5 h24 q4 0 4 4 v28 q0 4 -4 4 H10 q-4 0 -4 -4 Z" fill="url(#spBack)"/></g>
+      <g clip-path="url(#spClip)">
+        <g class="sp-note sp-note1"><rect x="12" y="8" width="18" height="12" rx="1.5" fill="#d3f2df" stroke="#2ea862" stroke-width="1.4" transform="rotate(-8 21 14)"/><circle cx="21" cy="13" r="3" fill="none" stroke="#2ea862" stroke-width="1.2" transform="rotate(-8 21 14)"/></g>
+        <g class="sp-note sp-note2"><rect x="30" y="9" width="18" height="12" rx="1.5" fill="#bfeacf" stroke="#238552" stroke-width="1.4" transform="rotate(6 39 15)"/><circle cx="39" cy="14" r="3" fill="none" stroke="#238552" stroke-width="1.2" transform="rotate(6 39 15)"/></g>
+      </g>
+      <g class="sp-front"><path d="M4 26 q-0.5 -3 2.8 -3 h50.4 q3.3 0 2.8 3 l-3.6 25 q-0.4 3 -3.4 3 H11 q-3 0 -3.4 -3 Z" fill="url(#spFront)"/></g>
+      <g class="sp-badge">
+        <circle cx="49" cy="48" r="11" fill="#1d7a46" stroke="#d3f2df" stroke-width="2"/>
+        <line x1="44.5" y1="52.5" x2="53.5" y2="43.5" stroke="#d3f2df" stroke-width="2.4" stroke-linecap="round"/>
+        <circle cx="45.2" cy="44.4" r="2.1" fill="none" stroke="#d3f2df" stroke-width="1.8"/>
+        <circle cx="52.8" cy="51.6" r="2.1" fill="none" stroke="#d3f2df" stroke-width="1.8"/>
+      </g>
+    </svg>
+  </div>
+
+  <!-- Icon-Sprite (SF-Symbols-Stil, stroke = currentColor) -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></symbol>
+      <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2.5L4.5 13.5h6l-1.5 8L17.5 10.5h-6z"/></symbol>
+      <symbol id="i-gift" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M12 10v10M4 14.5h16M8.5 10c-2 0-3-1.2-3-2.2C5.5 6.5 7 6 8.2 6.7 9.5 7.4 12 10 12 10s2.5-2.6 3.8-3.3C17 6 18.5 6.5 18.5 7.8c0 1-1 2.2-3 2.2"/></symbol>
+      <symbol id="i-arrow-back" viewBox="0 0 24 24"><path d="M8 5L4 9l4 4"/><path d="M4 9h9.5a5.75 5.75 0 0 1 0 11.5H10"/></symbol>
+      <symbol id="i-banknote" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="10" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6.5 12h.01M17.5 12h.01"/></symbol>
+      <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9.5 18h5M10.5 21h3M12 3a6 6 0 0 1 3.6 10.8c-.7.6-1.1 1.3-1.1 2.2h-5c0-.9-.4-1.6-1.1-2.2A6 6 0 0 1 12 3z"/></symbol>
+      <symbol id="i-tag" viewBox="0 0 24 24"><path d="M12 3H5a2 2 0 0 0-2 2v7l9 9a2 2 0 0 0 2.8 0l6.2-6.2a2 2 0 0 0 0-2.8z"/><circle cx="8" cy="8" r="1.3"/></symbol>
+      <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 11l8-7 8 7"/><path d="M6 9.5V20h12V9.5"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M8.5 5.5v13l10.5-6.5z"/></symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+      <symbol id="i-warning" viewBox="0 0 24 24"><path d="M12 3.5l9.5 16.5H2.5z"/><path d="M12 10v4.5M12 17.5h.01"/></symbol>
+      <symbol id="i-message" viewBox="0 0 24 24"><path d="M12 4c5 0 9 3.4 9 7.5S17 19 12 19c-1 0-2-.1-2.9-.4L4 20l1.6-3.4C4.6 15.4 3 13.6 3 11.5 3 7.4 7 4 12 4z"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+      <symbol id="i-arrow-out" viewBox="0 0 24 24"><path d="M7 17L17 7M9.5 7H17v7.5"/></symbol>
+      <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/></symbol>
+      <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h8M17.5 7H20M4 17h2.5M9 17h11"/><circle cx="15" cy="7" r="2.2"/><circle cx="6.8" cy="17" r="2.2"/></symbol>
+      <symbol id="i-thumb-up" viewBox="0 0 24 24"><path d="M7.5 11v9.5M7.5 11l3.3-7c1.3 0 2.2 1 2.2 2.3 0 .9-.3 2.4-.6 3.4h6.1c1.1 0 1.9 1 1.7 2l-1.2 6.2c-.2 1-1 1.6-2 1.6H7.5"/></symbol>
+      <symbol id="i-thumb-down" viewBox="0 0 24 24"><path d="M16.5 13V3.5M16.5 13l-3.3 7c-1.3 0-2.2-1-2.2-2.3 0-.9.3-2.4.6-3.4H5.5c-1.1 0-1.9-1-1.7-2l1.2-6.2c.2-1 1-1.6 2-1.6h9.5"/></symbol>
+      <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 17h12c-1.2-1.3-1.8-2.5-1.8-4.6V10a4.2 4.2 0 1 0-8.4 0v2.4C7.8 14.5 7.2 15.7 6 17z"/><path d="M10.5 19.6a1.8 1.8 0 0 0 3 0"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+      <symbol id="i-send" viewBox="0 0 24 24"><path d="M21 3L10.5 13.5M21 3l-6.8 17.5-3.7-7L3.5 9.8z"/></symbol>
+      <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 19.5c1.2-3 4-4.5 7-4.5s5.8 1.5 7 4.5"/></symbol>
+      <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 4h8v5a4 4 0 0 1-8 0zM8 5.5H4.5c0 3 1.5 4.5 3.5 4.5M16 5.5h3.5c0 3-1.5 4.5-3.5 4.5M12 13v3.5M8.5 20.5h7M12 16.5c-1 0-2 .8-2 2v2M12 16.5c1 0 2 .8 2 2v2"/></symbol>
+      <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M4 12h15M14 6.5l5.5 5.5-5.5 5.5"/></symbol>
+      <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="M5.5 9.5l6.5 6.5 6.5-6.5"/></symbol>
+      <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 14.5V3.5M8.5 6.5L12 3l3.5 3.5"/><path d="M7.5 10H7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-.5"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M15.8 15.8L20.5 20.5"/></symbol>
+      <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM18.5 15.5l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9z"/></symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M19.1 4.9l-1.8 1.8M6.7 17.3l-1.8 1.8"/></symbol>
+      <symbol id="i-wand" viewBox="0 0 24 24"><path d="M5 19L16 8M14.5 5.5l4 4M18 3l.7 1.8L20.5 5.5l-1.8.7L18 8l-.7-1.8L15.5 5.5l1.8-.7zM7 3.5l.5 1.3 1.3.5-1.3.5L7 7.1l-.5-1.3-1.3-.5 1.3-.5z"/></symbol>
+      <symbol id="i-pin" viewBox="0 0 24 24"><path d="M9.5 3.5h5l-.7 6 3.7 3.5H6.5L10.2 9.5zM12 13v7.5"/></symbol>
+      <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4.5 20V14.5M9.5 20V8.5M14.5 20V12M19.5 20V5"/></symbol>
+      <symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 3.5c2.2 2.4 5 4.8 5 8.7a5 5 0 0 1-10 0c0-1.7.7-3.1 1.7-4.4.2 1 .8 1.8 1.6 2.3C9.8 7.6 10.6 5.4 12 3.5z"/><path d="M12 20.2c-1.4-.5-2.2-1.6-2.2-3 0-1 .5-1.9 1.2-2.7.2.8.7 1.3 1.4 1.5-.3-1.1 0-2.3.8-3.1.7 1.5 1.9 2.6 1.9 4.3 0 1.4-.9 2.5-2.3 3z" fill="currentColor" stroke="none" opacity=".35"/></symbol>
+    </defs>
+  </svg>
+
+  <header class="topbar">
+    <button class="iconbtn" id="btn-theme" aria-label="Dark Mode umschalten">
+      <svg class="icon"><use href="#i-moon"/></svg>
+    </button>
+    <button class="brand brand-center" id="btn-home" aria-label="Zum Feed">
+      <img src="/logo.svg" alt="RabattArchiv" class="brand-logo">
+    </button>
+    <div class="island" id="island"><span id="island-text"></span></div>
+    <div class="topbar-actions">
+      <button class="iconbtn" id="btn-favs" aria-label="Gemerkte Deals">
+        <svg class="icon"><use href="#i-star"/></svg>
+      </button>
+      <button class="iconbtn" id="btn-profile-top" aria-label="Anmelden / Profil">
+        <svg class="icon"><use href="#i-user"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ================= ONBOARDING (erster Start, Fullscreen) ================= -->
+  <div id="onboard" class="hidden">
+    <div class="ob-logo" id="ob-logo">
+      <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="obFront" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#f4c14e"/><stop offset="1" stop-color="#e09b2d"/>
+          </linearGradient>
+          <linearGradient id="obBack" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#c98d26"/><stop offset="1" stop-color="#a8731c"/>
+          </linearGradient>
+          <clipPath id="obClip"><rect x="0" y="-20" width="64" height="43"/></clipPath>
+        </defs>
+        <g class="sp-back"><path d="M6 18 q0 -4 4 -4 h12 l4 5 h24 q4 0 4 4 v28 q0 4 -4 4 H10 q-4 0 -4 -4 Z" fill="url(#obBack)"/></g>
+        <g clip-path="url(#obClip)">
+          <g class="sp-note sp-note1"><rect x="12" y="8" width="18" height="12" rx="1.5" fill="#d3f2df" stroke="#2ea862" stroke-width="1.4" transform="rotate(-8 21 14)"/><circle cx="21" cy="13" r="3" fill="none" stroke="#2ea862" stroke-width="1.2" transform="rotate(-8 21 14)"/></g>
+          <g class="sp-note sp-note2"><rect x="30" y="9" width="18" height="12" rx="1.5" fill="#bfeacf" stroke="#238552" stroke-width="1.4" transform="rotate(6 39 15)"/><circle cx="39" cy="14" r="3" fill="none" stroke="#238552" stroke-width="1.2" transform="rotate(6 39 15)"/></g>
+        </g>
+        <g class="sp-front"><path d="M4 26 q-0.5 -3 2.8 -3 h50.4 q3.3 0 2.8 3 l-3.6 25 q-0.4 3 -3.4 3 H11 q-3 0 -3.4 -3 Z" fill="url(#obFront)"/></g>
+        <g class="sp-badge">
+          <circle cx="49" cy="48" r="11" fill="#1d7a46" stroke="#d3f2df" stroke-width="2"/>
+          <line x1="44.5" y1="52.5" x2="53.5" y2="43.5" stroke="#d3f2df" stroke-width="2.4" stroke-linecap="round"/>
+          <circle cx="45.2" cy="44.4" r="2.1" fill="none" stroke="#d3f2df" stroke-width="1.8"/>
+          <circle cx="52.8" cy="51.6" r="2.1" fill="none" stroke="#d3f2df" stroke-width="1.8"/>
+        </g>
+      </svg>
+    </div>
+    <div class="ob-content hidden" id="ob-content">
+      <div id="ob-step"></div>
+      <div class="tut-dots" id="ob-dots"></div>
+      <button class="btn btn-big" id="ob-next">Los geht’s</button>
+      <div id="ob-extra"></div>
+    </div>
+    <button class="ob-skip hidden" id="ob-skip">Überspringen</button>
+  </div>
+
+  <main id="views">
+    <!-- ================= PROFIL ================= -->
+    <section id="view-profile" class="view hidden">
+      <h1>Profil</h1>
+      <p class="muted">Mit Profil kannst du posten, kommentieren und dir Beschreibungen
+        automatisch entwerfen lassen.</p>
+      <div class="card modal-left" id="auth-card">
+        <h2 class="card-h">Anmelden</h2>
+        <input id="auth-user" class="input" maxlength="24" placeholder="Benutzername" autocomplete="username">
+        <input id="auth-pass" class="input" type="password" maxlength="64" placeholder="Passwort" autocomplete="current-password">
+        <div id="ts-login" class="ts-widget"></div>
+        <div class="form-row">
+          <button id="btn-login" class="btn">Anmelden</button>
+          <button id="btn-register-open" class="btn btn-ghost">Neu hier? Registrieren</button>
+        </div>
+        <div id="auth-msg" class="form-msg" style="margin-top:8px"></div>
+        <p class="muted" style="font-size:.76rem; margin-top:10px">Prototyp-Hinweis: Konten liegen
+          nur lokal auf diesem Server. Kein Passwort verwenden, das du woanders nutzt.</p>
+      </div>
+      <div class="card modal-left hidden" id="me-card">
+        <h2 class="card-h">Angemeldet als <span id="me-name"></span></h2>
+        <div class="form-row">
+          <button id="btn-logout" class="btn btn-ghost">Abmelden</button>
+        </div>
+      </div>
+      <div class="card teaser-card" style="margin-top:12px">
+        <h2>Als Nächstes</h2>
+        <div class="teaser-list">
+          <div class="teaser-row"><svg class="icon"><use href="#i-star"/></svg><span>Merkliste &amp; Erinnerungen auf allen Geräten</span></div>
+          <div class="teaser-row"><svg class="icon"><use href="#i-message"/></svg><span>Freunde, Chats und Deal-Teilen</span></div>
+          <div class="teaser-row"><svg class="icon"><use href="#i-trophy"/></svg><span>Dein Platz im Deal-Scout-Ranking</span></div>
+        </div>
+      </div>
+      <p class="legal-line" style="text-align:center; margin-top:16px">
+        <a href="/agb.html" target="_blank" rel="noopener">AGB</a> ·
+        <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutz</a>
+      </p>
+    </section>
+
+    <!-- ================= FEED ================= -->
+    <section id="view-feed" class="view">
+      <div class="chipbar" id="chipbar"></div>
+      <div id="community-banner" class="notice hidden">
+        <svg class="icon notice-icon"><use href="#i-warning"/></svg>
+        <div class="notice-body">
+          <strong>Kuratierter Kanal.</strong> Angebote hier prüft die Redaktion – bei Referral-Links
+          und externen Anbietern gilt trotzdem: alles auf eigene Gefahr.
+        </div>
+      </div>
+      <div id="feed" class="feed"></div>
+      <div class="swipe-hint muted" id="swipe-hint">Tipp: Karte nach links ziehen, um einen Deal zu merken</div>
+    </section>
+
+    <!-- ================= WALLET ================= -->
+    <section id="view-wallet" class="view hidden">
+      <h1>Wallet</h1>
+      <!-- Ohne Profil gesperrt -->
+      <div id="wallet-gate" class="card teaser-card hidden">
+        <div class="teaser-icon"><svg class="icon"><use href="#i-banknote"/></svg></div>
+        <h2>Deine Wallet braucht ein Profil</h2>
+        <p class="muted" style="font-size:.86rem; line-height:1.5; margin-bottom:14px">
+          Gutscheine mit Restguthaben, PIN und Barcode-Foto sowie deine Sparkarten –
+          melde dich an, damit nichts verloren geht.</p>
+        <button class="btn btn-big" id="btn-wallet-login">Anmelden / Registrieren</button>
+      </div>
+      <div id="wallet-content">
+        <div class="card balance-card">
+          <div class="offer-cat">Gesamtguthaben</div>
+          <div class="balance-big" id="wallet-total">0,00 €</div>
+          <div class="offer-cat" id="wallet-total-sub"></div>
+        </div>
+        <h3 class="wallet-h">Gutscheine</h3>
+        <div id="voucher-list" class="wallet-list"></div>
+        <details class="rules-fold" id="used-fold" style="margin-top:10px">
+          <summary><svg class="icon icon-sm"><use href="#i-list"/></svg> Aufgebrauchte Gutscheine
+            <span id="used-count" class="stars-count"></span>
+            <svg class="icon icon-sm chev"><use href="#i-chevron"/></svg></summary>
+          <div id="voucher-used" class="wallet-list" style="padding:0 14px 14px"></div>
+        </details>
+        <h3 class="wallet-h" style="margin-top:20px">Sparkarten</h3>
+        <div id="cardw-list" class="wallet-list"></div>
+      </div>
+    </section>
+
+    <!-- ================= SUCHE ================= -->
+    <section id="view-search" class="view hidden">
+      <h1>Suche</h1>
+      <input id="search" class="input search-big" type="search"
+        placeholder="Angebote, Marken, Codes durchsuchen …" autocomplete="off">
+      <div id="search-results" class="feed" style="margin-top:14px"></div>
+    </section>
+  </main>
+
+  <!-- ================= TAB-BAR ================= -->
+  <nav class="tabbar" id="tabbar">
+    <div class="tab-pill" id="tab-pill"></div>
+    <button class="tabbtn" data-view="wallet">
+      <svg class="icon"><use href="#i-banknote"/></svg><span>Wallet</span>
+    </button>
+    <button class="tabbtn active" data-view="feed">
+      <svg class="icon"><use href="#i-home"/></svg><span>Feed</span>
+    </button>
+    <button class="tabbtn" data-view="search">
+      <svg class="icon"><use href="#i-search"/></svg><span>Suche</span>
+    </button>
+  </nav>
+
+  <!-- ================= REGISTRIEREN (Popup) ================= -->
+  <div id="register-backdrop" class="overlay hidden">
+    <div class="modal modal-left">
+      <h2>Registrieren</h2>
+      <p class="muted" style="font-size:.84rem; margin-top:4px">Mit Profil kannst du kommentieren,
+        bewerten und dir Beschreibungen entwerfen lassen.</p>
+      <input id="reg-user" class="input" maxlength="24" placeholder="Benutzername" autocomplete="username">
+      <input id="reg-email" class="input" type="email" maxlength="80" placeholder="E-Mail-Adresse" autocomplete="email">
+      <input id="reg-pass" class="input" type="password" maxlength="64" placeholder="Passwort (min. 6 Zeichen)" autocomplete="new-password">
+      <label class="check-row">
+        <input type="checkbox" id="reg-news">
+        <span>Newsletter: neue Top-Deals per E-Mail – damit du nichts verpasst (optional)</span>
+      </label>
+      <p class="legal-line">Mit dem Konto akzeptierst du die
+        <a href="/agb.html" target="_blank" rel="noopener">AGB</a> und die
+        <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutzerklärung</a>.</p>
+      <div id="ts-reg" class="ts-widget"></div>
+      <div class="form-row">
+        <button id="btn-register" class="btn">Konto erstellen</button>
+        <button id="btn-register-close" class="btn btn-ghost">Abbrechen</button>
+      </div>
+      <div id="reg-msg" class="form-msg" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  <!-- ================= ONBOARDING ================= -->
+  <div id="onboarding" class="overlay hidden">
+    <div class="modal">
+      <img src="/logo.svg" alt="" width="60" height="60">
+      <h1>Willkommen im RabattArchiv</h1>
+      <p class="muted">Deals landen automatisch in deinem Feed – aber nur aus Kanälen,
+        denen du folgst. Wähl deine Interessen:</p>
+      <div id="onboarding-channels" class="onboarding-grid"></div>
+      <button id="btn-onboarding-done" class="btn btn-big">Los geht's</button>
+    </div>
+  </div>
+
+  <!-- ================= SHEET (Deal-Detail, Kanäle, Favoriten) ================= -->
+  <div id="sheet-backdrop" class="backdrop hidden"></div>
+  <div id="sheet" class="sheet" role="dialog" aria-modal="true">
+    <div class="sheet-handle" id="sheet-handle"><div class="sheet-grabber"></div></div>
+    <div id="sheet-content" class="sheet-content"></div>
+    <button class="sheet-fab" id="sheet-fab" aria-label="Zurück zum Feed">
+      <svg class="icon"><use href="#i-chevron-down"/></svg>
+    </button>
+  </div>
+
+  <!-- ================= TOAST (In-App-Notification) ================= -->
+  <div id="toast" class="toast"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

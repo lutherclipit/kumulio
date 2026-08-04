@@ -1,0 +1,13 @@
+{
+  "name": "RabattArchiv",
+  "short_name": "RabattArchiv",
+  "description": "Deine kuratierte Spar-App: Angebote, Gutschein-Wallet und Coupons.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#eef1f5",
+  "theme_color": "#2fa45c",
+  "lang": "de",
+  "icons": [
+    { "src": "/logo.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

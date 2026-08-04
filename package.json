@@ -1,0 +1,17 @@
+{
+  "name": "rabattarchiv",
+  "version": "0.1.0",
+  "private": true,
+  "description": "RabattArchiv – kuratierte Spar-App (Web + Capacitor iOS/Android)",
+  "scripts": {
+    "start": "node server.js",
+    "sync": "cap sync",
+    "android": "cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/cli": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/ios": "^8.5.0"
+  }
+}

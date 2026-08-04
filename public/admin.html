@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RabattArchiv – Admin</title>
+  <link rel="icon" href="/logo.svg" type="image/svg+xml">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: #10141a; color: #e8ecef; min-height: 100vh; padding: 28px 16px;
+    }
+    main { max-width: 680px; margin: 0 auto; }
+    h1 { font-size: 1.4rem; letter-spacing: -.02em; display: flex; align-items: center; gap: 10px; }
+    h1 img { width: 34px; height: 34px; }
+    .sub { color: #8b96a0; font-size: .88rem; margin: 6px 0 20px; }
+    .card { background: #171c24; border: 1px solid #262d38; border-radius: 16px; padding: 18px; margin-bottom: 14px; }
+    label { display: block; font-size: .78rem; color: #8b96a0; margin: 10px 0 4px; }
+    input {
+      width: 100%; background: #10141a; color: #e8ecef; border: 1px solid #2c3542;
+      border-radius: 10px; padding: 10px 12px; font: inherit; font-size: .9rem;
+    }
+    input:focus { outline: none; border-color: #2fa45c; }
+    button {
+      background: #2fa45c; color: #fff; border: none; border-radius: 999px;
+      padding: 9px 18px; font: inherit; font-size: .86rem; font-weight: 650; cursor: pointer; margin-top: 12px;
+    }
+    button.ghost { background: #232a35; }
+    button.danger { background: #6e2a2a; }
+    button.small { padding: 5px 12px; font-size: .78rem; margin-top: 0; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .item { display: flex; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid #232a35; }
+    .item:last-child { border-bottom: none; }
+    .item img { width: 52px; height: 52px; object-fit: cover; border-radius: 10px; background: #232a35; }
+    .item .info { flex: 1; min-width: 0; }
+    .item .t { font-weight: 650; font-size: .9rem; }
+    .item .p { color: #39d980; font-size: .82rem; font-weight: 700; }
+    .msg { font-size: .84rem; margin-top: 10px; color: #8b96a0; }
+    .msg.ok { color: #39d980; } .msg.err { color: #ff7a7a; }
+  </style>
+</head>
+<body>
+<main>
+  <h1><img src="/logo.svg" alt=""> RabattArchiv – Admin</h1>
+  <p class="sub">Startseiten-Kacheln pflegen. Der Admin-Key steht in <code>data/admin-key.txt</code>
+    (und beim Serverstart in der Konsole).</p>
+
+  <div class="card">
+    <label>Admin-Key</label>
+    <input id="key" type="password" placeholder="Admin-Key">
+    <button id="btn-load">Kacheln laden</button>
+    <div class="msg" id="msg"></div>
+  </div>
+
+  <div class="card" id="list-card" style="display:none">
+    <strong>Aktuelle Kacheln</strong> <span class="sub" id="count"></span>
+    <div id="list"></div>
+  </div>
+
+  <div class="card" id="deal-card" style="display:none">
+    <strong>Deal posten (Redaktion)</strong>
+    <label>Deal-Link</label>
+    <div class="row" style="align-items:stretch">
+      <input id="d-link" placeholder="https://…" style="flex:1">
+      <button class="ghost small" id="btn-extract" style="margin-top:0">Auslesen</button>
+    </div>
+    <label>Kanal</label>
+    <select id="d-channel" style="width:100%; background:#10141a; color:#e8ecef; border:1px solid #2c3542; border-radius:10px; padding:10px 12px; font:inherit"></select>
+    <label>Titel *</label><input id="d-title" maxlength="90">
+    <label>Beschreibung</label><input id="d-text" maxlength="1200" placeholder="wird beim Auslesen automatisch entworfen">
+    <div class="row">
+      <div style="flex:1"><label>Preis (€)</label><input id="d-price"></div>
+      <div style="flex:1"><label>Vergleichspreis (€)</label><input id="d-compare"></div>
+      <div style="flex:1"><label>Enddatum</label><input id="d-end" type="date"></div>
+    </div>
+    <input type="hidden" id="d-image">
+    <label style="display:flex; align-items:center; gap:8px; margin-top:12px; font-size:.88rem; color:#e8ecef">
+      <input type="checkbox" id="d-newcustomer" style="width:auto"> Nur für Neukunden
+      <span style="color:#8b96a0; font-size:.78rem">(wird sonst auch am Text erkannt)</span>
+    </label>
+    <button id="btn-post-deal">Deal veröffentlichen</button>
+    <div class="msg" id="deal-msg"></div>
+  </div>
+
+  <div class="card" id="posts-card" style="display:none">
+    <strong>Veröffentlichte Deals</strong> <span class="sub" id="posts-count"></span>
+    <div id="posts-list"></div>
+  </div>
+
+  <div class="card" id="users-card" style="display:none">
+    <strong>Nutzer</strong> <span class="sub" id="users-count"></span>
+    <div id="users-list"></div>
+    <button class="ghost" id="btn-news-csv">Newsletter-Liste als CSV laden</button>
+  </div>
+
+  <div class="card" id="settings-card" style="display:none">
+    <strong>Einstellungen: Turnstile-Captcha</strong>
+    <p class="sub" style="margin-top:4px">Aktuell laufen die offiziellen Test-Keys. Für den
+      Live-Betrieb eigene Keys von dash.cloudflare.com → Turnstile eintragen.</p>
+    <label>Sitekey</label><input id="ts-sitekey" placeholder="0x…">
+    <label>Secret</label><input id="ts-secret" type="password" placeholder="0x…">
+    <button id="btn-ts-save">Speichern</button>
+    <div class="msg" id="ts-msg"></div>
+  </div>
+
+  <div class="card" id="form-card" style="display:none">
+    <strong>Neue Kachel</strong>
+    <label>Titel *</label><input id="f-title" maxlength="90" placeholder="z. B. AirPods Pro 2 für 189 €">
+    <label>Preis</label><input id="f-price" maxlength="20" placeholder="189 €">
+    <label>Kurzzeile</label><input id="f-tag" maxlength="80" placeholder="z. B. Bestpreis – nur heute">
+    <label>Bild-URL</label><input id="f-img" placeholder="https://…">
+    <label>Deal-Link</label><input id="f-link" placeholder="https://…">
+    <div class="row">
+      <button id="btn-add">Hinzufügen &amp; speichern</button>
+    </div>
+  </div>
+</main>
+<script>
+  let items = [];
+  const $ = s => document.querySelector(s);
+  const key = () => $('#key').value.trim();
+  const msg = (t, cls) => { const m = $('#msg'); m.textContent = t; m.className = 'msg ' + (cls || ''); };
+
+  async function load() {
+    const r = await fetch('/api/featured');
+    items = await r.json();
+    // Key testen, indem wir die aktuelle Liste zurückschreiben
+    const t = await fetch('/api/featured', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Admin-Key': key() },
+      body: JSON.stringify({ items }),
+    });
+    if (!t.ok) { msg('Admin-Key falsch.', 'err'); return; }
+    sessionStorage.setItem('ra.adminkey', key());
+    ['list-card', 'form-card', 'deal-card', 'posts-card', 'users-card', 'settings-card']
+      .forEach(id => $('#' + id).style.display = 'block');
+    const chs = await (await fetch('/api/channels')).json();
+    $('#d-channel').innerHTML = chs.filter(c => c.type === 'community')
+      .map(c => `<option value="${c.slug}">${c.name}</option>`).join('');
+    msg('Angemeldet – ' + items.length + ' Kachel(n).', 'ok');
+    render();
+    loadPosts();
+    loadUsers();
+  }
+
+  const adminFetch = (path, opts) => fetch(path, {
+    ...(opts || {}),
+    headers: { 'Content-Type': 'application/json', 'X-Admin-Key': key(), ...((opts || {}).headers || {}) },
+  });
+
+  async function loadPosts() {
+    const list = await (await adminFetch('/api/admin/posts')).json();
+    $('#posts-count').textContent = '(' + list.length + ')';
+    $('#posts-list').innerHTML = list.map(p => `
+      <div class="item">
+        <div class="info">
+          <div class="t">${p.title}${p.newCustomer ? ' <span style="color:#7aa8ff; font-size:.75rem">NEUKUNDEN</span>' : ''}</div>
+          <div class="p" style="color:#8b96a0">${p.channel} · ${new Date(p.ts).toLocaleString('de-DE')}</div>
+        </div>
+        <button class="danger small" data-post-del="${p.id}">✕</button>
+      </div>`).join('') || '<div class="msg">Keine Deals veröffentlicht.</div>';
+    document.querySelectorAll('[data-post-del]').forEach(b => b.onclick = async () => {
+      await adminFetch('/api/admin/delete-post', { method: 'POST', body: JSON.stringify({ id: b.dataset.postDel }) });
+      loadPosts();
+      msg('Deal gelöscht.', 'ok');
+    });
+  }
+
+  async function loadUsers() {
+    const list = await (await adminFetch('/api/admin/users')).json();
+    const news = list.filter(u => u.newsletter).length;
+    $('#users-count').textContent = `(${list.length}, davon ${news} im Newsletter)`;
+    $('#users-list').innerHTML = list.map(u => `
+      <div class="item">
+        <div class="info">
+          <div class="t">${u.user}</div>
+          <div class="p" style="color:#8b96a0">${u.email || '–'} · seit ${new Date(u.ts).toLocaleDateString('de-DE')}
+            ${u.newsletter ? ' · <span style="color:#39d980">Newsletter</span>' : ''}</div>
+        </div>
+      </div>`).join('') || '<div class="msg">Noch keine Nutzer.</div>';
+  }
+
+  $('#btn-news-csv').onclick = async () => {
+    const r = await adminFetch('/api/admin/newsletter.csv');
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'newsletter.csv';
+    a.click();
+  };
+
+  $('#btn-ts-save').onclick = async () => {
+    const r = await adminFetch('/api/admin/turnstile', {
+      method: 'POST',
+      body: JSON.stringify({ sitekey: $('#ts-sitekey').value, secret: $('#ts-secret').value }),
+    });
+    const j = await r.json();
+    const m = $('#ts-msg');
+    m.textContent = r.ok ? ('Gespeichert.' + (j.testKeys ? ' (Test-Keys aktiv)' : ' Live-Keys aktiv.')) : (j.error || 'Fehler');
+    m.className = 'msg ' + (r.ok ? 'ok' : 'err');
+  };
+
+  const dmsg = (t, cls) => { const m = $('#deal-msg'); m.textContent = t; m.className = 'msg ' + (cls || ''); };
+
+  $('#btn-extract').onclick = async () => {
+    const link = $('#d-link').value.trim();
+    if (!/^https?:\/\//.test(link)) { dmsg('Erst einen Link einfügen.', 'err'); return; }
+    dmsg('Lese aus …');
+    const r = await (await fetch('/api/extract?url=' + encodeURIComponent(link), { headers: { 'X-Admin-Key': key() } })).json();
+    if (r.error) { dmsg(r.error, 'err'); return; }
+    if (r.title) $('#d-title').value = r.title;
+    if (r.priceNum != null) $('#d-price').value = String(r.priceNum).replace('.', ',');
+    if (r.compare && r.compare.priceNum != null) $('#d-compare').value = String(r.compare.priceNum).replace('.', ',');
+    if (r.draft) $('#d-text').value = r.draft;
+    $('#d-image').value = r.image || '';
+    dmsg('Übernommen – bitte prüfen.', 'ok');
+  };
+
+  $('#btn-post-deal').onclick = async () => {
+    const body = {
+      channel: $('#d-channel').value, user: 'Redaktion',
+      title: $('#d-title').value, text: ($('#d-text').value + '\n' + $('#d-link').value.trim()).trim(),
+      price: $('#d-price').value, comparePrice: $('#d-compare').value,
+      endDate: $('#d-end').value, image: $('#d-image').value,
+      newCustomer: $('#d-newcustomer').checked,
+    };
+    const r = await fetch('/api/posts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Admin-Key': key() },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (!r.ok) { dmsg(j.error || 'Fehler', 'err'); return; }
+    ['d-link', 'd-title', 'd-text', 'd-price', 'd-compare', 'd-end', 'd-image'].forEach(id => $('#' + id).value = '');
+    $('#d-newcustomer').checked = false;
+    dmsg('Deal veröffentlicht – sofort in der App sichtbar.', 'ok');
+  };
+
+  async function saveAll() {
+    const r = await fetch('/api/featured', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Admin-Key': key() },
+      body: JSON.stringify({ items }),
+    });
+    if (!r.ok) { msg('Speichern fehlgeschlagen (Key falsch?).', 'err'); return false; }
+    items = await r.json();
+    render();
+    msg('Gespeichert – die App zeigt es sofort.', 'ok');
+    return true;
+  }
+
+  function render() {
+    $('#count').textContent = '(' + items.length + '/8, oberste Kachel wird groß angezeigt)';
+    $('#list').innerHTML = items.map((it, i) => `
+      <div class="item">
+        ${it.image ? `<img src="${it.image}" alt="">` : '<img alt="">'}
+        <div class="info">
+          <div class="t">${it.title}</div>
+          <div class="p">${it.price || ''} ${it.tagline ? '· ' + it.tagline : ''}</div>
+        </div>
+        <button class="ghost small" data-up="${i}">↑</button>
+        <button class="danger small" data-del="${i}">✕</button>
+      </div>`).join('') || '<div class="msg">Noch keine Kacheln.</div>';
+    document.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { items.splice(Number(b.dataset.del), 1); saveAll(); });
+    document.querySelectorAll('[data-up]').forEach(b => b.onclick = () => {
+      const i = Number(b.dataset.up);
+      if (i > 0) { [items[i - 1], items[i]] = [items[i], items[i - 1]]; saveAll(); }
+    });
+  }
+
+  $('#btn-load').onclick = load;
+  $('#btn-add').onclick = async () => {
+    const it = {
+      title: $('#f-title').value.trim(), price: $('#f-price').value.trim(),
+      tagline: $('#f-tag').value.trim(), image: $('#f-img').value.trim(), link: $('#f-link').value.trim(),
+    };
+    if (it.title.length < 3) { msg('Titel fehlt.', 'err'); return; }
+    items.unshift(it);
+    if (await saveAll()) ['f-title', 'f-price', 'f-tag', 'f-img', 'f-link'].forEach(id => $('#' + id).value = '');
+  };
+  const saved = sessionStorage.getItem('ra.adminkey');
+  if (saved) { $('#key').value = saved; load(); }
+</script>
+</body>
+</html>

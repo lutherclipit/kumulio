@@ -1,0 +1,8 @@
+{
+  "appId": "de.rabattarchiv.app",
+  "appName": "RabattArchiv",
+  "webDir": "public",
+  "server": {
+    "androidScheme": "https"
+  }
+}

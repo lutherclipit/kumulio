@@ -1,0 +1,18 @@
+# Laufzeitdaten: Nutzer, Sessions, Admin-Key, Posts – NIE ins Repo
+data/
+
+# Abhängigkeiten
+node_modules/
+
+# Build-Artefakte der nativen Projekte
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+ios/App/Pods/
+ios/App/build/
+ios/DerivedData/
+
+# Verschiedenes
+*.log
+.DS_Store
