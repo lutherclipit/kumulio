@@ -1870,3 +1870,89 @@ input[type="date"].input {
   .inv-item.shiny::after, .sc-slot.shiny::after, .case-win.shiny .case-win-visual::after { animation: none; }
   #req-toast { transition: none; }
 }
+
+/* ================= Runde 34: Notifications, Boden-Blur, Fixes ================= */
+
+/* Popups liegen IMMER vor Sheets und Tabs */
+.overlay { z-index: 200 !important; }
+#user-pop-backdrop { z-index: 210 !important; }
+#case-backdrop { z-index: 220 !important; }
+
+/* Chat: Tabbar überlappt die Eingabe nicht mehr (iPhone Safe-Area) */
+#chat-box { height: calc(100dvh - 320px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); }
+#view-chat.emotes-open #chat-box { height: calc(100dvh - 430px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); }
+
+/* Nirgends zoomen oder markieren, außer bei den Gutschein-Codes */
+body { -webkit-user-select: none; user-select: none; }
+.wallet-code, .wallet-code-img, input, textarea { -webkit-user-select: text; user-select: text; }
+@media (max-width: 640px) { .input, input, textarea, select { font-size: 16px; } }
+
+/* Coin-Chip */
+.coin-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-weight: 800; font-size: .9rem; color: #d9a400;
+}
+.coin-chip .icon { color: #d9a400; }
+
+/* Boden-Blur: der untere Rand verschwimmt sanft unter dem Menü */
+#bottom-fade {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 24;
+  height: calc(96px + env(safe-area-inset-bottom, 0px));
+  pointer-events: none;
+  backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
+  mask-image: linear-gradient(180deg, transparent 0, #000 78%);
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 78%);
+}
+
+/* Achievements: dezent unten rechts überm Menü, mit Blur */
+#achv-stack {
+  position: fixed; right: 12px; bottom: calc(100px + env(safe-area-inset-bottom, 0px));
+  z-index: 80; display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
+}
+.achv {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--stroke-light); border-radius: 14px;
+  padding: 10px 14px; max-width: 290px; font-size: .8rem;
+  box-shadow: var(--glass-edge), var(--shadow);
+  transform: translateX(120%); transition: transform .45s cubic-bezier(.3,1.35,.45,1);
+}
+.achv.show { transform: none; }
+.achv .icon { color: #d9a400; flex-shrink: 0; }
+.achv span { display: flex; flex-direction: column; }
+.achv small { opacity: .65; }
+
+/* Nachrichten-Banner über dem Header */
+#note-banner {
+  position: fixed; left: 50%; transform: translate(-50%, -130%);
+  top: calc(env(safe-area-inset-top, 0px) + 8px); z-index: 90;
+  width: min(560px, calc(100vw - 24px));
+  display: flex; align-items: center; gap: 8px;
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--stroke-light); border-radius: 14px;
+  padding: 11px 14px; font: inherit; font-size: .82rem; color: var(--text);
+  text-align: left; cursor: pointer;
+  box-shadow: var(--glass-edge), var(--shadow);
+  transition: transform .4s cubic-bezier(.3,1.35,.45,1);
+}
+#note-banner.show { transform: translate(-50%, 0); }
+#note-banner span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Freunde-Bereich */
+.friend-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 0; border-bottom: 1px solid var(--stroke-light);
+}
+.friend-row:last-child { border-bottom: none; }
+.friend-row .avatar-big { width: 44px; height: 44px; font-size: 1rem; }
+.friend-name { flex: 1; font-weight: 800; }
+
+/* Einstellungen: Luft */
+#view-settings .card { margin-bottom: 16px; padding: 20px; }
+#view-settings .settings-row { padding: 14px 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .achv, #note-banner { transition: none; }
+}

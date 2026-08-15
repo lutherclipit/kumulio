@@ -997,9 +997,19 @@ const server = http.createServer(async (req, res) => {
         });
       }
       list.sort((x, y) => y.lastTs - x.lastTs);
+      list.forEach(l => { l.avatar = users[l.partner] ? profileOf(l.partner).avatar || '' : ''; });
       // Freunde ohne bisherigen Chat mit anbieten
-      const friends = (profileOf(me).friends || []).filter(f => !list.some(l => l.partner === f));
+      const friends = (profileOf(me).friends || [])
+        .filter(f => !list.some(l => l.partner === f))
+        .map(f => ({ name: f, avatar: users[f] ? profileOf(f).avatar || '' : '' }));
       return send(res, 200, { list, friends });
+    }
+    // Avatare für Listen (Freunde, Anfragen), nur kleine Profilbilder
+    if (p === '/api/avatars' && req.method === 'GET') {
+      const names = String(url.searchParams.get('names') || '').split(',').filter(Boolean).slice(0, 50);
+      const map = {};
+      for (const n of names) if (users[n]) map[n] = profileOf(n).avatar || '';
+      return send(res, 200, map);
     }
     if (p === '/api/dm/with' && req.method === 'GET') {
       const me = authUser(req);

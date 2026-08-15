@@ -47,7 +47,7 @@ function applyTheme(t, animate = false) {
 applyTheme(localStorage.getItem('ra.theme')
   || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
 
-const VIEW_ORDER = ['wallet', 'feed', 'chat', 'search', 'profile', 'settings'];
+const VIEW_ORDER = ['wallet', 'feed', 'chat', 'search', 'profile', 'settings', 'friends'];
 const FEED_LIMIT = 40;
 
 // Menüpunkte oben: Sparen / Verdienen / Neukunden / Coupons.
@@ -253,6 +253,7 @@ function switchView(next, animClass) {
   // Login-Captcha erst rendern, wenn die Profil-Seite sichtbar ist
   if (next === 'profile' && !state.token) renderTurnstile('login');
   if (next === 'chat') { updateChatGate(); pollChat(true); }
+  if (next === 'friends') renderFriendsView();
   viewCleanupTimer = setTimeout(settleViews, 520);
 }
 
@@ -266,6 +267,46 @@ $('#btn-search-top').addEventListener('click', () => {
 });
 $('#btn-search-back').addEventListener('click', () => switchView(searchReturnView, 'enter-drop'));
 $('#btn-settings-back').addEventListener('click', () => switchView('profile', 'enter-drop'));
+$('#btn-friends-back').addEventListener('click', () => switchView('profile', 'enter-drop'));
+
+// ---- Freunde-Bereich: Liste mit Profilbild, Profil ansehen oder schreiben
+async function renderFriendsView() {
+  const host = $('#friends-list');
+  host.innerHTML = '<div class="status">Lade …</div>';
+  try {
+    const r = await api('/api/dm/list');
+    const friends = myProfile?.friends || [];
+    const meta = {};
+    r.list.forEach(l => { meta[l.partner] = { avatar: l.avatar, ts: l.lastTs }; });
+    (r.friends || []).forEach(f => { meta[f.name] = meta[f.name] || { avatar: f.avatar, ts: 0 }; });
+    const sorted = [...friends].sort((a, b) => (meta[b]?.ts || 0) - (meta[a]?.ts || 0));
+    host.innerHTML = sorted.length ? sorted.map(f => `
+      <div class="friend-row">
+        ${meta[f]?.avatar ? `<img class="avatar-big" src="${meta[f].avatar}" alt="">`
+        : `<span class="avatar-big" style="background:${chatColor(f)}">${esc(f[0].toUpperCase())}</span>`}
+        <span class="friend-name">@${esc(f)}</span>
+        <button class="btn btn-small btn-ghost" data-fr-profile="${esc(f)}">Profil</button>
+        <button class="btn btn-small" data-fr-write="${esc(f)}">Schreiben</button>
+      </div>`).join('')
+      : '<div class="status">Noch keine Freunde. Schick oben eine Anfrage!</div>';
+    host.querySelectorAll('[data-fr-profile]').forEach(b => b.onclick = () => openUserPop(b.dataset.frProfile));
+    host.querySelectorAll('[data-fr-write]').forEach(b => b.onclick = () => {
+      switchView('chat');
+      setChatMode('dm', b.dataset.frWrite);
+    });
+  } catch { host.innerHTML = '<div class="status">Konnte die Liste nicht laden.</div>'; }
+}
+$('#fr-add-send').addEventListener('click', async () => {
+  const name = $('#fr-add-name').value.trim();
+  if (!name) return;
+  await api('/api/friend', { method: 'POST', body: JSON.stringify({ user: name, action: 'add' }) })
+    .then(r => {
+      if (myProfile) { myProfile.friends = r.friends; myProfile.friendRequests = r.friendRequests; }
+      island(r.friends.includes(name) ? 'Ihr seid jetzt Freunde!' : 'Anfrage gesendet');
+      $('#fr-add-name').value = '';
+      renderFriendsView();
+    }).catch(e => island(e.message));
+});
 
 // Konto löschen: doppelte Rückfrage, dann endgültig
 $('#btn-account-delete').addEventListener('click', async () => {
@@ -390,8 +431,7 @@ function renderStars(d) {
   return `
     <span class="stars">
       ${[1, 2, 3, 4, 5].map(i => icon('star', 'icon' + (i <= full && d.ratingCount ? ' on' : ''))).join('')}
-      ${d.ratingCount ? `<span class="stars-value">${avg.toFixed(1)}</span> <span class="stars-count">(${d.ratingCount})</span>`
-        : '<span class="stars-count">neu</span>'}
+      ${d.ratingCount ? `<span class="stars-value">${avg.toFixed(1)}</span> <span class="stars-count">(${d.ratingCount})</span>` : ''}
     </span>`;
 }
 
@@ -611,7 +651,6 @@ function renderOfferCard(d, i, reorder) {
     <div class="deal-wrap ${reorder ? 'anim' : ''}" data-deal="${esc(d.id)}" ${reorder ? `style="animation-delay:${Math.min(i, 8) * 45}ms"` : ''}>
       <div class="fav-hint">${icon('star')}</div>
       <article class="deal offer ${d.channel === 'preisfehler' ? 'deal-pf' : ''} ${d.stale ? 'stale' : ''} ${isFav ? 'faved' : ''}" style="display:block">
-        ${q !== null ? `<div class="deal-fill ${q < .4 ? 'low' : ''}" style="height:${Math.round(q * 100)}%"></div>` : ''}
         <div class="offer-head">
           ${brandChipHtml(brand)}
           <div class="offer-brand">
@@ -1323,8 +1362,11 @@ async function refreshGami() {
     mf.onlineshop && `<span class="pill">Onlineshop: ${esc(mf.onlineshop)}</span>`,
     mf.mode && `<span class="pill">Mode: ${esc(mf.mode)}</span>`,
   ].filter(Boolean).join('');
-  $('#me-badges').innerHTML = (myProfile.badges || [])
-    .map(id => myProfile.badgesAll[id] ? badgeChip(id, myProfile.badgesAll[id], id === myProfile.activeBadge) : '').join('');
+  // Nur EIN Badge im Profil: das getragene (auswählen geht im Inventar)
+  const ab = myProfile.activeBadge;
+  $('#me-badges').innerHTML = ab && myProfile.badgesAll[ab]
+    ? badgeChip(ab, myProfile.badgesAll[ab], true)
+    : '<span class="stars-count">Kein Badge angelegt. Wähl eins im Inventar.</span>';
   $('#me-handle').textContent = '@' + (state.userName || '');
   // Showcase: bis zu 3 Items zum Flexen
   const sc = gami?.showcase || [];
@@ -1338,20 +1380,10 @@ async function refreshGami() {
     </div>`;
   }).join('') : '';
   renderFavPickers();
-  $('#g-badges').innerHTML = (myProfile.badges || []).length
-    ? myProfile.badges.map(id => badgeChip(id, myProfile.badgesAll[id], id === myProfile.activeBadge)).join('')
-    : '<span class="form-msg">Noch keine Badges, öffne eine Kiste.</span>';
   // Topbar-Avatar: Profilbild statt Initiale + roter Punkt bei Anfragen
   if (myProfile.avatar && state.token) $('#btn-profile-top').innerHTML = `<img class="avatar-mini avatar-img" src="${myProfile.avatar}" alt="">`;
   updateReqDot();
   refreshGamiSystem();
-  $('#g-badges').querySelectorAll('[data-badge]').forEach(b => b.onclick = async () => {
-    const next = myProfile.activeBadge === b.dataset.badge ? '' : b.dataset.badge;
-    await api('/api/profile', { method: 'POST', body: JSON.stringify({ activeBadge: next }) }).catch(() => { });
-    myProfile.activeBadge = next;
-    refreshGami();
-    island(next ? 'Badge wird im Chat getragen' : 'Badge abgelegt');
-  });
 }
 // Ganze Zahlen animiert zählen (Coins)
 function animateInt(el, from, to, ms = 600) {
@@ -1421,11 +1453,11 @@ function myItems() {
 async function refreshGamiSystem() {
   if (!state.token) return;
   try { gami = await api('/api/gami'); } catch { return; }
-  // Quest-Belohnungen feiern
+  // Quest-Belohnungen feiern: Achievement-Toast unten rechts
   (gami.questAwards || []).forEach((a, i) => setTimeout(() => {
-    island(`Quest geschafft: ${a.quest} (+${a.coins} Coins)`);
+    achvToast(`Quest geschafft: ${a.quest}`, `+${a.coins} Coins`);
     playSfx('kaching');
-  }, i * 1800));
+  }, i * 2000));
   animateInt($('#g-coins'), Number($('#g-coins').textContent) || 0, gami.coins || 0);
   // Quests mit Fortschritt und Meilensteinen
   $('#gm-quests').innerHTML = gami.quests.map(q => {
@@ -1653,6 +1685,9 @@ async function startCaseOpen() {
   const label = (gami?.rarity || {})[r.win.rarity]?.label || r.win.rarity;
   const bigReveal = () => {
     caseCtx.timers.forEach(clearTimeout);
+    if (caseCtx.revealed) return;
+    caseCtx.revealed = true;
+    $('#reel-wrap').classList.add('hidden');
     $('#case-img').classList.add('hidden');
     $('#case-skip').classList.add('hidden');
     $('#case-result').classList.remove('hidden');
@@ -1699,7 +1734,12 @@ async function startCaseOpen() {
   };
   caseCtx.bigReveal = bigReveal;
   if (reducedMotion()) { bigReveal(); return; }
-  // Die Kiste fällt, schüttelt sich und platzt in der Rarity-Farbe auf
+  // Sound startet sofort, die Animation richtet sich nach seiner Länge:
+  // Intro (fallen + schütteln + aufplatzen) ~1.8s, dann läuft die CS-Walze,
+  // das Einrasten landet kurz vor dem Ende des Sounds.
+  caseCtx.snd = playSfx('case');
+  const soundDur = sfxDuration('case') || 8;
+  const reelMs = Math.max(2600, Math.min(9500, (soundDur - 3.2) * 1000));
   const img = $('#case-img');
   img.classList.remove('case-idle');
   img.classList.add('case-drop');
@@ -1715,7 +1755,38 @@ async function startCaseOpen() {
       flash.style.setProperty('--rc', col);
       img.parentElement.insertBefore(flash, img);
       setTimeout(() => flash.remove(), 700);
-      caseCtx.timers.push(setTimeout(bigReveal, 480));
+      // Jetzt die Walze: Gewinn liegt fest auf Index 60, alles andere ist Show
+      caseCtx.timers.push(setTimeout(() => {
+        img.classList.add('hidden');
+        const pool = [
+          ...(gami?.paintsAll || []).map(x => ({ kind: 'paint', id: x.id, rarity: x.rarity })),
+          ...Object.entries(gami?.badgesAll || myProfile?.badgesAll || {}).map(([k, v]) => ({ kind: 'badge', id: k, rarity: v.rar === 'häufig' ? 'common' : v.rar === 'selten' ? 'rare' : 'epic' })),
+          ...Object.entries(gami?.emotesAll || {}).map(([k, v]) => ({ kind: 'emote', id: k, rarity: v.rarity })),
+        ];
+        const items = Array.from({ length: 64 }, (_, i) => i === 60 ? { kind: r.win.kind, id: r.win.id, rarity: r.win.rarity } : pool[Math.floor(Math.random() * pool.length)]);
+        $('#reel').innerHTML = items.map(it => {
+          const c2 = (gami?.rarity || {})[it.rarity]?.color || '#888';
+          return `<div class="reel-item" style="--rc:${c2}">${itemVisual(it.kind, it.id)}</div>`;
+        }).join('');
+        $('#reel-wrap').classList.remove('hidden');
+        const ITEM_W = 74;
+        const wrapW = $('#reel-wrap').clientWidth;
+        const jitter = (Math.random() * 0.76 - 0.38) * ITEM_W;
+        const target = 60 * ITEM_W + ITEM_W / 2 - wrapW / 2 + jitter;
+        const reel = $('#reel');
+        reel.style.willChange = 'transform';
+        reel.style.transition = 'none';
+        reel.style.transform = 'translate3d(0,0,0)';
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          reel.style.transition = `transform ${reelMs}ms cubic-bezier(0.08, 0.82, 0.12, 1)`;
+          reel.style.transform = `translate3d(${-target}px,0,0)`;
+        }));
+        caseCtx.timers.push(setTimeout(() => {
+          reel.style.willChange = '';
+          reel.children[60]?.classList.add('reel-win');
+          caseCtx.timers.push(setTimeout(bigReveal, 620));
+        }, reelMs + 120));
+      }, 480));
     }, 700));
   }, 650));
 }
@@ -1778,7 +1849,10 @@ async function startCaseOpenLegacy() {
   }, 340));
 }
 $('#case-open-btn').addEventListener('click', startCaseOpen);
-$('#case-skip').addEventListener('click', () => { if (caseCtx?.bigReveal) caseCtx.bigReveal(); });
+$('#case-skip').addEventListener('click', () => {
+  caseCtx?.snd?.stop();
+  if (caseCtx?.bigReveal) caseCtx.bigReveal();
+});
 // Überspringen springt direkt zum Ergebnis
 function startCaseOpenReveal() {
   const r = caseCtx.result;
@@ -1798,6 +1872,7 @@ function startCaseOpenReveal() {
 }
 $('#case-close').addEventListener('click', () => {
   caseCtx?.timers.forEach(clearTimeout);
+  caseCtx?.snd?.stop();
   hideOverlay($('#case-backdrop'));
 });
 $('#case-odds').addEventListener('click', () => $('#case-odds-panel').classList.toggle('hidden'));
@@ -1934,7 +2009,7 @@ function toggleTopMenu() {
         : `<span class="avatar-big" style="background:${chatColor(state.userName || '?')}">${esc((state.userName || '?')[0].toUpperCase())}</span>`}
       <div style="flex:1">
         <div class="tm-name">${esc(state.userName)} ${state.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : ''}</div>
-        <div class="tm-sub">${esc(rank.name)} · ${myProfile?.coins ?? 0} Coins</div>
+        <div class="tm-sub">${esc(rank.name)} · <svg class="icon icon-sm" style="vertical-align:-3px"><use href="#i-coin"/></svg> ${gami?.coins ?? myProfile?.coins ?? 0}</div>
       </div>
       <button class="btn btn-small btn-ghost" id="tm-head-profile">Zum Profil</button>
     </div>
@@ -1946,17 +2021,8 @@ function toggleTopMenu() {
       <button class="btn btn-small btn-ghost" data-freq-no="${esc(u)}">Ablehnen</button>
     </div>`).join('')}` : ''}
     <div class="tm-section">Freunde</div>
-    ${(myProfile?.friends || []).length
-      ? (myProfile.friends).map(f => `<div class="tm-req">
-        <span class="avatar-mini" style="background:${chatColor(f)}">${esc(f[0].toUpperCase())}</span>
-        <span style="flex:1; font-weight:700">@${esc(f)}</span>
-        <button class="btn btn-small btn-ghost" data-tm-whisper="${esc(f)}">Flüstern</button>
-      </div>`).join('')
-      : '<div class="tm-sub" style="padding:4px 0">Noch keine Freunde. Frag jemanden an:</div>'}
-    <div class="form-row" style="margin-top:8px">
-      <input id="tm-req-name" class="input" maxlength="24" placeholder="@Name" style="flex:1; min-width:0">
-      <button id="tm-req-send" class="btn btn-small">Anfragen</button>
-    </div>
+    <div id="tm-friends"><div class="tm-sub" style="padding:4px 0">Lade …</div></div>
+    <button class="tm-item" id="tm-all-friends">${icon('user', 'icon icon-sm')} Alle Freunde</button>
     <button class="tm-item" id="tm-profile">${icon('user', 'icon icon-sm')} Profil</button>
     <button class="tm-item" id="tm-favs">${icon('star', 'icon icon-sm')} Favoriten</button>
     <button class="tm-item" id="tm-settings">${icon('sliders', 'icon icon-sm')} Einstellungen</button>
@@ -1972,23 +2038,28 @@ function toggleTopMenu() {
     if (state.activeView !== 'feed') switchView('feed');
   };
   $('#tm-settings').onclick = () => { done(); switchView('settings', 'enter-drop'); };
+  $('#tm-all-friends').onclick = () => { done(); switchView('friends', 'enter-drop'); };
   $('#tm-logout').onclick = () => { done(); $('#btn-logout').click(); };
-  // Freund per Namen anfragen
-  $('#tm-req-send')?.addEventListener('click', async () => {
-    const name = $('#tm-req-name').value.trim();
-    if (!name) return;
-    await api('/api/friend', { method: 'POST', body: JSON.stringify({ user: name, action: 'add' }) })
-      .then(r => {
-        if (myProfile) { myProfile.friends = r.friends; myProfile.friendRequests = r.friendRequests; }
-        island(r.friends.includes(name) ? 'Ihr seid jetzt Freunde!' : 'Anfrage gesendet');
-        $('#tm-req-name').value = '';
-      }).catch(e => island(e.message));
-  });
-  menu.querySelectorAll('[data-tm-whisper]').forEach(b => b.onclick = () => {
-    done();
-    if (state.activeView !== 'chat') switchView('chat');
-    setChatMode('dm', b.dataset.tmWhisper);
-  });
+  // Die letzten 3 Freunde (nach letzter Interaktion), mit Profilbild
+  api('/api/dm/list').then(r => {
+    const rows = [
+      ...r.list.map(l => ({ name: l.partner, avatar: l.avatar, ts: l.lastTs })),
+      ...(r.friends || []).map(f => ({ name: f.name, avatar: f.avatar, ts: 0 })),
+    ].filter(x => (myProfile?.friends || []).includes(x.name)).slice(0, 3);
+    $('#tm-friends').innerHTML = rows.length ? rows.map(f => `
+      <div class="tm-req">
+        ${f.avatar ? `<img class="avatar-mini avatar-img" src="${f.avatar}" alt="">`
+        : `<span class="avatar-mini" style="background:${chatColor(f.name)}">${esc(f.name[0].toUpperCase())}</span>`}
+        <span style="flex:1; font-weight:700">@${esc(f.name)}</span>
+        <button class="btn btn-small btn-ghost" data-tm-whisper="${esc(f.name)}">Schreiben</button>
+      </div>`).join('')
+      : '<div class="tm-sub" style="padding:4px 0">Noch keine Freunde.</div>';
+    menu.querySelectorAll('[data-tm-whisper]').forEach(b => b.onclick = () => {
+      done();
+      if (state.activeView !== 'chat') switchView('chat');
+      setChatMode('dm', b.dataset.tmWhisper);
+    });
+  }).catch(() => { $('#tm-friends').innerHTML = ''; });
   menu.querySelectorAll('[data-freq-ok]').forEach(b => b.onclick = async () => {
     const r = await api('/api/friend', { method: 'POST', body: JSON.stringify({ user: b.dataset.freqOk, action: 'accept' }) }).catch(e => { island(e.message); });
     if (r && myProfile) { myProfile.friends = r.friends; myProfile.friendRequests = r.friendRequests; }
@@ -2012,6 +2083,34 @@ document.addEventListener('click', e => {
     $('#top-menu-backdrop').classList.add('hidden');
   }
 });
+
+// ---- Benachrichtigungen: Achievements unten rechts, Nachrichten-Banner oben
+
+// Quest-/Achievement-Toast wie in Games: dezent unten rechts überm Menü
+function achvToast(title, sub) {
+  const el = document.createElement('div');
+  el.className = 'achv';
+  el.innerHTML = `${icon('trophy', 'icon icon-sm')}<span><b>${esc(title)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</span>`;
+  $('#achv-stack').appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 400); }, 5200);
+}
+
+// Banner über dem Header: antippen springt zur Nachricht
+let bannerTimer = null;
+function showNoteBanner(text, onTap) {
+  const b = $('#note-banner');
+  b.innerHTML = `${icon('message', 'icon icon-sm')} <span>${text}</span>`;
+  b.classList.remove('hidden');
+  requestAnimationFrame(() => b.classList.add('show'));
+  b.onclick = () => { hideBanner(); onTap?.(); };
+  clearTimeout(bannerTimer);
+  bannerTimer = setTimeout(hideBanner, 6500);
+  function hideBanner() {
+    b.classList.remove('show');
+    setTimeout(() => b.classList.add('hidden'), 350);
+  }
+}
 
 // ---- Freundschaftsanfragen live: Popup schiebt sich von unten hoch
 let knownReqs = null;
@@ -2382,7 +2481,8 @@ function euroFmt(n) { return n == null ? '' : n.toFixed(2).replace('.', ',') + '
 
 // ---- Spielgefühl: Sounds, Vibration, Aufleuchten, Geldscheine, Zähl-Animation ----
 
-const SFX = { kaching: '/sounds/kaching.mp3', pay: '/sounds/pay.mp3' };
+const SFX = { kaching: '/sounds/kaching.mp3', pay: '/sounds/pay.mp3', case: '/sounds/case.mp3', plop: '/sounds/plop.mp3' };
+function sfxDuration(name) { return sfxBuffers[name]?.audio?.duration || 0; }
 // WebAudio: Sounds vorgeladen und ohne Anlauf-Stille, spielen sofort beim Tipp
 let sfxCtx = null;
 const sfxBuffers = {};
@@ -2411,10 +2511,14 @@ function playSfx(name) {
       gain.gain.value = 0.6;
       src.connect(gain); gain.connect(sfxCtx.destination);
       src.start(0, b.offset);
-      return;
+      return { stop() { try { src.stop(); } catch { } } };
     } catch { }
   }
-  try { const a = new Audio(SFX[name]); a.volume = 0.55; a.play().catch(() => { }); } catch { }
+  try {
+    const a = new Audio(SFX[name]); a.volume = 0.55; a.play().catch(() => { });
+    return { stop() { try { a.pause(); } catch { } } };
+  } catch { }
+  return { stop() { } };
 }
 function buzz(pattern) { try { navigator.vibrate && navigator.vibrate(pattern); } catch { } }
 
@@ -3455,7 +3559,8 @@ function dmMsgHtml(m) {
 }
 
 async function pollChat(force) {
-  if (state.activeView !== 'chat' && !force) return;
+  // Global wird immer gepollt (für Erwähnungs-Benachrichtigungen), DMs nur im Chat
+  if (!force && state.activeView !== 'chat' && chatMode !== 'global') return;
   try {
     if (chatMode === 'global') {
       const r = await api('/api/chat?since=' + chatLastTs);
@@ -3475,6 +3580,16 @@ async function pollChat(force) {
         r.messages.forEach(m => {
           list.insertAdjacentHTML('beforeend', chatMsgHtml(m));
           chatLastTs = Math.max(chatLastTs, m.ts);
+          // Erwähnung: @Name oder Name im Text -> Plop + Banner mit Absprung
+          if (state.userName && m.user !== state.userName && !m.deleted
+            && new RegExp(`(^|\\W)@?${state.userName}(\\W|$)`, 'i').test(m.text)) {
+            playSfx('plop'); buzz(25);
+            if (state.activeView !== 'chat') {
+              showNoteBanner(`<b>@${esc(m.user)}</b> hat dich erwähnt: ${esc(m.text.slice(0, 60))}`, () => {
+                switchView('chat'); setChatMode('global');
+              });
+            }
+          }
         });
         while (list.children.length > 150) list.firstChild.remove();
         if (nearBottom || !box.dataset.scrolled) box.scrollTop = box.scrollHeight;
@@ -3483,9 +3598,12 @@ async function pollChat(force) {
     } else if (chatMode === 'dmlist') {
       if (!state.token) { $('#chat-list').innerHTML = '<div class="status">Zum Flüstern bitte anmelden.</div>'; return; }
       const r = await api('/api/dm/list');
+      const ava = (name, avatar) => avatar
+        ? `<img class="avatar-mini avatar-img" src="${avatar}" alt="">`
+        : `<span class="avatar-mini" style="background:${chatColor(name)}">${esc(name[0].toUpperCase())}</span>`;
       const rows = r.list.map(c => `
         <button class="dm-row" data-dm-open="${esc(c.partner)}">
-          <span class="avatar-mini" style="background:${chatColor(c.partner)}">${esc(c.partner[0].toUpperCase())}</span>
+          ${ava(c.partner, c.avatar)}
           <span class="dm-row-main">
             <span class="dm-row-name">${esc(c.partner)}</span>
             <span class="dm-row-last">${esc(c.lastText)}</span>
@@ -3493,9 +3611,9 @@ async function pollChat(force) {
           ${c.unread ? `<span class="dm-unread-pill">${c.unread}</span>` : ''}
         </button>`).join('');
       const friendRows = (r.friends || []).map(f => `
-        <button class="dm-row" data-dm-open="${esc(f)}">
-          <span class="avatar-mini" style="background:${chatColor(f)}">${esc(f[0].toUpperCase())}</span>
-          <span class="dm-row-main"><span class="dm-row-name">${esc(f)}</span>
+        <button class="dm-row" data-dm-open="${esc(f.name)}">
+          ${ava(f.name, f.avatar)}
+          <span class="dm-row-main"><span class="dm-row-name">${esc(f.name)}</span>
           <span class="dm-row-last">Freund, noch kein Chat</span></span>
         </button>`).join('');
       $('#chat-list').innerHTML = (rows + friendRows) || '<div class="status">Noch keine Flüster-Chats. Tippe im Global-Chat auf einen Namen, um zu flüstern.</div>';
@@ -3517,6 +3635,7 @@ async function pollChat(force) {
 }
 
 let dmBadgeLast = 0;
+let dmUnreadKnown = null;
 async function refreshDmBadge() {
   if (!state.token || Date.now() - dmBadgeLast < 8000) return;
   dmBadgeLast = Date.now();
@@ -3526,6 +3645,18 @@ async function refreshDmBadge() {
     const pill = $('#dm-unread');
     pill.textContent = unread;
     pill.classList.toggle('hidden', !unread);
+    // Neue Flüsternachricht: Plop + Banner (außer man liest den Chat gerade)
+    if (dmUnreadKnown !== null && unread > dmUnreadKnown) {
+      const conv = r.list.find(c => c.unread > 0);
+      if (conv && !(chatMode === 'dm' && dmPartner === conv.partner && state.activeView === 'chat')) {
+        playSfx('plop'); buzz(25);
+        showNoteBanner(`<b>@${esc(conv.partner)}</b>: ${esc(conv.lastText)}`, () => {
+          if (state.activeView !== 'chat') switchView('chat');
+          setChatMode('dm', conv.partner);
+        });
+      }
+    }
+    dmUnreadKnown = unread;
   } catch { }
 }
 
@@ -3740,6 +3871,7 @@ $('#chat-send').addEventListener('click', sendChat);
 $('#chat-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
 $('#chat-emote-btn').addEventListener('click', toggleEmotes);
 setInterval(pollChat, 3000);
+setInterval(refreshDmBadge, 12000);
 
 // ---------------- Start ----------------
 

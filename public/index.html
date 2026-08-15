@@ -42,6 +42,7 @@
       <symbol id="i-smile" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M8.8 14c.8 1.2 1.9 1.8 3.2 1.8s2.4-.6 3.2-1.8"/><path d="M9.3 9.6h.01M14.7 9.6h.01"/></symbol>
       <symbol id="i-crown" viewBox="0 0 24 24"><path d="M4.5 9l3.4 2.8L12 5.5l4.1 6.3L19.5 9l-1.2 9h-12.6z"/></symbol>
       <symbol id="i-pin" viewBox="0 0 24 24"><path d="M9.5 3.5h5l-.7 6 3.2 3v1.5H7v-1.5l3.2-3z"/><path d="M12 14v6"/></symbol>
+      <symbol id="i-coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.2"/><circle cx="12" cy="12" r="4.6"/><path d="M12 9.6v4.8"/></symbol>
       <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
       <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
       <symbol id="i-arrow-out" viewBox="0 0 24 24"><path d="M7 17L17 7M9.5 7H17v7.5"/></symbol>
@@ -89,6 +90,15 @@
 
   <!-- Freundschaftsanfrage-Popup: schiebt sich unten aus dem Menü hoch -->
   <div id="req-toast" class="hidden"></div>
+
+  <!-- Boden-Blur: unterer Bildschirmrand verschwimmt sanft unter der Tabbar -->
+  <div id="bottom-fade" aria-hidden="true"></div>
+
+  <!-- Achievements (Quests): dezent unten rechts überm Menü -->
+  <div id="achv-stack" aria-live="polite"></div>
+
+  <!-- Nachricht-Banner: kommt über dem Header rein, antippen springt hin -->
+  <button id="note-banner" class="hidden"></button>
 
   <!-- ================= ONBOARDING (erster Start, Fullscreen) ================= -->
   <div id="onboard" class="hidden">
@@ -162,12 +172,10 @@
         <p class="muted" style="font-size:.78rem; margin-top:2px">Kisten gibt es für Rang-Aufstiege,
           jede volle 7-Tage-Serie und jeden aufgebrauchten Gutschein.</p>
         <div id="gm-cases" class="gm-cases"></div>
-        <h3 class="gm-h">Badges <span class="stars-count">(antippen = im Chat tragen)</span></h3>
-        <div id="g-badges" class="badge-grid"></div>
         <h3 class="gm-h">Namens-Paints <span class="stars-count">(antippen = anlegen)</span></h3>
         <div id="gm-paints" class="gm-paints"></div>
         <div class="form-row" style="margin-top:14px; align-items:center">
-          <span class="stars-count">Coins: <b id="g-coins">0</b></span>
+          <span class="coin-chip"><svg class="icon icon-sm"><use href="#i-coin"/></svg> <b id="g-coins">0</b></span>
           <button id="g-daily" class="btn btn-small">Täglichen Bonus abholen</button>
         </div>
         <div id="g-msg" class="form-msg"></div>
@@ -220,11 +228,19 @@
         </div>
       </div>
       <button id="btn-logout" class="btn btn-danger hidden" style="margin-top:20px">Abmelden</button>
-      <p class="legal-line" style="text-align:center; margin-top:16px">
-        <a href="/agb.html" target="_blank" rel="noopener">AGB</a> ·
-        <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutz</a> ·
-        <a href="/impressum.html" target="_blank" rel="noopener">Impressum</a>
-      </p>
+    </section>
+
+    <!-- ================= FREUNDE (eigener Bereich, über das Menü) ================= -->
+    <section id="view-friends" class="view hidden">
+      <div class="search-head">
+        <button class="btn btn-small btn-ghost" id="btn-friends-back">← Zurück</button>
+        <h1 style="margin:0">Freunde</h1>
+      </div>
+      <div class="form-row" style="margin-bottom:12px">
+        <input id="fr-add-name" class="input" maxlength="24" placeholder="@Name anfragen" style="flex:1">
+        <button id="fr-add-send" class="btn btn-small">Anfragen</button>
+      </div>
+      <div id="friends-list"></div>
     </section>
 
     <!-- ================= EINSTELLUNGEN (eigener Bereich, über das Menü) ================= -->
@@ -262,6 +278,11 @@
           <button id="btn-account-delete" class="btn btn-small btn-danger" style="width:auto">Löschen</button>
         </div>
       </div>
+      <p class="legal-line" style="text-align:center; margin-top:16px">
+        <a href="/agb.html" target="_blank" rel="noopener">AGB</a> ·
+        <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutz</a> ·
+        <a href="/impressum.html" target="_blank" rel="noopener">Impressum</a>
+      </p>
     </section>
 
     <!-- ================= FEED ================= -->
