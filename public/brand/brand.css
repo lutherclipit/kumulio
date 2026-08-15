@@ -1,0 +1,114 @@
+/* kumulio Logo-System.
+   Regel: Es bewegt sich immer nur der Punkt. Animiert wird ausschließlich
+   transform und opacity. Alle Werte kommen aus tokens.js (CSS-Variablen). */
+
+/* ---------- Wortmarke ---------- */
+.k-wordmark { display: block; color: var(--k-ink); }
+:root[data-theme="dark"] .k-wordmark { color: var(--k-paper); }
+
+.k-wordmark .k-dot,
+.k-wordmark .k-ripple {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* ---------- Header: statisch; einziges Detail = Punkt-Hover (nur Desktop) ---------- */
+@media (hover: hover) {
+  .brand .k-dot { transition: transform var(--k-hover-dot) var(--k-ease-out); }
+  .brand:hover .k-dot { transform: scale(1.12); }
+}
+
+/* ---------- Splash: der Punkt fällt wie eine Münze ---------- */
+.k-splash {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--k-surface);
+  transition: opacity var(--k-splash-out) var(--k-ease-out);
+}
+:root[data-theme="dark"] .k-splash { background: var(--k-ink); }
+.k-splash.k-out { opacity: 0; pointer-events: none; }
+
+.k-anim-splash .k-letters {
+  animation: k-word-in var(--k-splash-wordmark) var(--k-ease-out) both;
+}
+.k-anim-splash .k-dot {
+  animation: k-dot-fall var(--k-splash-dot-fall) var(--k-ease-settle) var(--k-splash-dot-delay) both;
+}
+@keyframes k-word-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes k-dot-fall {
+  from { opacity: 0; transform: translateY(-180%) scale(0.7); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------- Ladezustand: der Punkt ersetzt den Spinner ---------- */
+.k-loader-inline {
+  display: flex; justify-content: center; padding: 22px 0;
+}
+.k-loader-full {
+  position: fixed; inset: 0; z-index: 90;
+  display: flex; align-items: center; justify-content: center;
+  gap: calc(2.4 * 12px); /* Abstand = 2,4 × Durchmesser */
+  background: var(--k-surface);
+}
+:root[data-theme="dark"] .k-loader-full { background: var(--k-ink); }
+.k-dot-solo {
+  width: 12px; height: 12px; border-radius: 999px;
+  background: var(--k-accent);
+}
+.k-pulse {
+  animation: k-pulse var(--k-loading-cycle) var(--k-ease-inout) infinite;
+}
+.k-static { opacity: 0.6; }
+@keyframes k-pulse {
+  0%   { transform: scale(1);    opacity: 1; }
+  50%  { transform: scale(0.55); opacity: 0.45; }
+  100% { transform: scale(1);    opacity: 1; }
+}
+
+/* Screenreader-Text */
+.k-sr {
+  position: absolute; width: 1px; height: 1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+
+/* ---------- Erfolg: Punkt quittiert + genau ein Ripple ---------- */
+.k-success { display: inline-flex; }
+.k-success svg { display: block; }
+.k-success .k-dot,
+.k-success .k-ripple {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.k-success .k-ripple { opacity: 0; }
+.k-success.k-go .k-dot {
+  animation: k-success-dot var(--k-success-ripple) var(--k-ease-settle) both;
+}
+.k-success.k-go .k-ripple {
+  animation: k-success-ripple var(--k-success-ripple) var(--k-ease-out) both;
+}
+@keyframes k-success-dot {
+  0%   { transform: scale(1); }
+  45%  { transform: scale(1.35); }
+  100% { transform: scale(1); }
+}
+@keyframes k-success-ripple {
+  from { opacity: 0.55; transform: scale(1); }
+  to   { opacity: 0;    transform: scale(2.8); }
+}
+
+/* ---------- prefers-reduced-motion: keine einzige Animation (Pflicht) ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .k-anim-splash .k-letters,
+  .k-anim-splash .k-dot,
+  .k-pulse,
+  .k-success.k-go .k-dot,
+  .k-success.k-go .k-ripple {
+    animation: none;
+  }
+  .k-pulse { opacity: 0.6; }
+  .brand .k-dot { transition: none; }
+  .k-splash { transition: none; }
+}

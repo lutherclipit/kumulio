@@ -3,11 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>RabattArchiv</title>
-  <link rel="icon" href="/logo.svg" type="image/svg+xml">
+  <title>kumulio</title>
+  <link rel="icon" href="/brand/kumulio-icon.svg" type="image/svg+xml">
   <link rel="manifest" href="/manifest.json">
-  <meta name="theme-color" content="#2fa45c">
+  <meta name="theme-color" content="#12C77E">
   <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/brand/brand.css">
+  <script>window.KBrandReady = new Promise(r => { window.__kbrandResolve = r; });</script>
   <!-- Für iOS/Android-Builds (Capacitor): hier die URL des gehosteten Servers eintragen,
        z. B. window.RA_API_BASE = 'https://api.rabattarchiv.de'; -->
   <script>window.RA_API_BASE = '';</script>
@@ -16,32 +18,6 @@
 <body>
 
   <!-- Öffnungs-Animation: Ordner + Geldscheine -->
-  <div id="splash" aria-hidden="true">
-    <svg viewBox="0 0 64 64" class="splash-logo" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="spFront" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stop-color="#f4c14e"/><stop offset="1" stop-color="#e09b2d"/>
-        </linearGradient>
-        <linearGradient id="spBack" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stop-color="#c98d26"/><stop offset="1" stop-color="#a8731c"/>
-        </linearGradient>
-        <clipPath id="spClip"><rect x="0" y="-20" width="64" height="43"/></clipPath>
-      </defs>
-      <g class="sp-back"><path d="M6 18 q0 -4 4 -4 h12 l4 5 h24 q4 0 4 4 v28 q0 4 -4 4 H10 q-4 0 -4 -4 Z" fill="url(#spBack)"/></g>
-      <g clip-path="url(#spClip)">
-        <g class="sp-note sp-note1"><rect x="12" y="8" width="18" height="12" rx="1.5" fill="#d3f2df" stroke="#2ea862" stroke-width="1.4" transform="rotate(-8 21 14)"/><circle cx="21" cy="13" r="3" fill="none" stroke="#2ea862" stroke-width="1.2" transform="rotate(-8 21 14)"/></g>
-        <g class="sp-note sp-note2"><rect x="30" y="9" width="18" height="12" rx="1.5" fill="#bfeacf" stroke="#238552" stroke-width="1.4" transform="rotate(6 39 15)"/><circle cx="39" cy="14" r="3" fill="none" stroke="#238552" stroke-width="1.2" transform="rotate(6 39 15)"/></g>
-      </g>
-      <g class="sp-front"><path d="M4 26 q-0.5 -3 2.8 -3 h50.4 q3.3 0 2.8 3 l-3.6 25 q-0.4 3 -3.4 3 H11 q-3 0 -3.4 -3 Z" fill="url(#spFront)"/></g>
-      <g class="sp-badge">
-        <circle cx="49" cy="48" r="11" fill="#1d7a46" stroke="#d3f2df" stroke-width="2"/>
-        <line x1="44.5" y1="52.5" x2="53.5" y2="43.5" stroke="#d3f2df" stroke-width="2.4" stroke-linecap="round"/>
-        <circle cx="45.2" cy="44.4" r="2.1" fill="none" stroke="#d3f2df" stroke-width="1.8"/>
-        <circle cx="52.8" cy="51.6" r="2.1" fill="none" stroke="#d3f2df" stroke-width="1.8"/>
-      </g>
-    </svg>
-  </div>
-
   <!-- Icon-Sprite (SF-Symbols-Stil, stroke = currentColor) -->
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
     <defs>
@@ -88,8 +64,8 @@
     <button class="iconbtn" id="btn-theme" aria-label="Dark Mode umschalten">
       <svg class="icon"><use href="#i-moon"/></svg>
     </button>
-    <button class="brand brand-center" id="btn-home" aria-label="Zum Feed">
-      <img src="/logo.svg" alt="RabattArchiv" class="brand-logo">
+    <button class="brand brand-center" id="btn-home" aria-label="kumulio — zur Startseite">
+      <span id="brand-wordmark"></span>
     </button>
     <div class="island" id="island"><span id="island-text"></span></div>
     <div class="topbar-actions">
@@ -105,29 +81,6 @@
   <!-- ================= ONBOARDING (erster Start, Fullscreen) ================= -->
   <div id="onboard" class="hidden">
     <div class="ob-logo" id="ob-logo">
-      <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <linearGradient id="obFront" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="#f4c14e"/><stop offset="1" stop-color="#e09b2d"/>
-          </linearGradient>
-          <linearGradient id="obBack" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="#c98d26"/><stop offset="1" stop-color="#a8731c"/>
-          </linearGradient>
-          <clipPath id="obClip"><rect x="0" y="-20" width="64" height="43"/></clipPath>
-        </defs>
-        <g class="sp-back"><path d="M6 18 q0 -4 4 -4 h12 l4 5 h24 q4 0 4 4 v28 q0 4 -4 4 H10 q-4 0 -4 -4 Z" fill="url(#obBack)"/></g>
-        <g clip-path="url(#obClip)">
-          <g class="sp-note sp-note1"><rect x="12" y="8" width="18" height="12" rx="1.5" fill="#d3f2df" stroke="#2ea862" stroke-width="1.4" transform="rotate(-8 21 14)"/><circle cx="21" cy="13" r="3" fill="none" stroke="#2ea862" stroke-width="1.2" transform="rotate(-8 21 14)"/></g>
-          <g class="sp-note sp-note2"><rect x="30" y="9" width="18" height="12" rx="1.5" fill="#bfeacf" stroke="#238552" stroke-width="1.4" transform="rotate(6 39 15)"/><circle cx="39" cy="14" r="3" fill="none" stroke="#238552" stroke-width="1.2" transform="rotate(6 39 15)"/></g>
-        </g>
-        <g class="sp-front"><path d="M4 26 q-0.5 -3 2.8 -3 h50.4 q3.3 0 2.8 3 l-3.6 25 q-0.4 3 -3.4 3 H11 q-3 0 -3.4 -3 Z" fill="url(#obFront)"/></g>
-        <g class="sp-badge">
-          <circle cx="49" cy="48" r="11" fill="#1d7a46" stroke="#d3f2df" stroke-width="2"/>
-          <line x1="44.5" y1="52.5" x2="53.5" y2="43.5" stroke="#d3f2df" stroke-width="2.4" stroke-linecap="round"/>
-          <circle cx="45.2" cy="44.4" r="2.1" fill="none" stroke="#d3f2df" stroke-width="1.8"/>
-          <circle cx="52.8" cy="51.6" r="2.1" fill="none" stroke="#d3f2df" stroke-width="1.8"/>
-        </g>
-      </svg>
     </div>
     <div class="ob-content hidden" id="ob-content">
       <div id="ob-step"></div>
@@ -274,7 +227,7 @@
   <div id="onboarding" class="overlay hidden">
     <div class="modal">
       <img src="/logo.svg" alt="" width="60" height="60">
-      <h1>Willkommen im RabattArchiv</h1>
+      <h1>Willkommen bei kumulio</h1>
       <p class="muted">Deals landen automatisch in deinem Feed – aber nur aus Kanälen,
         denen du folgst. Wähl deine Interessen:</p>
       <div id="onboarding-channels" class="onboarding-grid"></div>
@@ -296,5 +249,6 @@
   <div id="toast" class="toast"></div>
 
   <script src="/app.js"></script>
+  <script type="module" src="/brand/boot.js"></script>
 </body>
 </html>

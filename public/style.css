@@ -119,28 +119,9 @@ body {
   cursor: pointer; transition: transform .25s var(--spring);
 }
 .brand:active { transform: scale(.93); }
-.brand-logo { width: 40px; height: 40px; }
 
-/* ---------- Splash: Ordner öffnet sich, Geldscheine steigen auf ---------- */
-#splash {
-  position: fixed; inset: 0; z-index: 100;
-  display: flex; align-items: center; justify-content: center;
-  background: inherit; background-color: #eef1f5;
-  animation: splashOut .5s ease 1.5s forwards;
-  pointer-events: none;
-}
-:root[data-theme="dark"] #splash { background-color: #0e1114; }
-.splash-logo { width: 130px; height: 130px; animation: splashPop .6s var(--spring); }
-.sp-note { animation: noteRise .9s var(--spring) .35s backwards; }
-.sp-note2 { animation-delay: .5s; }
-.sp-front { transform-origin: 32px 52px; animation: frontTilt .7s var(--spring) .25s backwards; }
-.sp-badge { transform-origin: 49px 48px; animation: badgePop .5s cubic-bezier(.3, 1.6, .5, 1) .85s backwards; }
-@keyframes splashPop { from { transform: scale(.7); opacity: 0; } to { transform: none; opacity: 1; } }
-@keyframes noteRise { from { transform: translateY(16px); opacity: 0; } to { transform: none; opacity: 1; } }
-@keyframes frontTilt { from { transform: scaleY(.85); } to { transform: none; } }
-@keyframes badgePop { from { transform: scale(0); } to { transform: scale(1); } }
+/* Der App-Splash lebt jetzt im kumulio-Logo-System (brand/brand.css) */
 @keyframes splashOut { to { opacity: 0; visibility: hidden; } }
-@media (prefers-reduced-motion: reduce) { #splash { display: none; } }
 
 /* Suchleiste in der Topbar */
 .search-wrap { flex: 1; min-width: 0; margin: 0 10px; }
@@ -389,12 +370,9 @@ main { max-width: 640px; margin: 0 auto; padding: 20px 16px 110px; position: rel
 /* Turnstile-Widget */
 .ts-widget { margin-top: 12px; min-height: 65px; }
 
-/* Logo mittig im Header */
-.brand-center {
-  position: absolute; left: 50%; top: 50%;
-  transform: translate(-50%, -50%);
-}
-.brand-center:active { transform: translate(-50%, -50%) scale(.9); }
+/* Logo mittig im Header – im Flex-Fluss, damit es nie mit den Buttons kollidiert */
+.brand-center { margin: 0 auto; padding: 0 10px; }
+.brand-center:active { transform: scale(.94); }
 
 /* Avatar-Initiale oben rechts (angemeldet) */
 .avatar-mini {
@@ -432,13 +410,22 @@ main { max-width: 640px; margin: 0 auto; padding: 20px 16px 110px; position: rel
 }
 #onboard.done { animation: splashOut .5s ease forwards; }
 /* Das Logo startet groß in der Mitte und rutscht dann nach oben */
+/* Wortmarke: nie verzerren – nur als Ganzes einfaden (≤ 6 px versetzt) und
+   beim Übergang in die Steps kleiner nach oben rutschen (uniform skaliert) */
 .ob-logo {
-  margin-top: 30vh; width: 130px; height: 130px; flex: 0 0 auto;
-  transition: margin-top .75s var(--spring), width .75s var(--spring), height .75s var(--spring);
-  animation: splashPop .6s var(--spring);
+  margin-top: 34vh; flex: 0 0 auto;
+  transform-origin: top center;
+  transition: margin-top .75s var(--spring), transform .75s var(--spring);
+  animation: obLogoIn .45s var(--k-ease-out, ease-out) backwards;
 }
-.ob-logo svg { width: 100%; height: 100%; }
-#onboard.step .ob-logo { margin-top: 52px; width: 82px; height: 82px; }
+#onboard.step .ob-logo { margin-top: 52px; transform: scale(.62); }
+@keyframes obLogoIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ob-logo { animation: none; transition: none; }
+}
 .ob-content {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
   text-align: center; padding: 0 30px 90px; max-width: 440px; width: 100%;

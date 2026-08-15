@@ -1,4 +1,4 @@
-﻿// RabattArchiv – Frontend-Logik (Vanilla JS, kein Framework)
+﻿// kumulio – Frontend-Logik (Vanilla JS, kein Framework)
 
 const $ = sel => document.querySelector(sel);
 
@@ -175,10 +175,12 @@ function island(text, holdMs = 2600) {
 // ---------------- Toast (In-App-Notification) ----------------
 
 let toastTimer = null;
-function showToast({ title, text, iconName = 'star', actions = [] }, autohideMs = 6000) {
+function showToast({ title, text, iconName = 'star', actions = [], success = false }, autohideMs = 6000) {
   const t = $('#toast');
+  // Erfolgs-Moment: der kumulio-Punkt quittiert (einmal, kein Konfetti) – Text bleibt Pflichtsignal
+  const successMark = success && window.KBrand ? window.KBrand.successMarkHTML() : '';
   t.innerHTML = `
-    <div class="toast-head">${icon(iconName)} ${esc(title)}</div>
+    <div class="toast-head">${successMark || icon(iconName)} ${esc(title)}</div>
     ${text ? `<div class="toast-text">${esc(text)}</div>` : ''}
     ${actions.length ? `<div class="toast-actions">${actions.map((a, i) =>
       `<button class="btn ${a.ghost ? 'btn-ghost' : ''}" data-action="${i}">${esc(a.label)}</button>`).join('')}</div>` : ''}`;
@@ -189,6 +191,7 @@ function showToast({ title, text, iconName = 'star', actions = [] }, autohideMs 
     });
   });
   t.classList.add('show');
+  if (success && window.KBrand) window.KBrand.playSuccess(t);
   clearTimeout(toastTimer);
   if (autohideMs) toastTimer = setTimeout(hideToast, autohideMs);
 }
@@ -293,7 +296,10 @@ $('#chipbar').addEventListener('click', e => {
 });
 
 async function loadFeed() {
-  island('Angebote werden geladen …', 0);
+  // Ladezustand: der kumulio-Punkt ersetzt den Spinner (zeigt sich erst nach 200 ms)
+  const loader = window.KBrand
+    ? window.KBrand.createLoader($('#feed'), { mode: 'inline' })
+    : { done() { } };
   try {
     const data = await api('/api/deals?channels=' + state.channels.map(c => c.slug).join(','));
     state.deals = data.deals;
@@ -306,6 +312,7 @@ async function loadFeed() {
   } catch (e) {
     island('Feed nicht erreichbar');
   }
+  loader.done();
   renderFeed(true);
   enrichCompares();
 }
@@ -677,6 +684,7 @@ function toggleFav(dealId) {
     title: 'Deal gemerkt',
     text: 'Wann sollen wir dich erinnern, damit er nicht untergeht?',
     iconName: 'star',
+    success: true,
     actions: [
       { label: 'In 1 Std.', fn: () => setReminder(dealId, 60) },
       { label: 'In 3 Std.', fn: () => setReminder(dealId, 180) },
@@ -724,7 +732,7 @@ function checkReminders() {
         ],
       }, 0);
       if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification('RabattArchiv – Deal-Erinnerung', { body: fav.deal.title.slice(0, 100) });
+        new Notification('kumulio – Deal-Erinnerung', { body: fav.deal.title.slice(0, 100) });
       }
     }
   }
@@ -1253,7 +1261,7 @@ $('#btn-theme').addEventListener('click', () => {
 // dann wird der Nutzer Schritt für Schritt begrüßt und zum Konto geführt.
 
 const OB_STEPS = [
-  { title: 'Schön, dass du da bist.', text: 'RabattArchiv ist deine kuratierte Spar-App: handverlesene Angebote, deine Gutschein-Wallet und alle Coupons an einem Ort – ohne Deal-Spam.', cta: 'Los geht’s' },
+  { title: 'Schön, dass du da bist.', text: 'kumulio ist deine kuratierte Spar-App: handverlesene Angebote, deine Gutschein-Wallet und alle Coupons an einem Ort – ohne Deal-Spam.', cta: 'Los geht’s' },
   { title: 'Sparen & Verdienen', text: 'Oben wechselst du zwischen Sparen, Verdienen und Neukunden-Aktionen – sauber getrennt, damit du sofort findest, was du suchst.', cta: 'Weiter' },
   { title: 'Deine Wallet', text: 'Gutschein fotografieren, Felder füllen sich automatisch. Restguthaben abbuchen, PIN und Barcode griffbereit – und Sparkarten wie Payback immer dabei.', cta: 'Weiter' },
   { title: 'Coupons & Merken', text: 'Der Coupons-Tab bündelt Rossmann, Lidl Plus, McDonald’s & Co. Mit dem Stern merkst du dir Angebote – auf Wunsch mit Erinnerung, bevor sie ablaufen.', cta: 'Weiter' },
@@ -1293,8 +1301,7 @@ function finishOnboarding(openRegister) {
 
 function maybeShowOnboarding() {
   if (localStorage.getItem('ra.tutorialDone')) return;
-  // Der normale Splash entfällt – das Onboarding übernimmt die Anfangsanimation
-  $('#splash').style.display = 'none';
+  // Der Session-Splash entfällt – das Onboarding trägt den Markenmoment (kumulio-Punkt fällt)
   obStep = 0;
   $('#onboard').classList.remove('hidden');
   // Logo-Animation ausspielen, dann nach oben rutschen und begrüßen
@@ -1612,6 +1619,12 @@ function openVoucherSheet(id) {
     v.balance = Math.round((v.balance + sign * amt) * 100) / 100;
     saveWallet();
     openVoucherSheet(id);
+    // Erfolgs-Moment: Buchung quittiert der Punkt – zeitgleich mit dem neuen Kontostand
+    showToast({
+      title: sign < 0 ? 'Abbuchung gespeichert' : 'Aufladung gespeichert',
+      text: `Restguthaben: ${euroFmt(v.balance)}`,
+      success: true,
+    }, 3500);
   };
   $('#wv-sub')?.addEventListener('click', () => book(-1));
   $('#wv-addamt')?.addEventListener('click', () => book(1));
@@ -1742,4 +1755,6 @@ $('#btn-home').addEventListener('click', () => {
   renderChipbar();
   loadFeed();
   checkReminders();
+  // App ist bereit → der kumulio-Splash darf weg, sobald seine Animation durch ist
+  window.KBrandReady?.then(K => K.appReady());
 })();

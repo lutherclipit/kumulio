@@ -1,6 +1,6 @@
 {
   "appId": "de.rabattarchiv.app",
-  "appName": "RabattArchiv",
+  "appName": "kumulio",
   "webDir": "public",
   "server": {
     "androidScheme": "https"

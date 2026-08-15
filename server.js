@@ -798,6 +798,6 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`RabattArchiv läuft auf http://localhost:${PORT}`);
+  console.log(`kumulio läuft auf http://localhost:${PORT}`);
   console.log(`Admin-Panel: http://localhost:${PORT}/admin.html  (Key: ${ADMIN_KEY} – liegt in data/admin-key.txt)`);
 });
