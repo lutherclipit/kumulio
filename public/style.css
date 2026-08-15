@@ -1031,7 +1031,19 @@ textarea.input { resize: vertical; }
   width: 40px; height: 5px; border-radius: 3px;
   background: rgba(20, 30, 40, .2); margin: 0 auto;
 }
-.sheet-content { flex: 1; overflow-y: auto; padding: 4px 22px 110px; overscroll-behavior: contain; }
+.sheet-content { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 4px 22px 110px; overscroll-behavior: contain; }
+
+/* Kompakt-Modus (z. B. Gutschein hinzufügen): Sheet nur so hoch wie der Inhalt –
+   kein leerer Raum, in dem man sich verswipen kann */
+.sheet.compact { top: auto; max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 24px); }
+.sheet.compact .sheet-content { flex: 0 1 auto; padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px)); }
+
+/* Schnellbeträge beim Abbuchen */
+.amt-presets { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+
+/* Wallet-Suche + Filter */
+.wallet-tools { margin: 14px 0 4px; }
+.wallet-filters { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 body.no-select { user-select: none; -webkit-user-select: none; }
 
 /* Schließen-Button auf Daumenhöhe */
@@ -1229,13 +1241,14 @@ input, textarea, select, button { touch-action: manipulation; }
 .money-flash.red { background: radial-gradient(120% 90% at 50% 85%, rgba(255,77,79,.34), rgba(255,77,79,0) 65%); }
 @keyframes moneyFlash { 0% { opacity: 0; } 18% { opacity: 1; } 100% { opacity: 0; } }
 
-/* Kurzer Schüttler beim Abbuchen */
-.shake { animation: shake .45s cubic-bezier(.36,.07,.19,.97); }
-@keyframes shake {
-  10%, 90% { transform: translateX(-1px); }
-  20%, 80% { transform: translateX(2px); }
-  30%, 50%, 70% { transform: translateX(-3px); }
-  40%, 60% { transform: translateX(3px); }
+/* Ein kurzer, kleiner Ruckler beim Abbuchen (läuft auf dem Sheet-Inhalt,
+   startet und endet sauber bei 0 – nichts bleibt verschoben) */
+.shake-once { animation: shakeOnce .38s ease; }
+@keyframes shakeOnce {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  50% { transform: translateX(3px); }
+  75% { transform: translateX(-1px); }
 }
 
 /* Geldscheine steigen auf (beim Hinzufügen/Aufladen) */

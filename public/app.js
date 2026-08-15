@@ -765,6 +765,8 @@ setInterval(checkReminders, 30 * 1000);
 // ---------------- Sheet (generisch) ----------------
 
 function openSheetShell() {
+  // Formulare (Hinzufügen) kompakt statt Vollbild – kein leerer Swipe-Raum
+  $('#sheet').classList.toggle('compact', state.sheetMode === 'wallet-add');
   $('#sheet-backdrop').classList.remove('hidden');
   requestAnimationFrame(() => {
     $('#sheet-backdrop').classList.add('show');
@@ -1428,7 +1430,37 @@ function euroFmt(n) { return n == null ? '' : n.toFixed(2).replace('.', ',') + '
 // ---- Spielgefühl: Sounds, Vibration, Aufleuchten, Geldscheine, Zähl-Animation ----
 
 const SFX = { kaching: '/sounds/kaching.mp3', pay: '/sounds/pay.mp3' };
+// WebAudio: Sounds vorgeladen und ohne Anlauf-Stille – spielen sofort beim Tipp
+let sfxCtx = null;
+const sfxBuffers = {};
+function initSfx() {
+  if (sfxCtx) return;
+  try { sfxCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch { return; }
+  Object.entries(SFX).forEach(async ([k, url]) => {
+    try {
+      const raw = await (await fetch(url)).arrayBuffer();
+      const audio = await sfxCtx.decodeAudioData(raw);
+      const d = audio.getChannelData(0);
+      let i = 0; while (i < d.length && Math.abs(d[i]) < 0.02) i++;
+      sfxBuffers[k] = { audio, offset: i / audio.sampleRate };
+    } catch { }
+  });
+}
+document.addEventListener('pointerdown', initSfx, { once: true, capture: true });
 function playSfx(name) {
+  const b = sfxBuffers[name];
+  if (sfxCtx && b) {
+    try {
+      if (sfxCtx.state === 'suspended') sfxCtx.resume();
+      const src = sfxCtx.createBufferSource();
+      src.buffer = b.audio;
+      const gain = sfxCtx.createGain();
+      gain.gain.value = 0.6;
+      src.connect(gain); gain.connect(sfxCtx.destination);
+      src.start(0, b.offset);
+      return;
+    } catch { }
+  }
   try { const a = new Audio(SFX[name]); a.volume = 0.55; a.play().catch(() => { }); } catch { }
 }
 function buzz(pattern) { try { navigator.vibrate && navigator.vibrate(pattern); } catch { } }
@@ -1770,6 +1802,10 @@ function openVoucherSheet(id, animFrom) {
     ${v.balance != null ? `
     <div class="sheet-section">
       <h3>Betrag abbuchen / aufladen</h3>
+      <div class="amt-presets">
+        ${[2, 5, 10].map(n => `<button class="chip" data-preset="${n}">${n} €</button>`).join('')}
+        <button class="chip" data-preset="max">Max (${euroFmt(v.balance)})</button>
+      </div>
       <div class="form-row">
         <input id="wv-amt" class="input" inputmode="decimal" placeholder="Betrag (€)">
         <input id="wv-note" class="input" maxlength="60" placeholder="Wofür? (Notiz)">
@@ -1797,10 +1833,23 @@ function openVoucherSheet(id, animFrom) {
     state.wallet.vouchers = state.wallet.vouchers.filter(x => x.id !== id);
     saveWallet(); closeSheet(); island('Gutschein gelöscht');
   });
+  // Schnellbeträge: 2/5/10 € oder alles auf einmal
+  $('#sheet-content').querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => {
+    $('#wv-amt').value = b.dataset.preset === 'max'
+      ? String(v.balance).replace('.', ',')
+      : b.dataset.preset;
+    $('#wv-amt').focus();
+  }));
   const book = sign => {
     const amt = parseFloat($('#wv-amt').value.replace(',', '.'));
     const msg = $('#wv-msg');
     if (isNaN(amt) || amt <= 0) { msg.className = 'form-msg error'; msg.textContent = 'Betrag angeben.'; return; }
+    // Nie ins Minus: mehr als das Restguthaben lässt sich nicht abbuchen
+    if (sign < 0 && amt > v.balance + 0.001) {
+      msg.className = 'form-msg error';
+      msg.textContent = `Nur noch ${euroFmt(v.balance)} drauf – mehr geht nicht.`;
+      return;
+    }
     const before = v.balance;
     v.tx = v.tx || [];
     v.tx.unshift({ id: Math.random().toString(36).slice(2, 9), amt: sign * amt, note: $('#wv-note').value.trim().slice(0, 60), ts: Date.now() });
@@ -1811,10 +1860,12 @@ function openVoucherSheet(id, animFrom) {
     // Geld rein = Ka-ching, grünes Aufleuchten, Geldscheine
     if (sign < 0) {
       playSfx('pay'); buzz([45, 40, 45]); moneyFlash('red');
-      const sheet = document.querySelector('.sheet');
-      if (sheet && !reducedMotion()) {
-        sheet.classList.remove('shake'); void sheet.offsetWidth; sheet.classList.add('shake');
-        setTimeout(() => sheet.classList.remove('shake'), 500);
+      // Ein kurzer, kleiner Ruckler am Inhalt – nicht am Sheet selbst
+      // (das ist per translateX(-50%) zentriert, ein Transform-Shake würde es zur Seite reißen)
+      const c = $('#sheet-content');
+      if (c && !reducedMotion()) {
+        c.classList.remove('shake-once'); void c.offsetWidth; c.classList.add('shake-once');
+        setTimeout(() => c.classList.remove('shake-once'), 420);
       }
     } else {
       playSfx('kaching'); buzz(35); moneyFlash('green'); billRain(5);
@@ -1874,15 +1925,29 @@ function renderWallet() {
   $('#wallet-content').classList.toggle('hidden', gated);
   if (gated) return;
 
-  const active = state.wallet.vouchers.filter(v => v.balance == null || v.balance > 0);
+  const allActive = state.wallet.vouchers.filter(v => v.balance == null || v.balance > 0);
   const used = state.wallet.vouchers.filter(v => v.balance != null && v.balance <= 0);
 
-  // Kontostand: Summe aller Restguthaben – zählt animiert zum neuen Stand
-  const total = Math.round(active.reduce((s, v) => s + (v.balance || 0), 0) * 100) / 100;
+  // Suche (Shop, Code, PIN, Buchungs-Notizen) + Filter-Chips
+  const q = (state.walletQuery || '').trim().toLowerCase();
+  const vMatch = v => !q
+    || v.vendor.toLowerCase().includes(q)
+    || v.code.toLowerCase().includes(q)
+    || (v.pin || '').toLowerCase().includes(q)
+    || (v.tx || []).some(t => (t.note || '').toLowerCase().includes(q));
+  const soon = Date.now() + 30 * 864e5;
+  const fMatch = v =>
+    state.walletFilter === 'guthaben' ? v.balance != null && v.balance > 0
+    : state.walletFilter === 'ablauf' ? v.end && Date.parse(v.end) < soon
+    : true;
+  const active = allActive.filter(v => vMatch(v) && fMatch(v));
+
+  // Kontostand: Summe ALLER Restguthaben (unabhängig von Suche/Filter) – zählt animiert
+  const total = Math.round(allActive.reduce((s, v) => s + (v.balance || 0), 0) * 100) / 100;
   animateNumber($('#wallet-total'), renderWallet.lastTotal, total);
   renderWallet.lastTotal = total;
-  $('#wallet-total-sub').textContent = active.length
-    ? `über ${active.length} Gutschein${active.length > 1 ? 'e' : ''}`
+  $('#wallet-total-sub').textContent = allActive.length
+    ? `über ${allActive.length} Gutschein${allActive.length > 1 ? 'e' : ''}`
     : 'noch keine Gutscheine mit Guthaben';
 
   // Spar-Rang: je mehr Guthaben, desto edler die Karte + Fortschritt zur nächsten Stufe
@@ -1921,12 +1986,18 @@ function renderWallet() {
       <span class="wallet-add-label">${label}</span>
     </button>`;
 
-  $('#voucher-list').innerHTML = active.map(vCard).join('') + addBanner('voucher', 'Gutschein hinzufügen');
+  $('#voucher-list').innerHTML =
+    (active.length || !(q || state.walletFilter && state.walletFilter !== 'alle')
+      ? active.map(vCard).join('')
+      : '<div class="status">Kein Gutschein passt zu Suche/Filter.</div>')
+    + addBanner('voucher', 'Gutschein hinzufügen');
   $('#voucher-used').innerHTML = used.map(vCard).join('') || '<div class="status">Nichts aufgebraucht.</div>';
   $('#used-count').textContent = used.length ? `(${used.length})` : '';
 
   const hasPayback = state.wallet.cards.some(c => /payback/i.test(c.name));
-  $('#cardw-list').innerHTML = state.wallet.cards.map(c => `
+  const cardsShown = state.wallet.cards.filter(c => !q
+    || c.name.toLowerCase().includes(q) || c.number.toLowerCase().includes(q));
+  $('#cardw-list').innerHTML = cardsShown.map(c => `
     <div class="wallet-card" data-wc="${esc(c.id)}" style="--bc:${brandColor(c.name)}">
       <div class="wallet-card-head">
         <span class="brand-chip" style="--bc:rgba(255,255,255,.22)">${esc(brandInitials(c.name))}</span>
@@ -1948,6 +2019,17 @@ function renderWallet() {
   $('#view-wallet').querySelectorAll('[data-wadd]').forEach(el => el.onclick = () => openWalletAdd(el.dataset.wadd));
   $('#view-wallet').querySelectorAll('[data-wadd-prefill]').forEach(el => el.onclick = () => openWalletAdd('card', el.dataset.waddPrefill));
 }
+
+// Wallet-Suche + Filter-Chips (statisches Markup – einmal verdrahten)
+$('#wallet-search')?.addEventListener('input', e => {
+  state.walletQuery = e.target.value;
+  renderWallet();
+});
+document.querySelectorAll('[data-wfilter]').forEach(b => b.addEventListener('click', () => {
+  state.walletFilter = b.dataset.wfilter;
+  document.querySelectorAll('[data-wfilter]').forEach(x => x.classList.toggle('active', x === b));
+  renderWallet();
+}));
 
 $('#btn-home').addEventListener('click', () => {
   state.activeChip = 'sparen';
