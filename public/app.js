@@ -327,8 +327,6 @@ async function loadFeed() {
     const errSlugs = Object.keys(data.errors || {});
     if (errSlugs.length) {
       island(`${errSlugs.map(s => channelBySlug(s)?.name || s).join(', ')} gerade nicht erreichbar`);
-    } else {
-      island(`${state.deals.length} Deals aktuell`);
     }
   } catch (e) {
     island('Feed nicht erreichbar');
