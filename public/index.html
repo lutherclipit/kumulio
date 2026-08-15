@@ -10,9 +10,8 @@
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/brand/brand.css">
   <script>window.KBrandReady = new Promise(r => { window.__kbrandResolve = r; });</script>
-  <!-- Für iOS/Android-Builds (Capacitor): hier die URL des gehosteten Servers eintragen,
-       z. B. window.RA_API_BASE = 'https://api.rabattarchiv.de'; -->
-  <script>window.RA_API_BASE = '';</script>
+  <!-- API-Server: im Web egal (gleiche Origin), für die iOS/Android-Builds Pflicht -->
+  <script>window.RA_API_BASE = 'https://www.kumulio.de';</script>
   <script src="https://challenges.cloudflare.com/turnstile/api.js?render=explicit" async defer></script>
 </head>
 <body>
