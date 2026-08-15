@@ -46,14 +46,7 @@
   --glass-edge: inset 0 1px 0 rgba(255, 255, 255, .1), inset 0 -1px 0 rgba(255, 255, 255, .03);
   --shadow: 0 2px 6px rgba(0, 0, 0, .25), 0 12px 32px rgba(0, 0, 0, .35);
 }
-:root[data-theme="dark"] body {
-  background:
-    radial-gradient(560px 420px at 12% -4%, rgba(38, 150, 84, .28), transparent 62%),
-    radial-gradient(640px 480px at 100% 4%, rgba(60, 100, 180, .22), transparent 64%),
-    radial-gradient(520px 460px at 78% 88%, rgba(130, 80, 180, .16), transparent 60%),
-    linear-gradient(180deg, #0e1114, #0b0e12);
-  background-attachment: fixed;
-}
+/* Dark-Hintergrund läuft über die Überblend-Ebenen (body::before/::after weiter unten) */
 :root[data-theme="dark"] .topbar { background: rgba(16, 20, 25, .55); border-bottom-color: rgba(255, 255, 255, .06); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05); }
 :root[data-theme="dark"] .brand-name { color: var(--text); }
 :root[data-theme="dark"] .island { background: rgba(240, 244, 248, .92); color: #14171b; }
@@ -67,19 +60,45 @@
 
 html { color-scheme: light; }
 
-/* Farbiger Untergrund – erst er macht das Glas sichtbar */
+/* Farbiger Untergrund – erst er macht das Glas sichtbar.
+   Zwei feste Ebenen (hell/dunkel), die beim Theme-Wechsel weich überblenden –
+   Verläufe selbst lassen sich nicht animieren, ihre Deckkraft schon. */
 body {
+  background: #eef1f5;
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable", "Segoe UI", Roboto, sans-serif;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+body::before, body::after {
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  transition: opacity .45s ease;
+}
+body::before {
   background:
     radial-gradient(560px 420px at 12% -4%, rgba(52, 199, 110, .5), transparent 62%),
     radial-gradient(640px 480px at 100% 4%, rgba(90, 150, 240, .42), transparent 64%),
     radial-gradient(520px 460px at 78% 88%, rgba(190, 120, 240, .3), transparent 60%),
     radial-gradient(480px 400px at 4% 76%, rgba(80, 210, 190, .32), transparent 60%),
     linear-gradient(180deg, #eef1f5, #e7ebf1);
-  background-attachment: fixed;
-  color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable", "Segoe UI", Roboto, sans-serif;
-  min-height: 100vh;
-  -webkit-font-smoothing: antialiased;
+  opacity: 1;
+}
+body::after {
+  background:
+    radial-gradient(560px 420px at 12% -4%, rgba(38, 150, 84, .28), transparent 62%),
+    radial-gradient(640px 480px at 100% 4%, rgba(60, 100, 180, .22), transparent 64%),
+    radial-gradient(520px 460px at 78% 88%, rgba(130, 80, 180, .16), transparent 60%),
+    linear-gradient(180deg, #0e1114, #0b0e12);
+  opacity: 0;
+}
+:root[data-theme="dark"] body { background: #0e1114; }
+:root[data-theme="dark"] body::before { opacity: 0; }
+:root[data-theme="dark"] body::after { opacity: 1; }
+
+/* Beim Theme-Wechsel blenden alle Farben kurz weich über (Klasse setzt JS) */
+html.theme-anim, html.theme-anim *, html.theme-anim *::before, html.theme-anim *::after {
+  transition: background-color .4s ease, color .4s ease, border-color .4s ease,
+    fill .4s ease, stroke .4s ease, opacity .45s ease !important;
 }
 
 .hidden { display: none !important; }
@@ -849,6 +868,7 @@ main { max-width: 640px; margin: 0 auto; padding: 20px 16px 110px; position: rel
   padding: 11px 13px; font: inherit; font-size: .9rem;
   margin-top: 10px;
 }
+.input { transition: border-color .25s ease, background-color .25s ease; }
 .input:focus { outline: none; border-color: var(--accent); }
 .input::placeholder { color: #97a0a9; }
 textarea.input { resize: vertical; }
@@ -921,6 +941,20 @@ textarea.input { resize: vertical; }
   animation: fadeIn .3s ease;
 }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* Overlays schließen genauso weich, wie sie öffnen */
+.overlay { transition: opacity .25s ease; }
+.overlay .modal { transition: opacity .25s ease, transform .3s var(--spring); }
+.overlay.closing { opacity: 0; pointer-events: none; }
+.overlay.closing .modal { opacity: 0; transform: translateY(12px) scale(.98); }
+
+/* Theme-Button dreht sich beim Umschalten */
+.iconbtn .icon { transition: transform .35s var(--spring); }
+#btn-theme.spin .icon { transform: rotate(180deg); }
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay, .overlay .modal, .iconbtn .icon { transition: none; }
+}
 .modal {
   background: var(--glass-strong);
   backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);

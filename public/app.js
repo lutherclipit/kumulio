@@ -28,8 +28,18 @@ const state = {
 
 // ---------------- Dark Mode ----------------
 
-function applyTheme(t) {
-  document.documentElement.dataset.theme = t;
+let themeAnimTimer = null;
+function applyTheme(t, animate = false) {
+  const root = document.documentElement;
+  // Weiche Überblendung aller Farben – nur beim aktiven Umschalten, nicht beim Start
+  if (animate && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    root.classList.add('theme-anim');
+    clearTimeout(themeAnimTimer);
+    themeAnimTimer = setTimeout(() => root.classList.remove('theme-anim'), 500);
+    document.getElementById('btn-theme')?.classList.add('spin');
+    setTimeout(() => document.getElementById('btn-theme')?.classList.remove('spin'), 400);
+  }
+  root.dataset.theme = t;
   localStorage.setItem('ra.theme', t);
   const use = document.querySelector('#btn-theme use');
   if (use) use.setAttribute('href', t === 'dark' ? '#i-sun' : '#i-moon');
@@ -1202,6 +1212,13 @@ function tsToken(which) {
   try { return turnstile.getResponse(tsWidgets[which]); } catch { return ''; }
 }
 
+// Overlays weich schließen (statt hart zu verschwinden)
+function hideOverlay(el) {
+  if (!el || el.classList.contains('hidden')) return;
+  el.classList.add('closing');
+  setTimeout(() => { el.classList.add('hidden'); el.classList.remove('closing'); }, 280);
+}
+
 // Button zeigt beim Warten den pulsierenden kumulio-Punkt
 function setBtnLoading(btn, on) {
   if (!btn) return;
@@ -1230,7 +1247,7 @@ function authOk(r, { welcome = false } = {}) {
     $('#welcome-mark').innerHTML = window.KBrand ? window.KBrand.successMarkHTML() : '';
     $('#welcome').classList.remove('hidden');
     window.KBrand?.playSuccess($('#welcome'));
-    setTimeout(() => $('#welcome').classList.add('hidden'),
+    setTimeout(() => hideOverlay($('#welcome')),
       window.KBrand?.prefersReducedMotion?.() ? 1400 : 2200);
   } else {
     showToast({ title: `Willkommen zurück, ${r.user}!`, success: true }, 3000);
@@ -1265,7 +1282,7 @@ $('#btn-register-open').addEventListener('click', () => {
   $('#register-backdrop').classList.remove('hidden');
   renderTurnstile('reg');
 });
-$('#btn-register-close').addEventListener('click', () => $('#register-backdrop').classList.add('hidden'));
+$('#btn-register-close').addEventListener('click', () => hideOverlay($('#register-backdrop')));
 
 $('#btn-register').addEventListener('click', async () => {
   const msg = $('#reg-msg');
@@ -1280,7 +1297,7 @@ $('#btn-register').addEventListener('click', async () => {
         turnstileToken: tsToken('reg'),
       }),
     });
-    $('#register-backdrop').classList.add('hidden');
+    hideOverlay($('#register-backdrop'));
     $('#reg-pass').value = '';
     authOk(r, { welcome: true });
     if (state.activeView !== 'profile') switchView('profile');
@@ -1300,7 +1317,7 @@ $('#btn-logout').addEventListener('click', async () => {
 });
 
 $('#btn-theme').addEventListener('click', () => {
-  applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+  applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark', true);
 });
 
 // ---------------- Fullscreen-Onboarding beim ersten Start ----------------
