@@ -10,8 +10,9 @@
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/brand/brand.css">
   <script>window.KBrandReady = new Promise(r => { window.__kbrandResolve = r; });</script>
-  <!-- API-Server: im Web egal (gleiche Origin), für die iOS/Android-Builds Pflicht -->
-  <script>window.RA_API_BASE = 'https://kumulio.de';</script>
+  <!-- API-Server: im Browser immer die eigene Origin (lokal wie live),
+       nur die native App (Capacitor) spricht den gehosteten Server an -->
+  <script>window.RA_API_BASE = window.Capacitor ? 'https://kumulio.de' : '';</script>
   <script src="https://challenges.cloudflare.com/turnstile/api.js?render=explicit" async defer></script>
 </head>
 <body>
@@ -242,6 +243,15 @@
     <button class="sheet-fab" id="sheet-fab" aria-label="Zurück zum Feed">
       <svg class="icon"><use href="#i-chevron-down"/></svg>
     </button>
+  </div>
+
+  <!-- ================= WILLKOMMEN (nach Registrierung) ================= -->
+  <div id="welcome" class="overlay hidden">
+    <div class="modal welcome-modal">
+      <div id="welcome-mark"></div>
+      <h2 id="welcome-title">Willkommen!</h2>
+      <p class="muted">Dein kumulio-Konto ist bereit – viel Spaß beim Sparen.</p>
+    </div>
   </div>
 
   <!-- ================= TOAST (In-App-Notification) ================= -->

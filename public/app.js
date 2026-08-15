@@ -210,8 +210,21 @@ function moveTabPill() {
 }
 window.addEventListener('resize', moveTabPill);
 
+let viewCleanupTimer = null;
+
+// Laufende Übergänge sofort sauber beenden – verhindert, dass bei schnellem
+// Tab-Wechsel ein alter Timer die inzwischen aktive View versteckt/verschiebt
+function settleViews() {
+  clearTimeout(viewCleanupTimer);
+  document.querySelectorAll('.view').forEach(v => {
+    v.classList.remove('leave', 'leave-left', 'leave-right', 'enter-right', 'enter-left');
+    v.classList.toggle('hidden', v.id !== 'view-' + state.activeView);
+  });
+}
+
 function switchView(next) {
   if (next === state.activeView) return;
+  settleViews(); // alles vom vorherigen Wechsel aufräumen
   const oldView = $('#view-' + state.activeView);
   const newView = $('#view-' + next);
   const dir = VIEW_ORDER.indexOf(next) > VIEW_ORDER.indexOf(state.activeView) ? 1 : -1;
@@ -226,11 +239,7 @@ function switchView(next) {
   window.scrollTo({ top: 0 });
   // Login-Captcha erst rendern, wenn die Profil-Seite sichtbar ist
   if (next === 'profile' && !state.token) renderTurnstile('login');
-  setTimeout(() => {
-    oldView.classList.add('hidden');
-    oldView.classList.remove('leave', 'leave-left', 'leave-right');
-    newView.classList.remove('enter-right', 'enter-left');
-  }, 460);
+  viewCleanupTimer = setTimeout(settleViews, 460);
 }
 
 $('#tabbar').addEventListener('click', e => {
@@ -485,8 +494,10 @@ function computeOrder() {
 
 // Coupons-Tab: Verzeichnis der offiziellen Coupon-Quellen + GzG + Payback
 function renderCoupons() {
+  let animIdx = 0;
   const row = it => `
-    <a class="channel-row coupon-row" href="${esc(it.url)}" target="_blank" rel="noopener noreferrer">
+    <a class="channel-row coupon-row anim-item" style="animation-delay:${Math.min(animIdx++, 10) * 45}ms"
+       href="${esc(it.url)}" target="_blank" rel="noopener noreferrer">
       <span class="brand-chip" style="--bc:${brandColor(it.name)}">${esc(brandInitials(it.name))}</span>
       <div class="channel-info">
         <div class="channel-name">${esc(it.name)}</div>
@@ -1191,18 +1202,45 @@ function tsToken(which) {
   try { return turnstile.getResponse(tsWidgets[which]); } catch { return ''; }
 }
 
-function authOk(r) {
+// Button zeigt beim Warten den pulsierenden kumulio-Punkt
+function setBtnLoading(btn, on) {
+  if (!btn) return;
+  if (on) {
+    btn.dataset.label = btn.textContent;
+    btn.style.minWidth = btn.offsetWidth + 'px'; // Breite halten, nichts verrutscht
+    btn.classList.add('btn-loading');
+    const still = window.KBrand?.prefersReducedMotion?.();
+    btn.innerHTML = `<span class="btn-dot${still ? '' : ' k-pulse'}"></span>`;
+  } else {
+    btn.classList.remove('btn-loading');
+    btn.textContent = btn.dataset.label || btn.textContent;
+    btn.style.minWidth = '';
+  }
+}
+
+function authOk(r, { welcome = false } = {}) {
   state.token = r.token;
   state.userName = r.user;
   localStorage.setItem('ra.token', r.token);
   localStorage.setItem('ra.user', r.user);
   refreshProfileTab();
-  island(`Hallo, ${r.user}!`);
+  if (welcome) {
+    // Willkommens-Moment: der Punkt quittiert das neue Konto
+    $('#welcome-title').textContent = `Willkommen, ${r.user}!`;
+    $('#welcome-mark').innerHTML = window.KBrand ? window.KBrand.successMarkHTML() : '';
+    $('#welcome').classList.remove('hidden');
+    window.KBrand?.playSuccess($('#welcome'));
+    setTimeout(() => $('#welcome').classList.add('hidden'),
+      window.KBrand?.prefersReducedMotion?.() ? 1400 : 2200);
+  } else {
+    showToast({ title: `Willkommen zurück, ${r.user}!`, success: true }, 3000);
+  }
 }
 
 $('#btn-login').addEventListener('click', async () => {
   const msg = $('#auth-msg');
-  msg.className = 'form-msg'; msg.textContent = '…';
+  msg.className = 'form-msg'; msg.textContent = '';
+  setBtnLoading($('#btn-login'), true);
   try {
     const r = await api('/api/login', {
       method: 'POST',
@@ -1211,11 +1249,13 @@ $('#btn-login').addEventListener('click', async () => {
         turnstileToken: tsToken('login'),
       }),
     });
-    $('#auth-pass').value = ''; msg.textContent = '';
+    $('#auth-pass').value = '';
     authOk(r);
   } catch (e) {
     msg.className = 'form-msg error'; msg.textContent = e.message;
     renderTurnstile('login');
+  } finally {
+    setBtnLoading($('#btn-login'), false);
   }
 });
 
@@ -1229,7 +1269,8 @@ $('#btn-register-close').addEventListener('click', () => $('#register-backdrop')
 
 $('#btn-register').addEventListener('click', async () => {
   const msg = $('#reg-msg');
-  msg.className = 'form-msg'; msg.textContent = '…';
+  msg.className = 'form-msg'; msg.textContent = '';
+  setBtnLoading($('#btn-register'), true);
   try {
     const r = await api('/api/register', {
       method: 'POST',
@@ -1241,11 +1282,13 @@ $('#btn-register').addEventListener('click', async () => {
     });
     $('#register-backdrop').classList.add('hidden');
     $('#reg-pass').value = '';
-    authOk(r);
-    switchView('profile');
+    authOk(r, { welcome: true });
+    if (state.activeView !== 'profile') switchView('profile');
   } catch (e) {
     msg.className = 'form-msg error'; msg.textContent = e.message;
     renderTurnstile('reg');
+  } finally {
+    setBtnLoading($('#btn-register'), false);
   }
 });
 $('#btn-logout').addEventListener('click', async () => {

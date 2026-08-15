@@ -351,6 +351,23 @@ main { max-width: 640px; margin: 0 auto; padding: 20px 16px 110px; position: rel
 .deal-wrap.anim { animation: cardIn .5s var(--spring) both; }
 @keyframes cardIn { from { opacity: 0; transform: translateY(14px) scale(.985); } to { opacity: 1; transform: none; } }
 
+/* Beim Ansteuern einer View gleiten auch ihre Karten gestaffelt mit */
+.view.enter-right .wallet-card, .view.enter-left .wallet-card,
+.view.enter-right .card, .view.enter-left .card {
+  animation: cardIn .5s var(--spring) backwards;
+}
+.view.enter-right .wallet-card:nth-child(2), .view.enter-left .wallet-card:nth-child(2) { animation-delay: 60ms; }
+.view.enter-right .wallet-card:nth-child(3), .view.enter-left .wallet-card:nth-child(3) { animation-delay: 120ms; }
+.view.enter-right .wallet-card:nth-child(4), .view.enter-left .wallet-card:nth-child(4) { animation-delay: 180ms; }
+
+/* Einzelelemente (Coupon-Zeilen u. Ä.) mit Inline-Verzögerung */
+.anim-item { animation: cardIn .45s var(--spring) backwards; }
+@media (prefers-reduced-motion: reduce) {
+  .deal-wrap.anim, .anim-item,
+  .view.enter-right .wallet-card, .view.enter-left .wallet-card,
+  .view.enter-right .card, .view.enter-left .card { animation: none; }
+}
+
 /* Sterne-Bewertung (statt Like/Dislike) */
 .stars { display: inline-flex; align-items: center; gap: 2px; }
 .stars .icon { width: 15px; height: 15px; color: #c9cfd6; }
@@ -369,6 +386,23 @@ main { max-width: 640px; margin: 0 auto; padding: 20px 16px 110px; position: rel
 
 /* Turnstile-Widget */
 .ts-widget { margin-top: 12px; min-height: 65px; }
+
+/* Button-Ladezustand: der Punkt pulsiert im Button */
+.btn .btn-dot {
+  width: 10px; height: 10px; border-radius: 999px;
+  background: #fff; display: inline-block;
+}
+.btn.btn-loading { pointer-events: none; opacity: .88; }
+
+/* Willkommens-Moment nach der Registrierung */
+.welcome-modal { text-align: center; max-width: 340px; }
+.welcome-modal h2 { font-size: 1.3rem; letter-spacing: -.02em; margin: 12px 0 6px; animation: viewIn .5s var(--spring) .15s backwards; }
+.welcome-modal p { animation: viewIn .5s var(--spring) .25s backwards; }
+#welcome-mark { display: flex; justify-content: center; }
+#welcome-mark .k-success svg { width: 72px; height: 72px; }
+@media (prefers-reduced-motion: reduce) {
+  .welcome-modal h2, .welcome-modal p { animation: none; }
+}
 
 /* Logo mittig im Header – im Flex-Fluss, damit es nie mit den Buttons kollidiert */
 .brand-center { margin: 0 auto; padding: 0 10px; }
@@ -431,6 +465,7 @@ main { max-width: 640px; margin: 0 auto; padding: 20px 16px 110px; position: rel
   text-align: center; padding: 0 30px 90px; max-width: 440px; width: 100%;
   animation: viewIn .5s var(--spring);
 }
+.ob-step { animation: enterRight .45s var(--spring); }
 .ob-step h2 {
   font-size: 1.5rem; letter-spacing: -.03em; margin-bottom: 10px;
   animation: viewIn .5s var(--spring) backwards;
