@@ -144,7 +144,84 @@ const BADGES = {
 function profileOf(user) {
   const u = users[user];
   if (!u.profile) u.profile = { bio: '', coins: 0, badges: [], activeBadge: '', lastDailyDay: '', streak: 0, publicProfile: true };
-  return u.profile;
+  const prof = u.profile;
+  prof.cases = prof.cases || [];
+  prof.paints = prof.paints || [];
+  prof.activePaint = prof.activePaint || '';
+  prof.dailyCount = prof.dailyCount || 0;
+  prof.goalsDone = prof.goalsDone || [];
+  prof.rankTier = prof.rankTier || 1;
+  return prof;
+}
+
+// ---------------------------------------------------------------- Gamification 2.0 (Ränge, Kisten, Paints)
+//
+// KISTEN SIND AUSSCHLIESSLICH ERSPIELBAR.
+// Sie sind niemals kaufbar, niemals handelbar, niemals gegen Echtgeld oder
+// eine In-App-Währung (Coins) erhältlich, und ihr Inhalt hat keinen Marktwert.
+// Diese Grenze trennt das Feature von einer Lootbox; in einer Finanz-App für
+// junge Erwachsene wäre alles andere glücksspiel- und verbraucherschutz-
+// rechtlich ein ernstes Problem. Deshalb: CaseSource enthält bewusst KEINEN
+// PURCHASE-Eintrag, und grantCase() wirft bei jeder unbekannten Quelle.
+// scripts/test-cases.js sichert genau das ab.
+const CaseSource = Object.freeze({
+  RANK_UP: 'RANK_UP',
+  GOAL_REACHED: 'GOAL_REACHED',
+  SAVINGS_STREAK: 'SAVINGS_STREAK',
+  SEASONAL: 'SEASONAL',
+});
+const RARITY = {
+  common: { color: '#8B96A5', label: 'Gewöhnlich', weight: 60 },
+  uncommon: { color: '#12C77E', label: 'Ungewöhnlich', weight: 25 },
+  rare: { color: '#3B82F6', label: 'Selten', weight: 10 },
+  epic: { color: '#8B5CF6', label: 'Episch', weight: 4 },
+  legendary: { color: '#F5B301', label: 'Legendär', weight: 1 },
+};
+// Zehn Ränge, Aufstieg über Spar-AKTIVITÄT (Buchungen, Gutscheine, aktive Tage,
+// aufgebrauchte Gutscheine = erreichte Ziele), nie über die Betragshöhe.
+const RANKS10 = [
+  { tier: 1, id: 'pfennig', name: 'Pfennig', points: 0, color: '#a05c1e' },
+  { tier: 2, id: 'groschen', name: 'Groschen', points: 10, color: '#8B96A5' },
+  { tier: 3, id: 'batzen', name: 'Batzen', points: 25, color: '#b0873a' },
+  { tier: 4, id: 'sparbuechse', name: 'Sparbüchse', points: 50, color: '#d4788c' },
+  { tier: 5, id: 'buendel', name: 'Bündel', points: 90, color: '#3f9c56' },
+  { tier: 6, id: 'dukat', name: 'Dukat', points: 150, color: '#c28f00' },
+  { tier: 7, id: 'geldsack', name: 'Geldsack', points: 240, color: '#8a6d3b' },
+  { tier: 8, id: 'goldbarren', name: 'Goldbarren', points: 360, color: '#F5B301' },
+  { tier: 9, id: 'tresor', name: 'Tresor', points: 520, color: '#5b6b7c' },
+  { tier: 10, id: 'schatzkammer', name: 'Schatzkammer', points: 750, color: '#8B5CF6' },
+];
+let PAINTS = { paints: [] };
+try { PAINTS = JSON.parse(fs.readFileSync(path.join(PUBLIC, 'gamification', 'paints.json'), 'utf8')); } catch { }
+
+// Aktivitätspunkte: 2 je Buchung, 5 je Gutschein, 1 je aktivem Tag, 8 je Ziel
+function activityPoints(user) {
+  const prof = profileOf(user);
+  const w = wallets[user] || { vouchers: [] };
+  const tx = w.vouchers.reduce((s, v) => s + ((v.tx || []).length), 0);
+  return tx * 2 + w.vouchers.length * 5 + prof.dailyCount + prof.goalsDone.length * 8;
+}
+function rankOf(points) {
+  let cur = RANKS10[0];
+  for (const r of RANKS10) if (points >= r.points) cur = r;
+  return cur;
+}
+function grantCase(user, type, source) {
+  if (!Object.values(CaseSource).includes(source)) {
+    throw new Error('Kisten gibt es nur für Spar-Aktivität, Quelle unbekannt: ' + source);
+  }
+  const prof = profileOf(user);
+  prof.cases.push({ id: crypto.randomBytes(5).toString('hex'), type, source, ts: Date.now() });
+  if (prof.cases.length > 50) prof.cases = prof.cases.slice(-50);
+}
+// Rang-Aufstiege prüfen und belohnen (je neuer Stufe eine Kiste)
+function ensureProgress(user) {
+  const prof = profileOf(user);
+  const rank = rankOf(activityPoints(user));
+  while (prof.rankTier < rank.tier) {
+    prof.rankTier++;
+    grantCase(user, prof.rankTier >= 7 ? 'gold' : 'silber', CaseSource.RANK_UP);
+  }
 }
 
 // ---------------------------------------------------------------- Web-Push (RFC 8291/8292, ohne Abhängigkeiten)
@@ -371,20 +448,27 @@ async function getDeals(channel) {
   }
 }
 
+// Bekannte Marken, um den Händler notfalls aus dem Deal-Titel zu erkennen
+const KNOWN_BRANDS = ['Wolt', 'Lieferando', 'Uber Eats', 'REWE', 'Amazon', 'Zalando', 'IKEA', 'Rossmann', 'Lidl', 'EDEKA', 'Netto', 'dm', 'Müller', 'MediaMarkt', 'Saturn', 'H&M', 'Douglas', 'Nike', 'Adidas', 'Spotify', 'Disney', 'Netflix', 'McDonalds', 'Burger King', 'Subway', 'Payback', 'Otto', 'eBay', 'Temu', 'Shein', 'Zara'];
+
 // Community-Posts im selben Deal-Format ausgeben; erster Link im Text wird zum CTA
 function postsAsDeals(slug) {
   return (posts[slug] || []).map(p => {
     const discount = p.priceNum && p.compareNum && p.compareNum > p.priceNum
       ? Math.round((1 - p.priceNum / p.compareNum) * 100) : null;
-    // Marke: explizit gesetzt oder aus dem Link abgeleitet (wolt.com -> Wolt)
+    // Marke: explizit gesetzt, aus dem Link abgeleitet oder im Titel erkannt
     let merchant = p.merchant || '';
     if (!merchant) {
       const u = (p.text.match(/https?:\/\/[^\s"<>]+/) || [''])[0];
       try {
         const parts = new URL(u).hostname.split('.');
         const host = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
-        if (host) merchant = host.charAt(0).toUpperCase() + host.slice(1);
+        if (host && !['www', 'shop'].includes(host)) merchant = host.charAt(0).toUpperCase() + host.slice(1);
       } catch { }
+    }
+    if (!merchant) {
+      const hit = KNOWN_BRANDS.find(b => new RegExp(`\\b${b.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(p.title));
+      if (hit) merchant = hit;
     }
     return {
       id: p.id, channel: slug, title: p.title, image: p.image || '', merchant,
@@ -697,7 +781,10 @@ const server = http.createServer(async (req, res) => {
       const msgs = chat.messages.filter(m => m.ts > since).slice(-80);
       // Nachträglich gelöschte Nachrichten: der Client tauscht sie gegen einen Platzhalter
       const updates = chat.messages.filter(m => m.delTs && m.delTs > since && m.ts <= since).map(m => m.id);
-      return send(res, 200, { messages: msgs, updates, emotes: emoteCache.map, badges: BADGES, pinned: chat.pinned || null });
+      return send(res, 200, {
+        messages: msgs, updates, emotes: emoteCache.map, badges: BADGES,
+        pinned: chat.pinned || null, paints: PAINTS.paints, ranks: RANKS10,
+      });
     }
     if (p === '/api/chat' && req.method === 'POST') {
       const user = authUser(req);
@@ -734,9 +821,11 @@ const server = http.createServer(async (req, res) => {
       if (last && Date.now() - last.ts < 2000) return send(res, 429, { error: 'Langsam, kurz warten.' });
       if (last && last.text === text && Date.now() - last.ts < 30000) return send(res, 429, { error: 'Gleiche Nachricht schon gesendet.' });
       chatLast[user] = { ts: Date.now(), text };
+      const profC = profileOf(user);
       const msg = {
         id: crypto.randomBytes(6).toString('hex'), user,
-        badge: profileOf(user).activeBadge || '', role: roleOf(user),
+        badge: profC.activeBadge || '', role: roleOf(user),
+        rank: profC.rankTier || 1, paint: profC.activePaint || '',
         text: censor(text), ts: Date.now(),
       };
       chat.messages.push(msg);
@@ -987,25 +1076,78 @@ const server = http.createServer(async (req, res) => {
       const gained = 25 + Math.min(25, (prof.streak - 1) * 5);
       prof.coins = (prof.coins || 0) + gained;
       prof.lastDailyDay = today;
+      prof.dailyCount = (prof.dailyCount || 0) + 1;
+      // Jede volle 7er-Serie bringt eine erspielte Kiste (nie kaufbar, siehe oben)
+      let caseWon = null;
+      if (prof.streak % 7 === 0) { grantCase(user, 'standard', CaseSource.SAVINGS_STREAK); caseWon = 'standard'; }
+      ensureProgress(user);
       saveJson('users.json', users);
-      return send(res, 200, { ok: true, gained, coins: prof.coins, streak: prof.streak });
+      return send(res, 200, { ok: true, gained, coins: prof.coins, streak: prof.streak, caseWon });
     }
-    if (p === '/api/chest' && req.method === 'POST') {
+    // Gamification-Überblick: Rang, Fortschritt, Kisten, Paints, offene Droprates
+    if (p === '/api/gami' && req.method === 'GET') {
       const user = authUser(req);
       if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
-      const prof = profileOf(user);
-      if ((prof.coins || 0) < 100) return send(res, 402, { error: `Eine Kiste kostet 100 Coins, du hast ${prof.coins || 0}.` });
-      prof.coins -= 100;
-      // Gewichtete Seltenheit: häufig 60 %, selten 30 %, episch 10 %
-      const roll = Math.random();
-      const rar = roll < 0.6 ? 'häufig' : roll < 0.9 ? 'selten' : 'episch';
-      const pool = Object.keys(BADGES).filter(k => BADGES[k].rar === rar);
-      const badge = pool[Math.floor(Math.random() * pool.length)];
-      let dupe = false;
-      if (prof.badges.includes(badge)) { dupe = true; prof.coins += 40; }
-      else prof.badges.push(badge);
+      ensureProgress(user);
       saveJson('users.json', users);
-      return send(res, 200, { ok: true, badge, ...BADGES[badge], dupe, coins: prof.coins });
+      const prof = profileOf(user);
+      const points = activityPoints(user);
+      const rank = rankOf(points);
+      const next = RANKS10.find(r => r.tier === rank.tier + 1) || null;
+      return send(res, 200, {
+        points, rank, next, ranks: RANKS10, rarity: RARITY,
+        cases: prof.cases, paints: prof.paints, activePaint: prof.activePaint,
+        paintsAll: PAINTS.paints,
+      });
+    }
+    // Kiste öffnen: das Ergebnis wird HIER bestimmt, die Walze im Client ist nur Show
+    if (p === '/api/case/open' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      const prof = profileOf(user);
+      const idx = prof.cases.findIndex(c => c.id === String(b.id || ''));
+      if (idx < 0) return send(res, 404, { error: 'Diese Kiste hast du nicht.' });
+      const box = prof.cases[idx];
+      // Seltenheits-Gewichte je Kistenart: bessere Kisten heben den Boden an
+      const weights = Object.fromEntries(Object.entries(RARITY).map(([k, v]) => [k, v.weight]));
+      if (box.type === 'silber') weights.common = 30;
+      if (box.type === 'gold') { weights.common = 10; weights.uncommon = 35; }
+      if (box.type === 'prisma') { weights.common = 0; weights.uncommon = 20; weights.rare = 45; }
+      const total = Object.values(weights).reduce((s, w) => s + w, 0);
+      let roll = Math.random() * total;
+      let rarity = 'common';
+      for (const [k, w] of Object.entries(weights)) { roll -= w; if (roll <= 0) { rarity = k; break; } }
+      // Pool: Paints der Stufe + Badges (häufig=common, selten=rare, episch=epic)
+      const badgeRar = { 'häufig': 'common', 'selten': 'rare', 'episch': 'epic' };
+      const pool = [
+        ...PAINTS.paints.filter(x => x.rarity === rarity).map(x => ({ kind: 'paint', id: x.id, name: x.name })),
+        ...Object.entries(BADGES).filter(([, v]) => badgeRar[v.rar] === rarity).map(([k, v]) => ({ kind: 'badge', id: k, name: v.name })),
+      ];
+      const win = pool.length ? pool[Math.floor(Math.random() * pool.length)]
+        : { kind: 'paint', id: PAINTS.paints[0] && PAINTS.paints[0].id, name: 'Kupfer' };
+      prof.cases.splice(idx, 1);
+      let dupe = false;
+      if (win.kind === 'paint') {
+        if (prof.paints.includes(win.id)) { dupe = true; prof.coins += 40; }
+        else prof.paints.push(win.id);
+      } else {
+        if (prof.badges.includes(win.id)) { dupe = true; prof.coins += 40; }
+        else prof.badges.push(win.id);
+      }
+      saveJson('users.json', users);
+      return send(res, 200, { ok: true, win: { ...win, rarity }, dupe, coins: prof.coins, cases: prof.cases });
+    }
+    // Paint anlegen/ablegen
+    if (p === '/api/paint' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      const prof = profileOf(user);
+      const id = String(b.id || '');
+      prof.activePaint = (id === '' || prof.paints.includes(id)) ? id : prof.activePaint;
+      saveJson('users.json', users);
+      return send(res, 200, { ok: true, activePaint: prof.activePaint });
     }
 
     // ---- Wallet am Konto: überlebt Gerätewechsel und App-Neuinstallation
@@ -1024,6 +1166,16 @@ const server = http.createServer(async (req, res) => {
         cards: Array.isArray(b.cards) ? b.cards.slice(0, 100) : [],
         ts: Date.now(),
       };
+      // Aufgebrauchter Gutschein = Sparziel erreicht: einmalig eine Kiste
+      const prof = profileOf(user);
+      for (const v of wallets[user].vouchers) {
+        if (v.amount > 0 && v.balance != null && v.balance <= 0 && !prof.goalsDone.includes(v.id)) {
+          prof.goalsDone.push(v.id);
+          grantCase(user, 'standard', CaseSource.GOAL_REACHED);
+        }
+      }
+      ensureProgress(user);
+      saveJson('users.json', users);
       saveJson('wallets.json', wallets);
       return send(res, 200, { ok: true });
     }
@@ -1201,17 +1353,60 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p === '/api/comments' && req.method === 'POST') {
+      // Kommentare nur noch mit Profil, der Name kommt vom Konto
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Zum Kommentieren bitte anmelden.' });
       const b = await readBody(req);
       const dealId = String(b.dealId || '');
-      const user = String(b.user || 'Anonym').trim().slice(0, 24) || 'Anonym';
       const text = String(b.text || '').trim().slice(0, 600);
       if (!dealId || text.length < 2) return send(res, 400, { error: 'Kommentar zu kurz.' });
       const mod = moderate(text);
       if (mod.blocked) return send(res, 400, { error: mod.reason });
-      const c = { user, text, ts: Date.now(), flags: mod.flags };
+      const c = {
+        id: crypto.randomBytes(5).toString('hex'), user, text: censor(text), ts: Date.now(), flags: mod.flags,
+        badge: profileOf(user).activeBadge || '', role: roleOf(user),
+        parent: String(b.parent || '') || null, // Antwort auf einen anderen Kommentar
+        reactions: {}, // { art: [nutzer] }, Arten: like, helpful oder Emote-Namen
+      };
       (comments[dealId] = comments[dealId] || []).push(c);
       saveJson('comments.json', comments);
       return send(res, 201, c);
+    }
+
+    // Kommentar-Reaktionen: like, helpful oder ein 7TV-Emote-Name (Toggle)
+    if (p === '/api/comments/react' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      const list = comments[String(b.dealId || '')] || [];
+      const c = list.find(x => x.id === String(b.id || ''));
+      if (!c) return send(res, 404, { error: 'Kommentar nicht gefunden.' });
+      const kindR = String(b.kind || '');
+      if (kindR !== 'like' && kindR !== 'helpful' && !emoteCache.map[kindR])
+        return send(res, 400, { error: 'Unbekannte Reaktion.' });
+      c.reactions = c.reactions || {};
+      const arr = c.reactions[kindR] = c.reactions[kindR] || [];
+      const i = arr.indexOf(user);
+      if (i >= 0) arr.splice(i, 1); else arr.push(user);
+      if (!arr.length) delete c.reactions[kindR];
+      saveJson('comments.json', comments);
+      return send(res, 200, { ok: true, reactions: c.reactions });
+    }
+
+    // Kommentar löschen: eigener oder als Mod
+    if (p === '/api/comments/delete' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      const dealId = String(b.dealId || '');
+      const list = comments[dealId] || [];
+      const c = list.find(x => x.id === String(b.id || ''));
+      if (!c) return send(res, 404, { error: 'Kommentar nicht gefunden.' });
+      if (c.user !== user && !isModUser(user)) return send(res, 403, { error: 'Nur eigene Kommentare.' });
+      // Antworten darauf bleiben stehen, der Kommentar selbst wird zum Platzhalter
+      c.deleted = true; c.text = ''; c.reactions = {};
+      saveJson('comments.json', comments);
+      return send(res, 200, { ok: true });
     }
 
     if (p === '/api/posts' && req.method === 'POST') {
@@ -1323,7 +1518,12 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`kumulio läuft auf http://localhost:${PORT}`);
-  console.log(`Admin-Panel: http://localhost:${PORT}/admin.html  (Key: ${ADMIN_KEY}, liegt in data/admin-key.txt)`);
-});
+// RA_TEST: für scripts/test-cases.js, damit der Test importieren kann ohne den Server zu starten
+if (process.env.RA_TEST) {
+  module.exports = { CaseSource, grantCase, profileOf, users };
+} else {
+  server.listen(PORT, () => {
+    console.log(`kumulio läuft auf http://localhost:${PORT}`);
+    console.log(`Admin-Panel: http://localhost:${PORT}/admin.html  (Key: ${ADMIN_KEY}, liegt in data/admin-key.txt)`);
+  });
+}

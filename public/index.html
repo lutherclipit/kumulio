@@ -118,42 +118,88 @@
         <p class="muted" style="font-size:.76rem; margin-top:10px">Dein Passwort wird nie im Klartext
           gespeichert, sondern nur als verschlüsselter Hash auf unserem Server.</p>
       </div>
-      <div class="card modal-left hidden" id="me-card">
-        <h2 class="card-h">Angemeldet als <span id="me-name"></span></h2>
-        <div id="g-rank-row" class="rank-row" style="margin:10px 0 0"></div>
-        <div class="form-row">
-          <button id="btn-logout" class="btn btn-ghost">Abmelden</button>
+      <!-- So sieht dein Profil aus (wie für Besucher), bearbeiten über den Button -->
+      <div class="card modal-left hidden profile-card" id="me-card">
+        <div class="me-head">
+          <span id="me-avatar"></span>
+          <div class="me-head-text">
+            <h2 class="card-h" style="margin:0">Hallo <span id="me-name"></span>!</h2>
+            <div id="g-rank-row" class="rank-row"></div>
+          </div>
+        </div>
+        <p id="me-bio" class="me-bio"></p>
+        <div id="me-favs" class="favs-view"></div>
+        <div id="me-badges" class="badge-grid"></div>
+        <div class="form-row" style="margin-top:16px">
+          <button id="btn-edit-profile" class="btn btn-small">Profil bearbeiten</button>
+          <button id="btn-logout" class="btn btn-small btn-ghost">Abmelden</button>
         </div>
       </div>
 
-      <!-- Gamification: Coins sammeln, Kisten öffnen, Badges tragen (kein Echtgeld) -->
+      <!-- Gamification: Ränge über Spar-Aktivität, Kisten nur erspielbar, Paints -->
       <div class="card modal-left hidden" id="gami-card">
-        <h2 class="card-h">Deine Coins: <span id="g-coins">0</span></h2>
-        <p class="muted" style="font-size:.82rem">Täglich einloggen bringt Coins, je länger die
-          Serie, desto mehr. Mit 100 Coins öffnest du eine Kiste mit einem Badge. Kein Echtgeld, nur Spaß.</p>
-        <div class="form-row">
-          <button id="g-daily" class="btn">Täglichen Bonus abholen</button>
-          <button id="g-chest" class="btn btn-ghost">Kiste öffnen (100)</button>
+        <h2 class="card-h">Dein Rang</h2>
+        <div id="gm-rank-head"></div>
+        <div id="gm-ladder" class="gm-ladder"></div>
+        <h3 class="gm-h">Deine Kisten <span class="stars-count">(nur erspielbar, nie kaufbar)</span></h3>
+        <p class="muted" style="font-size:.78rem; margin-top:2px">Kisten gibt es für Rang-Aufstiege,
+          jede volle 7-Tage-Serie und jeden aufgebrauchten Gutschein.</p>
+        <div id="gm-cases" class="gm-cases"></div>
+        <h3 class="gm-h">Badges <span class="stars-count">(antippen = im Chat tragen)</span></h3>
+        <div id="g-badges" class="badge-grid"></div>
+        <h3 class="gm-h">Namens-Paints <span class="stars-count">(antippen = anlegen)</span></h3>
+        <div id="gm-paints" class="gm-paints"></div>
+        <div class="form-row" style="margin-top:14px; align-items:center">
+          <span class="stars-count">Coins: <b id="g-coins">0</b></span>
+          <button id="g-daily" class="btn btn-small">Täglichen Bonus abholen</button>
         </div>
         <div id="g-msg" class="form-msg"></div>
         <div id="g-chest-result" class="hidden"></div>
-        <h3 style="margin-top:14px; font-size:.95rem">Deine Badges <span class="stars-count">(antippen = im Chat tragen)</span></h3>
-        <div id="g-badges" class="badge-grid"></div>
       </div>
 
-      <!-- Benachrichtigungen: Preisfehler-Alarm (Web-Push) -->
-      <div class="card modal-left" id="push-card">
-        <h2 class="card-h">Preisfehler-Alarm</h2>
-        <p class="muted" style="font-size:.82rem">Sobald die Redaktion einen Preisfehler postet,
-          bekommst du eine Benachrichtigung, auch bei geschlossener App.
-          Auf dem iPhone funktioniert das, wenn kumulio zum Home-Bildschirm hinzugefügt ist.</p>
-        <div class="form-row">
-          <button id="push-enable" class="btn">Alarm aktivieren</button>
-          <span id="push-msg" class="form-msg"></span>
+      <!-- Kisten-Öffnung: Walze wie bei CS, das Ergebnis kommt vorher vom Server -->
+      <div id="case-backdrop" class="overlay hidden">
+        <div class="modal case-modal" role="dialog" aria-modal="true" aria-label="Kiste öffnen">
+          <button class="fav-remove" id="case-close" aria-label="Schließen"><svg class="icon icon-sm"><use href="#i-x"/></svg></button>
+          <img id="case-img" class="case-idle" src="" alt="" width="80" height="80">
+          <div id="case-title" class="case-title"></div>
+          <div class="reel-wrap hidden" id="reel-wrap">
+            <div class="reel-marker"></div>
+            <div class="reel" id="reel"></div>
+          </div>
+          <div id="case-result" class="hidden" aria-live="polite"></div>
+          <div class="form-row" style="justify-content:center; margin-top:14px">
+            <button id="case-open-btn" class="btn btn-big">Öffnen</button>
+            <button id="case-skip" class="btn btn-small btn-ghost hidden">Überspringen</button>
+          </div>
+          <button id="case-odds" class="desc-more">Chancen anzeigen</button>
+          <div id="case-odds-panel" class="hidden"></div>
         </div>
       </div>
 
-      <!-- Profil-Gestaltung + Privatsphäre -->
+      <!-- Einstellungen: Darstellung, Alarm, Sichtbarkeit -->
+      <div class="card modal-left" id="settings-app-card">
+        <h2 class="card-h">Einstellungen</h2>
+        <div class="settings-row">
+          <div class="settings-label">
+            <b>Darstellung</b>
+            <span>Hell oder dunkel, wie du magst</span>
+          </div>
+          <button id="btn-theme" class="btn btn-small btn-ghost">
+            <svg class="icon icon-sm"><use href="#i-moon"/></svg>&nbsp;Wechseln
+          </button>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <b>Preisfehler-Alarm</b>
+            <span>Benachrichtigung, sobald die Redaktion einen Preisfehler postet</span>
+          </div>
+          <button id="push-enable" class="btn btn-small">Aktivieren</button>
+        </div>
+        <div id="push-msg" class="form-msg"></div>
+      </div>
+
+      <!-- Profil-Gestaltung + Privatsphäre (öffnet über "Profil bearbeiten") -->
       <div class="card modal-left hidden" id="bio-card">
         <h2 class="card-h">Über dich</h2>
         <div class="avatar-row">
@@ -176,23 +222,6 @@
         <div class="form-row" style="margin-top:10px">
           <button id="g-bio-save" class="btn btn-small">Speichern</button>
           <span id="g-bio-msg" class="form-msg"></span>
-        </div>
-      </div>
-      <div class="card teaser-card" style="margin-top:12px">
-        <h2>Als Nächstes</h2>
-        <div class="teaser-list">
-          <div class="teaser-row"><svg class="icon"><use href="#i-star"/></svg><span>Merkliste &amp; Erinnerungen auf allen Geräten</span></div>
-          <div class="teaser-row"><svg class="icon"><use href="#i-message"/></svg><span>Freunde, Chats und Deal-Teilen</span></div>
-          <div class="teaser-row"><svg class="icon"><use href="#i-trophy"/></svg><span>Dein Platz im Deal-Scout-Ranking</span></div>
-        </div>
-      </div>
-      <!-- Darstellung: Dark Mode wohnt jetzt hier statt in der Topbar -->
-      <div class="card" id="appearance-card">
-        <h2 class="card-h">Darstellung</h2>
-        <div class="form-row" style="align-items:center">
-          <button id="btn-theme" class="btn btn-small btn-ghost">
-            <svg class="icon icon-sm"><use href="#i-moon"/></svg>&nbsp;Hell / Dunkel umschalten
-          </button>
         </div>
       </div>
       <p class="legal-line" style="text-align:center; margin-top:16px">
@@ -278,8 +307,14 @@
         <span id="dm-partner-name"></span>
       </div>
       <div id="chat-pinbar" class="hidden"></div>
-      <div id="chat-box">
-        <div id="chat-list"></div>
+      <div id="chat-box-wrap">
+        <div id="chat-box">
+          <div id="chat-list"></div>
+        </div>
+        <div id="chat-gate" class="hidden">
+          <p>Melde dich an, um mitzulesen und mitzureden.</p>
+          <button class="btn btn-big" id="chat-gate-login">Anmelden</button>
+        </div>
       </div>
       <div id="chat-emotes" class="hidden"></div>
       <div id="chat-input-row">

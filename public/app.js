@@ -252,7 +252,7 @@ function switchView(next, animClass) {
   newView.classList.add(animClass || (dir === 1 ? 'enter-right' : 'enter-left'));
   // Login-Captcha erst rendern, wenn die Profil-Seite sichtbar ist
   if (next === 'profile' && !state.token) renderTurnstile('login');
-  if (next === 'chat') pollChat(true);
+  if (next === 'chat') { updateChatGate(); pollChat(true); }
   viewCleanupTimer = setTimeout(settleViews, 520);
 }
 
@@ -379,14 +379,16 @@ function renderStars(d) {
     </span>`;
 }
 
-// Interaktive Sterne fürs Sheet
-function renderStarInput(d) {
+// Eine Sternereihe fürs Sheet: zeigt den Schnitt und nimmt deine Bewertung an
+function renderStarsCombined(d) {
   const mine = state.stars[d.id] || 0;
+  const avg = d.rating || 0;
+  const shown = mine || Math.round(avg);
   return `
-    <span class="stars-input" data-rate-deal="${esc(d.id)}">
-      ${[1, 2, 3, 4, 5].map(i => icon('star', 'icon' + (i <= mine ? ' on' : ''))).join('')}
-      <span class="stars-count">${mine ? 'deine Bewertung' : 'bewerten'}</span>
-    </span>`;
+    <div class="stars-combined" data-rate-deal="${esc(d.id)}">
+      <span class="stars-input">${[1, 2, 3, 4, 5].map(i => icon('star', 'icon' + (i <= shown ? ' on' : ''))).join('')}</span>
+      <span class="stars-meta">${d.ratingCount ? `${avg.toFixed(1)} von 5 (${d.ratingCount})` : 'Noch keine Bewertungen'}${mine ? ` · deine Bewertung: ${mine}` : ' · tippe einen Stern zum Bewerten'}</span>
+    </div>`;
 }
 
 document.addEventListener('click', async e => {
@@ -419,7 +421,7 @@ document.addEventListener('click', async e => {
   renderFeed();
   if (state.sheetMode === 'deal' && state.currentDeal?.id === id) {
     const slot = $('#sheet-stars-slot');
-    if (slot) slot.innerHTML = renderStars(d) + renderStarInput(d);
+    if (slot) slot.innerHTML = renderStarsCombined(d);
   }
 });
 
@@ -595,10 +597,10 @@ function renderOfferCard(d, i, reorder) {
       <article class="deal offer ${d.channel === 'preisfehler' ? 'deal-pf' : ''} ${d.stale ? 'stale' : ''} ${isFav ? 'faved' : ''}" style="display:block">
         ${q !== null ? `<div class="deal-fill ${q < .4 ? 'low' : ''}" style="height:${Math.round(q * 100)}%"></div>` : ''}
         <div class="offer-head">
-          <span class="brand-chip" style="--bc:${brandColor(brand)}">${esc(brandInitials(brand))}</span>
+          ${brandChipHtml(brand)}
           <div class="offer-brand">
             <div class="offer-merchant">${esc(brand)}</div>
-            <div class="offer-cat">${esc(c?.name || 'Angebot')} · ${esc(timeAgo(d.ts))}</div>
+            <div class="offer-cat">${esc(d.kind === 'gutschein' ? 'Gutscheine' : (c?.name || 'Angebot'))} · ${esc(timeAgo(d.ts))}</div>
           </div>
           <div class="offer-side">
             ${renderStars(d)}
@@ -946,15 +948,18 @@ function openDealSheet(deal) {
     ${images.length ? `
     <div class="gallery">
       <div class="gallery-track" id="gal-track">
-        ${images.map(u => `<img src="${esc(u)}" alt="" draggable="false">`).join('')}
+        ${images.map(u => `<img src="${esc(u)}" alt="" draggable="false" onerror="this.closest('.gallery')?.remove()">`).join('')}
       </div>
       ${images.length > 1 ? `<div class="gallery-dots" id="gal-dots">${images.map((_, i) => `<i class="${i === 0 ? 'on' : ''}"></i>`).join('')}</div>` : ''}
+    </div>` : BRAND_DOMAINS[(d.merchant || '').toLowerCase()] ? `
+    <div class="brand-hero" style="--bc:${brandColor(d.merchant)}">
+      <img src="https://www.google.com/s2/favicons?domain=${BRAND_DOMAINS[(d.merchant || '').toLowerCase()]}&sz=128" alt="${esc(d.merchant)}" onerror="this.closest('.brand-hero').remove()">
     </div>` : ''}
     <div class="sheet-title">${esc(d.title)}</div>
     <div class="sheet-subrow">
       ${d.price ? `<span class="sheet-price">${esc(d.price)}</span>` : ''}
       <span style="font-size:1.05rem">${renderComparePrice(d)}</span>
-      <span id="sheet-stars-slot">${renderStars(d)} ${renderStarInput(d)}</span>
+      <span id="sheet-stars-slot">${renderStarsCombined(d)}</span>
     </div>
     <div class="sheet-subrow">
       ${d.endTs && !d.stale ? `<span class="pill pill-danger" data-cd="${d.endTs}">${cdText(d.endTs)}</span>` : ''}
@@ -991,7 +996,8 @@ function openDealSheet(deal) {
     ${d.excerpt ? `
     <div class="sheet-section">
       <h3>Beschreibung</h3>
-      <div class="sheet-desc">${esc(d.excerpt)}${d.excerpt.length >= 500 ? ' …' : ''}</div>
+      <div class="sheet-desc ${d.excerpt.length > 240 ? 'clamped' : ''}" id="sheet-desc">${esc(d.excerpt)}</div>
+      ${d.excerpt.length > 240 ? '<button class="desc-more" id="desc-more">Mehr anzeigen</button>' : ''}
     </div>` : ''}
     ${c?.rules?.length ? `
     <div class="sheet-section">
@@ -1005,15 +1011,23 @@ function openDealSheet(deal) {
     <div class="sheet-section">
       <h3>${icon('message', 'icon icon-sm')} Kommentare</h3>
       <div id="sheet-comments" class="sheet-comments"><div class="status">Lade …</div></div>
-      <input id="comment-user" class="input" maxlength="24" placeholder="Dein Name (optional)" value="${esc(state.userName)}">
-      <textarea id="comment-text" class="input" maxlength="600" rows="2" placeholder="Kommentar schreiben …"></textarea>
+      <input type="hidden" id="comment-parent" value="">
+      <div id="comment-replyhint" class="form-msg hidden"></div>
+      ${state.token
+        ? `<textarea id="comment-text" class="input" maxlength="600" rows="2" placeholder="Kommentar schreiben …"></textarea>
       <div class="form-row">
         <button id="btn-comment-send" class="btn">Senden</button>
         <span id="comment-msg" class="form-msg"></span>
-      </div>
+      </div>`
+        : '<div class="status">Zum Kommentieren bitte anmelden.</div>'}
     </div>`;
 
-  $('#btn-comment-send').addEventListener('click', sendComment);
+  $('#btn-comment-send')?.addEventListener('click', sendComment);
+  $('#desc-more')?.addEventListener('click', () => {
+    const dd = $('#sheet-desc');
+    const collapsed = dd.classList.toggle('clamped');
+    $('#desc-more').textContent = collapsed ? 'Mehr anzeigen' : 'Weniger anzeigen';
+  });
   $('#btn-sheet-share')?.addEventListener('click', () => shareDeal(d));
   $('#btn-deal-edit')?.addEventListener('click', () => openAdminPost(d));
   $('#btn-sheet-fav').addEventListener('click', () => {
@@ -1033,34 +1047,94 @@ function openDealSheet(deal) {
   refreshComments();
 }
 
+// Ein Kommentar mit Badge, Reaktionen (Like/Hilfreich/Emote), Antworten und Löschen
+function commentHtml(c, replies) {
+  if (c.deleted) {
+    return `<div class="comment"><div class="comment-text chat-deleted">Kommentar gelöscht</div>
+      ${replies.map(r => commentHtml(r, [])).join('')}</div>`;
+  }
+  const badge = c.badge && chatBadges[c.badge]
+    ? `<svg class="icon icon-sm chat-badge"><use href="#i-${chatBadges[c.badge].icon}"/></svg>` : '';
+  const role = c.role === 'admin' ? `<svg class="icon icon-sm chat-badge role-admin"><use href="#i-crown"/></svg>` : '';
+  const rx = c.reactions || {};
+  const mine = k => (rx[k] || []).includes(state.userName);
+  const emoteRx = Object.keys(rx).filter(k => k !== 'like' && k !== 'helpful');
+  const canDelete = state.userName === c.user || ['admin', 'mod'].includes(state.role);
+  return `
+    <div class="comment" data-cid="${esc(c.id)}">
+      <div class="comment-head">
+        ${role}${badge}<span class="comment-user" style="color:${chatColor(c.user)}">@${esc(c.user)}</span>
+        <span class="comment-time">${esc(timeAgo(c.ts))}</span>
+        ${(c.flags || []).map(f => `<span class="pill pill-warn">${icon('warning', 'icon icon-sm')} ${esc(f)}</span>`).join('')}
+      </div>
+      <div class="comment-text">${withEmotes(esc(c.text))}</div>
+      <div class="comment-actions">
+        <button class="c-act ${mine('like') ? 'on' : ''}" data-creact="like">${icon('thumb-up', 'icon icon-sm')} ${(rx.like || []).length || ''}</button>
+        <button class="c-act ${mine('helpful') ? 'on' : ''}" data-creact="helpful">${icon('check', 'icon icon-sm')} Hilfreich ${(rx.helpful || []).length || ''}</button>
+        <button class="c-act" data-cemote="1">${icon('smile', 'icon icon-sm')}</button>
+        <button class="c-act" data-creply="${esc(c.user)}">Antworten</button>
+        ${canDelete ? `<button class="c-act" data-cdel="1">Löschen</button>` : ''}
+        ${emoteRx.map(k => `<button class="c-act emote-rx ${mine(k) ? 'on' : ''}" data-creact="${esc(k)}">${emoteHtml(k)} ${rx[k].length}</button>`).join('')}
+      </div>
+      ${replies.map(r => commentHtml(r, [])).join('')}
+    </div>`;
+}
+
 async function refreshComments() {
   if (!state.currentDeal) return;
   const list = await api('/api/comments?dealId=' + state.currentDeal.id).catch(() => []);
   const box = $('#sheet-comments');
   if (!box) return;
-  box.innerHTML = list.length ? list.map(c => `
-    <div class="comment">
-      <div class="comment-head">
-        <span class="comment-user">@${esc(c.user)}</span>
-        <span class="comment-time">${esc(timeAgo(c.ts))}</span>
-        ${(c.flags || []).map(f => `<span class="pill pill-warn">${icon('warning', 'icon icon-sm')} ${esc(f)}</span>`).join('')}
-      </div>
-      <div class="comment-text">${esc(c.text)}</div>
-    </div>`).join('')
+  const tops = list.filter(c => !c.parent);
+  const repliesOf = id => list.filter(c => c.parent === id);
+  box.innerHTML = tops.length
+    ? tops.map(c => commentHtml(c, repliesOf(c.id))).join('')
     : '<div class="status">Noch keine Kommentare, sei der Erste.</div>';
+
+  const dealId = state.currentDeal.id;
+  const react = (cid, kind) => api('/api/comments/react', {
+    method: 'POST', body: JSON.stringify({ dealId, id: cid, kind }),
+  }).then(refreshComments).catch(e => island(e.message));
+  box.querySelectorAll('[data-creact]').forEach(b => b.onclick = () =>
+    react(b.closest('.comment').dataset.cid, b.dataset.creact));
+  box.querySelectorAll('[data-cemote]').forEach(b => b.onclick = () => {
+    // Kleine Emote-Auswahl direkt unterm Kommentar
+    const names = Object.keys(chatEmotes).slice(0, 12);
+    const cid = b.closest('.comment').dataset.cid;
+    const pick = document.createElement('div');
+    pick.className = 'comment-emote-pick';
+    pick.innerHTML = names.map(n => `<button data-e="${esc(n)}">${emoteHtml(n)}</button>`).join('');
+    b.closest('.comment-actions').after(pick);
+    pick.querySelectorAll('[data-e]').forEach(x => x.onclick = () => { react(cid, x.dataset.e); pick.remove(); });
+    setTimeout(() => document.addEventListener('click', () => pick.remove(), { once: true }), 50);
+  });
+  box.querySelectorAll('[data-creply]').forEach(b => b.onclick = () => {
+    $('#comment-parent').value = b.closest('.comment').dataset.cid;
+    const hint = $('#comment-replyhint');
+    hint.classList.remove('hidden');
+    hint.textContent = `Antwort an @${b.dataset.creply} (tippen zum Abbrechen)`;
+    hint.onclick = () => { $('#comment-parent').value = ''; hint.classList.add('hidden'); };
+    $('#comment-text')?.focus();
+  });
+  box.querySelectorAll('[data-cdel]').forEach(b => b.onclick = async () => {
+    if (!await askConfirm('Diesen Kommentar löschen?', { okLabel: 'Löschen' })) return;
+    api('/api/comments/delete', {
+      method: 'POST', body: JSON.stringify({ dealId, id: b.closest('.comment').dataset.cid }),
+    }).then(refreshComments).catch(e => island(e.message));
+  });
 }
 
 async function sendComment() {
   const msg = $('#comment-msg');
   msg.className = 'form-msg';
   try {
-    state.userName = $('#comment-user').value.trim();
-    localStorage.setItem('ra.user', state.userName);
     await api('/api/comments', {
       method: 'POST',
-      body: JSON.stringify({ dealId: state.currentDeal.id, user: state.userName, text: $('#comment-text').value }),
+      body: JSON.stringify({ dealId: state.currentDeal.id, text: $('#comment-text').value, parent: $('#comment-parent').value }),
     });
     $('#comment-text').value = '';
+    $('#comment-parent').value = '';
+    $('#comment-replyhint').classList.add('hidden');
     msg.textContent = '';
     await refreshComments();
     const d = state.deals.find(x => x.id === state.currentDeal.id);
@@ -1190,9 +1264,10 @@ function refreshProfileTab() {
   $('#auth-card').classList.toggle('hidden', !!state.token);
   $('#me-card').classList.toggle('hidden', !state.token);
   $('#gami-card').classList.toggle('hidden', !state.token);
-  $('#bio-card').classList.toggle('hidden', !state.token);
+  if (!state.token) $('#bio-card').classList.add('hidden'); // öffnet nur über "Profil bearbeiten"
   if (state.token) { $('#me-name').textContent = state.userName; refreshGami(); }
   renderWallet(); // Wallet-Sperre folgt dem Login-Status
+  updateChatGate();
 }
 
 // ---------------- Gamification: Coins, Kisten, Badges ----------------
@@ -1221,16 +1296,30 @@ async function refreshGami() {
   $('#gf-essen').value = favs.essen || '';
   $('#gf-onlineshop').value = favs.onlineshop || '';
   $('#gf-mode').value = favs.mode || '';
-  // Rang aus dem Wallet auch im Profil zeigen
+  // Profil so zeigen, wie Besucher es sehen
   const rank = rankFor(renderWallet.lastTotal || 0);
-  $('#g-rank-row').innerHTML = `<span class="rank-chip">${esc(rank.name)}</span>
-    <span class="rank-next">Wallet-Rang, wächst mit deinem Guthaben</span>`;
+  $('#g-rank-row').innerHTML = `<span class="rank-chip">${esc(rank.name)}</span>`;
+  $('#me-avatar').innerHTML = myProfile.avatar
+    ? `<img class="avatar-big" src="${myProfile.avatar}" alt="">`
+    : `<span class="avatar-big" style="background:${chatColor(state.userName || '?')}">${esc((state.userName || '?')[0].toUpperCase())}</span>`;
+  $('#me-bio').textContent = myProfile.bio || 'Noch keine Bio. Erzähl kurz, wer du bist!';
+  const mf = myProfile.favs || {};
+  $('#me-favs').innerHTML = [
+    mf.discounter && `<span class="pill">Discounter: ${esc(mf.discounter)}</span>`,
+    mf.supermarkt && `<span class="pill">Supermarkt: ${esc(mf.supermarkt)}</span>`,
+    mf.essen && `<span class="pill">Essen: ${esc(mf.essen)}</span>`,
+    mf.onlineshop && `<span class="pill">Onlineshop: ${esc(mf.onlineshop)}</span>`,
+    mf.mode && `<span class="pill">Mode: ${esc(mf.mode)}</span>`,
+  ].filter(Boolean).join('');
+  $('#me-badges').innerHTML = (myProfile.badges || [])
+    .map(id => myProfile.badgesAll[id] ? badgeChip(id, myProfile.badgesAll[id], id === myProfile.activeBadge) : '').join('');
   $('#g-badges').innerHTML = (myProfile.badges || []).length
     ? myProfile.badges.map(id => badgeChip(id, myProfile.badgesAll[id], id === myProfile.activeBadge)).join('')
     : '<span class="form-msg">Noch keine Badges, öffne eine Kiste.</span>';
   // Topbar-Avatar: Profilbild statt Initiale + roter Punkt bei Anfragen
   if (myProfile.avatar && state.token) $('#btn-profile-top').innerHTML = `<img class="avatar-mini avatar-img" src="${myProfile.avatar}" alt="">`;
   updateReqDot();
+  refreshGamiSystem();
   $('#g-badges').querySelectorAll('[data-badge]').forEach(b => b.onclick = async () => {
     const next = myProfile.activeBadge === b.dataset.badge ? '' : b.dataset.badge;
     await api('/api/profile', { method: 'POST', body: JSON.stringify({ activeBadge: next }) }).catch(() => { });
@@ -1265,21 +1354,188 @@ $('#g-daily').addEventListener('click', async () => {
   } catch (e) { m.className = 'form-msg error'; m.textContent = e.message; }
   finally { setBtnLoading($('#g-daily'), false); }
 });
-$('#g-chest').addEventListener('click', async () => {
-  const m = $('#g-msg'); const out = $('#g-chest-result');
-  setBtnLoading($('#g-chest'), true);
-  try {
-    const r = await api('/api/chest', { method: 'POST', body: '{}' });
-    playSfx('kaching'); buzz([40, 30, 60]); moneyFlash('green');
-    animateInt($('#g-coins'), (myProfile?.coins ?? r.coins + 100), r.coins);
-    out.classList.remove('hidden');
-    out.innerHTML = `<div class="chest-reveal">${badgeChip(r.badge, { name: r.name, icon: r.icon, rar: r.rar }, false)}
-      <span>${r.dupe ? 'Schon vorhanden, dafür +40 Coins zurück!' : `Neues Badge (${esc(r.rar)})!`}</span></div>`;
-    m.textContent = '';
+// ---------------- Ränge, Kisten (nur erspielbar) und Paints ----------------
+
+let gami = null;
+const CASE_IMGS = { standard: 'case-01-standard', silber: 'case-02-silber', gold: 'case-03-gold', prisma: 'case-04-prisma' };
+const rankFile = r => `/gamification/rank-${String(r.tier).padStart(2, '0')}-${r.id}.svg`;
+const paintById = id => (gami?.paintsAll || chatPaints || []).find(x => x.id === id);
+
+async function refreshGamiSystem() {
+  if (!state.token) return;
+  try { gami = await api('/api/gami'); } catch { return; }
+  const rank = gami.rank;
+  $('#gm-rank-head').innerHTML = `
+    <div class="gm-rank-row">
+      <img class="px-icon big" src="${rankFile(rank)}" alt="">
+      <div class="gm-rank-text">
+        <b style="color:${rank.color}">${esc(rank.name)}</b>
+        <span>${gami.points} Aktivitätspunkte${gami.next ? `, noch ${gami.next.points - gami.points} bis ${esc(gami.next.name)}` : ', höchste Stufe!'}</span>
+      </div>
+    </div>
+    ${gami.next ? `<div class="rank-progress"><div class="rank-progress-fill" style="width:${Math.round((gami.points - rank.points) / (gami.next.points - rank.points) * 100)}%"></div></div>` : ''}`;
+  // Leiter: erreichte Ränge farbig, offene ausgegraut, Fortschritt motiviert
+  $('#gm-ladder').innerHTML = gami.ranks.map(r => `
+    <div class="gm-step ${r.tier <= rank.tier ? 'done' : ''}" title="${esc(r.name)}${r.tier > rank.tier ? ` ab ${r.points} Punkten` : ''}">
+      <img class="px-icon" src="${rankFile(r)}" alt="${esc(r.name)}">
+      <span>${esc(r.name)}</span>
+    </div>`).join('');
+  $('#gm-cases').innerHTML = gami.cases.length
+    ? gami.cases.map(c => `
+      <button class="gm-case" data-case="${esc(c.id)}">
+        <img class="px-icon big" src="/gamification/${CASE_IMGS[c.type] || CASE_IMGS.standard}.svg" alt="">
+        <span>${esc(c.type)}</span>
+      </button>`).join('')
+    : '<span class="form-msg">Noch keine Kiste. Spar weiter, die nächste kommt bestimmt.</span>';
+  $('#gm-cases').querySelectorAll('[data-case]').forEach(b => b.onclick = () =>
+    openCaseModal(gami.cases.find(c => c.id === b.dataset.case)));
+  $('#gm-paints').innerHTML = (gami.paints || []).length
+    ? gami.paints.map(id => {
+      const pnt = paintById(id);
+      if (!pnt) return '';
+      return `<button class="gm-paint ${gami.activePaint === id ? 'on' : ''}" data-paint="${esc(id)}">
+        <span class="paint" style="--paint:${pnt.css}; color:${pnt.fallbackColor}">${esc(pnt.name)}</span>
+      </button>`;
+    }).join('')
+    : '<span class="form-msg">Paints kommen aus Kisten und färben deinen Namen im Chat.</span>';
+  $('#gm-paints').querySelectorAll('[data-paint]').forEach(b => b.onclick = async () => {
+    const next = gami.activePaint === b.dataset.paint ? '' : b.dataset.paint;
+    await api('/api/paint', { method: 'POST', body: JSON.stringify({ id: next }) }).catch(() => { });
+    gami.activePaint = next;
+    refreshGamiSystem();
+    island(next ? 'Paint angelegt' : 'Paint abgelegt');
+  });
+}
+
+// ---- Kisten-Öffnung: Ergebnis kommt VOR der Animation vom Server, die Walze ist Show
+let caseCtx = null;
+function openCaseModal(box) {
+  if (!box) return;
+  caseCtx = { box, phase: 0, result: null, timers: [] };
+  $('#case-img').src = `/gamification/${CASE_IMGS[box.type] || CASE_IMGS.standard}.svg`;
+  $('#case-img').classList.remove('hidden');
+  $('#case-img').classList.add('case-idle');
+  $('#case-title').textContent = `${box.type.charAt(0).toUpperCase() + box.type.slice(1)}-Kiste`;
+  $('#reel-wrap').classList.add('hidden');
+  $('#case-result').classList.add('hidden');
+  $('#case-open-btn').classList.remove('hidden');
+  $('#case-skip').classList.add('hidden');
+  // Droprates offen zeigen, angepasst an die Kistenart
+  const w = { common: 60, uncommon: 25, rare: 10, epic: 4, legendary: 1 };
+  if (box.type === 'silber') w.common = 30;
+  if (box.type === 'gold') { w.common = 10; w.uncommon = 35; }
+  if (box.type === 'prisma') { w.common = 0; w.uncommon = 20; w.rare = 45; }
+  const tot = Object.values(w).reduce((s, x) => s + x, 0);
+  $('#case-odds-panel').innerHTML = Object.entries(w).filter(([, x]) => x > 0).map(([k, x]) =>
+    `<div class="odds-row"><span style="color:${(gami?.rarity || {})[k]?.color || '#888'}">${esc((gami?.rarity || {})[k]?.label || k)}</span><b>${(x / tot * 100).toFixed(1)} %</b></div>`).join('');
+  $('#case-backdrop').classList.remove('hidden');
+}
+function caseItemHtml(it) {
+  const col = (gami?.rarity || {})[it.rarity]?.color || '#888';
+  return `<div class="reel-item" style="--rc:${col}">
+    ${it.kind === 'badge'
+      ? `<svg class="icon"><use href="#i-${(myProfile?.badgesAll || {})[it.id]?.icon || 'star'}"/></svg>`
+      : `<span class="reel-paint" style="background-image:${paintById(it.id)?.css || 'none'}"></span>`}
+  </div>`;
+}
+async function startCaseOpen() {
+  const { box } = caseCtx;
+  let r;
+  try { r = await api('/api/case/open', { method: 'POST', body: JSON.stringify({ id: box.id }) }); }
+  catch (e) { island(e.message); return; }
+  caseCtx.result = r;
+  $('#case-open-btn').classList.add('hidden');
+  const reveal = () => {
+    caseCtx.timers.forEach(clearTimeout);
+    $('#reel-wrap').classList.add('hidden');
+    $('#case-skip').classList.add('hidden');
+    const col = (gami?.rarity || {})[r.win.rarity]?.color || '#888';
+    const label = (gami?.rarity || {})[r.win.rarity]?.label || r.win.rarity;
+    $('#case-result').classList.remove('hidden');
+    $('#case-result').innerHTML = `
+      <div class="case-win" style="--rc:${col}">
+        ${r.win.kind === 'badge'
+        ? `<svg class="icon" style="width:44px;height:44px"><use href="#i-${(myProfile?.badgesAll || {})[r.win.id]?.icon || 'star'}"/></svg>`
+        : `<span class="reel-paint big" style="background-image:${paintById(r.win.id)?.css || 'none'}"></span>`}
+        <b>${esc(r.win.name)}</b>
+        <span style="color:${col}">${esc(label)}${r.dupe ? ' · schon vorhanden, +40 Coins' : ''}</span>
+      </div>`;
+    buzz(18);
+    playSfx('kaching');
+    refreshGamiSystem();
     refreshGami();
-  } catch (e) { m.className = 'form-msg error'; m.textContent = e.message; }
-  finally { setBtnLoading($('#g-chest'), false); }
+  };
+  if (reducedMotion()) { $('#case-img').classList.add('hidden'); reveal(); return; }
+  // Phase 1: Antizipation
+  $('#case-img').classList.remove('case-idle');
+  $('#case-img').classList.add('case-pop');
+  caseCtx.timers.push(setTimeout(() => {
+    $('#case-img').classList.add('hidden');
+    // Phase 2: Walze, Gewinn liegt fest auf Index 60
+    const pool = [
+      ...(gami?.paintsAll || []).map(x => ({ kind: 'paint', id: x.id, rarity: x.rarity })),
+      ...Object.entries(myProfile?.badgesAll || {}).map(([k, v]) => ({ kind: 'badge', id: k, rarity: v.rar === 'häufig' ? 'common' : v.rar === 'selten' ? 'rare' : 'epic' })),
+    ];
+    const items = Array.from({ length: 64 }, (_, i) => i === 60 ? { ...r.win } : pool[Math.floor(Math.random() * pool.length)]);
+    $('#reel').innerHTML = items.map(caseItemHtml).join('');
+    $('#reel-wrap').classList.remove('hidden');
+    $('#case-skip').classList.remove('hidden');
+    const ITEM_W = 74;
+    const wrapW = $('#reel-wrap').clientWidth;
+    const jitter = (Math.random() * 0.76 - 0.38) * ITEM_W;
+    const target = 60 * ITEM_W + ITEM_W / 2 - wrapW / 2 + jitter;
+    const reel = $('#reel');
+    reel.style.willChange = 'transform';
+    reel.style.transition = 'none';
+    reel.style.transform = 'translate3d(0,0,0)';
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      reel.style.transition = 'transform 4200ms cubic-bezier(0.08, 0.82, 0.12, 1)';
+      reel.style.transform = `translate3d(${-target}px,0,0)`;
+    }));
+    // Phase 3+4: Einrasten und Reveal
+    caseCtx.timers.push(setTimeout(() => {
+      reel.style.willChange = '';
+      const winEl = reel.children[60];
+      winEl?.classList.add('reel-win');
+      caseCtx.timers.push(setTimeout(reveal, 560));
+    }, 4300));
+  }, 340));
+}
+$('#case-open-btn').addEventListener('click', startCaseOpen);
+$('#case-skip').addEventListener('click', () => { if (caseCtx?.result) { caseCtx.timers.forEach(clearTimeout); startCaseOpenReveal(); } });
+// Überspringen springt direkt zum Ergebnis
+function startCaseOpenReveal() {
+  const r = caseCtx.result;
+  if (!r) return;
+  $('#reel-wrap').classList.add('hidden');
+  $('#case-skip').classList.add('hidden');
+  const col = (gami?.rarity || {})[r.win.rarity]?.color || '#888';
+  const label = (gami?.rarity || {})[r.win.rarity]?.label || r.win.rarity;
+  $('#case-result').classList.remove('hidden');
+  $('#case-result').innerHTML = `
+    <div class="case-win" style="--rc:${col}">
+      <b>${esc(r.win.name)}</b>
+      <span style="color:${col}">${esc(label)}${r.dupe ? ' · schon vorhanden, +40 Coins' : ''}</span>
+    </div>`;
+  refreshGamiSystem();
+  refreshGami();
+}
+$('#case-close').addEventListener('click', () => {
+  caseCtx?.timers.forEach(clearTimeout);
+  hideOverlay($('#case-backdrop'));
 });
+$('#case-odds').addEventListener('click', () => $('#case-odds-panel').classList.toggle('hidden'));
+// "Profil bearbeiten": klappt die Bearbeiten-Karte auf und scrollt hin
+$('#btn-edit-profile').addEventListener('click', () => {
+  const c = $('#bio-card');
+  c.classList.toggle('hidden');
+  if (!c.classList.contains('hidden')) {
+    c.classList.add('enter-drop');
+    setTimeout(() => c.classList.remove('enter-drop'), 500);
+    c.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+});
+
 $('#g-bio-save').addEventListener('click', async () => {
   const m = $('#g-bio-msg');
   try {
@@ -1342,10 +1598,11 @@ function toggleTopMenu() {
     <div class="tm-head">
       ${myProfile?.avatar ? `<img class="avatar-big" src="${myProfile.avatar}" alt="">`
         : `<span class="avatar-big" style="background:${chatColor(state.userName || '?')}">${esc((state.userName || '?')[0].toUpperCase())}</span>`}
-      <div>
+      <div style="flex:1">
         <div class="tm-name">${esc(state.userName)} ${state.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : ''}</div>
         <div class="tm-sub">${esc(rank.name)} · ${myProfile?.coins ?? 0} Coins</div>
       </div>
+      <button class="btn btn-small btn-ghost" id="tm-head-profile">Zum Profil</button>
     </div>
     ${reqs.length ? `<div class="tm-section">Freundschaftsanfragen</div>
     ${reqs.map(u => `<div class="tm-req">
@@ -1354,13 +1611,24 @@ function toggleTopMenu() {
       <button class="btn btn-small" data-freq-ok="${esc(u)}">Annehmen</button>
       <button class="btn btn-small btn-ghost" data-freq-no="${esc(u)}">Ablehnen</button>
     </div>`).join('')}` : ''}
-    <button class="tm-item" id="tm-profile">${icon('user', 'icon icon-sm')} Profil öffnen</button>
-    <button class="tm-item" id="tm-wallet">${icon('banknote', 'icon icon-sm')} Wallet</button>
+    <button class="tm-item" id="tm-profile">${icon('user', 'icon icon-sm')} Profil</button>
+    <button class="tm-item" id="tm-favs">${icon('star', 'icon icon-sm')} Favoriten</button>
+    <button class="tm-item" id="tm-settings">${icon('sliders', 'icon icon-sm')} Einstellungen</button>
     <button class="tm-item" id="tm-logout">${icon('x', 'icon icon-sm')} Abmelden</button>`;
   menu.classList.remove('hidden');
   const done = () => menu.classList.add('hidden');
+  $('#tm-head-profile').onclick = () => { done(); switchView('profile'); };
   $('#tm-profile').onclick = () => { done(); switchView('profile'); };
-  $('#tm-wallet').onclick = () => { done(); switchView('wallet'); };
+  $('#tm-favs').onclick = () => {
+    done();
+    state.activeChip = 'saved';
+    renderChipbar(); renderFeed(true);
+    if (state.activeView !== 'feed') switchView('feed');
+  };
+  $('#tm-settings').onclick = () => {
+    done(); switchView('profile');
+    setTimeout(() => $('#settings-app-card').scrollIntoView({ behavior: 'smooth', block: 'center' }), 400);
+  };
   $('#tm-logout').onclick = () => { done(); $('#btn-logout').click(); };
   menu.querySelectorAll('[data-freq-ok]').forEach(b => b.onclick = async () => {
     const r = await api('/api/friend', { method: 'POST', body: JSON.stringify({ user: b.dataset.freqOk, action: 'accept' }) }).catch(e => { island(e.message); });
@@ -1594,6 +1862,31 @@ const OB_STEPS = [
 ];
 let obStep = 0;
 
+// Läuft die App schon als Home-Bildschirm-App? Sonst zeigen wir die Anleitung.
+const isStandalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const uaIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+const uaAndroid = /android/i.test(navigator.userAgent);
+if (!isStandalone && (uaIOS || uaAndroid)) {
+  OB_STEPS.splice(OB_STEPS.length - 1, 0, {
+    title: 'Mach kumulio zur App',
+    text: uaIOS
+      ? 'Füg kumulio zum Home-Bildschirm hinzu, dann läuft alles im Vollbild und der Preisfehler-Alarm funktioniert.'
+      : 'Installier kumulio über das Browser-Menü, dann läuft alles im Vollbild wie eine echte App.',
+    cta: 'Weiter',
+    visual: () => uaIOS ? `
+      <div class="ob-install">
+        <div class="ob-install-step"><b>1</b> Unten das ${icon('share', 'icon icon-sm')} Teilen-Symbol antippen</div>
+        <div class="ob-install-step"><b>2</b> "Zum Home-Bildschirm" wählen</div>
+        <div class="ob-install-step"><b>3</b> Oben rechts auf "Hinzufügen"</div>
+      </div>` : `
+      <div class="ob-install">
+        <div class="ob-install-step"><b>1</b> Oben rechts das Menü (⋮) öffnen</div>
+        <div class="ob-install-step"><b>2</b> "App installieren" antippen</div>
+        <div class="ob-install-step"><b>3</b> Bestätigen, fertig</div>
+      </div>`,
+  });
+}
+
 function renderObStep() {
   const s = OB_STEPS[obStep];
   const stepEl = $('#ob-step');
@@ -1610,11 +1903,13 @@ function renderObStep() {
   next.style.animation = 'none';
   requestAnimationFrame(() => { next.style.animation = ''; });
   $('#ob-extra').innerHTML = s.final ? `
+    <button class="ob-alt" id="ob-login">Schon angemeldet? Hier einloggen</button>
     <button class="ob-alt" id="ob-continue">Ohne Konto fortfahren</button>
     <p class="legal-line">Mit dem Konto akzeptierst du die
       <a href="/agb.html" target="_blank" rel="noopener">AGB</a> und die
       <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutzerklärung</a>.</p>` : '';
   $('#ob-continue')?.addEventListener('click', () => finishOnboarding(false));
+  $('#ob-login')?.addEventListener('click', () => { finishOnboarding(false); switchView('profile'); });
   $('#ob-skip').classList.toggle('hidden', !!s.final);
 }
 
@@ -1947,6 +2242,7 @@ async function analyzeWalletImage(dataUrl, statusCb) {
 
 // Große, interaktive Shop-Auswahl beim Hinzufügen (erst 6, Rest hinter "Weitere")
 const VENDOR_GRID = ['REWE', 'Amazon', 'Wunschgutschein', 'Zalando', 'IKEA', 'Rossmann', 'Lidl', 'EDEKA', 'Netto', 'dm', 'Müller', 'MediaMarkt', 'H&M', 'Douglas', 'Nike', 'Anderer Gutschein'];
+const CARD_GRID = ['Payback', 'DeutschlandCard', 'Lidl Plus', 'IKEA Family', 'Rossmann', 'REWE', 'dm', 'Andere Karte'];
 
 // Marken-Logos über den Favicon-Dienst, Initialen bleiben als Fallback darunter
 const BRAND_DOMAINS = {
@@ -1955,6 +2251,7 @@ const BRAND_DOMAINS = {
   edeka: 'edeka.de', netto: 'netto-online.de', dm: 'dm.de', 'müller': 'mueller.de',
   mediamarkt: 'mediamarkt.de', 'h&m': 'hm.com', douglas: 'douglas.de', nike: 'nike.com',
   payback: 'payback.de', wolt: 'wolt.com', lieferando: 'lieferando.de', spotify: 'spotify.com',
+  deutschlandcard: 'deutschlandcard.de', 'lidl plus': 'lidl.de', 'ikea family': 'ikea.com',
 };
 function brandChipHtml(name) {
   const domain = BRAND_DOMAINS[String(name || '').toLowerCase()];
@@ -1993,7 +2290,13 @@ function openWalletAdd(type, prefillName) {
 
     ${isCard ? `
     <label class="f-label">Karte <span class="req">*</span></label>
-    <input id="wa-cname" class="input" maxlength="30" placeholder="Payback, Lidl Plus, IKEA Family …" value="${esc(addPrefill)}">
+    <div class="vendor-grid" id="wa-card-grid">
+      ${CARD_GRID.map(v => `<button class="vendor-tile ${addPrefill === v ? 'on' : ''}" data-cg="${esc(v)}">
+        ${brandChipHtml(v)}
+        <span>${esc(v)}</span>
+      </button>`).join('')}
+    </div>
+    <input id="wa-cname" class="input ${addPrefill && !CARD_GRID.includes(addPrefill) ? '' : 'hidden'}" maxlength="30" placeholder="Kartenname eintippen" value="${esc(addPrefill && !CARD_GRID.includes(addPrefill) ? addPrefill : '')}">
     <label class="f-label">Kartennummer <span class="req">*</span></label>
     <input id="wa-cnumber" class="input" maxlength="30" placeholder="Nummer auf der Karte">
     ` : `
@@ -2047,6 +2350,21 @@ function openWalletAdd(type, prefillName) {
     }
   }));
   const currentVendor = () => pickedVendor || $('#wa-vendor')?.value.trim() || '';
+
+  // Karten-Kacheln (Sparkarten): gleiche Mechanik wie beim Gutschein
+  let pickedCard = CARD_GRID.includes(addPrefill) ? addPrefill : '';
+  $('#sheet-content').querySelectorAll('[data-cg]').forEach(b => b.addEventListener('click', () => {
+    $('#sheet-content').querySelectorAll('[data-cg]').forEach(x => x.classList.toggle('on', x === b));
+    if (b.dataset.cg === 'Andere Karte') {
+      pickedCard = '';
+      $('#wa-cname').classList.remove('hidden');
+      $('#wa-cname').focus();
+    } else {
+      pickedCard = b.dataset.cg;
+      $('#wa-cname').classList.add('hidden');
+    }
+  }));
+  const currentCard = () => pickedCard || $('#wa-cname')?.value.trim() || '';
 
   const handleImageFile = async f => {
     const m = $('#wa-ai-msg');
@@ -2154,11 +2472,13 @@ function openWalletAdd(type, prefillName) {
     } else {
       const c = {
         id: Math.random().toString(36).slice(2, 9),
-        name: $('#wa-cname').value.trim().slice(0, 30),
+        name: currentCard().slice(0, 30),
         number: $('#wa-cnumber').value.trim().slice(0, 30),
         img: addImg, codeImg: addCodeImg,
       };
-      if (!c.name || !c.number) { msg.className = 'form-msg error'; msg.textContent = 'Name und Nummer sind Pflicht.'; return; }
+      $('#wa-cnumber').classList.toggle('err', !c.number);
+      $('#wa-card-grid')?.classList.toggle('err', !c.name);
+      if (!c.name || !c.number) { msg.className = 'form-msg error'; msg.textContent = !c.name ? 'Bitte eine Karte auswählen.' : 'Bitte die Kartennummer eintragen.'; return; }
       state.wallet.cards.unshift(c);
     }
     saveWallet();
@@ -2633,6 +2953,8 @@ refreshPushBtn();
 
 let chatEmotes = {};
 let chatBadges = {};
+let chatPaints = [];
+let chatRanks = [];
 let chatLastTs = 0;
 
 const CHAT_COLORS = ['#e91e63', '#9c27b0', '#3f51b5', '#03a9f4', '#009688', '#4caf50', '#ff9800', '#f44336', '#8d6e63', '#607d8b'];
@@ -2667,8 +2989,15 @@ function chatMsgHtml(m) {
     : '';
   const role = m.role === 'admin' ? `<svg class="icon icon-sm chat-badge role-admin" aria-label="Admin"><use href="#i-crown"/></svg>`
     : m.role === 'mod' ? `<svg class="icon icon-sm chat-badge role-mod" aria-label="Mod"><use href="#i-check"/></svg>` : '';
+  // Rang-Icon (Pixel-Art, 20px) vor dem Namen, Paint färbt den Namen
+  const rk = chatRanks.find(x => x.tier === (m.rank || 1));
+  const rankImg = rk && rk.tier > 1
+    ? `<img class="px-icon rank-badge" src="/gamification/rank-${String(rk.tier).padStart(2, '0')}-${rk.id}.svg" alt="" title="${esc(rk.name)}">`
+    : '';
+  const pnt = m.paint ? chatPaints.find(x => x.id === m.paint) : null;
+  const nameStyle = pnt ? `--paint:${pnt.css}; color:${pnt.fallbackColor}` : `color:${chatColor(m.user)}`;
   return `<div class="chat-msg ${m.user === state.userName ? 'own' : ''}" data-mid="${esc(m.id)}">
-    ${role}${badge}<span class="chat-user" style="color:${chatColor(m.user)}">${esc(m.user)}</span>
+    ${rankImg}${role}${badge}<span class="chat-user ${pnt ? 'paint' : ''}" style="${nameStyle}">${esc(m.user)}</span>
     <span class="chat-text">${withEmotes(esc(m.text))}</span>
     ${msgMenuHtml(m.user === state.userName, m.id)}
   </div>`;
@@ -2728,6 +3057,8 @@ async function pollChat(force) {
       const r = await api('/api/chat?since=' + chatLastTs);
       chatEmotes = r.emotes || chatEmotes;
       chatBadges = r.badges || chatBadges;
+      chatPaints = r.paints || chatPaints;
+      chatRanks = r.ranks || chatRanks;
       renderPinbar(r.pinned);
       // Nachträglich gelöschte Nachrichten gegen den Platzhalter tauschen
       (r.updates || []).forEach(id => {
@@ -2969,8 +3300,20 @@ $('#chat-list').addEventListener('touchstart', e => {
   $('#chat-list').addEventListener(t, () => clearTimeout(pressTimer), { passive: true }));
 document.querySelectorAll('[data-cmode]').forEach(b => b.addEventListener('click', () => setChatMode(b.dataset.cmode)));
 $('#dm-back').addEventListener('click', () => setChatMode('dmlist'));
+
+// Gäste: Chat nur verschwommen, Eingabe zu, klarer Anmelden-Weg
+function updateChatGate() {
+  const guest = !state.token;
+  $('#view-chat').classList.toggle('guest', guest);
+  $('#chat-gate').classList.toggle('hidden', !guest);
+  $('#chat-input').disabled = guest;
+  $('#chat-send').disabled = guest;
+}
+$('#chat-gate-login').addEventListener('click', () => switchView('profile'));
 function toggleEmotes() {
   const el = $('#chat-emotes');
+  // Box macht Platz, damit die letzten Nachrichten sichtbar bleiben
+  $('#view-chat').classList.toggle('emotes-open', el.classList.contains('hidden'));
   if (el.classList.contains('hidden')) {
     el.innerHTML = Object.keys(chatEmotes).length
       ? Object.keys(chatEmotes).map(n => `<button class="emote-pick" data-emote="${esc(n)}">${emoteHtml(n)}</button>`).join('')
@@ -2999,6 +3342,11 @@ setInterval(pollChat, 3000);
   refreshProfileTab();
   renderWallet();
   initTurnstile();
+  // Emotes und Badge-Katalog früh laden, damit Kommentare und Chat sie kennen
+  api('/api/chat?since=99999999999999').then(r => {
+    chatEmotes = r.emotes || {};
+    chatBadges = r.badges || {};
+  }).catch(() => { });
   if (state.token) {
     api('/api/me').then(r => { state.userName = r.user; state.role = r.role || ''; refreshProfileTab(); pullWallet(); refreshAdminUi(); })
       .catch(() => { state.token = ''; localStorage.removeItem('ra.token'); refreshProfileTab(); });

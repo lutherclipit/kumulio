@@ -1,0 +1,111 @@
+{
+ "paints": [
+  {
+   "id": "kupfer",
+   "name": "Kupfer",
+   "rarity": "common",
+   "drop": 1,
+   "css": "linear-gradient(92deg,#7A3E14 0%,#B87333 45%,#E09A5A 100%)",
+   "fallbackColor": "#a05c1e"
+  },
+  {
+   "id": "silberlack",
+   "name": "Silberlack",
+   "rarity": "common",
+   "drop": 3,
+   "css": "linear-gradient(92deg,#5A6472 0%,#DCE3EA 48%,#8B96A5 100%)",
+   "fallbackColor": "#6b7686"
+  },
+  {
+   "id": "mint",
+   "name": "Mint",
+   "rarity": "uncommon",
+   "drop": 5,
+   "css": "linear-gradient(92deg,#0E7A52 0%,#12C77E 55%,#6EE7B4 100%)",
+   "fallbackColor": "#0e9c64"
+  },
+  {
+   "id": "nachtblau",
+   "name": "Nachtblau",
+   "rarity": "uncommon",
+   "drop": 7,
+   "css": "linear-gradient(92deg,#1E3A8A 0%,#3B82F6 55%,#93C5FD 100%)",
+   "fallbackColor": "#3b6fd6"
+  },
+  {
+   "id": "tresorstahl",
+   "name": "Tresorstahl",
+   "rarity": "rare",
+   "drop": 9,
+   "css": "linear-gradient(180deg,#C9D2DC 0%,#606B7B 42%,#39404D 52%,#8B96A5 100%)",
+   "fallbackColor": "#4a7dc4"
+  },
+  {
+   "id": "amethyst",
+   "name": "Amethyst",
+   "rarity": "rare",
+   "drop": 8,
+   "css": "linear-gradient(92deg,#4C1D95 0%,#8B5CF6 50%,#C4B5FD 100%)",
+   "fallbackColor": "#8b5cf6"
+  },
+  {
+   "id": "goldrausch",
+   "name": "Goldrausch",
+   "rarity": "epic",
+   "drop": 6,
+   "anim": "shimmer",
+   "css": "linear-gradient(100deg,#8A5A00 0%,#E8A317 30%,#FFF3C4 50%,#E8A317 70%,#8A5A00 100%)",
+   "fallbackColor": "#c28f00"
+  },
+  {
+   "id": "neon",
+   "name": "Neon",
+   "rarity": "epic",
+   "drop": 9,
+   "glow": "#EC4899",
+   "css": "linear-gradient(92deg,#EC4899 0%,#F9A8D4 50%,#8B5CF6 100%)",
+   "fallbackColor": "#c026d3"
+  },
+  {
+   "id": "prisma",
+   "name": "Prisma",
+   "rarity": "legendary",
+   "drop": 10,
+   "anim": "holo",
+   "css": "linear-gradient(100deg,#12C77E,#3B82F6,#8B5CF6,#EC4899,#F5B301,#12C77E)",
+   "fallbackColor": "#7c6bd8"
+  },
+  {
+   "id": "legende",
+   "name": "Legende",
+   "rarity": "legendary",
+   "drop": 10,
+   "anim": "sweep",
+   "glow": "#F5B301",
+   "css": "linear-gradient(100deg,#8A5A00 0%,#F5B301 25%,#FFFFFF 50%,#F5B301 75%,#8A5A00 100%)",
+   "fallbackColor": "#c98a00"
+  }
+ ],
+ "rarity": {
+  "common": [
+   "#8B96A5",
+   "Gewöhnlich"
+  ],
+  "uncommon": [
+   "#12C77E",
+   "Ungewöhnlich"
+  ],
+  "rare": [
+   "#3B82F6",
+   "Selten"
+  ],
+  "epic": [
+   "#8B5CF6",
+   "Episch"
+  ],
+  "legendary": [
+   "#F5B301",
+   "Legendär"
+  ]
+ }
+}
