@@ -1795,8 +1795,34 @@ async function zxingDetect(img) {
   } catch { return null; }
 }
 
-async function analyzeWalletImage(dataUrl) {
-  const out = { barcode: '', codeImg: '', text: '', supported: { barcode: true, text: 'TextDetector' in window } };
+// Text im Bild lesen (Kartennummer, PIN, Wert): Tesseract-OCR, lokal aus
+// public/vendor/tesseract – lädt nur beim ersten Gebrauch, Fortschritt via Callback
+let ocrWorkerPromise = null;
+let ocrStatusCb = null;
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = src; s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
+}
+async function getOcrWorker() {
+  if (!ocrWorkerPromise) {
+    ocrWorkerPromise = (async () => {
+      if (!window.Tesseract) await loadScript('/vendor/tesseract/tesseract.min.js');
+      return Tesseract.createWorker('deu', 1, {
+        workerPath: '/vendor/tesseract/worker.min.js',
+        corePath: '/vendor/tesseract/tesseract-core-simd.wasm.js',
+        langPath: '/vendor/tesseract',
+        logger: m => { if (m.status === 'recognizing text') ocrStatusCb?.(Math.round(m.progress * 100)); },
+      });
+    })().catch(e => { ocrWorkerPromise = null; throw e; });
+  }
+  return ocrWorkerPromise;
+}
+
+async function analyzeWalletImage(dataUrl, statusCb) {
+  const out = { barcode: '', codeImg: '', text: '', supported: { barcode: true, text: true } };
   const img = new Image();
   await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = dataUrl; });
   if ('BarcodeDetector' in window) {
@@ -1814,15 +1840,23 @@ async function analyzeWalletImage(dataUrl) {
     if (r) {
       out.barcode = r.text || '';
       out.codeImg = out.codeImg || cropCode(img, r.box);
-    } else if (!('BarcodeDetector' in window) && !window.ZXing) {
-      out.supported.barcode = false;
     }
   }
-  if (out.supported.text) {
+  // Text lesen: erst der schnelle native Weg (falls vorhanden), sonst Tesseract
+  if ('TextDetector' in window) {
     try {
       const blocks = await new TextDetector().detect(img);
       out.text = blocks.map(b => b.rawValue).join('\n');
     } catch { }
+  }
+  if (!out.text) {
+    try {
+      ocrStatusCb = statusCb || null;
+      const worker = await getOcrWorker();
+      const { data } = await worker.recognize(dataUrl);
+      out.text = data.text || '';
+    } catch { out.supported.text = false; }
+    finally { ocrStatusCb = null; }
   }
   return out;
 }
@@ -1916,19 +1950,24 @@ function openWalletAdd(type, prefillName) {
       $('#wa-drop-empty').classList.add('hidden');
       m.className = 'form-msg';
       m.textContent = 'Lese das Bild aus …';
-      const r = await analyzeWalletImage(addImg);
+      const r = await analyzeWalletImage(addImg, p => {
+        m.textContent = `Lese den Text im Bild … ${p} % (kann beim ersten Mal etwas dauern)`;
+      });
       if (r.codeImg) { addCodeImg = r.codeImg; $('#wa-preview').src = r.codeImg; }
       const filled = [];
       if (addType === 'voucher') {
         if (r.barcode && !$('#wa-code').value) { $('#wa-code').value = r.barcode.slice(0, 40); filled.push('Code (aus QR/Barcode)'); }
         if (r.text) {
-          const pin = r.text.match(/\bpin\b[^0-9]{0,6}(\d{3,10})/i);
+          // PIN darf ruhig weiter weg vom Wort stehen („PIN für Online-Guthabenabfrage 0689")
+          const pin = r.text.match(/\bpin\b\D{0,60}?(\d{3,10})\b/i);
           if (pin && !$('#wa-pin').value) { $('#wa-pin').value = pin[1]; filled.push('PIN'); }
           const amt = r.text.match(/(\d{1,4}[.,]\d{2})\s*€|\b(\d{1,3})\s*(?:€|EUR)\b/i);
           if (amt && !$('#wa-amount').value) { $('#wa-amount').value = (amt[1] || amt[2]).replace('.', ','); filled.push('Wert'); }
-          if (!r.barcode && !$('#wa-code').value) {
-            const code = detectCode(r.text);
-            if (code) { $('#wa-code').value = code; filled.push('Code'); }
+          if (!$('#wa-code').value) {
+            // Beschriftete Kartennummer schlägt alles („Kartennummer 2094 2565 …")
+            const kn = r.text.match(/karten\s*-?\s*(?:nr\.?|nummer)\D{0,30}?(\d[\d ]{6,28}\d)/i);
+            const code = kn ? kn[1].replace(/\s+/g, '') : (!r.barcode ? detectCode(r.text) : '');
+            if (code) { $('#wa-code').value = code.slice(0, 40); filled.push('Kartennummer'); }
           }
           const low = r.text.toLowerCase();
           if (!currentVendor()) {
@@ -1943,18 +1982,16 @@ function openWalletAdd(type, prefillName) {
         }
       } else {
         if (r.barcode && !$('#wa-cnumber').value) { $('#wa-cnumber').value = r.barcode.slice(0, 30); filled.push('Kartennummer (aus Barcode)'); }
-        else if (r.text) {
-          const num = (r.text.match(/\d[\d ]{8,24}\d/g) || []).sort((a, b) => b.length - a.length)[0];
-          if (num && !$('#wa-cnumber').value) { $('#wa-cnumber').value = num.replace(/\s+/g, ''); filled.push('Kartennummer'); }
+        else if (r.text && !$('#wa-cnumber').value) {
+          const kn = r.text.match(/karten\s*-?\s*(?:nr\.?|nummer)\D{0,30}?(\d[\d ]{6,28}\d)/i);
+          const num = kn ? kn[1] : (r.text.match(/\d[\d ]{8,24}\d/g) || []).sort((a, b) => b.length - a.length)[0];
+          if (num) { $('#wa-cnumber').value = num.replace(/\s+/g, '').slice(0, 30); filled.push('Kartennummer'); }
         }
       }
       if (r.codeImg) filled.push('Kassen-Code ausgeschnitten');
       if (filled.length) {
         m.className = 'form-msg ok';
         m.textContent = `Automatisch ausgefüllt: ${filled.join(', ')} – bitte prüfen.`;
-      } else if (!r.supported.barcode && !r.supported.text) {
-        m.className = 'form-msg';
-        m.textContent = 'Bild gespeichert. Automatische Auslese kann dieser Browser nicht – volle KI-Auslese kommt mit dem Backend.';
       } else {
         m.className = 'form-msg';
         m.textContent = 'Bild gespeichert – nichts sicher erkannt, bitte Felder ausfüllen.';
