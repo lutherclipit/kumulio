@@ -83,6 +83,9 @@
     </div>
   </header>
 
+  <!-- Dropdown-Menü (Avatar oben rechts): Anfragen, Coins, Profil, Abmelden -->
+  <div id="top-menu" class="hidden"></div>
+
   <!-- ================= ONBOARDING (erster Start, Fullscreen) ================= -->
   <div id="onboard" class="hidden">
     <div class="ob-logo" id="ob-logo">
@@ -112,8 +115,8 @@
           <button id="btn-register-open" class="btn btn-ghost">Neu hier? Registrieren</button>
         </div>
         <div id="auth-msg" class="form-msg" style="margin-top:8px"></div>
-        <p class="muted" style="font-size:.76rem; margin-top:10px">Prototyp-Hinweis: Konten liegen
-          nur lokal auf diesem Server. Kein Passwort verwenden, das du woanders nutzt.</p>
+        <p class="muted" style="font-size:.76rem; margin-top:10px">Dein Passwort wird nie im Klartext
+          gespeichert, sondern nur als verschlüsselter Hash auf unserem Server.</p>
       </div>
       <div class="card modal-left hidden" id="me-card">
         <h2 class="card-h">Angemeldet als <span id="me-name"></span></h2>
@@ -126,7 +129,7 @@
       <!-- Gamification: Coins sammeln, Kisten öffnen, Badges tragen (kein Echtgeld) -->
       <div class="card modal-left hidden" id="gami-card">
         <h2 class="card-h">Deine Coins: <span id="g-coins">0</span></h2>
-        <p class="muted" style="font-size:.82rem">Täglich einloggen bringt Coins – je länger die
+        <p class="muted" style="font-size:.82rem">Täglich einloggen bringt Coins, je länger die
           Serie, desto mehr. Mit 100 Coins öffnest du eine Kiste mit einem Badge. Kein Echtgeld, nur Spaß.</p>
         <div class="form-row">
           <button id="g-daily" class="btn">Täglichen Bonus abholen</button>
@@ -142,7 +145,7 @@
       <div class="card modal-left" id="push-card">
         <h2 class="card-h">Preisfehler-Alarm</h2>
         <p class="muted" style="font-size:.82rem">Sobald die Redaktion einen Preisfehler postet,
-          bekommst du eine Benachrichtigung – auch bei geschlossener App.
+          bekommst du eine Benachrichtigung, auch bei geschlossener App.
           Auf dem iPhone funktioniert das, wenn kumulio zum Home-Bildschirm hinzugefügt ist.</p>
         <div class="form-row">
           <button id="push-enable" class="btn">Alarm aktivieren</button>
@@ -159,7 +162,7 @@
             <input id="g-avatar" type="file" accept="image/*" style="display:none"></label>
           <button id="g-avatar-del" class="btn btn-small btn-ghost hidden">Entfernen</button>
         </div>
-        <textarea id="g-bio" class="input" rows="2" maxlength="160" placeholder="Kurze Bio (max. 160 Zeichen) – Beleidigungen werden gefiltert" style="margin-top:10px"></textarea>
+        <textarea id="g-bio" class="input" rows="2" maxlength="160" placeholder="Kurze Bio (max. 160 Zeichen), Beleidigungen werden gefiltert" style="margin-top:10px"></textarea>
         <div class="favs-grid">
           <input id="gf-discounter" class="input" maxlength="30" placeholder="Lieblings-Discounter">
           <input id="gf-supermarkt" class="input" maxlength="30" placeholder="Lieblings-Supermarkt">
@@ -209,7 +212,7 @@
       <div id="community-banner" class="notice hidden">
         <svg class="icon notice-icon"><use href="#i-warning"/></svg>
         <div class="notice-body">
-          <strong>Kuratierter Kanal.</strong> Angebote hier prüft die Redaktion – bei Referral-Links
+          <strong>Kuratierter Kanal.</strong> Angebote hier prüft die Redaktion, bei Referral-Links
           und externen Anbietern gilt trotzdem: alles auf eigene Gefahr.
         </div>
       </div>
@@ -264,7 +267,7 @@
     <!-- ================= GLOBAL-CHAT ================= -->
     <section id="view-chat" class="view hidden">
       <h1>Chat</h1>
-      <p class="muted">Der globale kumulio-Chat – Deals, Fragen, Sparerfolge. Sei nett:
+      <p class="muted">Der globale kumulio-Chat, Deals, Fragen, Sparerfolge. Sei nett:
         Beleidigungen werden zensiert, die Moderation kann timeouten.</p>
       <div id="chat-modes">
         <button class="chip active" data-cmode="global">Global</button>
@@ -330,7 +333,7 @@
       <input id="reg-pass" class="input" type="password" maxlength="64" placeholder="Passwort (min. 6 Zeichen)" autocomplete="new-password">
       <label class="check-row">
         <input type="checkbox" id="reg-news">
-        <span>Newsletter: neue Top-Deals per E-Mail – damit du nichts verpasst (optional)</span>
+        <span>Newsletter: neue Top-Deals per E-Mail, damit du nichts verpasst (optional)</span>
       </label>
       <p class="legal-line">Mit dem Konto akzeptierst du die
         <a href="/agb.html" target="_blank" rel="noopener">AGB</a> und die
@@ -351,7 +354,7 @@
     <div class="modal">
       <img src="/logo.svg" alt="" width="60" height="60">
       <h1>Willkommen bei kumulio</h1>
-      <p class="muted">Deals landen automatisch in deinem Feed – aber nur aus Kanälen,
+      <p class="muted">Deals landen automatisch in deinem Feed, aber nur aus Kanälen,
         denen du folgst. Wähl deine Interessen:</p>
       <div id="onboarding-channels" class="onboarding-grid"></div>
       <button id="btn-onboarding-done" class="btn btn-big">Los geht's</button>
@@ -373,7 +376,7 @@
     <div class="modal welcome-modal">
       <div id="welcome-mark"></div>
       <h2 id="welcome-title">Willkommen!</h2>
-      <p class="muted">Dein kumulio-Konto ist bereit – viel Spaß beim Sparen.</p>
+      <p class="muted">Dein kumulio-Konto ist bereit, viel Spaß beim Sparen.</p>
     </div>
   </div>
 

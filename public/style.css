@@ -1434,3 +1434,67 @@ input, textarea, select, button { touch-action: manipulation; }
 .favs-view { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 
 @media (max-width: 420px) { .vendor-grid { grid-template-columns: repeat(3, 1fr); } }
+
+/* ================= Dropdown-Menü, Command-Palette, Filter-Markierung ================= */
+
+#top-menu {
+  position: fixed; top: calc(60px + env(safe-area-inset-top, 0px)); right: 12px; z-index: 60;
+  width: min(320px, calc(100vw - 24px));
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--stroke-light); border-radius: 18px;
+  box-shadow: var(--glass-edge), var(--shadow);
+  padding: 14px; animation: enterDrop .4s cubic-bezier(.3,1.35,.45,1) backwards;
+}
+.tm-head { display: flex; align-items: center; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--stroke-light); }
+.tm-name { font-weight: 800; }
+.tm-sub { font-size: .78rem; opacity: .65; }
+.tm-section { font-size: .72rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; opacity: .55; margin: 12px 0 6px; }
+.tm-req { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+.tm-item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 11px 8px; margin-top: 4px; border: none; border-radius: 12px;
+  background: none; color: var(--text); font: inherit; font-weight: 700; font-size: .9rem;
+  cursor: pointer; text-align: left;
+}
+.tm-item:hover { background: var(--surface); }
+#btn-profile-top { position: relative; }
+#btn-profile-top.has-dot::after {
+  content: ""; position: absolute; top: 4px; right: 4px;
+  width: 9px; height: 9px; border-radius: 999px; background: #e5484d;
+  border: 2px solid var(--bg, #fff);
+}
+
+/* Command-Palette überm Eingabefeld */
+#chat-cmds {
+  display: none; margin-bottom: 8px;
+  background: var(--surface); border: 1px solid var(--stroke-light);
+  border-radius: 14px; padding: 6px; animation: enterDrop .3s ease backwards;
+}
+.cmd-row {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 8px 10px; border: none; border-radius: 10px; background: none;
+  color: var(--text); font: inherit; font-size: .84rem; cursor: pointer; text-align: left;
+}
+.cmd-row:hover { background: var(--surface-2); }
+.cmd-row b { min-width: 74px; color: var(--k-accent, #12C77E); }
+.cmd-row span { opacity: .7; }
+
+/* Gelöschte Nachricht */
+.chat-deleted { opacity: .45; font-style: italic; }
+
+/* Wallet-Filter: aktiver Chip klar erkennbar, hell wie dunkel */
+.wallet-filters .chip.active {
+  background: var(--k-accent, #12C77E) !important;
+  color: #fff !important;
+  border-color: var(--k-accent, #12C77E) !important;
+  box-shadow: 0 4px 14px rgba(18,199,126,.35);
+}
+
+/* Marken-Logo im Chip: liegt über den Initialen, fällt bei Fehler weg */
+.brand-chip { position: relative; overflow: hidden; }
+.brand-chip .brand-logo {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: contain; padding: 4px; background: #fff; border-radius: inherit;
+}
+.vendor-tile .brand-chip { width: 34px; height: 34px; }

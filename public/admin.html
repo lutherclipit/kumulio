@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>kumulio – Admin</title>
+  <title>kumulio Admin</title>
   <link rel="icon" href="/brand/kumulio-icon.svg" type="image/svg+xml">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -42,7 +42,7 @@
 </head>
 <body>
 <main>
-  <h1><img src="/brand/kumulio-icon.svg" alt="" style="border-radius:9px"> kumulio – Admin</h1>
+  <h1><img src="/brand/kumulio-icon.svg" alt="" style="border-radius:9px"> kumulio Admin</h1>
   <p class="sub">Startseiten-Kacheln pflegen. Der Admin-Key steht in <code>data/admin-key.txt</code>
     (und beim Serverstart in der Konsole).</p>
 
@@ -120,7 +120,7 @@
     <strong>Neue Kachel</strong>
     <label>Titel *</label><input id="f-title" maxlength="90" placeholder="z. B. AirPods Pro 2 für 189 €">
     <label>Preis</label><input id="f-price" maxlength="20" placeholder="189 €">
-    <label>Kurzzeile</label><input id="f-tag" maxlength="80" placeholder="z. B. Bestpreis – nur heute">
+    <label>Kurzzeile</label><input id="f-tag" maxlength="80" placeholder="z. B. Bestpreis, nur heute">
     <label>Bild-URL</label><input id="f-img" placeholder="https://…">
     <label>Deal-Link</label><input id="f-link" placeholder="https://…">
     <div class="row">
@@ -150,7 +150,7 @@
     const chs = await (await fetch('/api/channels')).json();
     $('#d-channel').innerHTML = chs.filter(c => c.type === 'community')
       .map(c => `<option value="${c.slug}">${c.name}</option>`).join('');
-    msg('Angemeldet – ' + items.length + ' Kachel(n).', 'ok');
+    msg('Angemeldet, ' + items.length + ' Kachel(n).', 'ok');
     render();
     loadPosts();
     loadUsers();
@@ -257,7 +257,7 @@
     if (r.compare && r.compare.priceNum != null) $('#d-compare').value = String(r.compare.priceNum).replace('.', ',');
     if (r.draft) $('#d-text').value = r.draft;
     $('#d-image').value = r.image || '';
-    dmsg('Übernommen – bitte prüfen.', 'ok');
+    dmsg('Übernommen, bitte prüfen.', 'ok');
   };
 
   $('#btn-post-deal').onclick = async () => {
@@ -277,7 +277,7 @@
     if (!r.ok) { dmsg(j.error || 'Fehler', 'err'); return; }
     ['d-link', 'd-title', 'd-text', 'd-price', 'd-compare', 'd-end', 'd-image'].forEach(id => $('#' + id).value = '');
     $('#d-newcustomer').checked = false;
-    dmsg('Deal veröffentlicht – sofort in der App sichtbar.', 'ok');
+    dmsg('Deal veröffentlicht, sofort in der App sichtbar.', 'ok');
   };
 
   async function saveAll() {
@@ -289,7 +289,7 @@
     if (!r.ok) { msg('Speichern fehlgeschlagen (Key falsch?).', 'err'); return false; }
     items = await r.json();
     render();
-    msg('Gespeichert – die App zeigt es sofort.', 'ok');
+    msg('Gespeichert, die App zeigt es sofort.', 'ok');
     return true;
   }
 

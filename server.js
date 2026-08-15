@@ -1,4 +1,4 @@
-// RabattArchiv – lokaler Server (keine Abhängigkeiten, Node >= 18)
+// RabattArchiv, lokaler Server (keine Abhängigkeiten, Node >= 18)
 // Echte Deals per mydealz-RSS, Community-Posts + Kommentare als JSON auf Platte.
 
 const http = require('http');
@@ -19,19 +19,19 @@ const DATA = process.env.RA_DATA_DIR || path.join(ROOT, 'data');
 // type 'community' = Nutzer-Posts erlaubt (Scam-Filter + Warnhinweis)
 // rules = "Regeln & Richtlinien", die in der Detail-Ansicht jedes Beitrags stehen
 const COMMUNITY_RULES = [
-  'Beiträge kommen von Nutzern, nicht von RabattArchiv – alles auf eigene Gefahr.',
+  'Beiträge kommen von Nutzern, nicht von RabattArchiv, alles auf eigene Gefahr.',
   'Nur legale Angebote. Referral-Links müssen als solche erkennbar sein.',
   'Niemals Vorkasse leisten oder per PayPal „Freunde & Familie" an Fremde zahlen.',
   'Scam-Filter und Moderation prüfen jeden Beitrag, ersetzen aber nicht den eigenen Verstand.',
 ];
-// Alle Inhalte werden von der Redaktion gepostet – keine automatischen Feeds mehr
+// Alle Inhalte werden von der Redaktion gepostet, keine automatischen Feeds mehr
 const BUILTIN_CHANNELS = [
-  { slug: 'angebote', name: 'Angebote', icon: 'star', type: 'community', desc: 'Rabattcodes, Gratis-Testphasen und öffentliche Aktionen – handverlesen.',
-    rules: ['Angebote prüft die Redaktion – Konditionen können sich beim Anbieter ändern.', 'Gratis-Testphasen rechtzeitig kündigen, wenn du nicht verlängern willst.', 'RabattArchiv verkauft nichts – die Aktion läuft direkt beim Anbieter.'] },
-  { slug: 'preisfehler', name: 'Preisfehler', icon: 'bolt', type: 'community', desc: 'Vermutete Preisfehler – schnell sein lohnt sich.',
-    rules: ['Preisfehler sind nie garantiert – Händler dürfen Bestellungen stornieren.', 'Kein Anspruch auf Lieferung zum Fehlerpreis.', 'Am besten per Gast-Bestellung und ohne Zusatzkäufe bestellen.'] },
+  { slug: 'angebote', name: 'Angebote', icon: 'star', type: 'community', desc: 'Rabattcodes, Gratis-Testphasen und öffentliche Aktionen, handverlesen.',
+    rules: ['Angebote prüft die Redaktion, Konditionen können sich beim Anbieter ändern.', 'Gratis-Testphasen rechtzeitig kündigen, wenn du nicht verlängern willst.', 'RabattArchiv verkauft nichts, die Aktion läuft direkt beim Anbieter.'] },
+  { slug: 'preisfehler', name: 'Preisfehler', icon: 'bolt', type: 'community', desc: 'Vermutete Preisfehler, schnell sein lohnt sich.',
+    rules: ['Preisfehler sind nie garantiert, Händler dürfen Bestellungen stornieren.', 'Kein Anspruch auf Lieferung zum Fehlerpreis.', 'Am besten per Gast-Bestellung und ohne Zusatzkäufe bestellen.'] },
   { slug: 'geld-verdienen', name: 'Geld verdienen', icon: 'banknote', type: 'community', desc: 'Referral-Codes und Prämien.', rules: COMMUNITY_RULES },
-  { slug: 'methoden', name: 'Methoden', icon: 'bulb', type: 'community', desc: 'Spar-Tricks aus dem Alltag – legal und erklärt.', rules: COMMUNITY_RULES },
+  { slug: 'methoden', name: 'Methoden', icon: 'bulb', type: 'community', desc: 'Spar-Tricks aus dem Alltag, legal und erklärt.', rules: COMMUNITY_RULES },
 ];
 
 // ---------------------------------------------------------------- Storage
@@ -91,12 +91,12 @@ function isAdmin(req) { return String(req.headers['x-admin-key'] || '') === ADMI
 let compareCache = loadJson('compare.json', {}); // { query: {ts, price, priceNum, url, name} | {ts, miss} }
 let posts = loadJson('posts.json', {});         // { channelSlug: [ {id,user,title,text,ts,flags} ] }
 let customChannels = loadJson('channels.json', []); // [ {slug,name,emoji,type:'community',desc,createdTs} ]
-let wallets = loadJson('wallets.json', {});     // { user: {vouchers:[], cards:[], ts} } – Wallet hängt am Konto
+let wallets = loadJson('wallets.json', {});     // { user: {vouchers:[], cards:[], ts} }, Wallet hängt am Konto
 
 // ---------------------------------------------------------------- Global-Chat
 // Twitch-artig: nur Angemeldete schreiben. Beleidigungen werden ZENSIERT (nicht
-// gesperrt) – sperren/timeouten kann nur die Moderation. Emotes: 7TV (verifizierte IDs).
-// Es gelten NUR die offiziellen 7TV-Global-Emotes – täglich aktualisiert, gecacht
+// gesperrt), sperren/timeouten kann nur die Moderation. Emotes: 7TV (verifizierte IDs).
+// Es gelten NUR die offiziellen 7TV-Global-Emotes, täglich aktualisiert, gecacht
 let emoteCache = loadJson('emotes.json', { ts: 0, map: {} });
 async function refreshEmotes() {
   if (Date.now() - emoteCache.ts < 12 * 3600e3 && Object.keys(emoteCache.map).length) return;
@@ -130,7 +130,7 @@ function censor(text) {
   return text.replace(BAD_WORDS, m => m[0] + '*'.repeat(Math.max(2, m.length - 1)));
 }
 
-// Badges (aus Kisten, keine Echtgeld-Käufe) – Icons kommen aus dem SVG-Sprite der App
+// Badges (aus Kisten, keine Echtgeld-Käufe), Icons kommen aus dem SVG-Sprite der App
 const BADGES = {
   sternchen: { name: 'Sternchen', icon: 'star', rar: 'häufig' },
   blitzdeal: { name: 'Blitzdeal', icon: 'bolt', rar: 'häufig' },
@@ -149,7 +149,7 @@ function profileOf(user) {
 
 // ---------------------------------------------------------------- Web-Push (RFC 8291/8292, ohne Abhängigkeiten)
 // Preisfehler-Alarm: Browser abonnieren per VAPID, der Server verschlüsselt
-// jede Nachricht einzeln (aes128gcm) – alles mit Node-Bordmitteln.
+// jede Nachricht einzeln (aes128gcm), alles mit Node-Bordmitteln.
 let pushSubs = loadJson('push-subs.json', []); // [{endpoint, keys:{p256dh,auth}}]
 const b64u = buf => Buffer.from(buf).toString('base64url');
 function getVapid() {
@@ -225,7 +225,7 @@ function findChannel(slug) { return allChannels().find(c => c.slug === slug); }
 
 // ---------------------------------------------------------------- Scam-Filter / Moderation
 // Zweistufig: BLOCK verhindert den Post, WARN markiert ihn sichtbar.
-// Hier würde später ein KI-Moderator (Claude-API) einhaken – die Regeln bleiben als schnelle Vorstufe.
+// Hier würde später ein KI-Moderator (Claude-API) einhaken, die Regeln bleiben als schnelle Vorstufe.
 
 const BLOCK_PATTERNS = [
   /vorkasse/i,
@@ -241,7 +241,7 @@ const WARN_PATTERNS = [
   { re: /t\.me\/|telegram/i, tag: 'Telegram-Link' },
   { re: /wa\.me\/|whatsapp/i, tag: 'WhatsApp-Kontakt' },
   { re: /\bdm\s*(mir|me)\b|schreib\s*mir\s*privat/i, tag: 'Privatkontakt' },
-  { re: /https?:\/\//i, tag: 'Externer Link – auf eigene Gefahr' },
+  { re: /https?:\/\//i, tag: 'Externer Link, auf eigene Gefahr' },
   { re: /referral|reflink|werbe.?code|einladungs.?code/i, tag: 'Referral' },
 ];
 
@@ -278,7 +278,7 @@ function parseRss(xml, channelSlug) {
     const link = (tag(raw, 'link') || tag(raw, 'guid')).split('?')[0];
     const pubDate = tag(raw, 'pubDate');
     const descHtml = tag(raw, 'description');
-    // mydealz-Temperatur-Präfix ("103° - …") abschneiden – zeigen wir nicht an
+    // mydealz-Temperatur-Präfix ("103° - …") abschneiden, zeigen wir nicht an
     title = title.replace(/^-?\d+°\s*-\s*/, '');
     // Händler + Preis liefert mydealz sauber als Attribute mit
     const pm = raw.match(/<pepper:merchant\s+name="([^"]*)"(?:\s+price="([^"]*)")?/);
@@ -300,7 +300,7 @@ function parseRss(xml, channelSlug) {
     const hrefs = [...decodeEntities(descHtml).matchAll(/<a[^>]*href="([^"]+)"/g)].map(m => m[1]);
     const dealUrl = hrefs.find(u => /^https?:\/\//.test(u) && !/mydealz\.de|pepper\.com/.test(u)) || '';
     // Beschreibung: "Preis - Händler"-Vorspann raus (steht schon im Badge),
-    // Tags raus – mydealz schneidet die Beschreibung teils mitten im Tag ab
+    // Tags raus, mydealz schneidet die Beschreibung teils mitten im Tag ab
     const text = decodeEntities(descHtml)
       .replace(/^<strong>[^<]*<\/strong>/, '')
       .replace(/<[^>]*>/g, ' ')
@@ -429,7 +429,7 @@ function parsePriceNum(s) {
 }
 
 // Titel des Produkts direkt von der Händlerseite des Deals holen (og:title) –
-// präziser als der Deal-Titel. Viele Shops (Amazon) blocken – dann Fallback.
+// präziser als der Deal-Titel. Viele Shops (Amazon) blocken, dann Fallback.
 async function resolveProductTitle(u) {
   const key = 'u:' + u;
   const c = compareCache[key];
@@ -654,7 +654,7 @@ const server = http.createServer(async (req, res) => {
 
     if (p === '/api/register' && req.method === 'POST') {
       const b = await readBody(req);
-      if (!await verifyTurnstile(b.turnstileToken)) return send(res, 400, { error: 'Captcha-Prüfung fehlgeschlagen – bitte erneut bestätigen.' });
+      if (!await verifyTurnstile(b.turnstileToken)) return send(res, 400, { error: 'Captcha-Prüfung fehlgeschlagen, bitte erneut bestätigen.' });
       const user = String(b.user || '').trim();
       const email = String(b.email || '').trim().toLowerCase();
       const pass = String(b.pass || '');
@@ -676,7 +676,7 @@ const server = http.createServer(async (req, res) => {
 
     if (p === '/api/login' && req.method === 'POST') {
       const b = await readBody(req);
-      if (!await verifyTurnstile(b.turnstileToken)) return send(res, 400, { error: 'Captcha-Prüfung fehlgeschlagen – bitte erneut bestätigen.' });
+      if (!await verifyTurnstile(b.turnstileToken)) return send(res, 400, { error: 'Captcha-Prüfung fehlgeschlagen, bitte erneut bestätigen.' });
       const typed = String(b.user || '').trim();
       // Groß/Klein egal: Nutzer findet sich auch als "luther", wenn er "Luther" heißt
       const user = Object.keys(users).find(k => k.toLowerCase() === typed.toLowerCase());
@@ -694,7 +694,9 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/chat' && req.method === 'GET') {
       const since = Number(url.searchParams.get('since') || 0);
       const msgs = chat.messages.filter(m => m.ts > since).slice(-80);
-      return send(res, 200, { messages: msgs, emotes: emoteCache.map, badges: BADGES, pinned: chat.pinned || null });
+      // Nachträglich gelöschte Nachrichten: der Client tauscht sie gegen einen Platzhalter
+      const updates = chat.messages.filter(m => m.delTs && m.delTs > since && m.ts <= since).map(m => m.id);
+      return send(res, 200, { messages: msgs, updates, emotes: emoteCache.map, badges: BADGES, pinned: chat.pinned || null });
     }
     if (p === '/api/chat' && req.method === 'POST') {
       const user = authUser(req);
@@ -703,20 +705,32 @@ const server = http.createServer(async (req, res) => {
       const muteUntil = chat.mutes[user] || 0;
       if (muteUntil > Date.now()) {
         const min = Math.ceil((muteUntil - Date.now()) / 60000);
-        return send(res, 403, { error: `Timeout – du kannst in ${min} Min. wieder schreiben.` });
+        return send(res, 403, { error: `Timeout, du kannst in ${min} Min. wieder schreiben.` });
       }
       const b = await readBody(req);
       const text = String(b.text || '').trim().slice(0, 220);
       if (!text) return send(res, 400, { error: 'Leere Nachricht.' });
-      // Chat-Command: !v (Vanish) löscht alle eigenen Nachrichten
+      // Chat-Command: !v (Vanish) blendet alle eigenen Nachrichten aus
       if (text === '!v') {
-        chat.messages = chat.messages.filter(m => m.user !== user);
+        chat.messages.forEach(m => { if (m.user === user && !m.deleted) { m.deleted = true; m.text = ''; m.delTs = Date.now(); } });
         if (chat.pinned && chat.pinned.user === user) chat.pinned = null;
         saveJson('chat.json', chat);
         return send(res, 200, { ok: true, vanished: true });
       }
+      // Chat-Command: !muenze wirft eine Münze
+      if (/^!m(ü|ue)nze$/i.test(text)) {
+        const result = Math.random() < 0.5 ? 'Kopf' : 'Zahl';
+        const msg = {
+          id: crypto.randomBytes(6).toString('hex'), user,
+          badge: profileOf(user).activeBadge || '', role: roleOf(user),
+          text: `wirft eine Münze: ${result}!`, ts: Date.now(),
+        };
+        chat.messages.push(msg);
+        saveJson('chat.json', chat);
+        return send(res, 201, { ok: true, message: msg });
+      }
       const last = chatLast[user];
-      if (last && Date.now() - last.ts < 2000) return send(res, 429, { error: 'Langsam – kurz warten.' });
+      if (last && Date.now() - last.ts < 2000) return send(res, 429, { error: 'Langsam, kurz warten.' });
       if (last && last.text === text && Date.now() - last.ts < 30000) return send(res, 429, { error: 'Gleiche Nachricht schon gesendet.' });
       chatLast[user] = { ts: Date.now(), text };
       const msg = {
@@ -730,7 +744,7 @@ const server = http.createServer(async (req, res) => {
       saveJson('chat.json', chat);
       return send(res, 201, { ok: true, message: msg });
     }
-    // Moderation direkt aus der App (Rolle mod/admin) – Timeout, Bann, Löschen, Anpinnen
+    // Moderation direkt aus der App (Rolle mod/admin), Timeout, Bann, Löschen, Anpinnen
     if (p === '/api/chat/mod' && req.method === 'POST') {
       const me = authUser(req);
       if (!isModUser(me)) return send(res, 403, { error: 'Nur für Moderatoren.' });
@@ -742,7 +756,8 @@ const server = http.createServer(async (req, res) => {
       else if (b.action === 'ban') chat.bans[target] = true;
       else if (b.action === 'unban') { delete chat.bans[target]; delete chat.mutes[target]; }
       else if (b.action === 'delete-msg') {
-        chat.messages = chat.messages.filter(m => m.id !== b.id);
+        const m = chat.messages.find(x => x.id === b.id);
+        if (m) { m.deleted = true; m.text = ''; m.delTs = Date.now(); }
         if (chat.pinned && chat.pinned.id === b.id) chat.pinned = null;
       }
       else if (b.action === 'pin') chat.pinned = chat.messages.find(m => m.id === b.id) || chat.pinned;
@@ -818,7 +833,7 @@ const server = http.createServer(async (req, res) => {
       const text = String(b.text || '').trim().slice(0, 220);
       if (!text) return send(res, 400, { error: 'Leere Nachricht.' });
       const last = chatLast['dm:' + me];
-      if (last && Date.now() - last.ts < 1000) return send(res, 429, { error: 'Langsam – kurz warten.' });
+      if (last && Date.now() - last.ts < 1000) return send(res, 429, { error: 'Langsam, kurz warten.' });
       chatLast['dm:' + me] = { ts: Date.now(), text };
       const key = dmKey(me, to);
       dms[key] = dms[key] || { msgs: [], reads: {} };
@@ -829,32 +844,57 @@ const server = http.createServer(async (req, res) => {
       saveJson('dms.json', dms);
       return send(res, 201, { ok: true, message: msg });
     }
-    // Freunde
+    // Freunde: Anfrage senden, annehmen, ablehnen, entfernen (beidseitig)
     if (p === '/api/friend' && req.method === 'POST') {
       const me = authUser(req);
       if (!me) return send(res, 401, { error: 'Bitte anmelden.' });
       const b = await readBody(req);
       const target = String(b.user || '');
       if (!users[target]) return send(res, 404, { error: 'Nutzer nicht gefunden.' });
-      const prof = profileOf(me);
-      prof.friends = prof.friends || [];
-      if (b.action === 'remove') prof.friends = prof.friends.filter(f => f !== target);
-      else if (!prof.friends.includes(target) && target !== me) prof.friends.push(target);
+      if (target === me) return send(res, 400, { error: 'Das bist du selbst.' });
+      const my = profileOf(me), their = profileOf(target);
+      my.friends = my.friends || []; my.friendRequests = my.friendRequests || [];
+      their.friends = their.friends || []; their.friendRequests = their.friendRequests || [];
+      if (b.action === 'remove') {
+        my.friends = my.friends.filter(f => f !== target);
+        their.friends = their.friends.filter(f => f !== me);
+      } else if (b.action === 'accept') {
+        if (!my.friendRequests.includes(target)) return send(res, 404, { error: 'Keine Anfrage von diesem Nutzer.' });
+        my.friendRequests = my.friendRequests.filter(f => f !== target);
+        if (!my.friends.includes(target)) my.friends.push(target);
+        if (!their.friends.includes(me)) their.friends.push(me);
+      } else if (b.action === 'decline') {
+        my.friendRequests = my.friendRequests.filter(f => f !== target);
+      } else { // Anfrage senden
+        if (my.friends.includes(target)) return send(res, 409, { error: 'Ihr seid schon Freunde.' });
+        if (their.friendRequests.includes(me)) return send(res, 409, { error: 'Anfrage läuft schon.' });
+        if (my.friendRequests.includes(target)) {
+          // Gegenseite hat schon angefragt: direkt Freunde
+          my.friendRequests = my.friendRequests.filter(f => f !== target);
+          my.friends.push(target); their.friends.push(me);
+        } else {
+          their.friendRequests.push(me);
+        }
+      }
       saveJson('users.json', users);
-      return send(res, 200, { ok: true, friends: prof.friends });
+      return send(res, 200, { ok: true, friends: my.friends, friendRequests: my.friendRequests });
     }
-    // Öffentliches Profil eines Nutzers ansehen
+    // Öffentliches Profil eines Nutzers ansehen (Mods sehen zusätzlich den Moderations-Status)
     if (p === '/api/user' && req.method === 'GET') {
       const name = String(url.searchParams.get('name') || '');
       if (!users[name]) return send(res, 404, { error: 'Nutzer nicht gefunden.' });
       const prof = profileOf(name);
+      const modInfo = isModUser(authUser(req)) ? {
+        banned: !!chat.bans[name],
+        mutedUntil: (chat.mutes[name] || 0) > Date.now() ? chat.mutes[name] : 0,
+      } : {};
       if (prof.publicProfile === false) {
-        return send(res, 200, { user: name, private: true, role: roleOf(name) });
+        return send(res, 200, { user: name, private: true, role: roleOf(name), ...modInfo });
       }
       return send(res, 200, {
         user: name, role: roleOf(name), bio: prof.bio || '', avatar: prof.avatar || '',
         badges: prof.badges || [], activeBadge: prof.activeBadge || '', favs: prof.favs || {},
-        badgesAll: BADGES,
+        badgesAll: BADGES, ...modInfo,
       });
     }
 
@@ -879,7 +919,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true });
     }
 
-    // ---- Profil & Gamification: Coins, Kisten, Badges – alles OHNE Echtgeld
+    // ---- Profil & Gamification: Coins, Kisten, Badges, alles OHNE Echtgeld
     if (p === '/api/profile' && req.method === 'GET') {
       const user = authUser(req);
       if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
@@ -897,7 +937,7 @@ const server = http.createServer(async (req, res) => {
       // Profilbild: kleines dataURL-Bild (Client verkleinert auf 96px)
       if (typeof b.avatar === 'string' && (b.avatar === '' || (/^data:image\/(png|jpeg|webp);base64,/.test(b.avatar) && b.avatar.length < 60_000)))
         prof.avatar = b.avatar;
-      // Lieblings-Kleinigkeiten fürs Profil – alles durch den Filter
+      // Lieblings-Kleinigkeiten fürs Profil, alles durch den Filter
       if (b.favs && typeof b.favs === 'object') {
         prof.favs = prof.favs || {};
         for (const k of ['discounter', 'supermarkt', 'essen', 'onlineshop', 'mode']) {
@@ -912,7 +952,7 @@ const server = http.createServer(async (req, res) => {
       if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
       const prof = profileOf(user);
       const today = new Date().toDateString();
-      if (prof.lastDailyDay === today) return send(res, 409, { error: 'Heute schon abgeholt – morgen gibt es wieder Coins.' });
+      if (prof.lastDailyDay === today) return send(res, 409, { error: 'Heute schon abgeholt, morgen gibt es wieder Coins.' });
       const yesterday = new Date(Date.now() - 864e5).toDateString();
       prof.streak = prof.lastDailyDay === yesterday ? (prof.streak || 0) + 1 : 1;
       const gained = 25 + Math.min(25, (prof.streak - 1) * 5);
@@ -925,7 +965,7 @@ const server = http.createServer(async (req, res) => {
       const user = authUser(req);
       if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
       const prof = profileOf(user);
-      if ((prof.coins || 0) < 100) return send(res, 402, { error: `Eine Kiste kostet 100 Coins – du hast ${prof.coins || 0}.` });
+      if ((prof.coins || 0) < 100) return send(res, 402, { error: `Eine Kiste kostet 100 Coins, du hast ${prof.coins || 0}.` });
       prof.coins -= 100;
       // Gewichtete Seltenheit: häufig 60 %, selten 30 %, episch 10 %
       const roll = Math.random();
@@ -1009,7 +1049,7 @@ const server = http.createServer(async (req, res) => {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         html = (await r.text()).slice(0, 400000);
       } catch (e) {
-        return send(res, 502, { error: 'Seite nicht lesbar (' + (e.message || e) + ') – Felder bitte selbst ausfüllen.' });
+        return send(res, 502, { error: 'Seite nicht lesbar (' + (e.message || e) + '), Felder bitte selbst ausfüllen.' });
       }
       const meta = prop => {
         const m = html.match(new RegExp(`<meta[^>]*(?:property|name)=["']${prop}["'][^>]*content=["']([^"']*)["']`, 'i'))
@@ -1041,9 +1081,9 @@ const server = http.createServer(async (req, res) => {
       if ((authUser(req) || isAdmin(req)) && title) {
         const parts = [`${title} gibt es gerade${priceNum != null ? ` für ${priceNum.toFixed(2).replace('.', ',')} €` : ''}${merchant ? ` bei ${merchant}` : ''}.`];
         if (compare && priceNum != null && compare.priceNum > priceNum) {
-          parts.push(`Der günstigste Vergleichspreis liegt bei ${compare.price} (billiger.de) – du sparst rund ${Math.round((1 - priceNum / compare.priceNum) * 100)} %.`);
+          parts.push(`Der günstigste Vergleichspreis liegt bei ${compare.price} (billiger.de), du sparst rund ${Math.round((1 - priceNum / compare.priceNum) * 100)} %.`);
         }
-        parts.push('Automatisch erstellter Entwurf – bitte kurz prüfen und ergänzen.');
+        parts.push('Automatisch erstellter Entwurf, bitte kurz prüfen und ergänzen.');
         draft = parts.join(' ');
       }
       return send(res, 200, { title, image, priceNum, merchant, compare, draft, loginForDraft: !authUser(req) && !isAdmin(req) });
@@ -1203,5 +1243,5 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`kumulio läuft auf http://localhost:${PORT}`);
-  console.log(`Admin-Panel: http://localhost:${PORT}/admin.html  (Key: ${ADMIN_KEY} – liegt in data/admin-key.txt)`);
+  console.log(`Admin-Panel: http://localhost:${PORT}/admin.html  (Key: ${ADMIN_KEY}, liegt in data/admin-key.txt)`);
 });

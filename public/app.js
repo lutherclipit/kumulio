@@ -1,9 +1,9 @@
-﻿// kumulio – Frontend-Logik (Vanilla JS, kein Framework)
+﻿// kumulio, Frontend-Logik (Vanilla JS, kein Framework)
 
 const $ = sel => document.querySelector(sel);
 
 // API-Basis: im Web leer (gleiche Origin). In der iOS/Android-App (Capacitor)
-// zeigt sie auf den gehosteten Server – in index.html RA_API_BASE setzen.
+// zeigt sie auf den gehosteten Server, in index.html RA_API_BASE setzen.
 const API_BASE = (window.RA_API_BASE || localStorage.getItem('ra.apiBase') || '').replace(/\/$/, '');
 const state = {
   channels: [],
@@ -15,7 +15,7 @@ const state = {
   aff: JSON.parse(localStorage.getItem('ra.aff') || '{"ch":{},"m":{}}'), // Verhalten für "Für dich"
   activeChip: 'sparen',
   search: '',
-  orderIds: null, // eingefrorene Sortierung – Votes würfeln den Feed nicht sofort um
+  orderIds: null, // eingefrorene Sortierung, Votes würfeln den Feed nicht sofort um
   orderKey: '',
   activeView: 'feed',
   deals: [],
@@ -31,7 +31,7 @@ const state = {
 let themeAnimTimer = null;
 function applyTheme(t, animate = false) {
   const root = document.documentElement;
-  // Weiche Überblendung aller Farben – nur beim aktiven Umschalten, nicht beim Start
+  // Weiche Überblendung aller Farben, nur beim aktiven Umschalten, nicht beim Start
   if (animate && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
     root.classList.add('theme-anim');
     clearTimeout(themeAnimTimer);
@@ -69,7 +69,7 @@ const COUPON_SOURCES = [
     { name: 'Lidl Plus', url: 'https://www.lidl.de/c/lidl-plus/s10007389', desc: 'Wochen-Coupons & Rubbellos in der Lidl-Plus-App' },
     { name: 'REWE', url: 'https://www.rewe.de/angebote/', desc: 'App-Coupons & Payback-Punkte bei REWE' },
     { name: 'EDEKA', url: 'https://www.edeka.de/', desc: 'Coupons & Aktionen in der EDEKA-App' },
-    { name: 'Netto', url: 'https://www.netto-online.de/', desc: 'Rabatt-Coupons in der Netto-App – oft ohne Mindestwert' },
+    { name: 'Netto', url: 'https://www.netto-online.de/', desc: 'Rabatt-Coupons in der Netto-App, oft ohne Mindestwert' },
   ]},
   { cat: 'Fast Food', items: [
     { name: 'McDonalds', url: 'https://www.mcdonalds.com/de/de-de.html', desc: 'App-Coupons & McDonald’s-Methode-Basics' },
@@ -187,7 +187,7 @@ function island(text, holdMs = 2600) {
 let toastTimer = null;
 function showToast({ title, text, iconName = 'star', actions = [], success = false }, autohideMs = 6000) {
   const t = $('#toast');
-  // Erfolgs-Moment: der kumulio-Punkt quittiert (einmal, kein Konfetti) – Text bleibt Pflichtsignal
+  // Erfolgs-Moment: der kumulio-Punkt quittiert (einmal, kein Konfetti), Text bleibt Pflichtsignal
   const successMark = success && window.KBrand ? window.KBrand.successMarkHTML() : '';
   t.innerHTML = `
     <div class="toast-head">${successMark || icon(iconName)} ${esc(title)}</div>
@@ -222,7 +222,7 @@ window.addEventListener('resize', moveTabPill);
 
 let viewCleanupTimer = null;
 
-// Laufende Übergänge sofort sauber beenden – verhindert, dass bei schnellem
+// Laufende Übergänge sofort sauber beenden, verhindert, dass bei schnellem
 // Tab-Wechsel ein alter Timer die inzwischen aktive View versteckt/verschiebt
 function settleViews() {
   clearTimeout(viewCleanupTimer);
@@ -422,7 +422,7 @@ document.addEventListener('click', async e => {
   }
 });
 
-// Spar-Badges: Rabatt / Gratis / Verdienst / Preisfehler – auf einen Blick
+// Spar-Badges: Rabatt / Gratis / Verdienst / Preisfehler, auf einen Blick
 function renderBadges(d, withTimer) {
   const out = [];
   if (d.channel === 'preisfehler') {
@@ -532,12 +532,12 @@ function renderCoupons() {
 
   $('#feed').innerHTML = `
     <p class="muted" style="font-size:.85rem; margin-bottom:14px; line-height:1.5">
-      Die Coupons liegen in den Apps und Portalen der Anbieter – hier springst du direkt hin.
+      Die Coupons liegen in den Apps und Portalen der Anbieter, hier springst du direkt hin.
       Eingelöste Gutscheine verwaltest du in der Wallet.</p>
     ${hasPayback ? `
     <h3 class="wallet-h">Deine Payback-Coupons</h3>
     ${row({ name: 'Payback', url: 'https://www.payback.de/coupons', desc: 'Coupon-Center: eCoupons für deine verbundene Karte aktivieren' })}
-    <p class="muted" style="font-size:.74rem; margin:6px 0 16px">Direkt-Sync in die App braucht die Payback-Partner-API (nicht öffentlich) – bis dahin geht es hier zum offiziellen Coupon-Center.</p>`
+    <p class="muted" style="font-size:.74rem; margin:6px 0 16px">Direkt-Sync in die App braucht die Payback-Partner-API (nicht öffentlich), bis dahin geht es hier zum offiziellen Coupon-Center.</p>`
     : `
     <h3 class="wallet-h">Payback</h3>
     ${row({ name: 'Payback', url: 'https://www.payback.de/coupons', desc: 'Karte in der Wallet verbinden, dann findest du hier dein Coupon-Center' })}`}
@@ -547,7 +547,7 @@ function renderCoupons() {
     <h3 class="wallet-h" style="margin-top:18px">Geld-zurück-Garantien (GzG)</h3>
     ${gzg.length
       ? gzg.map((d, i) => renderOfferCard(d, i, false)).join('')
-      : '<div class="status">Aktuelle GzG-Aktionen postet die Redaktion über das Admin-Panel – sie erscheinen dann hier.</div>'}`;
+      : '<div class="status">Aktuelle GzG-Aktionen postet die Redaktion über das Admin-Panel, sie erscheinen dann hier.</div>'}`;
 }
 
 function renderFeed(reorder = false) {
@@ -556,7 +556,7 @@ function renderFeed(reorder = false) {
   $('#community-banner').classList.toggle('hidden', !isCommunity);
   if (state.activeChip === 'coupons') { renderCoupons(); return; }
 
-  // Sortierung nur bei Chip-Wechsel/Neuladen neu berechnen – ein Vote soll den
+  // Sortierung nur bei Chip-Wechsel/Neuladen neu berechnen, ein Vote soll den
   // Feed nicht sofort umwürfeln, das pendelt sich beim nächsten Laden ein
   if (reorder || !state.orderIds || state.orderKey !== state.activeChip) computeOrder();
   const deals = state.orderIds
@@ -566,10 +566,10 @@ function renderFeed(reorder = false) {
 
   if (!shown.length) {
     $('#feed').innerHTML = `<div class="status">${state.activeChip === 'saved'
-      ? 'Noch nichts gespeichert – tippe auf den Stern eines Angebots oder wische die Karte nach links.'
+      ? 'Noch nichts gespeichert, tippe auf den Stern eines Angebots oder wische die Karte nach links.'
       : state.activeChip === 'neukunden'
-        ? 'Aktuell keine Neukunden-Aktionen – neue kommen über das Admin-Panel.'
-        : 'Noch keine Angebote in diesem Bereich – neue kommen über das Admin-Panel.'}</div>`;
+        ? 'Aktuell keine Neukunden-Aktionen, neue kommen über das Admin-Panel.'
+        : 'Noch keine Angebote in diesem Bereich, neue kommen über das Admin-Panel.'}</div>`;
     return;
   }
 
@@ -766,7 +766,7 @@ function checkReminders() {
         ],
       }, 0);
       if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification('kumulio – Deal-Erinnerung', { body: fav.deal.title.slice(0, 100) });
+        new Notification('kumulio, Deal-Erinnerung', { body: fav.deal.title.slice(0, 100) });
       }
     }
   }
@@ -776,7 +776,7 @@ setInterval(checkReminders, 30 * 1000);
 // ---------------- Sheet (generisch) ----------------
 
 function openSheetShell() {
-  // Formulare (Hinzufügen) kompakt statt Vollbild – kein leerer Swipe-Raum
+  // Formulare (Hinzufügen) kompakt statt Vollbild, kein leerer Swipe-Raum
   $('#sheet').classList.toggle('compact', state.sheetMode === 'wallet-add');
   $('#sheet-backdrop').classList.remove('hidden');
   requestAnimationFrame(() => {
@@ -807,7 +807,7 @@ sheetEl.addEventListener('pointerdown', e => {
   const content = $('#sheet-content');
   if (e.target.closest('.sheet-fab')) return;
   if (content.scrollTop > 0 && content.contains(e.target)) return;
-  // Textauswahl/Native-Drag unterbinden – aber Eingabefelder & Buttons normal lassen
+  // Textauswahl/Native-Drag unterbinden, aber Eingabefelder & Buttons normal lassen
   if (!e.target.closest('input, textarea, button, a, .votebtn')) e.preventDefault();
   sheetDrag.tracking = true;
   sheetDrag.startY = e.clientY;
@@ -965,7 +965,7 @@ function openDealSheet(deal) {
     ${cta ? `
     <div class="sheet-cta">
       <a class="btn btn-block" href="${esc(cta)}" target="_blank" rel="noopener noreferrer">
-        ${d.source === 'community' ? 'Link öffnen – auf eigene Gefahr' : 'zum Produkt'} ${icon('arrow-right', 'icon icon-sm')}
+        ${d.source === 'community' ? 'Link öffnen, auf eigene Gefahr' : 'zum Produkt'} ${icon('arrow-right', 'icon icon-sm')}
       </a>
       ${renderCompareBtn(d)}
       ${d.source === 'mydealz' ? `<div class="sheet-source">${d.dealUrl ? 'öffnet die Händlerseite' : 'öffnet die Deal-Quelle'} · automatisch gefunden</div>` : ''}
@@ -979,7 +979,7 @@ function openDealSheet(deal) {
       <div class="sheet-source" style="text-align:left; margin-top:6px">${cmpNum ? 'Marktpreis live von billiger.de (günstigstes Angebot)' : 'Vergleichspreis aus den Deal-Angaben'} · Preishistorie folgt mit dem Backend</div>
     </div>` : ''}
     <div class="sheet-votebar">
-      <button class="votebtn" id="btn-sheet-fav">${icon('star')} ${isFav ? 'Gemerkt – entfernen' : 'Merken'}</button>
+      <button class="votebtn" id="btn-sheet-fav">${icon('star')} ${isFav ? 'Gemerkt, entfernen' : 'Merken'}</button>
     </div>
     ${d.excerpt ? `
     <div class="sheet-section">
@@ -1039,7 +1039,7 @@ async function refreshComments() {
       </div>
       <div class="comment-text">${esc(c.text)}</div>
     </div>`).join('')
-    : '<div class="status">Noch keine Kommentare – sei der Erste.</div>';
+    : '<div class="status">Noch keine Kommentare, sei der Erste.</div>';
 }
 
 async function sendComment() {
@@ -1085,7 +1085,7 @@ function openChannelsSheet() {
     <div class="sheet-title">Feeds anpassen</div>
     <p class="muted" style="font-size:.85rem; margin-top:6px; line-height:1.5">
       „Für dich" ist immer oben. Mit dem Pin bestimmst du, welche Feeds und Kanäle
-      daneben stehen – so viele oder wenige du willst.</p>
+      daneben stehen, so viele oder wenige du willst.</p>
     <div class="channel-list">
       ${specials.map(s => pinRow({ ...s, desc: s.slug === 'beliebt' ? 'Am meisten geliked und geklickt.' : s.slug === 'trending' ? 'Was gerade Fahrt aufnimmt.' : 'Alles, chronologisch.' })).join('')}
       ${state.channels.map(c => pinRow(
@@ -1119,7 +1119,7 @@ function openChannelsSheet() {
 
 // ---------------- Favoriten-Sheet ----------------
 
-// Goldener Stern oben (aktuell aus dem Header entfernt – Gespeichert bleibt über Karten-Sterne erreichbar)
+// Goldener Stern oben (aktuell aus dem Header entfernt, Gespeichert bleibt über Karten-Sterne erreichbar)
 $('#btn-favs')?.addEventListener('click', () => {
   state.activeChip = 'saved';
   renderChipbar();
@@ -1216,12 +1216,13 @@ async function refreshGami() {
   // Rang aus dem Wallet auch im Profil zeigen
   const rank = rankFor(renderWallet.lastTotal || 0);
   $('#g-rank-row').innerHTML = `<span class="rank-chip">${esc(rank.name)}</span>
-    <span class="rank-next">Wallet-Rang – wächst mit deinem Guthaben</span>`;
+    <span class="rank-next">Wallet-Rang, wächst mit deinem Guthaben</span>`;
   $('#g-badges').innerHTML = (myProfile.badges || []).length
     ? myProfile.badges.map(id => badgeChip(id, myProfile.badgesAll[id], id === myProfile.activeBadge)).join('')
-    : '<span class="form-msg">Noch keine Badges – öffne eine Kiste.</span>';
-  // Topbar-Avatar: Profilbild statt Initiale
+    : '<span class="form-msg">Noch keine Badges, öffne eine Kiste.</span>';
+  // Topbar-Avatar: Profilbild statt Initiale + roter Punkt bei Anfragen
   if (myProfile.avatar && state.token) $('#btn-profile-top').innerHTML = `<img class="avatar-mini avatar-img" src="${myProfile.avatar}" alt="">`;
+  updateReqDot();
   $('#g-badges').querySelectorAll('[data-badge]').forEach(b => b.onclick = async () => {
     const next = myProfile.activeBadge === b.dataset.badge ? '' : b.dataset.badge;
     await api('/api/profile', { method: 'POST', body: JSON.stringify({ activeBadge: next }) }).catch(() => { });
@@ -1265,7 +1266,7 @@ $('#g-chest').addEventListener('click', async () => {
     animateInt($('#g-coins'), (myProfile?.coins ?? r.coins + 100), r.coins);
     out.classList.remove('hidden');
     out.innerHTML = `<div class="chest-reveal">${badgeChip(r.badge, { name: r.name, icon: r.icon, rar: r.rar }, false)}
-      <span>${r.dupe ? 'Schon vorhanden – dafür +40 Coins zurück!' : `Neues Badge (${esc(r.rar)})!`}</span></div>`;
+      <span>${r.dupe ? 'Schon vorhanden, dafür +40 Coins zurück!' : `Neues Badge (${esc(r.rar)})!`}</span></div>`;
     m.textContent = '';
     refreshGami();
   } catch (e) { m.className = 'form-msg error'; m.textContent = e.message; }
@@ -1318,8 +1319,61 @@ $('#g-avatar-del').addEventListener('click', async () => {
   refreshProfileTab();
 });
 
+// Oben rechts: Gäste landen direkt beim Anmelden, Angemeldete bekommen ein Menü
 $('#btn-profile-top').addEventListener('click', () => {
-  if (state.activeView !== 'profile') switchView('profile');
+  if (!state.token) { if (state.activeView !== 'profile') switchView('profile'); return; }
+  toggleTopMenu();
+});
+
+function toggleTopMenu() {
+  const menu = $('#top-menu');
+  if (!menu.classList.contains('hidden')) { menu.classList.add('hidden'); return; }
+  const reqs = myProfile?.friendRequests || [];
+  const rank = rankFor(renderWallet.lastTotal || 0);
+  menu.innerHTML = `
+    <div class="tm-head">
+      ${myProfile?.avatar ? `<img class="avatar-big" src="${myProfile.avatar}" alt="">`
+        : `<span class="avatar-big" style="background:${chatColor(state.userName || '?')}">${esc((state.userName || '?')[0].toUpperCase())}</span>`}
+      <div>
+        <div class="tm-name">${esc(state.userName)} ${state.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : ''}</div>
+        <div class="tm-sub">${esc(rank.name)} · ${myProfile?.coins ?? 0} Coins</div>
+      </div>
+    </div>
+    ${reqs.length ? `<div class="tm-section">Freundschaftsanfragen</div>
+    ${reqs.map(u => `<div class="tm-req">
+      <span class="avatar-mini" style="background:${chatColor(u)}">${esc(u[0].toUpperCase())}</span>
+      <span style="flex:1; font-weight:700">${esc(u)}</span>
+      <button class="btn btn-small" data-freq-ok="${esc(u)}">Annehmen</button>
+      <button class="btn btn-small btn-ghost" data-freq-no="${esc(u)}">Ablehnen</button>
+    </div>`).join('')}` : ''}
+    <button class="tm-item" id="tm-profile">${icon('user', 'icon icon-sm')} Profil öffnen</button>
+    <button class="tm-item" id="tm-wallet">${icon('banknote', 'icon icon-sm')} Wallet</button>
+    <button class="tm-item" id="tm-logout">${icon('x', 'icon icon-sm')} Abmelden</button>`;
+  menu.classList.remove('hidden');
+  const done = () => menu.classList.add('hidden');
+  $('#tm-profile').onclick = () => { done(); switchView('profile'); };
+  $('#tm-wallet').onclick = () => { done(); switchView('wallet'); };
+  $('#tm-logout').onclick = () => { done(); $('#btn-logout').click(); };
+  menu.querySelectorAll('[data-freq-ok]').forEach(b => b.onclick = async () => {
+    const r = await api('/api/friend', { method: 'POST', body: JSON.stringify({ user: b.dataset.freqOk, action: 'accept' }) }).catch(e => { island(e.message); });
+    if (r && myProfile) { myProfile.friends = r.friends; myProfile.friendRequests = r.friendRequests; }
+    island('Ihr seid jetzt Freunde!');
+    done(); updateReqDot();
+  });
+  menu.querySelectorAll('[data-freq-no]').forEach(b => b.onclick = async () => {
+    const r = await api('/api/friend', { method: 'POST', body: JSON.stringify({ user: b.dataset.freqNo, action: 'decline' }) }).catch(() => { });
+    if (r && myProfile) myProfile.friendRequests = r.friendRequests;
+    done(); updateReqDot();
+  });
+}
+// Roter Punkt am Avatar, wenn Anfragen warten
+function updateReqDot() {
+  $('#btn-profile-top').classList.toggle('has-dot', !!(myProfile?.friendRequests || []).length);
+}
+document.addEventListener('click', e => {
+  const menu = $('#top-menu');
+  if (!menu.classList.contains('hidden') && !e.target.closest('#top-menu') && !e.target.closest('#btn-profile-top'))
+    menu.classList.add('hidden');
 });
 
 // Cloudflare Turnstile: etabliertes Captcha für Login und Registrierung
@@ -1329,10 +1383,10 @@ const tsTries = { login: 0, reg: 0 };
 function renderTurnstile(which) {
   const el = $('#ts-' + which);
   if (!el) return;
-  // Erst rendern, wenn Sitekey UND Cloudflare-Script da sind – sonst kurz warten
+  // Erst rendern, wenn Sitekey UND Cloudflare-Script da sind, sonst kurz warten
   if (!tsSitekey || !window.turnstile) {
     if (++tsTries[which] > 40) {
-      el.innerHTML = '<span class="form-msg error">Captcha-Widget lädt nicht (Netzwerk/Werbeblocker?) – ohne Bestätigung ist keine Anmeldung möglich.</span>';
+      el.innerHTML = '<span class="form-msg error">Captcha-Widget lädt nicht (Netzwerk/Werbeblocker?), ohne Bestätigung ist keine Anmeldung möglich.</span>';
       return;
     }
     setTimeout(() => renderTurnstile(which), 500);
@@ -1356,6 +1410,29 @@ async function initTurnstile() {
 }
 function tsToken(which) {
   try { return turnstile.getResponse(tsWidgets[which]); } catch { return ''; }
+}
+
+// Kleiner Bestätigungs-Dialog (Ja/Abbrechen) bzw. Hinweis-Popup (nur OK)
+function askConfirm(text, { okLabel = 'Ja, löschen', alertOnly = false } = {}) {
+  return new Promise(resolve => {
+    const wrap = document.createElement('div');
+    wrap.className = 'overlay';
+    wrap.innerHTML = `<div class="modal modal-left">
+      <p style="font-size:.94rem; line-height:1.5">${text}</p>
+      <div class="form-row" style="margin-top:14px; justify-content:flex-end">
+        ${alertOnly ? '' : '<button class="btn btn-small btn-ghost" data-c="0">Abbrechen</button>'}
+        <button class="btn btn-small" data-c="1">${alertOnly ? 'Okay' : okLabel}</button>
+      </div>
+    </div>`;
+    document.body.appendChild(wrap);
+    wrap.addEventListener('click', e => {
+      const b = e.target.closest('[data-c]');
+      if (!b && e.target !== wrap) return;
+      wrap.classList.add('closing');
+      setTimeout(() => wrap.remove(), 280);
+      resolve(b ? b.dataset.c === '1' : false);
+    });
+  });
 }
 
 // Overlays weich schließen (statt hart zu verschwinden)
@@ -1474,16 +1551,16 @@ $('#btn-theme').addEventListener('click', () => {
 
 // Jeder Step zeigt die Möglichkeit als kleines Stück echter UI (visual)
 const OB_STEPS = [
-  { title: 'Schön, dass du da bist.', text: 'kumulio ist deine kuratierte Spar-App: handverlesene Angebote, deine Gutschein-Wallet und alle Coupons an einem Ort – ohne Deal-Spam.', cta: 'Los geht’s' },
+  { title: 'Schön, dass du da bist.', text: 'kumulio ist deine kuratierte Spar-App: handverlesene Angebote, deine Gutschein-Wallet und alle Coupons an einem Ort, ohne Deal-Spam.', cta: 'Los geht’s' },
   {
-    title: 'Sparen & Verdienen', text: 'Oben wechselst du zwischen Sparen, Verdienen und Neukunden-Aktionen – sauber getrennt, damit du sofort findest, was du suchst.', cta: 'Weiter',
+    title: 'Sparen & Verdienen', text: 'Oben wechselst du zwischen Sparen, Verdienen und Neukunden-Aktionen, sauber getrennt, damit du sofort findest, was du suchst.', cta: 'Weiter',
     visual: () => `
       <span class="chip active">${icon('gift')} Sparen</span>
       <span class="chip">${icon('banknote')} Verdienen</span>
       <span class="chip">${icon('sparkle')} Neukunden</span>`,
   },
   {
-    title: 'Deine Wallet', text: 'Gutschein fotografieren, Felder füllen sich automatisch. Restguthaben abbuchen, PIN und Barcode griffbereit – und Sparkarten wie Payback immer dabei.', cta: 'Weiter',
+    title: 'Deine Wallet', text: 'Gutschein fotografieren, Felder füllen sich automatisch. Restguthaben abbuchen, PIN und Barcode griffbereit, und Sparkarten wie Payback immer dabei.', cta: 'Weiter',
     visual: () => `
       <div class="wallet-card ob-mini" style="--bc:${brandColor('rewe')}">
         <div class="wallet-card-head">
@@ -1495,13 +1572,13 @@ const OB_STEPS = [
       </div>`,
   },
   {
-    title: 'Coupons & Merken', text: 'Der Coupons-Tab bündelt Rossmann, Lidl Plus, McDonald’s & Co. Mit dem Stern merkst du dir Angebote – auf Wunsch mit Erinnerung, bevor sie ablaufen.', cta: 'Weiter',
+    title: 'Coupons & Merken', text: 'Der Coupons-Tab bündelt Rossmann, Lidl Plus, McDonald’s & Co. Mit dem Stern merkst du dir Angebote, auf Wunsch mit Erinnerung, bevor sie ablaufen.', cta: 'Weiter',
     visual: () => ['Rossmann', 'Lidl', 'McDonalds', 'Payback'].map(b =>
       `<span class="brand-chip" style="--bc:${brandColor(b)}">${esc(brandInitials(b))}</span>`).join('')
       + `<span class="ob-star">${icon('star')}</span>`,
   },
   {
-    title: 'Bleib verbunden.', text: 'Mit deinem Profil sicherst du Wallet und Bewertungen. Den Newsletter kannst du optional dazunehmen – damit du keinen Top-Deal verpasst.', cta: 'Konto erstellen', final: true,
+    title: 'Bleib verbunden.', text: 'Mit deinem Profil sicherst du Wallet und Bewertungen. Den Newsletter kannst du optional dazunehmen, damit du keinen Top-Deal verpasst.', cta: 'Konto erstellen', final: true,
     visual: () => `
       <span class="avatar-mini" style="width:34px;height:34px;font-size:1rem">du</span>
       <span class="pill pill-accent">${icon('bell', 'icon icon-sm')} Newsletter optional</span>`,
@@ -1542,7 +1619,7 @@ function finishOnboarding(openRegister) {
 
 function maybeShowOnboarding() {
   if (localStorage.getItem('ra.tutorialDone')) return;
-  // Der Session-Splash entfällt – das Onboarding trägt den Markenmoment (kumulio-Punkt fällt)
+  // Der Session-Splash entfällt, das Onboarding trägt den Markenmoment (kumulio-Punkt fällt)
   obStep = 0;
   $('#onboard').classList.remove('hidden');
   // Logo-Animation ausspielen, dann nach oben rutschen und begrüßen
@@ -1570,7 +1647,7 @@ state.wallet.vouchers = state.wallet.vouchers.map(v => ({
 }));
 state.wallet.cards = state.wallet.cards.map(c => ({ img: '', codeImg: '', ...c }));
 
-// Wallet: lokal speichern + (angemeldet) ans Konto syncen – Gutscheine überleben
+// Wallet: lokal speichern + (angemeldet) ans Konto syncen, Gutscheine überleben
 // so App-Neuinstallation und Gerätewechsel
 let walletSyncTimer = null;
 function saveWallet() {
@@ -1601,7 +1678,7 @@ function euroFmt(n) { return n == null ? '' : n.toFixed(2).replace('.', ',') + '
 // ---- Spielgefühl: Sounds, Vibration, Aufleuchten, Geldscheine, Zähl-Animation ----
 
 const SFX = { kaching: '/sounds/kaching.mp3', pay: '/sounds/pay.mp3' };
-// WebAudio: Sounds vorgeladen und ohne Anlauf-Stille – spielen sofort beim Tipp
+// WebAudio: Sounds vorgeladen und ohne Anlauf-Stille, spielen sofort beim Tipp
 let sfxCtx = null;
 const sfxBuffers = {};
 function initSfx() {
@@ -1696,7 +1773,7 @@ function rankFor(total) {
   return { ...cur, next };
 }
 
-// Code aus eingefügtem Text erkennen (regelbasiert – echte KI folgt mit dem Backend)
+// Code aus eingefügtem Text erkennen (regelbasiert, echte KI folgt mit dem Backend)
 function detectCode(text) {
   const labeled = text.match(/(?:code|coupon|rabatt-?code|gutschein-?code)\s*[:=]\s*([A-Za-z0-9-]{4,24})/i);
   if (labeled) return labeled[1];
@@ -1708,19 +1785,18 @@ function detectCode(text) {
 }
 
 // Screenshot (QR/Barcode) einlesen und fürs localStorage verkleinern
-function readImageFile(file) {
+function readImageFile(file, max = 900, quality = 0.82) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
     img.onload = () => {
-      const max = 900;
       const scale = Math.min(1, max / Math.max(img.width, img.height));
       const cv = document.createElement('canvas');
       cv.width = Math.round(img.width * scale);
       cv.height = Math.round(img.height * scale);
       cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
       URL.revokeObjectURL(url);
-      resolve(cv.toDataURL('image/jpeg', 0.82));
+      resolve(cv.toDataURL('image/jpeg', quality));
     };
     img.onerror = reject;
     img.src = url;
@@ -1744,7 +1820,7 @@ const VENDOR_QUICK = ['REWE', 'Amazon', 'Wunschgutschein', 'Zalando', 'IKEA', 'R
 // Bild automatisch auslesen: QR/Barcode (BarcodeDetector) + Text (TextDetector, wo verfügbar).
 // Volle KI-Auslese (Claude Vision) kommt mit dem Live-Backend.
 // Kassen-Code ausschneiden: nur der Barcode/QR, großzügig gepolstert und
-// hochskaliert – den hält man an der Kasse hin, perfekt lesbar
+// hochskaliert, den hält man an der Kasse hin, perfekt lesbar
 function cropCode(img, bb) {
   if (!bb || bb.width < 20 || bb.height < 10) return '';
   const padX = bb.width * 0.14, padY = Math.max(bb.height * 0.35, 20);
@@ -1758,7 +1834,7 @@ function cropCode(img, bb) {
   return c.toDataURL('image/png');
 }
 
-// iPhone-Fallback: Safari hat keinen BarcodeDetector – ZXing (lokal in
+// iPhone-Fallback: Safari hat keinen BarcodeDetector, ZXing (lokal in
 // public/vendor, wird nur bei Bedarf geladen) liest QR/EAN/Code128 & Co.
 async function zxingDetect(img) {
   if (!window.ZXing) {
@@ -1787,7 +1863,7 @@ async function zxingDetect(img) {
         width: Math.max(...xs) - Math.min(...xs),
         height: Math.max(...ys) - Math.min(...ys),
       };
-      // 1D-Barcodes liefern nur eine Scan-Linie – Höhe/Breite großzügig auffüllen
+      // 1D-Barcodes liefern nur eine Scan-Linie, Höhe/Breite großzügig auffüllen
       if (box.height < 30) { box.y = Math.max(0, box.y - 70); box.height += 140; }
       if (box.width < 30) { box.x = Math.max(0, box.x - 70); box.width += 140; }
     }
@@ -1796,7 +1872,7 @@ async function zxingDetect(img) {
 }
 
 // Text im Bild lesen (Kartennummer, PIN, Wert): Tesseract-OCR, lokal aus
-// public/vendor/tesseract – lädt nur beim ersten Gebrauch, Fortschritt via Callback
+// public/vendor/tesseract, lädt nur beim ersten Gebrauch, Fortschritt via Callback
 let ocrWorkerPromise = null;
 let ocrStatusCb = null;
 function loadScript(src) {
@@ -1861,8 +1937,24 @@ async function analyzeWalletImage(dataUrl, statusCb) {
   return out;
 }
 
-// Große, interaktive Shop-Auswahl beim Hinzufügen
-const VENDOR_GRID = ['REWE', 'Amazon', 'Wunschgutschein', 'Zalando', 'IKEA', 'Rossmann', 'Lidl', 'EDEKA', 'Netto', 'dm', 'Müller', 'MediaMarkt', 'H&M', 'Douglas', 'Nike', 'Anderer'];
+// Große, interaktive Shop-Auswahl beim Hinzufügen (erst 6, Rest hinter "Weitere")
+const VENDOR_GRID = ['REWE', 'Amazon', 'Wunschgutschein', 'Zalando', 'IKEA', 'Rossmann', 'Lidl', 'EDEKA', 'Netto', 'dm', 'Müller', 'MediaMarkt', 'H&M', 'Douglas', 'Nike', 'Anderer Gutschein'];
+
+// Marken-Logos über den Favicon-Dienst, Initialen bleiben als Fallback darunter
+const BRAND_DOMAINS = {
+  rewe: 'rewe.de', amazon: 'amazon.de', wunschgutschein: 'wunschgutschein.de',
+  zalando: 'zalando.de', ikea: 'ikea.com', rossmann: 'rossmann.de', lidl: 'lidl.de',
+  edeka: 'edeka.de', netto: 'netto-online.de', dm: 'dm.de', 'müller': 'mueller.de',
+  mediamarkt: 'mediamarkt.de', 'h&m': 'hm.com', douglas: 'douglas.de', nike: 'nike.com',
+  payback: 'payback.de', wolt: 'wolt.com', lieferando: 'lieferando.de', spotify: 'spotify.com',
+};
+function brandChipHtml(name) {
+  const domain = BRAND_DOMAINS[String(name || '').toLowerCase()];
+  const logo = domain
+    ? `<img class="brand-logo" src="https://www.google.com/s2/favicons?domain=${domain}&sz=64" alt="" loading="lazy" onerror="this.remove()">`
+    : '';
+  return `<span class="brand-chip" style="--bc:${brandColor(name)}">${logo}${esc(brandInitials(name))}</span>`;
+}
 
 function openWalletAdd(type, prefillName) {
   if (!state.token) { switchView('profile'); island('Für die Wallet bitte anmelden'); return; }
@@ -1899,10 +1991,14 @@ function openWalletAdd(type, prefillName) {
     ` : `
     <label class="f-label">Shop <span class="req">*</span></label>
     <div class="vendor-grid" id="wa-vendor-grid">
-      ${VENDOR_GRID.map(v => `<button class="vendor-tile" data-vg="${esc(v)}">
-        <span class="brand-chip" style="--bc:${brandColor(v)}">${esc(brandInitials(v))}</span>
+      ${VENDOR_GRID.map((v, i) => `<button class="vendor-tile ${i >= 6 ? 'hidden vendor-more' : ''}" data-vg="${esc(v)}">
+        ${brandChipHtml(v)}
         <span>${esc(v)}</span>
       </button>`).join('')}
+      <button class="vendor-tile" id="wa-vendor-showmore">
+        <span class="brand-chip" style="--bc:rgba(127,127,127,.4)">…</span>
+        <span>Weitere</span>
+      </button>
     </div>
     <input id="wa-vendor" class="input hidden" maxlength="30" placeholder="Shop-Name eintippen">
     <div class="form-grid">
@@ -1915,9 +2011,9 @@ function openWalletAdd(type, prefillName) {
         <input id="wa-pin" class="input" maxlength="16" placeholder="z. B. 0689">
       </div>
     </div>
-    <label class="f-label" for="wa-code">Code / Kartennummer <span class="req">*</span></label>
-    <input id="wa-code" class="input" maxlength="40" placeholder="Der Code, den du an der Kasse brauchst">
-    <label class="f-label" for="wa-end">Ablaufdatum <span class="opt">(optional – bis wann ist der Gutschein gültig?)</span></label>
+    <label class="f-label" for="wa-code">Code / Kartennummer <span class="opt">(optional)</span></label>
+    <input id="wa-code" class="input" maxlength="40" placeholder="Falls vorhanden: der Code für die Kasse">
+    <label class="f-label" for="wa-end">Gültig bis <span class="opt">(optional)</span></label>
     <input id="wa-end" class="input" type="date">
     `}
     <div class="form-row" style="margin-top:14px">
@@ -1925,11 +2021,15 @@ function openWalletAdd(type, prefillName) {
       <span id="wa-msg" class="form-msg"></span>
     </div>`;
 
-  // Shop-Kacheln: Antippen wählt aus, „Anderer" öffnet das Freitextfeld
+  // Shop-Kacheln: Antippen wählt aus, "Anderer Gutschein" öffnet das Freitextfeld
   let pickedVendor = '';
+  $('#wa-vendor-showmore')?.addEventListener('click', () => {
+    $('#sheet-content').querySelectorAll('.vendor-more').forEach(x => x.classList.remove('hidden'));
+    $('#wa-vendor-showmore').remove();
+  });
   $('#sheet-content').querySelectorAll('[data-vg]').forEach(b => b.addEventListener('click', () => {
     $('#sheet-content').querySelectorAll('.vendor-tile').forEach(x => x.classList.toggle('on', x === b));
-    if (b.dataset.vg === 'Anderer') {
+    if (b.dataset.vg === 'Anderer Gutschein') {
       pickedVendor = '';
       $('#wa-vendor').classList.remove('hidden');
       $('#wa-vendor').focus();
@@ -1950,7 +2050,9 @@ function openWalletAdd(type, prefillName) {
       $('#wa-drop-empty').classList.add('hidden');
       m.className = 'form-msg';
       m.textContent = 'Lese das Bild aus …';
-      const r = await analyzeWalletImage(addImg, p => {
+      // Analyse auf hochauflösender Fassung: kleine Schrift bleibt für die OCR lesbar
+      const hiRes = await readImageFile(f, 2200, 0.9);
+      const r = await analyzeWalletImage(hiRes, p => {
         m.textContent = `Lese den Text im Bild … ${p} % (kann beim ersten Mal etwas dauern)`;
       });
       if (r.codeImg) { addCodeImg = r.codeImg; $('#wa-preview').src = r.codeImg; }
@@ -1991,10 +2093,10 @@ function openWalletAdd(type, prefillName) {
       if (r.codeImg) filled.push('Kassen-Code ausgeschnitten');
       if (filled.length) {
         m.className = 'form-msg ok';
-        m.textContent = `Automatisch ausgefüllt: ${filled.join(', ')} – bitte prüfen.`;
+        m.textContent = `Automatisch ausgefüllt: ${filled.join(', ')}, bitte prüfen.`;
       } else {
         m.className = 'form-msg';
-        m.textContent = 'Bild gespeichert – nichts sicher erkannt, bitte Felder ausfüllen.';
+        m.textContent = 'Bild gespeichert, nichts sicher erkannt, bitte Felder ausfüllen.';
       }
     } catch {
       m.className = 'form-msg error';
@@ -2023,14 +2125,21 @@ function openWalletAdd(type, prefillName) {
         balance: isNaN(amount) ? null : amount,
         img: addImg, codeImg: addCodeImg, tx: [],
       };
-      // Pflicht: Shop, Wert, Code, PIN – fehlende Felder leuchten rot
+      // Pflicht: Shop, Wert, PIN (Code ist optional, fehlende Felder leuchten rot)
       $('#wa-amount').classList.toggle('err', v.amount == null);
-      $('#wa-code').classList.toggle('err', !v.code);
       $('#wa-pin').classList.toggle('err', !v.pin);
       $('#wa-vendor-grid')?.classList.toggle('err', !v.vendor);
-      if (!v.vendor || v.amount == null || !v.code || !v.pin) {
+      if (!v.vendor || v.amount == null || !v.pin) {
         msg.className = 'form-msg error';
         msg.textContent = !v.vendor ? 'Bitte einen Shop auswählen.' : 'Bitte die rot markierten Pflichtfelder ausfüllen.';
+        return;
+      }
+      // Doppelte Gutscheine abfangen: gleiche PIN beim gleichen Shop oder gleicher Code
+      const dupe = state.wallet.vouchers.find(x =>
+        (x.pin && x.pin === v.pin && x.vendor.toLowerCase() === v.vendor.toLowerCase())
+        || (v.code && x.code && x.code === v.code));
+      if (dupe) {
+        askConfirm(`Diesen Gutschein hast du schon in der Wallet (${esc(dupe.vendor)}, gleiche ${dupe.code === v.code && v.code ? 'Kartennummer' : 'PIN'}). Er wurde nicht doppelt gespeichert.`, { alertOnly: true });
         return;
       }
       state.wallet.vouchers.unshift(v);
@@ -2073,10 +2182,10 @@ function openVoucherSheet(id, animFrom) {
     </div>
     ${v.balance != null ? `<div class="balance-big" style="margin-top:12px"><span id="wv-balance">${euroFmt(v.balance)}</span>
       ${v.amount != null && v.amount !== v.balance ? `<span class="stars-count">von ${euroFmt(v.amount)}</span>` : ''}</div>` : ''}
-    <div class="tx-row" style="margin-top:12px">
+    ${v.code ? `<div class="tx-row" style="margin-top:12px">
       <span class="wallet-code" style="flex:1">${esc(v.code)}</span>
       <button class="btn btn-small" data-copy-txt="${esc(v.code)}">Code kopieren</button>
-    </div>
+    </div>` : ''}
     ${v.pin ? `<div class="tx-row"><span class="wallet-code" style="flex:1">PIN: ${esc(v.pin)}</span>
       <button class="btn btn-small btn-ghost" data-copy-txt="${esc(v.pin)}">PIN kopieren</button></div>` : ''}
     ${v.codeImg ? `<img class="wallet-code-img" src="${v.codeImg}" alt="Code für die Kasse">`
@@ -2111,7 +2220,13 @@ function openVoucherSheet(id, animFrom) {
     </div>` : ''}`;
 
   $('#sheet-content').querySelectorAll('[data-copy-txt]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copyTxt)));
-  $('#wv-del').addEventListener('click', () => {
+  // Löschen nur bei aufgebrauchten Gutscheinen und immer mit Rückfrage
+  $('#wv-del')?.addEventListener('click', async () => {
+    if (v.balance != null && v.balance > 0) {
+      askConfirm(`Dieser Gutschein hat noch ${euroFmt(v.balance)} Guthaben und kann nicht gelöscht werden. Buch erst das Restguthaben ab.`, { alertOnly: true });
+      return;
+    }
+    if (!await askConfirm(`Bist du sicher, dass du den ${esc(v.vendor)}-Gutschein löschen willst?`)) return;
     state.wallet.vouchers = state.wallet.vouchers.filter(x => x.id !== id);
     saveWallet(); closeSheet(); island('Gutschein gelöscht');
   });
@@ -2129,7 +2244,7 @@ function openVoucherSheet(id, animFrom) {
     // Nie ins Minus: mehr als das Restguthaben lässt sich nicht abbuchen
     if (sign < 0 && amt > v.balance + 0.001) {
       msg.className = 'form-msg error';
-      msg.textContent = `Nur noch ${euroFmt(v.balance)} drauf – mehr geht nicht.`;
+      msg.textContent = `Nur noch ${euroFmt(v.balance)} drauf, mehr geht nicht.`;
       return;
     }
     const before = v.balance;
@@ -2142,7 +2257,7 @@ function openVoucherSheet(id, animFrom) {
     // Geld rein = Ka-ching, grünes Aufleuchten, Geldscheine
     if (sign < 0) {
       playSfx('pay'); buzz([45, 40, 45]); moneyFlash('red');
-      // Ein kurzer, kleiner Ruckler am Inhalt – nicht am Sheet selbst
+      // Ein kurzer, kleiner Ruckler am Inhalt, nicht am Sheet selbst
       // (das ist per translateX(-50%) zentriert, ein Transform-Shake würde es zur Seite reißen)
       const c = $('#sheet-content');
       if (c && !reducedMotion()) {
@@ -2193,7 +2308,8 @@ function openCardSheet(id) {
       : c.img ? `<img class="wallet-img" src="${c.img}" alt="QR/Barcode">`
       : '<p class="muted" style="margin-top:10px; font-size:.82rem">Tipp: Screenshot vom Karten-Barcode anhängen (beim Anlegen), dann kannst du ihn an der Kasse scannen lassen.</p>'}`;
   $('#sheet-content').querySelectorAll('[data-copy-txt]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copyTxt)));
-  $('#wc-del').addEventListener('click', () => {
+  $('#wc-del').addEventListener('click', async () => {
+    if (!await askConfirm(`Bist du sicher, dass du die ${esc(c.name)}-Karte löschen willst?`)) return;
     state.wallet.cards = state.wallet.cards.filter(x => x.id !== id);
     saveWallet(); closeSheet(); island('Karte gelöscht');
   });
@@ -2224,7 +2340,7 @@ function renderWallet() {
     : true;
   const active = allActive.filter(v => vMatch(v) && fMatch(v));
 
-  // Kontostand: Summe ALLER Restguthaben (unabhängig von Suche/Filter) – zählt animiert
+  // Kontostand: Summe ALLER Restguthaben (unabhängig von Suche/Filter), zählt animiert
   const total = Math.round(allActive.reduce((s, v) => s + (v.balance || 0), 0) * 100) / 100;
   animateNumber($('#wallet-total'), renderWallet.lastTotal, total);
   renderWallet.lastTotal = total;
@@ -2250,18 +2366,18 @@ function renderWallet() {
   const vCard = v => `
     <div class="wallet-card" data-wv="${esc(v.id)}" style="--bc:${brandColor(v.vendor)}">
       <div class="wallet-card-head">
-        <span class="brand-chip" style="--bc:rgba(255,255,255,.22)">${esc(brandInitials(v.vendor))}</span>
+        ${brandChipHtml(v.vendor)}
         <span class="wallet-card-name">${esc(v.vendor)}</span>
         ${v.balance != null ? `<span class="wallet-card-balance">${euroFmt(v.balance)}</span>` : ''}
       </div>
       <div class="wallet-card-sub">
-        <span>${esc(v.code)}</span>
+        <span>${esc(v.code || 'Ohne Code')}</span>
         ${v.pin ? '<span class="pill">PIN</span>' : ''}
         ${v.img ? '<span class="pill">QR/Barcode</span>' : ''}
         ${v.end ? `<span class="pill">bis ${new Date(v.end).toLocaleDateString('de-DE')}</span>` : ''}
       </div>
     </div>`;
-  // Hinzufügen als Banner direkt in der Liste – fettes Plus statt Logo
+  // Hinzufügen als Banner direkt in der Liste, fettes Plus statt Logo
   const addBanner = (type, label) => `
     <button class="wallet-card wallet-card-add" data-wadd="${type}">
       <span class="wallet-add-plus">${icon('plus')}</span>
@@ -2282,7 +2398,7 @@ function renderWallet() {
   $('#cardw-list').innerHTML = cardsShown.map(c => `
     <div class="wallet-card" data-wc="${esc(c.id)}" style="--bc:${brandColor(c.name)}">
       <div class="wallet-card-head">
-        <span class="brand-chip" style="--bc:rgba(255,255,255,.22)">${esc(brandInitials(c.name))}</span>
+        ${brandChipHtml(c.name)}
         <span class="wallet-card-name">${esc(c.name)}</span>
         ${c.img ? '<span class="pill">QR/Barcode</span>' : ''}
       </div>
@@ -2296,13 +2412,18 @@ function renderWallet() {
       <span class="wallet-add-plus small">${icon('plus', 'icon icon-sm')}</span>
     </button>` : '');
 
+  // Suchergebnisse gleiten gestaffelt herein
+  document.querySelectorAll('#voucher-list .wallet-card, #cardw-list .wallet-card').forEach((el, i) => {
+    el.classList.add('anim-item');
+    el.style.animationDelay = Math.min(i * 45, 300) + 'ms';
+  });
   $('#view-wallet').querySelectorAll('[data-wv]').forEach(el => el.onclick = () => openVoucherSheet(el.dataset.wv));
   $('#view-wallet').querySelectorAll('[data-wc]').forEach(el => el.onclick = () => openCardSheet(el.dataset.wc));
   $('#view-wallet').querySelectorAll('[data-wadd]').forEach(el => el.onclick = () => openWalletAdd(el.dataset.wadd));
   $('#view-wallet').querySelectorAll('[data-wadd-prefill]').forEach(el => el.onclick = () => openWalletAdd('card', el.dataset.waddPrefill));
 }
 
-// Wallet-Suche + Filter-Chips (statisches Markup – einmal verdrahten)
+// Wallet-Suche + Filter-Chips (statisches Markup, einmal verdrahten)
 $('#wallet-search')?.addEventListener('input', e => {
   state.walletQuery = e.target.value;
   renderWallet();
@@ -2366,7 +2487,7 @@ function openAdminPost() {
       if (r.priceNum != null && !$('#ap-price').value) $('#ap-price').value = String(r.priceNum).replace('.', ',');
       if (r.compare?.priceNum != null && !$('#ap-compare').value) $('#ap-compare').value = String(r.compare.priceNum).replace('.', ',');
       if (r.image) $('#ap-image').value = r.image;
-      m.className = 'form-msg ok'; m.textContent = 'Ausgelesen – bitte prüfen.';
+      m.className = 'form-msg ok'; m.textContent = 'Ausgelesen, bitte prüfen.';
     } catch (e) { m.className = 'form-msg error'; m.textContent = e.message; }
   });
   $('#ap-post').addEventListener('click', async () => {
@@ -2410,7 +2531,7 @@ async function refreshPushBtn() {
   try {
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription();
-    if (sub) { btn.textContent = 'Alarm ist aktiv – deaktivieren'; btn.dataset.on = '1'; }
+    if (sub) { btn.textContent = 'Alarm ausschalten'; btn.dataset.on = '1'; }
     else { btn.textContent = 'Alarm aktivieren'; delete btn.dataset.on; }
   } catch { }
 }
@@ -2434,7 +2555,7 @@ $('#push-enable').addEventListener('click', async () => {
       const { key } = await api('/api/push/key');
       const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8(key) });
       await api('/api/push/subscribe', { method: 'POST', body: JSON.stringify(sub) });
-      m.className = 'form-msg ok'; m.textContent = 'Alarm aktiv – du bekommst Preisfehler sofort.';
+      m.className = 'form-msg ok'; m.textContent = 'Alarm aktiv! Du bekommst Preisfehler ab jetzt sofort aufs Handy.';
       window.KBrand?.playSuccess?.($('#push-card'));
     }
     refreshPushBtn();
@@ -2459,6 +2580,12 @@ function emoteHtml(name) {
   return `<img class="emote" src="https://cdn.7tv.app/emote/${chatEmotes[name]}/2x.webp" alt="${esc(name)}" title="${esc(name)}" loading="lazy">`;
 }
 function chatMsgHtml(m) {
+  if (m.deleted) {
+    return `<div class="chat-msg" data-mid="${esc(m.id)}">
+      <span class="chat-user" style="color:${chatColor(m.user)}">${esc(m.user)}</span>
+      <span class="chat-text chat-deleted">Nachricht gelöscht</span>
+    </div>`;
+  }
   let text = esc(m.text);
   for (const name of Object.keys(chatEmotes)) {
     text = text.replace(new RegExp(`\\b${name}\\b`, 'g'), emoteHtml(name));
@@ -2521,6 +2648,11 @@ async function pollChat(force) {
       chatEmotes = r.emotes || chatEmotes;
       chatBadges = r.badges || chatBadges;
       renderPinbar(r.pinned);
+      // Nachträglich gelöschte Nachrichten gegen den Platzhalter tauschen
+      (r.updates || []).forEach(id => {
+        const el = $('#chat-list').querySelector(`[data-mid="${id}"] .chat-text`);
+        if (el) { el.className = 'chat-text chat-deleted'; el.textContent = 'Nachricht gelöscht'; }
+      });
       if (r.messages.length) {
         const box = $('#chat-box'), list = $('#chat-list');
         const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
@@ -2548,7 +2680,7 @@ async function pollChat(force) {
         <button class="dm-row" data-dm-open="${esc(f)}">
           <span class="avatar-mini" style="background:${chatColor(f)}">${esc(f[0].toUpperCase())}</span>
           <span class="dm-row-main"><span class="dm-row-name">${esc(f)}</span>
-          <span class="dm-row-last">Freund – noch kein Chat</span></span>
+          <span class="dm-row-last">Freund, noch kein Chat</span></span>
         </button>`).join('');
       $('#chat-list').innerHTML = (rows + friendRows) || '<div class="status">Noch keine Flüster-Chats. Tippe im Global-Chat auf einen Namen, um zu flüstern.</div>';
       $('#chat-list').querySelectorAll('[data-dm-open]').forEach(b => b.onclick = () => setChatMode('dm', b.dataset.dmOpen));
@@ -2577,10 +2709,47 @@ async function refreshDmBadge() {
   } catch { }
 }
 
+// Command-Palette: erscheint, sobald die Eingabe mit "!" beginnt
+const CHAT_COMMANDS = [
+  { cmd: '!v', desc: 'Vanish: alle deine Nachrichten verschwinden' },
+  { cmd: '!muenze', desc: 'Wirft eine Münze (Kopf oder Zahl)' },
+  { cmd: '!stats', desc: 'Zeigt dir deine Coins und deinen Spar-Rang' },
+  { cmd: '!hilfe', desc: 'Zeigt diese Übersicht' },
+];
+function renderCmdPalette(show) {
+  let el = $('#chat-cmds');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'chat-cmds';
+    $('#chat-input-row').before(el);
+  }
+  if (!show) { el.innerHTML = ''; el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.innerHTML = CHAT_COMMANDS.map(c =>
+    `<button class="cmd-row" data-cmd="${c.cmd}"><b>${c.cmd}</b><span>${c.desc}</span></button>`).join('');
+  el.querySelectorAll('[data-cmd]').forEach(b => b.onclick = () => {
+    $('#chat-input').value = b.dataset.cmd;
+    renderCmdPalette(false);
+    $('#chat-input').focus();
+  });
+}
+$('#chat-input').addEventListener('input', e => {
+  renderCmdPalette(chatMode !== 'dm' && e.target.value.startsWith('!'));
+});
+
 async function sendChat() {
   const inp = $('#chat-input');
   const text = inp.value.trim();
   if (!text) return;
+  renderCmdPalette(false);
+  // Client-Commands, die keinen Server brauchen
+  if (text === '!hilfe') { inp.value = ''; renderCmdPalette(true); return; }
+  if (text === '!stats') {
+    inp.value = '';
+    const rank = rankFor(renderWallet.lastTotal || 0);
+    island(`${myProfile?.coins ?? 0} Coins, Rang: ${rank.name}`);
+    return;
+  }
   if (!state.token) { switchView('profile'); island('Zum Chatten bitte anmelden'); return; }
   try {
     if (chatMode === 'dm') {
@@ -2594,11 +2763,14 @@ async function sendChat() {
     const r = await api('/api/chat', { method: 'POST', body: JSON.stringify({ text }) });
     inp.value = '';
     if (r.vanished) {
-      // !v: alle eigenen Nachrichten sind weg – Liste frisch aufbauen
-      $('#chat-list').innerHTML = '';
-      chatLastTs = 0;
-      island('Deine Nachrichten sind verschwunden');
-      pollChat(true);
+      // !v: eigene Nachrichten werden zum Platzhalter
+      document.querySelectorAll('#chat-list .chat-msg').forEach(el => {
+        if (el.querySelector('.chat-user')?.textContent === state.userName) {
+          const t = el.querySelector('.chat-text');
+          if (t) { t.className = 'chat-text chat-deleted'; t.textContent = 'Nachricht gelöscht'; }
+        }
+      });
+      island('Deine Nachrichten sind gelöscht');
       return;
     }
     $('#chat-list').insertAdjacentHTML('beforeend', chatMsgHtml(r.message));
@@ -2640,12 +2812,14 @@ async function openUserPop(user, msgId) {
     </div>` : ''}
     <div class="form-row" style="margin-top:14px; flex-wrap:wrap">
       <button class="btn btn-small" id="up-whisper">Flüstern</button>
-      <button class="btn btn-small btn-ghost" id="up-friend">${isFriend ? 'Freund entfernen' : 'Als Freund hinzufügen'}</button>
+      <button class="btn btn-small btn-ghost" id="up-friend">${isFriend ? 'Freund entfernen' : 'Freundschaftsanfrage'}</button>
       <button class="btn btn-small btn-ghost" id="up-report">Melden</button>
     </div>
     ${mod ? `<div class="form-row" style="margin-top:8px; flex-wrap:wrap">
-      <button class="btn btn-small btn-ghost" id="up-timeout">Timeout 10 Min.</button>
-      <button class="btn btn-small btn-ghost" id="up-ban">Sperren</button>
+      ${u.mutedUntil ? `<button class="btn btn-small btn-ghost" id="up-unban">Timeout aufheben (noch ${Math.ceil((u.mutedUntil - Date.now()) / 60000)} Min.)</button>`
+        : u.banned ? `<button class="btn btn-small btn-ghost" id="up-unban">Entsperren</button>`
+        : `<button class="btn btn-small btn-ghost" id="up-timeout">Timeout 10 Min.</button>
+      <button class="btn btn-small btn-ghost" id="up-ban">Sperren</button>`}
       ${msgId ? `<button class="btn btn-small btn-ghost" id="up-delmsg">Nachricht löschen</button>
       <button class="btn btn-small btn-ghost" id="up-pin">Anpinnen</button>` : ''}
     </div>` : ''}`;
@@ -2655,13 +2829,16 @@ async function openUserPop(user, msgId) {
   $('#up-friend').onclick = async () => {
     if (!state.token) { island('Bitte anmelden'); return; }
     await api('/api/friend', { method: 'POST', body: JSON.stringify({ user, action: isFriend ? 'remove' : 'add' }) })
-      .then(r => { if (myProfile) myProfile.friends = r.friends; island(isFriend ? 'Freund entfernt' : 'Als Freund hinzugefügt'); })
+      .then(r => {
+        if (myProfile) { myProfile.friends = r.friends; myProfile.friendRequests = r.friendRequests; }
+        island(isFriend ? 'Freund entfernt' : r.friends.includes(user) ? 'Ihr seid jetzt Freunde!' : 'Anfrage gesendet');
+      })
       .catch(e => island(e.message));
     close();
   };
   $('#up-report').onclick = async () => {
     await api('/api/chat/report', { method: 'POST', body: JSON.stringify({ user, id: msgId || '' }) })
-      .then(() => island('Gemeldet – danke!')).catch(e => island(e.message));
+      .then(() => island('Gemeldet, danke!')).catch(e => island(e.message));
     close();
   };
   const modAct = (action, extra) => api('/api/chat/mod', { method: 'POST', body: JSON.stringify({ action, user, id: msgId, ...extra }) })
@@ -2669,6 +2846,7 @@ async function openUserPop(user, msgId) {
     .catch(e => island(e.message));
   $('#up-timeout')?.addEventListener('click', () => modAct('timeout', { minutes: 10 }));
   $('#up-ban')?.addEventListener('click', () => modAct('ban'));
+  $('#up-unban')?.addEventListener('click', () => modAct('unban'));
   $('#up-delmsg')?.addEventListener('click', () => modAct('delete-msg'));
   $('#up-pin')?.addEventListener('click', () => modAct('pin'));
 }
