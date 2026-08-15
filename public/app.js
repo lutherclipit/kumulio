@@ -1243,6 +1243,7 @@ function authOk(r, { welcome = false } = {}) {
   localStorage.setItem('ra.token', r.token);
   localStorage.setItem('ra.user', r.user);
   refreshProfileTab();
+  pullWallet(); // Wallet vom Konto holen (Gerätewechsel/Neuinstallation)
   if (welcome) {
     // Willkommens-Moment: der Punkt quittiert das neue Konto
     $('#welcome-title').textContent = `Willkommen, ${r.user}!`;
@@ -1424,7 +1425,32 @@ state.wallet.vouchers = state.wallet.vouchers.map(v => ({
 }));
 state.wallet.cards = state.wallet.cards.map(c => ({ img: '', codeImg: '', ...c }));
 
-function saveWallet() { save('wallet', state.wallet); renderWallet(); }
+// Wallet: lokal speichern + (angemeldet) ans Konto syncen – Gutscheine überleben
+// so App-Neuinstallation und Gerätewechsel
+let walletSyncTimer = null;
+function saveWallet() {
+  save('wallet', state.wallet);
+  renderWallet();
+  if (state.token) {
+    clearTimeout(walletSyncTimer);
+    walletSyncTimer = setTimeout(() => {
+      api('/api/wallet', { method: 'POST', body: JSON.stringify(state.wallet) }).catch(() => { });
+    }, 800);
+  }
+}
+async function pullWallet() {
+  if (!state.token) return;
+  try {
+    const remote = await api('/api/wallet');
+    const mergeById = (a = [], b = []) => {
+      const seen = new Set(a.map(x => x.id));
+      return [...a, ...b.filter(x => x && !seen.has(x.id))];
+    };
+    state.wallet.vouchers = mergeById(state.wallet.vouchers, remote.vouchers);
+    state.wallet.cards = mergeById(state.wallet.cards, remote.cards);
+    saveWallet(); // lokal sichern + Mergestand zurück zum Server
+  } catch { }
+}
 function euroFmt(n) { return n == null ? '' : n.toFixed(2).replace('.', ',') + ' €'; }
 
 // ---- Spielgefühl: Sounds, Vibration, Aufleuchten, Geldscheine, Zähl-Animation ----
@@ -2051,7 +2077,7 @@ $('#btn-home').addEventListener('click', () => {
   renderWallet();
   initTurnstile();
   if (state.token) {
-    api('/api/me').then(r => { state.userName = r.user; refreshProfileTab(); })
+    api('/api/me').then(r => { state.userName = r.user; refreshProfileTab(); pullWallet(); })
       .catch(() => { state.token = ''; localStorage.removeItem('ra.token'); refreshProfileTab(); });
   }
   moveTabPill();

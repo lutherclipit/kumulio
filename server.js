@@ -91,6 +91,7 @@ function isAdmin(req) { return String(req.headers['x-admin-key'] || '') === ADMI
 let compareCache = loadJson('compare.json', {}); // { query: {ts, price, priceNum, url, name} | {ts, miss} }
 let posts = loadJson('posts.json', {});         // { channelSlug: [ {id,user,title,text,ts,flags} ] }
 let customChannels = loadJson('channels.json', []); // [ {slug,name,emoji,type:'community',desc,createdTs} ]
+let wallets = loadJson('wallets.json', {});     // { user: {vouchers:[], cards:[], ts} } – Wallet hängt am Konto
 
 function allChannels() {
   // Eigene Kanäle bekommen immer das Standard-Icon und die Community-Regeln
@@ -439,10 +440,10 @@ function send(res, code, body, type = 'application/json') {
   res.end(data);
 }
 
-function readBody(req) {
+function readBody(req, maxBytes = 50_000) {
   return new Promise((resolve, reject) => {
     let buf = '';
-    req.on('data', c => { buf += c; if (buf.length > 50_000) req.destroy(); });
+    req.on('data', c => { buf += c; if (buf.length > maxBytes) req.destroy(); });
     req.on('end', () => { try { resolve(buf ? JSON.parse(buf) : {}); } catch (e) { reject(e); } });
     req.on('error', reject);
   });
@@ -563,6 +564,26 @@ const server = http.createServer(async (req, res) => {
       sessions[token] = user;
       saveJson('sessions.json', sessions);
       return send(res, 200, { token, user });
+    }
+
+    // ---- Wallet am Konto: überlebt Gerätewechsel und App-Neuinstallation
+    if (p === '/api/wallet' && req.method === 'GET') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      return send(res, 200, wallets[user] || { vouchers: [], cards: [] });
+    }
+    if (p === '/api/wallet' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      // Bilder (Barcode-Fotos als dataURL) brauchen ein größeres Body-Limit
+      const b = await readBody(req, 4_000_000);
+      wallets[user] = {
+        vouchers: Array.isArray(b.vouchers) ? b.vouchers.slice(0, 300) : [],
+        cards: Array.isArray(b.cards) ? b.cards.slice(0, 100) : [],
+        ts: Date.now(),
+      };
+      saveJson('wallets.json', wallets);
+      return send(res, 200, { ok: true });
     }
 
     if (p === '/api/logout' && req.method === 'POST') {
