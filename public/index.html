@@ -114,8 +114,37 @@
       </div>
       <div class="card modal-left hidden" id="me-card">
         <h2 class="card-h">Angemeldet als <span id="me-name"></span></h2>
+        <div id="g-rank-row" class="rank-row" style="margin:10px 0 0"></div>
         <div class="form-row">
           <button id="btn-logout" class="btn btn-ghost">Abmelden</button>
+        </div>
+      </div>
+
+      <!-- Gamification: Coins sammeln, Kisten öffnen, Badges tragen (kein Echtgeld) -->
+      <div class="card modal-left hidden" id="gami-card">
+        <h2 class="card-h">Deine Coins: <span id="g-coins">0</span></h2>
+        <p class="muted" style="font-size:.82rem">Täglich einloggen bringt Coins – je länger die
+          Serie, desto mehr. Mit 100 Coins öffnest du eine Kiste mit einem Badge. Kein Echtgeld, nur Spaß.</p>
+        <div class="form-row">
+          <button id="g-daily" class="btn">Täglichen Bonus abholen</button>
+          <button id="g-chest" class="btn btn-ghost">Kiste öffnen (100)</button>
+        </div>
+        <div id="g-msg" class="form-msg"></div>
+        <div id="g-chest-result" class="hidden"></div>
+        <h3 style="margin-top:14px; font-size:.95rem">Deine Badges <span class="stars-count">(antippen = im Chat tragen)</span></h3>
+        <div id="g-badges" class="badge-grid"></div>
+      </div>
+
+      <!-- Profil-Gestaltung + Privatsphäre -->
+      <div class="card modal-left hidden" id="bio-card">
+        <h2 class="card-h">Über dich</h2>
+        <textarea id="g-bio" class="input" rows="2" maxlength="160" placeholder="Kurze Bio (max. 160 Zeichen) – Beleidigungen werden gefiltert"></textarea>
+        <label style="display:flex; align-items:center; gap:8px; margin-top:10px; font-size:.86rem">
+          <input type="checkbox" id="g-public" style="width:auto"> Profil öffentlich zeigen (Name, Bio, Badges)
+        </label>
+        <div class="form-row" style="margin-top:10px">
+          <button id="g-bio-save" class="btn btn-small">Speichern</button>
+          <span id="g-bio-msg" class="form-msg"></span>
         </div>
       </div>
       <div class="card teaser-card" style="margin-top:12px">

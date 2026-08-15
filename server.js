@@ -113,6 +113,23 @@ function censor(text) {
   return text.replace(BAD_WORDS, m => m[0] + '*'.repeat(Math.max(2, m.length - 1)));
 }
 
+// Badges (aus Kisten, keine Echtgeld-Käufe) – Icons kommen aus dem SVG-Sprite der App
+const BADGES = {
+  sternchen: { name: 'Sternchen', icon: 'star', rar: 'häufig' },
+  blitzdeal: { name: 'Blitzdeal', icon: 'bolt', rar: 'häufig' },
+  geschenkprofi: { name: 'Geschenkprofi', icon: 'gift', rar: 'häufig' },
+  flammenjaeger: { name: 'Flammenjäger', icon: 'flame', rar: 'selten' },
+  scheinsammler: { name: 'Scheinsammler', icon: 'banknote', rar: 'selten' },
+  spartippgenie: { name: 'Spartipp-Genie', icon: 'bulb', rar: 'selten' },
+  preischecker: { name: 'Preis-Checker', icon: 'check', rar: 'episch' },
+  kumuliolegende: { name: 'kumulio-Legende', icon: 'tag', rar: 'episch' },
+};
+function profileOf(user) {
+  const u = users[user];
+  if (!u.profile) u.profile = { bio: '', coins: 0, badges: [], activeBadge: '', lastDailyDay: '', streak: 0, publicProfile: true };
+  return u.profile;
+}
+
 function allChannels() {
   // Eigene Kanäle bekommen immer das Standard-Icon und die Community-Regeln
   return [...BUILTIN_CHANNELS, ...customChannels.map(c => ({ icon: 'tag', rules: COMMUNITY_RULES, ...c, emoji: undefined }))];
@@ -590,7 +607,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/chat' && req.method === 'GET') {
       const since = Number(url.searchParams.get('since') || 0);
       const msgs = chat.messages.filter(m => m.ts > since).slice(-80);
-      return send(res, 200, { messages: msgs, emotes: CHAT_EMOTES });
+      return send(res, 200, { messages: msgs, emotes: CHAT_EMOTES, badges: BADGES });
     }
     if (p === '/api/chat' && req.method === 'POST') {
       const user = authUser(req);
@@ -608,7 +625,7 @@ const server = http.createServer(async (req, res) => {
       if (last && Date.now() - last.ts < 2000) return send(res, 429, { error: 'Langsam – kurz warten.' });
       if (last && last.text === text && Date.now() - last.ts < 30000) return send(res, 429, { error: 'Gleiche Nachricht schon gesendet.' });
       chatLast[user] = { ts: Date.now(), text };
-      const msg = { id: crypto.randomBytes(6).toString('hex'), user, text: censor(text), ts: Date.now() };
+      const msg = { id: crypto.randomBytes(6).toString('hex'), user, badge: profileOf(user).activeBadge || '', text: censor(text), ts: Date.now() };
       chat.messages.push(msg);
       if (chat.messages.length > 500) chat.messages = chat.messages.slice(-500);
       saveJson('chat.json', chat);
@@ -626,6 +643,56 @@ const server = http.createServer(async (req, res) => {
       else return send(res, 400, { error: 'Unbekannte Aktion.' });
       saveJson('chat.json', chat);
       return send(res, 200, { ok: true });
+    }
+
+    // ---- Profil & Gamification: Coins, Kisten, Badges – alles OHNE Echtgeld
+    if (p === '/api/profile' && req.method === 'GET') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      return send(res, 200, { user, ...profileOf(user), badgesAll: BADGES });
+    }
+    if (p === '/api/profile' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      const prof = profileOf(user);
+      if (typeof b.bio === 'string') prof.bio = censor(b.bio.trim().slice(0, 160));
+      if (typeof b.publicProfile === 'boolean') prof.publicProfile = b.publicProfile;
+      if (typeof b.activeBadge === 'string')
+        prof.activeBadge = (b.activeBadge === '' || prof.badges.includes(b.activeBadge)) ? b.activeBadge : prof.activeBadge;
+      saveJson('users.json', users);
+      return send(res, 200, { ok: true, ...prof });
+    }
+    if (p === '/api/daily' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      const prof = profileOf(user);
+      const today = new Date().toDateString();
+      if (prof.lastDailyDay === today) return send(res, 409, { error: 'Heute schon abgeholt – morgen gibt es wieder Coins.' });
+      const yesterday = new Date(Date.now() - 864e5).toDateString();
+      prof.streak = prof.lastDailyDay === yesterday ? (prof.streak || 0) + 1 : 1;
+      const gained = 25 + Math.min(25, (prof.streak - 1) * 5);
+      prof.coins = (prof.coins || 0) + gained;
+      prof.lastDailyDay = today;
+      saveJson('users.json', users);
+      return send(res, 200, { ok: true, gained, coins: prof.coins, streak: prof.streak });
+    }
+    if (p === '/api/chest' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      const prof = profileOf(user);
+      if ((prof.coins || 0) < 100) return send(res, 402, { error: `Eine Kiste kostet 100 Coins – du hast ${prof.coins || 0}.` });
+      prof.coins -= 100;
+      // Gewichtete Seltenheit: häufig 60 %, selten 30 %, episch 10 %
+      const roll = Math.random();
+      const rar = roll < 0.6 ? 'häufig' : roll < 0.9 ? 'selten' : 'episch';
+      const pool = Object.keys(BADGES).filter(k => BADGES[k].rar === rar);
+      const badge = pool[Math.floor(Math.random() * pool.length)];
+      let dupe = false;
+      if (prof.badges.includes(badge)) { dupe = true; prof.coins += 40; }
+      else prof.badges.push(badge);
+      saveJson('users.json', users);
+      return send(res, 200, { ok: true, badge, ...BADGES[badge], dupe, coins: prof.coins });
     }
 
     // ---- Wallet am Konto: überlebt Gerätewechsel und App-Neuinstallation

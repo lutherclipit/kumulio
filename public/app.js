@@ -1171,9 +1171,94 @@ function refreshProfileTab() {
   }
   $('#auth-card').classList.toggle('hidden', !!state.token);
   $('#me-card').classList.toggle('hidden', !state.token);
-  if (state.token) $('#me-name').textContent = state.userName;
+  $('#gami-card').classList.toggle('hidden', !state.token);
+  $('#bio-card').classList.toggle('hidden', !state.token);
+  if (state.token) { $('#me-name').textContent = state.userName; refreshGami(); }
   renderWallet(); // Wallet-Sperre folgt dem Login-Status
 }
+
+// ---------------- Gamification: Coins, Kisten, Badges ----------------
+
+let myProfile = null;
+function badgeChip(id, def, active) {
+  return `<button class="badge-chip rar-${def.rar === 'häufig' ? 'common' : def.rar === 'selten' ? 'rare' : 'epic'} ${active ? 'on' : ''}" data-badge="${esc(id)}" title="${esc(def.rar)}">
+    <svg class="icon icon-sm"><use href="#i-${def.icon}"/></svg><span>${esc(def.name)}</span>
+  </button>`;
+}
+async function refreshGami() {
+  if (!state.token) return;
+  try { myProfile = await api('/api/profile'); } catch { return; }
+  const oldCoins = Number($('#g-coins').textContent) || 0;
+  animateInt($('#g-coins'), oldCoins, myProfile.coins || 0);
+  $('#g-bio').value = myProfile.bio || '';
+  $('#g-public').checked = myProfile.publicProfile !== false;
+  // Rang aus dem Wallet auch im Profil zeigen
+  const rank = rankFor(renderWallet.lastTotal || 0);
+  $('#g-rank-row').innerHTML = `<span class="rank-chip">${esc(rank.name)}</span>
+    <span class="rank-next">Wallet-Rang – wächst mit deinem Guthaben</span>`;
+  $('#g-badges').innerHTML = (myProfile.badges || []).length
+    ? myProfile.badges.map(id => badgeChip(id, myProfile.badgesAll[id], id === myProfile.activeBadge)).join('')
+    : '<span class="form-msg">Noch keine Badges – öffne eine Kiste.</span>';
+  $('#g-badges').querySelectorAll('[data-badge]').forEach(b => b.onclick = async () => {
+    const next = myProfile.activeBadge === b.dataset.badge ? '' : b.dataset.badge;
+    await api('/api/profile', { method: 'POST', body: JSON.stringify({ activeBadge: next }) }).catch(() => { });
+    myProfile.activeBadge = next;
+    refreshGami();
+    island(next ? 'Badge wird im Chat getragen' : 'Badge abgelegt');
+  });
+}
+// Ganze Zahlen animiert zählen (Coins)
+function animateInt(el, from, to, ms = 600) {
+  if (!el) return;
+  if (reducedMotion() || from === to) { el.textContent = String(to); return; }
+  const t0 = performance.now();
+  const safety = setTimeout(() => { el.textContent = String(to); }, ms + 100);
+  const tick = now => {
+    const p = Math.min(1, (now - t0) / ms);
+    el.textContent = String(Math.round(from + (to - from) * (1 - Math.pow(1 - p, 3))));
+    if (p < 1) requestAnimationFrame(tick); else clearTimeout(safety);
+  };
+  requestAnimationFrame(tick);
+}
+$('#g-daily').addEventListener('click', async () => {
+  const m = $('#g-msg');
+  setBtnLoading($('#g-daily'), true);
+  try {
+    const r = await api('/api/daily', { method: 'POST', body: '{}' });
+    playSfx('kaching'); buzz(30); moneyFlash('green');
+    animateInt($('#g-coins'), r.coins - r.gained, r.coins);
+    m.className = 'form-msg ok';
+    m.textContent = `+${r.gained} Coins! Serie: ${r.streak} Tag${r.streak > 1 ? 'e' : ''}.`;
+    myProfile && (myProfile.coins = r.coins);
+  } catch (e) { m.className = 'form-msg error'; m.textContent = e.message; }
+  finally { setBtnLoading($('#g-daily'), false); }
+});
+$('#g-chest').addEventListener('click', async () => {
+  const m = $('#g-msg'); const out = $('#g-chest-result');
+  setBtnLoading($('#g-chest'), true);
+  try {
+    const r = await api('/api/chest', { method: 'POST', body: '{}' });
+    playSfx('kaching'); buzz([40, 30, 60]); moneyFlash('green');
+    animateInt($('#g-coins'), (myProfile?.coins ?? r.coins + 100), r.coins);
+    out.classList.remove('hidden');
+    out.innerHTML = `<div class="chest-reveal">${badgeChip(r.badge, { name: r.name, icon: r.icon, rar: r.rar }, false)}
+      <span>${r.dupe ? 'Schon vorhanden – dafür +40 Coins zurück!' : `Neues Badge (${esc(r.rar)})!`}</span></div>`;
+    m.textContent = '';
+    refreshGami();
+  } catch (e) { m.className = 'form-msg error'; m.textContent = e.message; }
+  finally { setBtnLoading($('#g-chest'), false); }
+});
+$('#g-bio-save').addEventListener('click', async () => {
+  const m = $('#g-bio-msg');
+  try {
+    const r = await api('/api/profile', {
+      method: 'POST',
+      body: JSON.stringify({ bio: $('#g-bio').value, publicProfile: $('#g-public').checked }),
+    });
+    $('#g-bio').value = r.bio; // Server-Fassung (ggf. zensiert) zurückspiegeln
+    m.className = 'form-msg ok'; m.textContent = 'Gespeichert.';
+  } catch (e) { m.className = 'form-msg error'; m.textContent = e.message; }
+});
 
 $('#btn-profile-top').addEventListener('click', () => {
   if (state.activeView !== 'profile') switchView('profile');
@@ -2069,6 +2154,7 @@ $('#btn-home').addEventListener('click', () => {
 // ---------------- Global-Chat (Twitch-artig) ----------------
 
 let chatEmotes = {};
+let chatBadges = {};
 let chatLastTs = 0;
 
 const CHAT_COLORS = ['#e91e63', '#9c27b0', '#3f51b5', '#03a9f4', '#009688', '#4caf50', '#ff9800', '#f44336', '#8d6e63', '#607d8b'];
@@ -2085,8 +2171,11 @@ function chatMsgHtml(m) {
   for (const name of Object.keys(chatEmotes)) {
     text = text.replace(new RegExp(`\\b${name}\\b`, 'g'), emoteHtml(name));
   }
+  const badge = m.badge && chatBadges[m.badge]
+    ? `<svg class="icon icon-sm chat-badge" aria-label="${esc(chatBadges[m.badge].name)}"><use href="#i-${chatBadges[m.badge].icon}"/></svg>`
+    : '';
   return `<div class="chat-msg" data-mid="${esc(m.id)}">
-    <span class="chat-user" style="color:${chatColor(m.user)}">${esc(m.user)}</span>
+    ${badge}<span class="chat-user" style="color:${chatColor(m.user)}">${esc(m.user)}</span>
     <span class="chat-text">${text}</span>
   </div>`;
 }
@@ -2095,6 +2184,7 @@ async function pollChat(force) {
   try {
     const r = await api('/api/chat?since=' + chatLastTs);
     chatEmotes = r.emotes || chatEmotes;
+    chatBadges = r.badges || chatBadges;
     if (r.messages.length) {
       const box = $('#chat-box'), list = $('#chat-list');
       const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;

@@ -1345,3 +1345,25 @@ input, textarea, select, button { touch-action: manipulation; }
 .emote-pick { background: none; border: none; cursor: pointer; padding: 4px; border-radius: 8px; }
 .emote-pick:hover { background: var(--surface-2); }
 .emote-pick .emote { height: 28px; display: block; }
+
+/* ================= Gamification: Badges & Kisten ================= */
+.badge-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.badge-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 999px; font-size: .8rem; font-weight: 700;
+  background: var(--surface); border: 1px solid var(--stroke-light); color: var(--text);
+  cursor: pointer; transition: transform .18s ease, box-shadow .25s ease;
+}
+.badge-chip:active { transform: scale(.95); }
+.badge-chip.rar-common { border-color: rgba(127,127,127,.35); }
+.badge-chip.rar-rare { border-color: rgba(18,199,126,.55); color: var(--k-accent, #12C77E); }
+.badge-chip.rar-epic { border-color: rgba(255,196,0,.6); color: #d9a400; }
+.badge-chip.on { box-shadow: 0 0 0 2px rgba(18,199,126,.45); }
+.chat-badge { margin-right: 4px; vertical-align: -2px; opacity: .85; }
+.chest-reveal {
+  display: flex; align-items: center; gap: 10px; margin-top: 10px;
+  animation: chestPop .5s cubic-bezier(.3,1.4,.5,1);
+  font-size: .84rem;
+}
+@keyframes chestPop { from { opacity: 0; transform: scale(.7); } }
+@media (prefers-reduced-motion: reduce) { .chest-reveal { animation: none; } }
