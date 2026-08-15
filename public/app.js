@@ -224,6 +224,8 @@ function switchView(next) {
   newView.classList.remove('hidden');
   newView.classList.add(dir === 1 ? 'enter-right' : 'enter-left');
   window.scrollTo({ top: 0 });
+  // Login-Captcha erst rendern, wenn die Profil-Seite sichtbar ist
+  if (next === 'profile' && !state.token) renderTurnstile('login');
   setTimeout(() => {
     oldView.classList.add('hidden');
     oldView.classList.remove('leave', 'leave-left', 'leave-right');
@@ -1159,10 +1161,11 @@ let tsSitekey = null;
 const tsTries = { login: 0, reg: 0 };
 function renderTurnstile(which) {
   const el = $('#ts-' + which);
-  if (!el || !tsSitekey) return;
-  if (!window.turnstile) {
-    if (++tsTries[which] > 20) {
-      el.innerHTML = '<span class="form-msg error">Captcha-Widget lädt nicht (Netzwerk/Blocker?) – ohne Bestätigung ist keine Anmeldung möglich.</span>';
+  if (!el) return;
+  // Erst rendern, wenn Sitekey UND Cloudflare-Script da sind – sonst kurz warten
+  if (!tsSitekey || !window.turnstile) {
+    if (++tsTries[which] > 40) {
+      el.innerHTML = '<span class="form-msg error">Captcha-Widget lädt nicht (Netzwerk/Werbeblocker?) – ohne Bestätigung ist keine Anmeldung möglich.</span>';
       return;
     }
     setTimeout(() => renderTurnstile(which), 500);
@@ -1180,7 +1183,8 @@ async function initTurnstile() {
   try {
     const r = await api('/api/turnstile');
     tsSitekey = r.sitekey;
-    renderTurnstile('login');
+    // Kein Render hier: Turnstile in unsichtbaren Containern bleibt leer.
+    // Gerendert wird beim Öffnen der Profil-Seite bzw. des Register-Popups.
   } catch { /* offline */ }
 }
 function tsToken(which) {
