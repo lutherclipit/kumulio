@@ -391,7 +391,8 @@ function postsAsDeals(slug) {
       price: p.priceNum != null ? p.priceNum.toFixed(2).replace('.', ',') + '€' : '',
       origPrice: p.compareNum != null ? p.compareNum.toFixed(2).replace('.', ',') + '€' : '',
       discount, free: p.priceNum === 0, endTs: p.endTs || null,
-      compareChecked: !!p.compareChecked,
+      compareChecked: !!p.compareChecked, kind: p.kind || 'rabatt',
+      priceNum: p.priceNum, compareNum: p.compareNum, rawText: p.text,
       earn: slug === 'geld-verdienen',
       newCustomer: !!p.newCustomer,
       pick: true, // von der Redaktion gepostet
@@ -766,6 +767,20 @@ const server = http.createServer(async (req, res) => {
       saveJson('chat.json', chat);
       return send(res, 200, { ok: true });
     }
+    // Eigene Nachricht löschen (Mods dürfen jede)
+    if (p === '/api/chat/delete' && req.method === 'POST') {
+      const me = authUser(req);
+      if (!me) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      const m = chat.messages.find(x => x.id === String(b.id || ''));
+      if (!m) return send(res, 404, { error: 'Nachricht nicht gefunden.' });
+      if (m.user !== me && !isModUser(me)) return send(res, 403, { error: 'Nur eigene Nachrichten.' });
+      m.deleted = true; m.text = ''; m.delTs = Date.now();
+      if (chat.pinned && chat.pinned.id === m.id) chat.pinned = null;
+      saveJson('chat.json', chat);
+      return send(res, 200, { ok: true });
+    }
+
     // Nutzer melden
     if (p === '/api/chat/report' && req.method === 'POST') {
       const me = authUser(req);
@@ -821,7 +836,21 @@ const server = http.createServer(async (req, res) => {
       convo.reads = convo.reads || {};
       convo.reads[me] = Date.now();
       if (dms[dmKey(me, partner)]) saveJson('dms.json', dms);
-      return send(res, 200, { messages: convo.msgs.filter(m => m.ts > since).slice(-60) });
+      const updates = convo.msgs.filter(m => m.delTs && m.delTs > since && m.ts <= since).map(m => m.id);
+      return send(res, 200, { messages: convo.msgs.filter(m => m.ts > since).slice(-60), updates });
+    }
+    // Eigene Flüster-Nachricht löschen
+    if (p === '/api/dm/delete' && req.method === 'POST') {
+      const me = authUser(req);
+      if (!me) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      const convo = dms[dmKey(me, String(b.user || ''))];
+      const m = convo && convo.msgs.find(x => x.id === String(b.id || ''));
+      if (!m) return send(res, 404, { error: 'Nachricht nicht gefunden.' });
+      if (m.from !== me) return send(res, 403, { error: 'Nur eigene Nachrichten.' });
+      m.deleted = true; m.text = ''; m.delTs = Date.now();
+      saveJson('dms.json', dms);
+      return send(res, 200, { ok: true });
     }
     if (p === '/api/dm/send' && req.method === 'POST') {
       const me = authUser(req);
@@ -1213,6 +1242,7 @@ const server = http.createServer(async (req, res) => {
         || /neukund|erstbestellung|nur für neue|new customer|erste bestellung/i.test(title + ' ' + text);
       const post = {
         id: crypto.randomBytes(6).toString('hex'), user, title, text, ts: Date.now(), flags: mod.flags,
+        kind: String(b.kind || 'rabatt').slice(0, 20),
         priceNum, compareNum, endTs, compareChecked: !!b.compareChecked, newCustomer,
         merchant: String(b.merchant || '').trim().slice(0, 30),
         image: /^https?:\/\//.test(b.image || '') ? String(b.image).slice(0, 400) : '',
@@ -1225,6 +1255,58 @@ const server = http.createServer(async (req, res) => {
         pushToAll({ title: 'Preisfehler entdeckt!', body: title, url: '/' }).catch(() => { });
       }
       return send(res, 201, post);
+    }
+
+    // ---- Deal bearbeiten (Admin-Key oder Admin-Rolle in der App)
+    if (p === '/api/admin/edit-post' && req.method === 'POST') {
+      if (!isAdmin(req) && roleOf(authUser(req)) !== 'admin') return send(res, 403, { error: 'Nur für die Redaktion.' });
+      const b = await readBody(req);
+      const id = String(b.id || '');
+      let found = null, fromCh = null;
+      for (const ch of Object.keys(posts)) {
+        const x = posts[ch].find(pp => pp.id === id);
+        if (x) { found = x; fromCh = ch; break; }
+      }
+      if (!found) return send(res, 404, { error: 'Deal nicht gefunden.' });
+      const num2 = v => { const n = parseFloat(String(v ?? '').replace(',', '.')); return isNaN(n) ? null : Math.round(n * 100) / 100; };
+      if (typeof b.title === 'string' && b.title.trim().length >= 4) found.title = b.title.trim().slice(0, 90);
+      if (typeof b.text === 'string') found.text = b.text.trim().slice(0, 1200);
+      found.priceNum = num2(b.price);
+      found.compareNum = num2(b.comparePrice);
+      found.endTs = b.endDate ? (Date.parse(String(b.endDate) + 'T23:59:59') || null) : null;
+      found.newCustomer = !!b.newCustomer;
+      if (typeof b.kind === 'string') found.kind = b.kind.slice(0, 20);
+      if (/^https?:\/\//.test(b.image || '')) found.image = String(b.image).slice(0, 400);
+      const target = String(b.channel || fromCh);
+      if (target !== fromCh && findChannel(target) && findChannel(target).type === 'community') {
+        posts[fromCh] = posts[fromCh].filter(pp => pp.id !== id);
+        (posts[target] = posts[target] || []).unshift(found);
+      }
+      saveJson('posts.json', posts);
+      return send(res, 200, { ok: true });
+    }
+
+    // ---- Beschreibung generieren (aus Titel, Preisen und Typ, ohne Link)
+    if (p === '/api/generate-desc' && req.method === 'POST') {
+      if (!authUser(req) && !isAdmin(req)) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      const title = String(b.title || '').trim().slice(0, 90);
+      if (title.length < 4) return send(res, 400, { error: 'Bitte zuerst einen Titel eingeben.' });
+      const num2 = v => { const n = parseFloat(String(v ?? '').replace(',', '.')); return isNaN(n) ? null : n; };
+      const price = num2(b.price), comp = num2(b.comparePrice);
+      const merchant = String(b.merchant || '').trim().slice(0, 30);
+      const parts = [];
+      if (String(b.kind) === 'gutschein') {
+        parts.push(`${title}${merchant ? ` bei ${merchant}` : ''}: Code beim Bezahlen eingeben und direkt sparen.`);
+        parts.push('Die Aktion gilt, solange der Anbieter sie anbietet. Details stehen auf der Aktionsseite.');
+      } else {
+        parts.push(`${title} gibt es gerade${price != null ? ` für ${price.toFixed(2).replace('.', ',')} €` : ' zum Aktionspreis'}${merchant ? ` bei ${merchant}` : ''}.`);
+        if (price != null && comp != null && comp > price) {
+          parts.push(`Regulär kostet das ${comp.toFixed(2).replace('.', ',')} €, du sparst also rund ${Math.round((1 - price / comp) * 100)} %.`);
+        }
+        parts.push('Schnell zugreifen lohnt sich, solche Preise halten selten lange.');
+      }
+      return send(res, 200, { draft: parts.join(' ') });
     }
 
     // ---- Statische Dateien

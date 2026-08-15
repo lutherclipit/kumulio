@@ -1498,3 +1498,40 @@ input, textarea, select, button { touch-action: manipulation; }
   object-fit: contain; padding: 4px; background: #fff; border-radius: inherit;
 }
 .vendor-tile .brand-chip { width: 34px; height: 34px; }
+
+/* ================= Runde 31: rote Buttons, Chip-Kanten, Nachricht-Menü ================= */
+
+.btn-danger {
+  background: #e5484d !important; color: #fff !important;
+  border-color: #e5484d !important; width: 100%;
+}
+.btn-danger:active { transform: scale(.97); }
+
+/* Chipbar läuft weich in den Rand aus statt hart abzuschneiden */
+.chipbar, #chat-modes {
+  overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  mask-image: linear-gradient(90deg, transparent 0, #000 10px, #000 calc(100% - 26px), transparent 100%);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 10px, #000 calc(100% - 26px), transparent 100%);
+  padding-right: 26px;
+}
+.chipbar::-webkit-scrollbar, #chat-modes::-webkit-scrollbar { display: none; }
+
+/* Aktiver Chat-Modus leuchtet wie der Wallet-Filter */
+#chat-modes .chip.active {
+  background: var(--k-accent, #12C77E) !important;
+  color: #fff !important;
+  border-color: var(--k-accent, #12C77E) !important;
+  box-shadow: 0 4px 14px rgba(18,199,126,.35);
+}
+
+/* "…" an eigenen Nachrichten: Web beim Drüberfahren, bleibt klickbar */
+.chat-msg { position: relative; padding-right: 26px; }
+.msg-menu {
+  position: absolute; right: 0; top: 2px;
+  border: none; background: none; color: var(--text);
+  opacity: 0; font-weight: 800; cursor: pointer; padding: 0 4px;
+  letter-spacing: 1px;
+}
+.chat-msg.own:hover .msg-menu { opacity: .55; }
+.msg-menu:hover { opacity: 1 !important; }
+@media (hover: none) { .msg-menu { display: none; } } /* Handy: gedrückt halten */

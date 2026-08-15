@@ -13,7 +13,7 @@ const state = {
   favs: JSON.parse(localStorage.getItem('ra.favs') || '{}'),         // { dealId: {deal, ts, remindAt, notified} }
   pins: JSON.parse(localStorage.getItem('ra.pins') || '["freebies","preisfehler"]'), // angeheftete Feed-Menüs
   aff: JSON.parse(localStorage.getItem('ra.aff') || '{"ch":{},"m":{}}'), // Verhalten für "Für dich"
-  activeChip: 'sparen',
+  activeChip: 'fuer-dich',
   search: '',
   orderIds: null, // eingefrorene Sortierung, Votes würfeln den Feed nicht sofort um
   orderKey: '',
@@ -53,6 +53,7 @@ const FEED_LIMIT = 40;
 // Menüpunkte oben: Sparen / Verdienen / Neukunden / Coupons.
 // "Gespeichert" läuft nur noch über den Gold-Stern oben rechts.
 const SEGMENTS = [
+  { slug: 'fuer-dich', name: 'Für dich', icon: 'star' },
   { slug: 'sparen', name: 'Sparen', icon: 'gift' },
   { slug: 'verdienen', name: 'Verdienen', icon: 'banknote' },
   { slug: 'neukunden', name: 'Neukunden', icon: 'sparkle' },
@@ -492,6 +493,10 @@ function segmentDeals() {
     return Object.values(state.favs)
       .sort((a, b) => b.ts - a.ts)
       .map(f => state.deals.find(d => d.id === f.deal.id) || f.deal);
+  }
+  if (state.activeChip === 'fuer-dich') {
+    // Für dich: alles auf einen Blick, filtern geht über die anderen Chips
+    return state.deals;
   }
   if (state.activeChip === 'sparen') {
     // Sparen: gratis bekommen und günstiger einkaufen (ohne Neukunden-Aktionen)
@@ -962,6 +967,8 @@ function openDealSheet(deal) {
       ${flags}
       <button class="btn-share" id="btn-sheet-share" aria-label="Teilen">${icon('share')}</button>
     </div>
+    ${state.role === 'admin' && d.source === 'community' ? `
+    <button class="btn btn-small btn-ghost" id="btn-deal-edit" style="margin-top:10px">Deal bearbeiten</button>` : ''}
     ${cta ? `
     <div class="sheet-cta">
       <a class="btn btn-block" href="${esc(cta)}" target="_blank" rel="noopener noreferrer">
@@ -1008,6 +1015,7 @@ function openDealSheet(deal) {
 
   $('#btn-comment-send').addEventListener('click', sendComment);
   $('#btn-sheet-share')?.addEventListener('click', () => shareDeal(d));
+  $('#btn-deal-edit')?.addEventListener('click', () => openAdminPost(d));
   $('#btn-sheet-fav').addEventListener('click', () => {
     toggleFav(d.id);
     openDealSheet(d); // Button-Text aktualisieren
@@ -2178,7 +2186,7 @@ function openVoucherSheet(id, animFrom) {
         <div class="offer-merchant">${esc(v.vendor)}</div>
         <div class="offer-cat">${v.end ? (expired ? 'abgelaufen' : 'gültig bis ' + new Date(v.end).toLocaleDateString('de-DE')) : 'Gutschein'}</div>
       </div>
-      <button class="fav-remove" id="wv-del" aria-label="Löschen">${icon('x', 'icon icon-sm')}</button>
+      <button class="fav-remove" id="wv-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
     </div>
     ${v.balance != null ? `<div class="balance-big" style="margin-top:12px"><span id="wv-balance">${euroFmt(v.balance)}</span>
       ${v.amount != null && v.amount !== v.balance ? `<span class="stars-count">von ${euroFmt(v.amount)}</span>` : ''}</div>` : ''}
@@ -2217,9 +2225,11 @@ function openVoucherSheet(id, animFrom) {
           <small>${new Date(t.ts).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</small></span>
         ${!t.reverted ? `<button class="btn btn-small btn-ghost" data-revert="${esc(t.id)}">Rückgängig</button>` : ''}
       </div>`).join('')}
-    </div>` : ''}`;
+    </div>` : ''}
+    <button class="btn btn-danger" id="wv-del" style="margin-top:18px">Gutschein löschen</button>`;
 
   $('#sheet-content').querySelectorAll('[data-copy-txt]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copyTxt)));
+  $('#wv-close').addEventListener('click', closeSheet);
   // Löschen nur bei aufgebrauchten Gutscheinen und immer mit Rückfrage
   $('#wv-del')?.addEventListener('click', async () => {
     if (v.balance != null && v.balance > 0) {
@@ -2298,7 +2308,7 @@ function openCardSheet(id) {
     <div class="offer-head">
       <span class="brand-chip" style="--bc:${brandColor(c.name)}">${esc(brandInitials(c.name))}</span>
       <div class="offer-brand"><div class="offer-merchant">${esc(c.name)}</div><div class="offer-cat">Sparkarte</div></div>
-      <button class="fav-remove" id="wc-del" aria-label="Löschen">${icon('x', 'icon icon-sm')}</button>
+      <button class="fav-remove" id="wc-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
     </div>
     <div class="tx-row" style="margin-top:12px">
       <span class="wallet-code" style="flex:1">${esc(c.number)}</span>
@@ -2306,8 +2316,10 @@ function openCardSheet(id) {
     </div>
     ${c.codeImg ? `<img class="wallet-code-img" src="${c.codeImg}" alt="Code für die Kasse">`
       : c.img ? `<img class="wallet-img" src="${c.img}" alt="QR/Barcode">`
-      : '<p class="muted" style="margin-top:10px; font-size:.82rem">Tipp: Screenshot vom Karten-Barcode anhängen (beim Anlegen), dann kannst du ihn an der Kasse scannen lassen.</p>'}`;
+      : '<p class="muted" style="margin-top:10px; font-size:.82rem">Tipp: Screenshot vom Karten-Barcode anhängen (beim Anlegen), dann kannst du ihn an der Kasse scannen lassen.</p>'}
+    <button class="btn btn-danger" id="wc-del" style="margin-top:18px">Karte löschen</button>`;
   $('#sheet-content').querySelectorAll('[data-copy-txt]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copyTxt)));
+  $('#wc-close').addEventListener('click', closeSheet);
   $('#wc-del').addEventListener('click', async () => {
     if (!await askConfirm(`Bist du sicher, dass du die ${esc(c.name)}-Karte löschen willst?`)) return;
     state.wallet.cards = state.wallet.cards.filter(x => x.id !== id);
@@ -2435,7 +2447,7 @@ document.querySelectorAll('[data-wfilter]').forEach(b => b.addEventListener('cli
 }));
 
 $('#btn-home').addEventListener('click', () => {
-  state.activeChip = 'sparen';
+  state.activeChip = 'fuer-dich';
   renderChipbar();
   renderFeed();
   if (state.activeView !== 'feed') switchView('feed');
@@ -2447,36 +2459,82 @@ $('#btn-home').addEventListener('click', () => {
 function refreshAdminUi() {
   $('#btn-admin-post').classList.toggle('hidden', state.role !== 'admin');
 }
-function openAdminPost() {
+function openAdminPost(edit) {
   state.sheetMode = 'admin-post';
   const chs = state.channels.filter(c => c.type === 'community');
+  // Beim Bearbeiten: Link aus dem Textende fischen, Rest ist die Beschreibung
+  let editText = edit ? (edit.rawText ?? edit.excerpt ?? '') : '';
+  let editLink = '';
+  if (edit) {
+    const m = editText.match(/\n?(https?:\/\/\S+)\s*$/);
+    if (m) { editLink = m[1]; editText = editText.slice(0, m.index).trim(); }
+  }
+  let kind = edit?.kind || 'rabatt';
   $('#sheet-content').innerHTML = `
-    <div class="sheet-title">Deal posten (Redaktion)</div>
+    <div class="sheet-title">${edit ? 'Deal bearbeiten' : 'Deal posten'} (Redaktion)</div>
+    <label class="f-label">Art des Deals</label>
+    <div class="form-row">
+      <button class="chip ${kind === 'rabatt' ? 'active' : ''}" data-apkind="rabatt">Rabattaktion</button>
+      <button class="chip ${kind === 'gutschein' ? 'active' : ''}" data-apkind="gutschein">Gutschein &amp; Aktion</button>
+    </div>
     <label class="f-label">Kanal <span class="req">*</span></label>
-    <select id="ap-channel" class="input">${chs.map(c => `<option value="${esc(c.slug)}">${esc(c.name)}</option>`).join('')}</select>
+    <select id="ap-channel" class="input">${chs.map(c => `<option value="${esc(c.slug)}" ${edit?.channel === c.slug ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
     <label class="f-label">Deal-Link</label>
     <div class="form-row">
-      <input id="ap-link" class="input" placeholder="https://…" style="flex:1">
+      <input id="ap-link" class="input" placeholder="https://…" style="flex:1" value="${esc(editLink)}">
       <button id="ap-extract" class="btn btn-small btn-ghost">Auslesen</button>
     </div>
     <label class="f-label">Titel <span class="req">*</span></label>
-    <input id="ap-title" class="input" maxlength="90">
+    <input id="ap-title" class="input" maxlength="90" value="${esc(edit?.title || '')}">
     <label class="f-label">Beschreibung</label>
-    <textarea id="ap-text" class="input" rows="3" maxlength="1200"></textarea>
-    <div class="form-grid">
-      <div><label class="f-label">Preis (€)</label><input id="ap-price" class="input" inputmode="decimal"></div>
-      <div><label class="f-label">Vergleichspreis (€)</label><input id="ap-compare" class="input" inputmode="decimal"></div>
+    <textarea id="ap-text" class="input" rows="3" maxlength="1200">${esc(editText)}</textarea>
+    <button id="ap-generate" class="btn btn-small btn-ghost" style="margin-top:6px">${icon('wand', 'icon icon-sm')}&nbsp;Beschreibung generieren</button>
+    <div class="form-grid" id="ap-prices" ${kind === 'gutschein' ? 'style="display:none"' : ''}>
+      <div><label class="f-label">Preis (€)</label><input id="ap-price" class="input" inputmode="decimal" value="${esc(edit?.priceNum != null ? String(edit.priceNum).replace('.', ',') : '')}"></div>
+      <div><label class="f-label">Vergleichspreis (€)</label><input id="ap-compare" class="input" inputmode="decimal" value="${esc(edit?.compareNum != null ? String(edit.compareNum).replace('.', ',') : '')}"></div>
     </div>
-    <label class="f-label">Enddatum <span class="opt">(optional)</span></label>
-    <input id="ap-end" class="input" type="date">
+    <div id="ap-codewrap" ${kind === 'gutschein' ? '' : 'style="display:none"'}>
+      <label class="f-label">Gutscheincode <span class="opt">(optional)</span></label>
+      <input id="ap-code" class="input" maxlength="40" placeholder="z. B. SPAR20">
+    </div>
+    <label class="f-label">Gültig bis <span class="opt">(optional)</span></label>
+    <input id="ap-end" class="input" type="date" value="${edit?.endTs ? new Date(edit.endTs).toISOString().slice(0, 10) : ''}">
     <label style="display:flex; align-items:center; gap:8px; margin-top:10px; font-size:.86rem">
-      <input type="checkbox" id="ap-newcustomer" style="width:auto"> Nur für Neukunden
+      <input type="checkbox" id="ap-newcustomer" style="width:auto" ${edit?.newCustomer ? 'checked' : ''}> Nur für Neukunden
     </label>
-    <input type="hidden" id="ap-image">
+    <input type="hidden" id="ap-image" value="${esc(edit?.image || '')}">
     <div class="form-row" style="margin-top:12px">
-      <button id="ap-post" class="btn">Veröffentlichen</button>
+      <button id="ap-post" class="btn">${edit ? 'Änderungen speichern' : 'Veröffentlichen'}</button>
       <span id="ap-msg" class="form-msg"></span>
     </div>`;
+  // Typ umschalten: Rabatt zeigt Preise, Gutschein zeigt das Code-Feld
+  $('#sheet-content').querySelectorAll('[data-apkind]').forEach(b => b.addEventListener('click', () => {
+    kind = b.dataset.apkind;
+    $('#sheet-content').querySelectorAll('[data-apkind]').forEach(x => x.classList.toggle('active', x === b));
+    $('#ap-prices').style.display = kind === 'gutschein' ? 'none' : '';
+    $('#ap-codewrap').style.display = kind === 'gutschein' ? '' : 'none';
+  }));
+  // Beschreibung generieren: mit Link über das Auslesen, sonst aus Titel und Preisen
+  $('#ap-generate').addEventListener('click', async () => {
+    const m = $('#ap-msg');
+    setBtnLoading($('#ap-generate'), true);
+    try {
+      const link = $('#ap-link').value.trim();
+      if (/^https?:\/\//.test(link)) {
+        const r = await api('/api/extract?url=' + encodeURIComponent(link));
+        if (r.draft) { $('#ap-text').value = r.draft; m.className = 'form-msg ok'; m.textContent = 'Beschreibung aus dem Link erstellt, bitte prüfen.'; }
+        else throw new Error('Aus dem Link kam nichts, probier es ohne.');
+      } else {
+        const r = await api('/api/generate-desc', {
+          method: 'POST',
+          body: JSON.stringify({ title: $('#ap-title').value, kind, price: $('#ap-price')?.value, comparePrice: $('#ap-compare')?.value }),
+        });
+        $('#ap-text').value = r.draft;
+        m.className = 'form-msg ok'; m.textContent = 'Beschreibung aus dem Titel erstellt, bitte prüfen.';
+      }
+    } catch (e) { m.className = 'form-msg error'; m.textContent = e.message; }
+    finally { setBtnLoading($('#ap-generate'), false); }
+  });
   $('#ap-extract').addEventListener('click', async () => {
     const m = $('#ap-msg');
     m.className = 'form-msg'; m.textContent = 'Lese den Link aus …';
@@ -2494,20 +2552,27 @@ function openAdminPost() {
     const m = $('#ap-msg');
     setBtnLoading($('#ap-post'), true);
     try {
-      await api('/api/posts', {
-        method: 'POST',
-        body: JSON.stringify({
-          channel: $('#ap-channel').value, user: state.userName,
-          title: $('#ap-title').value,
-          // Der Deal-Link wandert wie im Admin-Panel ans Ende der Beschreibung
-          text: ($('#ap-text').value + '\n' + $('#ap-link').value.trim()).trim(),
-          price: $('#ap-price').value, comparePrice: $('#ap-compare').value,
-          endDate: $('#ap-end').value, newCustomer: $('#ap-newcustomer').checked,
-          image: $('#ap-image').value, merchant: '',
-        }),
-      });
+      // Gutscheincode und Deal-Link wandern ans Ende der Beschreibung
+      let text = $('#ap-text').value.trim();
+      const code = $('#ap-code')?.value.trim();
+      if (kind === 'gutschein' && code && !text.includes(code)) text += `\nCode: ${code}`;
+      const link = $('#ap-link').value.trim();
+      if (link) text += `\n${link}`;
+      const body = {
+        channel: $('#ap-channel').value, user: state.userName,
+        title: $('#ap-title').value, text: text.trim(), kind,
+        price: kind === 'gutschein' ? '' : $('#ap-price').value,
+        comparePrice: kind === 'gutschein' ? '' : $('#ap-compare').value,
+        endDate: $('#ap-end').value, newCustomer: $('#ap-newcustomer').checked,
+        image: $('#ap-image').value, merchant: '',
+      };
+      if (edit) {
+        await api('/api/admin/edit-post', { method: 'POST', body: JSON.stringify({ id: edit.id, ...body }) });
+      } else {
+        await api('/api/posts', { method: 'POST', body: JSON.stringify(body) });
+      }
       closeSheet();
-      island('Deal veröffentlicht');
+      island(edit ? 'Deal aktualisiert' : 'Deal veröffentlicht');
       loadFeed();
     } catch (e) { m.className = 'form-msg error'; m.textContent = e.message; }
     finally { setBtnLoading($('#ap-post'), false); }
@@ -2579,6 +2644,17 @@ function chatColor(name) {
 function emoteHtml(name) {
   return `<img class="emote" src="https://cdn.7tv.app/emote/${chatEmotes[name]}/2x.webp" alt="${esc(name)}" title="${esc(name)}" loading="lazy">`;
 }
+function withEmotes(escapedText) {
+  let t = escapedText;
+  for (const name of Object.keys(chatEmotes)) {
+    t = t.replace(new RegExp(`\\b${name}\\b`, 'g'), emoteHtml(name));
+  }
+  return t;
+}
+// "…" zum Löschen eigener Nachrichten (Web: beim Drüberfahren, Handy: gedrückt halten)
+function msgMenuHtml(own, id) {
+  return own ? `<button class="msg-menu" data-msg-del="${esc(id)}" aria-label="Nachricht löschen">…</button>` : '';
+}
 function chatMsgHtml(m) {
   if (m.deleted) {
     return `<div class="chat-msg" data-mid="${esc(m.id)}">
@@ -2586,18 +2662,15 @@ function chatMsgHtml(m) {
       <span class="chat-text chat-deleted">Nachricht gelöscht</span>
     </div>`;
   }
-  let text = esc(m.text);
-  for (const name of Object.keys(chatEmotes)) {
-    text = text.replace(new RegExp(`\\b${name}\\b`, 'g'), emoteHtml(name));
-  }
   const badge = m.badge && chatBadges[m.badge]
     ? `<svg class="icon icon-sm chat-badge" aria-label="${esc(chatBadges[m.badge].name)}"><use href="#i-${chatBadges[m.badge].icon}"/></svg>`
     : '';
   const role = m.role === 'admin' ? `<svg class="icon icon-sm chat-badge role-admin" aria-label="Admin"><use href="#i-crown"/></svg>`
     : m.role === 'mod' ? `<svg class="icon icon-sm chat-badge role-mod" aria-label="Mod"><use href="#i-check"/></svg>` : '';
-  return `<div class="chat-msg" data-mid="${esc(m.id)}">
+  return `<div class="chat-msg ${m.user === state.userName ? 'own' : ''}" data-mid="${esc(m.id)}">
     ${role}${badge}<span class="chat-user" style="color:${chatColor(m.user)}">${esc(m.user)}</span>
-    <span class="chat-text">${text}</span>
+    <span class="chat-text">${withEmotes(esc(m.text))}</span>
+    ${msgMenuHtml(m.user === state.userName, m.id)}
   </div>`;
 }
 // Chat-Modi: Global, Flüster-Liste oder ein konkreter Privat-Chat
@@ -2634,9 +2707,17 @@ function renderPinbar(pinned) {
 }
 
 function dmMsgHtml(m) {
-  return `<div class="chat-msg dm-${m.from === state.userName ? 'me' : 'them'}">
+  if (m.deleted) {
+    return `<div class="chat-msg" data-mid="${esc(m.id)}">
+      <span class="chat-user" style="color:${chatColor(m.from)}">${esc(m.from)}</span>
+      <span class="chat-text chat-deleted">Nachricht gelöscht</span>
+    </div>`;
+  }
+  const own = m.from === state.userName;
+  return `<div class="chat-msg dm-${own ? 'me' : 'them'} ${own ? 'own' : ''}" data-mid="${esc(m.id)}">
     <span class="chat-user" style="color:${chatColor(m.from)}">${esc(m.from)}</span>
-    <span class="chat-text">${esc(m.text)}</span>
+    <span class="chat-text">${withEmotes(esc(m.text))}</span>
+    ${msgMenuHtml(own, m.id)}
   </div>`;
 }
 
@@ -2686,6 +2767,10 @@ async function pollChat(force) {
       $('#chat-list').querySelectorAll('[data-dm-open]').forEach(b => b.onclick = () => setChatMode('dm', b.dataset.dmOpen));
     } else if (chatMode === 'dm') {
       const r = await api(`/api/dm/with?user=${encodeURIComponent(dmPartner)}&since=${dmLastTs}`);
+      (r.updates || []).forEach(id => {
+        const el = $('#chat-list').querySelector(`[data-mid="${id}"] .chat-text`);
+        if (el) { el.className = 'chat-text chat-deleted'; el.textContent = 'Nachricht gelöscht'; }
+      });
       if (r.messages.length) {
         const box = $('#chat-box'), list = $('#chat-list');
         r.messages.forEach(m => { list.insertAdjacentHTML('beforeend', dmMsgHtml(m)); dmLastTs = Math.max(dmLastTs, m.ts); });
@@ -2851,12 +2936,37 @@ async function openUserPop(user, msgId) {
   $('#up-pin')?.addEventListener('click', () => modAct('pin'));
 }
 $('#user-pop-backdrop').addEventListener('click', e => { if (e.target.id === 'user-pop-backdrop') hideOverlay($('#user-pop-backdrop')); });
+// Eigene Nachricht löschen (Global + Flüstern), wird zum Platzhalter
+async function deleteOwnMsg(id) {
+  if (!await askConfirm('Diese Nachricht löschen?', { okLabel: 'Löschen' })) return;
+  try {
+    if (chatMode === 'dm') await api('/api/dm/delete', { method: 'POST', body: JSON.stringify({ user: dmPartner, id }) });
+    else await api('/api/chat/delete', { method: 'POST', body: JSON.stringify({ id }) });
+    const el = $('#chat-list').querySelector(`[data-mid="${id}"]`);
+    if (el) {
+      const t = el.querySelector('.chat-text');
+      if (t) { t.className = 'chat-text chat-deleted'; t.textContent = 'Nachricht gelöscht'; }
+      el.querySelector('.msg-menu')?.remove();
+    }
+  } catch (e) { island(e.message); }
+}
 $('#chat-list').addEventListener('click', e => {
+  const del = e.target.closest('[data-msg-del]');
+  if (del) { deleteOwnMsg(del.dataset.msgDel); return; }
   const nameEl = e.target.closest('.chat-user');
   if (!nameEl || chatMode === 'dm') return;
   const msgEl = e.target.closest('.chat-msg');
   openUserPop(nameEl.textContent, msgEl?.dataset.mid);
 });
+// Handy: eigene Nachricht gedrückt halten zum Löschen
+let pressTimer = null;
+$('#chat-list').addEventListener('touchstart', e => {
+  const msg = e.target.closest('.chat-msg.own');
+  if (!msg) return;
+  pressTimer = setTimeout(() => { buzz(20); deleteOwnMsg(msg.dataset.mid); }, 550);
+}, { passive: true });
+['touchend', 'touchmove', 'touchcancel'].forEach(t =>
+  $('#chat-list').addEventListener(t, () => clearTimeout(pressTimer), { passive: true }));
 document.querySelectorAll('[data-cmode]').forEach(b => b.addEventListener('click', () => setChatMode(b.dataset.cmode)));
 $('#dm-back').addEventListener('click', () => setChatMode('dmlist'));
 function toggleEmotes() {
