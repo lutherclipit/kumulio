@@ -1956,3 +1956,98 @@ body { -webkit-user-select: none; user-select: none; }
 @media (prefers-reduced-motion: reduce) {
   .achv, #note-banner { transition: none; }
 }
+
+/* ================= Runde 35: Karussell-Chips, Seiten, Rank-Up, Feinschliff ================= */
+
+/* Feed-Chips als 3D-Karussell */
+#chipbar {
+  position: relative; height: 54px; overflow: visible;
+  perspective: 700px; mask-image: none; -webkit-mask-image: none; padding: 0;
+}
+.carousel-chip {
+  position: absolute; left: 50%; top: 6px; white-space: nowrap;
+  transition: transform .5s cubic-bezier(.3,1.25,.45,1), opacity .35s ease;
+  will-change: transform;
+}
+
+/* Wallet/Coupons-Umschalter zentriert */
+#wallet-modes { display: flex; justify-content: center; gap: 8px; margin-bottom: 14px; }
+#wallet-modes .chip.active {
+  background: var(--k-accent, #12C77E) !important; color: #fff !important;
+  border-color: var(--k-accent, #12C77E) !important;
+}
+#wallet-sort-menu {
+  background: var(--surface); border: 1px solid var(--stroke-light);
+  border-radius: 14px; padding: 6px; margin-bottom: 10px;
+  animation: enterDrop .3s ease backwards;
+}
+#wallet-sort-menu .cmd-row.on { color: var(--k-accent, #12C77E); }
+#wallet-vendor-filters .chip { display: inline-flex; align-items: center; gap: 6px; }
+#wallet-vendor-filters .brand-chip { width: 20px; height: 20px; font-size: .5rem; }
+
+/* Boden-Blur weicher ausblenden */
+#bottom-fade {
+  height: calc(130px + env(safe-area-inset-bottom, 0px));
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  mask-image: linear-gradient(180deg, transparent 0, rgba(0,0,0,.35) 45%, rgba(0,0,0,.8) 75%, #000 100%);
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, rgba(0,0,0,.35) 45%, rgba(0,0,0,.8) 75%, #000 100%);
+}
+
+/* Chat: kompakt, fix, Tastatur-sicher (sichtbare Höhe als Variable) */
+body.chat-locked { overflow: hidden; height: 100dvh; }
+#chat-box { height: calc(var(--vvh, 100dvh) - 300px - env(safe-area-inset-top, 0px)); min-height: 180px; }
+#view-chat.emotes-open #chat-box { height: calc(var(--vvh, 100dvh) - 405px - env(safe-area-inset-top, 0px)); }
+#chat-modes { justify-content: center; }
+
+/* Erwähnungen: klar erkennbar und klickbar */
+.mention {
+  display: inline; border: none; background: rgba(18,199,126,.14);
+  color: var(--k-accent, #12C77E); font: inherit; font-weight: 800;
+  border-radius: 6px; padding: 0 4px; cursor: pointer;
+}
+
+/* Rang-Kopf */
+.rank-progress.big { height: 9px; margin-top: 10px; }
+.gm-step.current { outline: 2px solid rgba(18,199,126,.5); outline-offset: 3px; border-radius: 10px; }
+.gm-step small { font-size: .58rem; opacity: .55; }
+
+/* Quests kompakt in Gruppen */
+.quest-group { margin-bottom: 10px; }
+.quest-group > b { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; opacity: .55; }
+.quest-row .quest-main span small { opacity: .55; margin-left: 4px; }
+
+/* Fav-Logos im Profil */
+.fav-logo { display: inline-flex; flex-direction: column; align-items: center; gap: 3px; margin-right: 4px; }
+.fav-logo .brand-chip { width: 40px; height: 40px; }
+.fav-logo small { font-size: .62rem; opacity: .65; }
+
+/* Rank-Up: Vollbild-Feier */
+.rankup {
+  position: fixed; inset: 0; z-index: 300;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(8, 12, 16, .55);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  animation: rankupIn .4s ease backwards;
+}
+.rankup.out { animation: rankupOut .45s ease forwards; }
+@keyframes rankupIn { from { opacity: 0; } }
+@keyframes rankupOut { to { opacity: 0; } }
+.rankup-inner {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: 34px 44px; border-radius: 24px; text-align: center;
+  background: radial-gradient(80% 70% at 50% 30%, color-mix(in srgb, var(--rc) 30%, transparent), transparent), var(--glass-strong);
+  border: 1px solid var(--rc); box-shadow: 0 0 44px color-mix(in srgb, var(--rc) 55%, transparent);
+  animation: chestPop .6s cubic-bezier(.3,1.4,.5,1);
+}
+.rankup-inner img { width: 80px; height: 80px; image-rendering: pixelated; animation: caseIdle 2.4s ease-in-out infinite; }
+.rankup-inner b { font-size: 1.05rem; letter-spacing: .06em; }
+.rankup-inner span { font-size: 1.4rem; font-weight: 800; }
+
+/* Aufklapp-Animationen (aufgebrauchte Gutscheine, Quests) */
+.rules-fold[open] > *:not(summary) { animation: enterDrop .35s cubic-bezier(.3,1.25,.45,1) backwards; }
+
+@media (prefers-reduced-motion: reduce) {
+  .carousel-chip { transition: none; }
+  .rankup, .rankup-inner, .rankup-inner img { animation: none; }
+  .rules-fold[open] > *:not(summary) { animation: none; }
+}

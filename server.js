@@ -224,24 +224,25 @@ function questProgress(user) {
   const w = wallets[user] || { vouchers: [] };
   const live = {
     ...prof.quests,
+    friend: Math.max(prof.quests.friend || 0, (prof.friends || []).length),
     voucher: w.vouchers.length,
     booking: w.vouchers.reduce((s, v) => s + ((v.tx || []).length), 0),
     daily: prof.dailyCount || 0,
     newsletter: users[user] && users[user].newsletter ? 1 : 0,
     push: prof.pushOn ? 1 : 0,
   };
-  const newAwards = [];
+  // Erreichte Meilensteine werden NICHT automatisch gutgeschrieben,
+  // die Coins holt man sich per /api/quests/claim ab
+  const claimable = [];
   for (const q of QUESTS) {
     for (const [n, coins] of q.milestones) {
       const tag = `${q.key}:${n}`;
       if ((live[q.key] || 0) >= n && !prof.questsAwarded.includes(tag)) {
-        prof.questsAwarded.push(tag);
-        prof.coins = (prof.coins || 0) + coins;
-        newAwards.push({ quest: q.name, n, coins });
+        claimable.push({ key: q.key, quest: q.name, n, coins, tag });
       }
     }
   }
-  return { live, newAwards };
+  return { live, claimable };
 }
 const RARITY = {
   common: { color: '#8B96A5', label: 'Gewöhnlich', weight: 70 },
@@ -1286,8 +1287,22 @@ const server = http.createServer(async (req, res) => {
         coins: prof.coins || 0, streak: prof.streak || 0,
         shop: SHOP_CASES, badgesAll: BADGES, sellValues: SELL_VALUES,
         quests: QUESTS.map(x => ({ ...x, progress: q.live[x.key] || 0, awarded: (prof.questsAwarded || []).filter(t => t.startsWith(x.key + ':')) })),
-        questAwards: q.newAwards,
+        claimable: q.claimable,
       });
+    }
+    // Quest-Belohnung abholen
+    if (p === '/api/quests/claim' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      const prof = profileOf(user);
+      const q = questProgress(user);
+      const item = q.claimable.find(c => c.tag === String(b.tag || ''));
+      if (!item) return send(res, 404, { error: 'Nichts abzuholen.' });
+      prof.questsAwarded.push(item.tag);
+      prof.coins = (prof.coins || 0) + item.coins;
+      saveJson('users.json', users);
+      return send(res, 200, { ok: true, coins: prof.coins, gained: item.coins, quest: item.quest });
     }
     // Kiste öffnen: das Ergebnis wird HIER bestimmt, die Walze im Client ist nur Show
     if (p === '/api/case/open' && req.method === 'POST') {

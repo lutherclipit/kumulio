@@ -117,8 +117,6 @@
     <!-- ================= PROFIL ================= -->
     <section id="view-profile" class="view hidden">
       <h1>Profil</h1>
-      <p class="muted">Mit Profil kannst du posten, kommentieren und dir Beschreibungen
-        automatisch entwerfen lassen.</p>
       <div class="card modal-left" id="auth-card">
         <h2 class="card-h">Anmelden</h2>
         <input id="auth-user" class="input" maxlength="24" placeholder="Benutzername" autocomplete="username">
@@ -154,30 +152,29 @@
 
       <!-- Gamification: Ränge über Spar-Aktivität, Kisten nur erspielbar, Paints -->
       <div class="card modal-left hidden" id="gami-card">
-        <h2 class="card-h">Dein Rang
+        <div id="gm-rank-head"></div>
+        <div class="form-row" style="margin-top:10px; align-items:center">
+          <span class="coin-chip"><svg class="icon icon-sm"><use href="#i-coin"/></svg> <b id="g-coins">0</b></span>
+          <button id="g-daily" class="btn btn-small">Daily abholen</button>
           <button class="iconbtn info-btn" id="gm-rank-info" aria-label="Wie sammle ich Punkte?">
             <svg class="icon icon-sm"><use href="#i-bulb"/></svg>
           </button>
-        </h2>
-        <div id="gm-rank-head"></div>
+        </div>
         <div id="gm-ladder" class="gm-ladder"></div>
         <div class="form-row" style="margin-top:10px">
-          <button id="gm-inv-btn" class="btn btn-small">Inventar</button>
-          <button id="gm-catalog-btn" class="btn btn-small btn-ghost">Sammlung</button>
+          <button id="gm-inv-btn" class="btn btn-small">
+            <svg class="icon icon-sm"><use href="#i-gift"/></svg>&nbsp;Inventar</button>
           <button id="gm-shop-btn" class="btn btn-small btn-ghost">Kistenshop</button>
+          <button id="gm-catalog-btn" class="btn btn-small btn-ghost">Sammlung</button>
         </div>
-        <h3 class="gm-h">Quests <span class="stars-count">(Coins für echtes Mitmachen)</span></h3>
-        <div id="gm-quests"></div>
-        <h3 class="gm-h">Deine Kisten <span class="stars-count">(nur erspielbar, nie kaufbar)</span></h3>
-        <p class="muted" style="font-size:.78rem; margin-top:2px">Kisten gibt es für Rang-Aufstiege,
-          jede volle 7-Tage-Serie und jeden aufgebrauchten Gutschein.</p>
-        <div id="gm-cases" class="gm-cases"></div>
+        <details class="rules-fold" id="quests-fold" style="margin-top:14px">
+          <summary><svg class="icon icon-sm"><use href="#i-trophy"/></svg> Quests
+            <span id="quests-claim-count" class="stars-count"></span>
+            <svg class="icon icon-sm chev"><use href="#i-chevron"/></svg></summary>
+          <div id="gm-quests" style="padding:0 14px 14px"></div>
+        </details>
         <h3 class="gm-h">Namens-Paints <span class="stars-count">(antippen = anlegen)</span></h3>
         <div id="gm-paints" class="gm-paints"></div>
-        <div class="form-row" style="margin-top:14px; align-items:center">
-          <span class="coin-chip"><svg class="icon icon-sm"><use href="#i-coin"/></svg> <b id="g-coins">0</b></span>
-          <button id="g-daily" class="btn btn-small">Täglichen Bonus abholen</button>
-        </div>
         <div id="g-msg" class="form-msg"></div>
         <div id="g-chest-result" class="hidden"></div>
       </div>
@@ -243,6 +240,51 @@
       <div id="friends-list"></div>
     </section>
 
+    <!-- ================= NUTZER-PROFIL (öffentliche Seite) ================= -->
+    <section id="view-user" class="view hidden">
+      <div class="search-head">
+        <button class="btn btn-small btn-ghost" id="btn-user-back">← Zurück</button>
+        <h1 style="margin:0" id="user-page-title">Profil</h1>
+      </div>
+      <div id="user-page"></div>
+    </section>
+
+    <!-- ================= INVENTAR (eigene Seite) ================= -->
+    <section id="view-inventory" class="view hidden">
+      <div class="search-head">
+        <button class="btn btn-small btn-ghost" id="btn-inv-back">← Zurück</button>
+        <h1 style="margin:0">Inventar</h1>
+      </div>
+      <div class="wallet-filters" id="inv-filters">
+        <button class="chip active" data-invf="alle">Alle</button>
+        <button class="chip" data-invf="case">Kisten</button>
+        <button class="chip" data-invf="paint">Paints</button>
+        <button class="chip" data-invf="badge">Badges</button>
+        <button class="chip" data-invf="emote">Emotes</button>
+      </div>
+      <div id="inv-page" style="margin-top:12px"></div>
+    </section>
+
+    <!-- ================= KISTENSHOP (eigene Seite) ================= -->
+    <section id="view-shop" class="view hidden">
+      <div class="search-head">
+        <button class="btn btn-small btn-ghost" id="btn-shop-back">← Zurück</button>
+        <h1 style="margin:0">Kistenshop</h1>
+      </div>
+      <p class="muted" style="font-size:.82rem">Coins gibt es nur fürs Mitmachen, niemals für Echtgeld.
+        Du hast <span class="coin-chip"><svg class="icon icon-sm"><use href="#i-coin"/></svg> <b id="shop-coins">0</b></span></p>
+      <div id="shop-page" class="gm-cases" style="margin-top:10px"></div>
+    </section>
+
+    <!-- ================= PROFIL BEARBEITEN (eigene Seite) ================= -->
+    <section id="view-editprofile" class="view hidden">
+      <div class="search-head">
+        <button class="btn btn-small btn-ghost" id="btn-edit-back">← Zurück</button>
+        <h1 style="margin:0">Profil bearbeiten</h1>
+      </div>
+      <div id="editprofile-host"></div>
+    </section>
+
     <!-- ================= EINSTELLUNGEN (eigener Bereich, über das Menü) ================= -->
     <section id="view-settings" class="view hidden">
       <div class="search-head">
@@ -305,7 +347,12 @@
 
     <!-- ================= WALLET ================= -->
     <section id="view-wallet" class="view hidden">
-      <h1>Wallet</h1>
+      <h1 style="text-align:center">Wallet</h1>
+      <!-- Wallet und Coupons wohnen zusammen, umschalten oben -->
+      <div id="wallet-modes">
+        <button class="chip active" data-wmode="wallet">Wallet</button>
+        <button class="chip" data-wmode="coupons">Coupons</button>
+      </div>
       <!-- Ohne Profil gesperrt -->
       <div id="wallet-gate" class="card teaser-card hidden">
         <div class="teaser-icon"><svg class="icon"><use href="#i-banknote"/></svg></div>
@@ -327,14 +374,15 @@
           </div>
         </div>
         <div class="wallet-tools">
-          <input id="wallet-search" class="input" type="search" placeholder="Suchen: Shop, Code, PIN, Notiz …">
-          <div class="wallet-filters">
-            <button class="chip active" data-wfilter="alle">Alle</button>
-            <button class="chip" data-wfilter="guthaben">Mit Guthaben</button>
-            <button class="chip" data-wfilter="ablauf">Läuft bald ab</button>
-          </div>
+          <input id="wallet-search" class="input" type="search" placeholder="Shop; z.B. REWE, Amazon; PIN, Notiz …">
+          <div class="wallet-filters" id="wallet-vendor-filters"></div>
         </div>
-        <h3 class="wallet-h">Gutscheine</h3>
+        <h3 class="wallet-h" style="display:flex; align-items:center">Gutscheine
+          <button class="iconbtn info-btn" id="wallet-sort-btn" style="margin-left:auto" aria-label="Sortieren">
+            <svg class="icon icon-sm"><use href="#i-sliders"/></svg>
+          </button>
+        </h3>
+        <div id="wallet-sort-menu" class="hidden"></div>
         <div id="voucher-list" class="wallet-list"></div>
         <details class="rules-fold" id="used-fold" style="margin-top:10px">
           <summary><svg class="icon icon-sm"><use href="#i-list"/></svg> Aufgebrauchte Gutscheine
@@ -345,6 +393,8 @@
         <h3 class="wallet-h" style="margin-top:20px">Sparkarten</h3>
         <div id="cardw-list" class="wallet-list"></div>
       </div>
+      <!-- Coupons: offizielle Quellen, jetzt hier zu Hause -->
+      <div id="coupons-content" class="hidden"></div>
     </section>
 
     <!-- ================= GLOBAL-CHAT (Vollbild bis zum Header) ================= -->
@@ -355,6 +405,7 @@
       </div>
       <div id="dm-head" class="hidden">
         <button class="btn btn-small btn-ghost" id="dm-back">← Zurück</button>
+        <span id="dm-partner-ava"></span>
         <span id="dm-partner-name"></span>
       </div>
       <div id="chat-pinbar" class="hidden"></div>

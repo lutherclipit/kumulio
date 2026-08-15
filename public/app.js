@@ -47,7 +47,7 @@ function applyTheme(t, animate = false) {
 applyTheme(localStorage.getItem('ra.theme')
   || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
 
-const VIEW_ORDER = ['wallet', 'feed', 'chat', 'search', 'profile', 'settings', 'friends'];
+const VIEW_ORDER = ['wallet', 'feed', 'chat', 'search', 'profile', 'settings', 'friends', 'user', 'inventory', 'shop', 'editprofile'];
 const FEED_LIMIT = 40;
 
 // Menüpunkte oben: Sparen / Verdienen / Neukunden / Coupons.
@@ -57,7 +57,6 @@ const SEGMENTS = [
   { slug: 'sparen', name: 'Sparen', icon: 'gift' },
   { slug: 'verdienen', name: 'Verdienen', icon: 'banknote' },
   { slug: 'neukunden', name: 'Neukunden', icon: 'sparkle' },
-  { slug: 'coupons', name: 'Coupons', icon: 'tag' },
 ];
 
 // Coupon-Quellen: offizielle Apps/Seiten der Anbieter, ordentlich unterteilt
@@ -254,6 +253,9 @@ function switchView(next, animClass) {
   if (next === 'profile' && !state.token) renderTurnstile('login');
   if (next === 'chat') { updateChatGate(); pollChat(true); }
   if (next === 'friends') renderFriendsView();
+  if (next === 'inventory') renderInventoryPage();
+  if (next === 'shop') renderShopPage();
+  document.body.classList.toggle('chat-locked', next === 'chat');
   viewCleanupTimer = setTimeout(settleViews, 520);
 }
 
@@ -268,6 +270,10 @@ $('#btn-search-top').addEventListener('click', () => {
 $('#btn-search-back').addEventListener('click', () => switchView(searchReturnView, 'enter-drop'));
 $('#btn-settings-back').addEventListener('click', () => switchView('profile', 'enter-drop'));
 $('#btn-friends-back').addEventListener('click', () => switchView('profile', 'enter-drop'));
+$('#btn-user-back').addEventListener('click', () => switchView(userPageReturn, 'enter-drop'));
+$('#btn-inv-back').addEventListener('click', () => switchView('profile', 'enter-drop'));
+$('#btn-shop-back').addEventListener('click', () => switchView('profile', 'enter-drop'));
+$('#btn-edit-back').addEventListener('click', () => switchView('profile', 'enter-drop'));
 
 // ---- Freunde-Bereich: Liste mit Profilbild, Profil ansehen oder schreiben
 async function renderFriendsView() {
@@ -360,12 +366,24 @@ function showOnboarding() {
 // Chip-Leiste: Beliebt + angeheftete Kanäle, Rest hinter "Mehr" ausklappbar.
 // Was angeheftet ist, stellt der Nutzer im Kanäle-Sheet selbst ein.
 // Genau drei Menüpunkte: Für dich · Luthers Picks · Gespeichert
+// Feed-Chips als 3D-Karussell: der aktive sitzt mittig, die Nachbarn
+// rutschen kleiner und leicht nach hinten, antippen dreht durch
 function renderChipbar() {
-  $('#chipbar').innerHTML = [
-    '<div class="chip-pill" id="chip-pill"></div>',
-    ...SEGMENTS.map(c => `<button class="chip ${state.activeChip === c.slug ? 'active' : ''}" data-slug="${esc(c.slug)}">${icon(c.icon)} ${esc(c.name)}</button>`),
-  ].join('');
-  requestAnimationFrame(moveChipPill);
+  $('#chipbar').innerHTML = SEGMENTS.map(c =>
+    `<button class="chip carousel-chip" data-slug="${esc(c.slug)}">${icon(c.icon)} ${esc(c.name)}</button>`).join('');
+  requestAnimationFrame(layoutChipCarousel);
+}
+function layoutChipCarousel() {
+  const chips = [...document.querySelectorAll('#chipbar .carousel-chip')];
+  let ai = SEGMENTS.findIndex(s => s.slug === state.activeChip);
+  if (ai < 0) ai = 0;
+  chips.forEach((ch, i) => {
+    const o = i - ai;
+    ch.style.transform = `translateX(calc(-50% + ${o * 112}px)) scale(${o === 0 ? 1 : Math.max(.68, .84 - Math.abs(o) * .06)})`;
+    ch.style.opacity = o === 0 ? 1 : Math.max(.3, .6 - Math.abs(o) * .14);
+    ch.style.zIndex = 20 - Math.abs(o);
+    ch.classList.toggle('active', o === 0 && state.activeChip === SEGMENTS[i]?.slug);
+  });
 }
 
 function moveChipPill() {
@@ -382,8 +400,7 @@ $('#chipbar').addEventListener('click', e => {
   const chip = e.target.closest('.chip');
   if (!chip) return;
   state.activeChip = chip.dataset.slug;
-  $('#chipbar').querySelectorAll('.chip').forEach(c => c.classList.toggle('active', c.dataset.slug === state.activeChip));
-  moveChipPill();
+  layoutChipCarousel();
   renderFeed(true);
 });
 
@@ -576,8 +593,8 @@ function computeOrder() {
   state.orderKey = state.activeChip;
 }
 
-// Coupons-Tab: Verzeichnis der offiziellen Coupon-Quellen + GzG + Payback
-function renderCoupons() {
+// Coupons (im Wallet): Verzeichnis der offiziellen Coupon-Quellen + GzG + Payback
+function renderCoupons(host) {
   let animIdx = 0;
   const row = it => `
     <a class="channel-row coupon-row anim-item" style="animation-delay:${Math.min(animIdx++, 10) * 45}ms"
@@ -593,7 +610,7 @@ function renderCoupons() {
   const hasPayback = state.wallet.cards.some(c => /payback/i.test(c.name));
   const gzg = state.deals.filter(d => /geld.?zur(ü|ue)ck|gzg\b/i.test(d.title + ' ' + (d.excerpt || '')));
 
-  $('#feed').innerHTML = `
+  (host || $('#coupons-content')).innerHTML = `
     <p class="muted" style="font-size:.85rem; margin-bottom:14px; line-height:1.5">
       Die Coupons liegen in den Apps und Portalen der Anbieter, hier springst du direkt hin.
       Eingelöste Gutscheine verwaltest du in der Wallet.</p>
@@ -617,7 +634,6 @@ function renderFeed(reorder = false) {
   const ch = channelBySlug(state.activeChip);
   const isCommunity = ch?.type === 'community';
   $('#community-banner').classList.toggle('hidden', !isCommunity);
-  if (state.activeChip === 'coupons') { renderCoupons(); return; }
 
   // Sortierung nur bei Chip-Wechsel/Neuladen neu berechnen, ein Vote soll den
   // Feed nicht sofort umwürfeln, das pendelt sich beim nächsten Laden ein
@@ -1354,14 +1370,13 @@ async function refreshGami() {
     ? `<img class="avatar-big" src="${myProfile.avatar}" alt="">`
     : `<span class="avatar-big" style="background:${chatColor(state.userName || '?')}">${esc((state.userName || '?')[0].toUpperCase())}</span>`;
   $('#me-bio').textContent = myProfile.bio || 'Noch keine Bio. Erzähl kurz, wer du bist!';
+  // Lieblings-Sachen als Marken-Logos, wo wir das Logo kennen
   const mf = myProfile.favs || {};
-  $('#me-favs').innerHTML = [
-    mf.discounter && `<span class="pill">Discounter: ${esc(mf.discounter)}</span>`,
-    mf.supermarkt && `<span class="pill">Supermarkt: ${esc(mf.supermarkt)}</span>`,
-    mf.essen && `<span class="pill">Essen: ${esc(mf.essen)}</span>`,
-    mf.onlineshop && `<span class="pill">Onlineshop: ${esc(mf.onlineshop)}</span>`,
-    mf.mode && `<span class="pill">Mode: ${esc(mf.mode)}</span>`,
-  ].filter(Boolean).join('');
+  const favChip = v => BRAND_DOMAINS[String(v || '').toLowerCase()]
+    ? `<span class="fav-logo">${brandChipHtml(v)}<small>${esc(v)}</small></span>`
+    : `<span class="pill">${esc(v)}</span>`;
+  $('#me-favs').innerHTML = ['discounter', 'supermarkt', 'essen', 'onlineshop', 'mode']
+    .map(k => mf[k] ? favChip(mf[k]) : '').join('');
   // Nur EIN Badge im Profil: das getragene (auswählen geht im Inventar)
   const ab = myProfile.activeBadge;
   $('#me-badges').innerHTML = ab && myProfile.badgesAll[ab]
@@ -1453,51 +1468,67 @@ function myItems() {
 async function refreshGamiSystem() {
   if (!state.token) return;
   try { gami = await api('/api/gami'); } catch { return; }
-  // Quest-Belohnungen feiern: Achievement-Toast unten rechts
-  (gami.questAwards || []).forEach((a, i) => setTimeout(() => {
-    achvToast(`Quest geschafft: ${a.quest}`, `+${a.coins} Coins`);
-    playSfx('kaching');
-  }, i * 2000));
   animateInt($('#g-coins'), Number($('#g-coins').textContent) || 0, gami.coins || 0);
-  // Quests mit Fortschritt und Meilensteinen
-  $('#gm-quests').innerHTML = gami.quests.map(q => {
-    const nextMs = q.milestones.find(([n]) => !q.awarded.includes(`${q.key}:${n}`));
-    const target = nextMs ? nextMs[0] : q.milestones[q.milestones.length - 1][0];
-    const done = !nextMs;
-    return `
-    <div class="quest-row ${done ? 'done' : ''}">
-      <div class="quest-main">
-        <b>${esc(q.name)}</b>
-        <span>${done ? 'Alle Stufen geschafft!' : `${Math.min(q.progress, target)} / ${target} · +${nextMs[1]} Coins`}</span>
-      </div>
-      <div class="rank-progress"><div class="rank-progress-fill" style="width:${Math.min(100, Math.round(q.progress / target * 100))}%"></div></div>
-    </div>`;
-  }).join('');
+  // Rank-Up feiern: einmalige Vollbild-Celebration
+  const lastTier = Number(localStorage.getItem('ra.tier') || 0);
+  if (lastTier && gami.rank.tier > lastTier) rankUpFx(gami.rank);
+  localStorage.setItem('ra.tier', gami.rank.tier);
+  // Quests: gebündelt, kompakt, Coins per "Abholen"
+  const GROUPS = [
+    ['Community', ['comment', 'rate', 'chat', 'friend']],
+    ['Wallet', ['voucher', 'booking']],
+    ['Täglich', ['daily', 'newsletter', 'push']],
+  ];
+  const claimables = gami.claimable || [];
+  $('#quests-claim-count').textContent = claimables.length ? `(${claimables.length} abholbar)` : '';
+  $('#gm-quests').innerHTML = GROUPS.map(([label, keys]) => `
+    <div class="quest-group"><b>${label}</b>
+    ${keys.map(k => {
+      const q = gami.quests.find(x => x.key === k);
+      if (!q) return '';
+      const claim = claimables.find(c => c.key === k);
+      const nextMs = q.milestones.find(([n]) => !q.awarded.includes(`${q.key}:${n}`));
+      const target = nextMs ? nextMs[0] : q.milestones[q.milestones.length - 1][0];
+      const done = !nextMs && !claim;
+      return `
+      <div class="quest-row ${done ? 'done' : ''}">
+        <div class="quest-main">
+          <span>${esc(q.name)} <small>${Math.min(q.progress, target)}/${target}</small></span>
+          ${claim ? `<button class="btn btn-small" data-qclaim="${esc(claim.tag)}">Abholen +${claim.coins}</button>`
+            : `<small>${done ? 'komplett' : `+${nextMs[1]} Coins`}</small>`}
+        </div>
+        <div class="rank-progress"><div class="rank-progress-fill" style="width:${Math.min(100, Math.round(q.progress / target * 100))}%"></div></div>
+      </div>`;
+    }).join('')}</div>`).join('');
+  $('#gm-quests').querySelectorAll('[data-qclaim]').forEach(b => b.onclick = async () => {
+    try {
+      const r = await api('/api/quests/claim', { method: 'POST', body: JSON.stringify({ tag: b.dataset.qclaim }) });
+      achvToast(`Quest geschafft: ${r.quest}`, `+${r.gained} Coins`);
+      playSfx('kaching'); buzz(25);
+      refreshGamiSystem();
+    } catch (e) { island(e.message); }
+  });
   const rank = gami.rank;
+  // RANG: Name, Fortschritt ab dem AKTUELLEN Rang, klare Punkteanzeige
   $('#gm-rank-head').innerHTML = `
     <div class="gm-rank-row">
       <img class="px-icon big" src="${rankFile(rank)}" alt="">
       <div class="gm-rank-text">
-        <b style="color:${rank.color}">${esc(rank.name)}</b>
-        <span>${gami.points} Aktivitätspunkte${gami.next ? `, noch ${gami.next.points - gami.points} bis ${esc(gami.next.name)}` : ', höchste Stufe!'}</span>
+        <b>RANG: <span style="color:${rank.color}">${esc(rank.name)}</span></b>
+        ${gami.next
+          ? `<span>${gami.points - rank.points} / ${gami.next.points - rank.points} Punkte bis ${esc(gami.next.name)} (${gami.next.points} nötig)</span>`
+          : '<span>Höchste Stufe erreicht!</span>'}
       </div>
     </div>
-    ${gami.next ? `<div class="rank-progress"><div class="rank-progress-fill" style="width:${Math.round((gami.points - rank.points) / (gami.next.points - rank.points) * 100)}%"></div></div>` : ''}`;
-  // Leiter: erreichte Ränge farbig, offene ausgegraut, Fortschritt motiviert
+    ${gami.next ? `<div class="rank-progress big"><div class="rank-progress-fill" style="width:${Math.round((gami.points - rank.points) / (gami.next.points - rank.points) * 100)}%"></div></div>` : ''}`;
+  // Leiter: Punkte-Anforderung sichtbar, scrollt automatisch zum aktuellen Rang
   $('#gm-ladder').innerHTML = gami.ranks.map(r => `
-    <div class="gm-step ${r.tier <= rank.tier ? 'done' : ''}" title="${esc(r.name)}${r.tier > rank.tier ? ` ab ${r.points} Punkten` : ''}">
+    <div class="gm-step ${r.tier <= rank.tier ? 'done' : ''} ${r.tier === rank.tier ? 'current' : ''}" title="${esc(r.name)}">
       <img class="px-icon" src="${rankFile(r)}" alt="${esc(r.name)}">
       <span>${esc(r.name)}</span>
+      <small>${r.points} P.</small>
     </div>`).join('');
-  $('#gm-cases').innerHTML = gami.cases.length
-    ? gami.cases.map(c => `
-      <button class="gm-case" data-case="${esc(c.id)}">
-        <img class="px-icon big" src="/gamification/${CASE_IMGS[c.type] || CASE_IMGS.standard}.svg" alt="">
-        <span>${esc(c.type)}</span>
-      </button>`).join('')
-    : '<span class="form-msg">Noch keine Kiste. Spar weiter, die nächste kommt bestimmt.</span>';
-  $('#gm-cases').querySelectorAll('[data-case]').forEach(b => b.onclick = () =>
-    openCaseModal(gami.cases.find(c => c.id === b.dataset.case)));
+  setTimeout(() => $('#gm-ladder .gm-step.current')?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' }), 200);
   $('#gm-paints').innerHTML = (gami.paints || []).length
     ? gami.paints.map(id => {
       const pnt = paintById(id);
@@ -1582,7 +1613,134 @@ function openInventory() {
   });
   openSheetShell();
 }
-$('#gm-inv-btn').addEventListener('click', openInventory);
+$('#gm-inv-btn').addEventListener('click', () => switchView('inventory', 'enter-drop'));
+
+// ---- Inventar als eigene Seite: Items UND Kisten, filterbar
+let invFilter = 'alle';
+async function renderInventoryPage() {
+  if (!gami) await refreshGamiSystem();
+  const host = $('#inv-page');
+  if (!gami) { host.innerHTML = '<div class="status">Bitte anmelden.</div>'; return; }
+  const items = myItems();
+  const showCases = invFilter === 'alle' || invFilter === 'case';
+  const list = invFilter === 'alle' ? items : items.filter(it => it.kind === invFilter);
+  host.innerHTML = `
+    ${showCases && gami.cases.length ? `<h3 class="gm-h" style="margin-top:0">Kisten</h3>
+    <div class="gm-cases">${gami.cases.map(c => `
+      <button class="gm-case" data-case-open="${esc(c.id)}">
+        <img class="px-icon big" src="/gamification/${CASE_IMGS[c.type] || CASE_IMGS.standard}.svg" alt="">
+        <span>${esc(c.type)}</span>
+      </button>`).join('')}</div>` : ''}
+    ${invFilter !== 'case' ? `${showCases && gami.cases.length ? '<h3 class="gm-h">Items</h3>' : ''}
+    <div class="inv-grid">${list.map(it => {
+      const col = (gami.rarity || {})[it.rarity]?.color || '#888';
+      const shiny = isShinyF(it.float);
+      const val = ((gami.sellValues || {})[it.rarity] || 20) * (shiny ? 5 : 1);
+      const inShowcase = (gami.showcase || []).includes(`${it.kind}:${it.id}`);
+      const equipped = (it.kind === 'paint' && gami.activePaint === it.id) || (it.kind === 'badge' && myProfile?.activeBadge === it.id);
+      return `
+      <div class="inv-item ${shiny ? 'shiny' : ''}" style="--rc:${col}">
+        <div class="inv-visual">${itemVisual(it.kind, it.id)}</div>
+        <b>${esc(itemName(it.kind, it.id))}</b>
+        <span class="inv-float">#${String(it.float).padStart(3, '0')}${shiny ? ' ✦' : ''}</span>
+        <span style="color:${col}; font-size:.68rem">${esc((gami.rarity || {})[it.rarity]?.label || it.rarity)}</span>
+        <div class="inv-actions">
+          ${it.kind !== 'emote' ? `<button class="c-act ${equipped ? 'on' : ''}" data-inv-equip="${it.kind}:${esc(it.id)}">${equipped ? 'Angelegt' : 'Anlegen'}</button>` : ''}
+          <button class="c-act ${inShowcase ? 'on' : ''}" data-inv-show="${it.kind}:${esc(it.id)}">Profil</button>
+          <button class="c-act" data-inv-sell="${it.kind}:${esc(it.id)}">Verkaufen (${val})</button>
+        </div>
+      </div>`;
+    }).join('') || '<div class="status">Nichts in dieser Kategorie. Öffne Kisten!</div>'}</div>` : ''}`;
+  host.querySelectorAll('[data-case-open]').forEach(b => b.onclick = () =>
+    openCaseModal(gami.cases.find(c => c.id === b.dataset.caseOpen)));
+  host.querySelectorAll('[data-inv-equip]').forEach(b => b.onclick = async () => {
+    const [kind, id] = b.dataset.invEquip.split(':');
+    if (kind === 'paint') {
+      const next = gami.activePaint === id ? '' : id;
+      await api('/api/paint', { method: 'POST', body: JSON.stringify({ id: next }) }).catch(() => { });
+      gami.activePaint = next;
+    } else {
+      const next = myProfile.activeBadge === id ? '' : id;
+      await api('/api/profile', { method: 'POST', body: JSON.stringify({ activeBadge: next }) }).catch(() => { });
+      myProfile.activeBadge = next;
+    }
+    renderInventoryPage(); refreshGami();
+  });
+  host.querySelectorAll('[data-inv-show]').forEach(b => b.onclick = async () => {
+    const key = b.dataset.invShow;
+    let sc = gami.showcase || [];
+    if (sc.includes(key)) sc = sc.filter(x => x !== key);
+    else if (sc.length >= 3) { island('Maximal 3 Items im Profil'); return; }
+    else sc = [...sc, key];
+    await api('/api/profile', { method: 'POST', body: JSON.stringify({ showcase: sc }) }).catch(() => { });
+    gami.showcase = sc;
+    renderInventoryPage(); refreshGami();
+  });
+  host.querySelectorAll('[data-inv-sell]').forEach(b => b.onclick = async () => {
+    const [kind, id] = b.dataset.invSell.split(':');
+    if (!await askConfirm(`${esc(itemName(kind, id))} wirklich verkaufen?`, { okLabel: 'Verkaufen' })) return;
+    try {
+      const r = await api('/api/item/sell', { method: 'POST', body: JSON.stringify({ kind, id }) });
+      playSfx('pay'); island(`Verkauft für ${r.value} Coins`);
+      await refreshGamiSystem();
+      renderInventoryPage(); refreshGami();
+    } catch (e) { island(e.message); }
+  });
+}
+document.querySelectorAll('[data-invf]').forEach(b => b.addEventListener('click', () => {
+  invFilter = b.dataset.invf;
+  document.querySelectorAll('[data-invf]').forEach(x => x.classList.toggle('active', x === b));
+  renderInventoryPage();
+}));
+
+// ---- Kistenshop als eigene Seite
+async function renderShopPage() {
+  if (!gami) await refreshGamiSystem();
+  $('#shop-coins').textContent = gami?.coins ?? 0;
+  $('#shop-page').innerHTML = Object.entries(gami?.shop || {}).map(([type, price]) => `
+    <button class="gm-case" data-shop-buy2="${esc(type)}">
+      <img class="px-icon big" src="/gamification/${CASE_IMGS[type]}.svg" alt="">
+      <span>${esc(type)}</span>
+      <span class="shop-price">${price} Coins</span>
+    </button>`).join('');
+  $('#shop-page').querySelectorAll('[data-shop-buy2]').forEach(b => b.onclick = async () => {
+    try {
+      const r = await api('/api/shop/buy', { method: 'POST', body: JSON.stringify({ type: b.dataset.shopBuy2 }) });
+      playSfx('kaching'); buzz(30);
+      island('Kiste gekauft, ab ins Inventar!');
+      gami.coins = r.coins; gami.cases = r.cases;
+      renderShopPage();
+    } catch (e) { island(e.message); }
+  });
+}
+
+// ---- Rank-Up: Vollbild-Feier
+function rankUpFx(rank) {
+  const el = document.createElement('div');
+  el.className = 'rankup';
+  el.innerHTML = `
+    <div class="rankup-inner" style="--rc:${rank.color}">
+      <img class="px-icon" src="${rankFile(rank)}" alt="">
+      <b>RANG-AUFSTIEG!</b>
+      <span style="color:${rank.color}">${esc(rank.name)}</span>
+    </div>`;
+  document.body.appendChild(el);
+  playSfx('kaching'); buzz([40, 40, 80]);
+  if (!reducedMotion()) {
+    for (let i = 0; i < 18; i++) {
+      const s = document.createElement('span');
+      s.className = 'case-spark';
+      s.style.background = rank.color;
+      s.style.left = '50%'; s.style.top = '45%';
+      s.style.setProperty('--dx', (Math.random() * 300 - 150) + 'px');
+      s.style.setProperty('--dy', (Math.random() * -240 - 20) + 'px');
+      s.style.animationDelay = (i * 30) + 'ms';
+      el.appendChild(s);
+    }
+  }
+  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 500); }, 3200);
+  el.addEventListener('click', () => el.remove());
+}
 
 // Sammlung: alles was es gibt, nach Seltenheit, plus Kisten-Übersicht
 $('#gm-catalog-btn').addEventListener('click', () => {
@@ -1619,29 +1777,7 @@ $('#gm-catalog-btn').addEventListener('click', () => {
 });
 
 // Kistenshop: Kauf ausschließlich mit erspielten Coins
-$('#gm-shop-btn').addEventListener('click', () => {
-  state.sheetMode = 'gami-shop';
-  $('#sheet-content').innerHTML = `
-    <div class="sheet-title">Kistenshop</div>
-    <p class="muted" style="font-size:.8rem">Coins gibt es nur fürs Mitmachen (Quests, Tagesbonus, Verkäufe), niemals für Echtgeld. Du hast <b id="shop-coins">${gami?.coins ?? 0}</b> Coins.</p>
-    <div class="gm-cases">${Object.entries(gami?.shop || {}).map(([type, price]) => `
-      <button class="gm-case" data-shop-buy="${esc(type)}">
-        <img class="px-icon big" src="/gamification/${CASE_IMGS[type]}.svg" alt="">
-        <span>${esc(type)}</span>
-        <span class="shop-price">${price} Coins</span>
-      </button>`).join('')}</div>`;
-  $('#sheet-content').querySelectorAll('[data-shop-buy]').forEach(b => b.onclick = async () => {
-    try {
-      const r = await api('/api/shop/buy', { method: 'POST', body: JSON.stringify({ type: b.dataset.shopBuy }) });
-      playSfx('kaching'); buzz(30);
-      island('Kiste gekauft!');
-      gami.coins = r.coins; gami.cases = r.cases;
-      $('#shop-coins').textContent = r.coins;
-      refreshGamiSystem();
-    } catch (e) { island(e.message); }
-  });
-  openSheetShell();
-});
+$('#gm-shop-btn').addEventListener('click', () => switchView('shop', 'enter-drop'));
 
 // ---- Kisten-Öffnung: Ergebnis kommt VOR der Animation vom Server, die Walze ist Show
 let caseCtx = null;
@@ -1936,16 +2072,10 @@ $('#g-handle-save').addEventListener('click', async () => {
   } catch (e) { island(e.message); }
 });
 
-// "Profil bearbeiten": klappt die Bearbeiten-Karte auf und scrollt hin
-$('#btn-edit-profile').addEventListener('click', () => {
-  const c = $('#bio-card');
-  c.classList.toggle('hidden');
-  if (!c.classList.contains('hidden')) {
-    c.classList.add('enter-drop');
-    setTimeout(() => c.classList.remove('enter-drop'), 500);
-    c.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
-});
+// "Profil bearbeiten": eigene Seite, nach dem Speichern geht es automatisch zurück
+$('#editprofile-host').appendChild($('#bio-card'));
+$('#bio-card').classList.remove('hidden', 'modal-left');
+$('#btn-edit-profile').addEventListener('click', () => switchView('editprofile', 'enter-drop'));
 
 $('#g-bio-save').addEventListener('click', async () => {
   const m = $('#g-bio-msg');
@@ -1958,8 +2088,9 @@ $('#g-bio-save').addEventListener('click', async () => {
       }),
     });
     $('#g-bio').value = r.bio; // Server-Fassung (ggf. zensiert) zurückspiegeln
-    m.className = 'form-msg ok'; m.textContent = 'Gespeichert.';
+    island('Profil gespeichert');
     refreshGami();
+    switchView('profile', 'enter-drop'); // direkt zurück
   } catch (e) { m.className = 'form-msg error'; m.textContent = e.message; }
 });
 
@@ -2011,7 +2142,7 @@ function toggleTopMenu() {
         <div class="tm-name">${esc(state.userName)} ${state.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : ''}</div>
         <div class="tm-sub">${esc(rank.name)} · <svg class="icon icon-sm" style="vertical-align:-3px"><use href="#i-coin"/></svg> ${gami?.coins ?? myProfile?.coins ?? 0}</div>
       </div>
-      <button class="btn btn-small btn-ghost" id="tm-head-profile">Zum Profil</button>
+      <svg class="icon icon-sm" style="opacity:.5"><use href="#i-chevron"/></svg>
     </div>
     ${reqs.length ? `<div class="tm-section">Freundschaftsanfragen</div>
     ${reqs.map(u => `<div class="tm-req">
@@ -2023,14 +2154,18 @@ function toggleTopMenu() {
     <div class="tm-section">Freunde</div>
     <div id="tm-friends"><div class="tm-sub" style="padding:4px 0">Lade …</div></div>
     <button class="tm-item" id="tm-all-friends">${icon('user', 'icon icon-sm')} Alle Freunde</button>
-    <button class="tm-item" id="tm-profile">${icon('user', 'icon icon-sm')} Profil</button>
+    <button class="tm-item" id="tm-inv">${icon('gift', 'icon icon-sm')} Inventar</button>
+    <button class="tm-item" id="tm-shop">${icon('banknote', 'icon icon-sm')} Kistenshop</button>
     <button class="tm-item" id="tm-favs">${icon('star', 'icon icon-sm')} Favoriten</button>
     <button class="tm-item" id="tm-settings">${icon('sliders', 'icon icon-sm')} Einstellungen</button>
     <button class="tm-item" id="tm-logout">${icon('x', 'icon icon-sm')} Abmelden</button>`;
   menu.classList.remove('hidden');
   const done = () => { menu.classList.add('hidden'); $('#top-menu-backdrop').classList.add('hidden'); };
-  $('#tm-head-profile').onclick = () => { done(); switchView('profile'); };
-  $('#tm-profile').onclick = () => { done(); switchView('profile'); };
+  // Der Profil-Banner selbst führt zum Profil
+  menu.querySelector('.tm-head').style.cursor = 'pointer';
+  menu.querySelector('.tm-head').onclick = () => { done(); switchView('profile'); };
+  $('#tm-inv').onclick = () => { done(); switchView('inventory', 'enter-drop'); };
+  $('#tm-shop').onclick = () => { done(); switchView('shop', 'enter-drop'); };
   $('#tm-favs').onclick = () => {
     done();
     state.activeChip = 'saved';
@@ -3171,12 +3306,28 @@ function renderWallet() {
     || v.code.toLowerCase().includes(q)
     || (v.pin || '').toLowerCase().includes(q)
     || (v.tx || []).some(t => (t.note || '').toLowerCase().includes(q));
-  const soon = Date.now() + 30 * 864e5;
-  const fMatch = v =>
-    state.walletFilter === 'guthaben' ? v.balance != null && v.balance > 0
-    : state.walletFilter === 'ablauf' ? v.end && Date.parse(v.end) < soon
-    : true;
-  const active = allActive.filter(v => vMatch(v) && fMatch(v));
+  // Filter = die Shops, die man wirklich besitzt (dynamische Chips)
+  const fMatch = v => !state.walletFilter || state.walletFilter === 'alle'
+    || v.vendor.toLowerCase() === state.walletFilter.toLowerCase();
+  let active = allActive.filter(v => vMatch(v) && fMatch(v));
+  // Sortierung übers Filter-Icon
+  const ws = state.walletSort || '';
+  if (ws === 'hoch') active = [...active].sort((a, b) => (b.balance || 0) - (a.balance || 0));
+  if (ws === 'niedrig') active = [...active].sort((a, b) => (a.balance || 0) - (b.balance || 0));
+  if (ws === 'bis10') active = active.filter(v => (v.balance || 0) <= 10);
+  if (ws === 'ab25') active = active.filter(v => (v.balance || 0) >= 25);
+  if (ws === 'ab50') active = active.filter(v => (v.balance || 0) >= 50);
+  // Vendor-Chips neu aufbauen
+  const vendors = [...new Set(allActive.map(v => v.vendor))];
+  const vf = $('#wallet-vendor-filters');
+  if (vf) {
+    vf.innerHTML = [`<button class="chip ${!state.walletFilter || state.walletFilter === 'alle' ? 'active' : ''}" data-wvf="alle">Alle</button>`,
+      ...vendors.map(vn => `<button class="chip ${state.walletFilter === vn ? 'active' : ''}" data-wvf="${esc(vn)}">${brandChipHtml(vn)} ${esc(vn)}</button>`)].join('');
+    vf.querySelectorAll('[data-wvf]').forEach(b => b.onclick = () => {
+      state.walletFilter = b.dataset.wvf === 'alle' ? '' : b.dataset.wvf;
+      renderWallet();
+    });
+  }
 
   // Kontostand: Summe ALLER Restguthaben (unabhängig von Suche/Filter), zählt animiert
   const total = Math.round(allActive.reduce((s, v) => s + (v.balance || 0), 0) * 100) / 100;
@@ -3261,16 +3412,40 @@ function renderWallet() {
   $('#view-wallet').querySelectorAll('[data-wadd-prefill]').forEach(el => el.onclick = () => openWalletAdd('card', el.dataset.waddPrefill));
 }
 
-// Wallet-Suche + Filter-Chips (statisches Markup, einmal verdrahten)
+// Wallet-Suche + Umschalter Wallet/Coupons + Sortier-Menü
 $('#wallet-search')?.addEventListener('input', e => {
   state.walletQuery = e.target.value;
   renderWallet();
 });
-document.querySelectorAll('[data-wfilter]').forEach(b => b.addEventListener('click', () => {
-  state.walletFilter = b.dataset.wfilter;
-  document.querySelectorAll('[data-wfilter]').forEach(x => x.classList.toggle('active', x === b));
-  renderWallet();
+document.querySelectorAll('[data-wmode]').forEach(b => b.addEventListener('click', () => {
+  const mode = b.dataset.wmode;
+  document.querySelectorAll('[data-wmode]').forEach(x => x.classList.toggle('active', x === b));
+  const coupons = mode === 'coupons';
+  $('#coupons-content').classList.toggle('hidden', !coupons);
+  $('#wallet-gate').classList.toggle('hidden', coupons || !!state.token);
+  $('#wallet-content').classList.toggle('hidden', coupons || !state.token);
+  if (coupons) {
+    renderCoupons($('#coupons-content'));
+    $('#coupons-content').classList.add('enter-drop');
+    setTimeout(() => $('#coupons-content').classList.remove('enter-drop'), 500);
+  }
 }));
+$('#wallet-sort-btn')?.addEventListener('click', () => {
+  const menu = $('#wallet-sort-menu');
+  if (!menu.classList.contains('hidden')) { menu.classList.add('hidden'); return; }
+  const OPTIONS = [
+    ['', 'Neueste zuerst'], ['hoch', 'Guthaben: hoch zu niedrig'], ['niedrig', 'Guthaben: niedrig zu hoch'],
+    ['bis10', 'Bis 10 €'], ['ab25', 'Ab 25 €'], ['ab50', 'Ab 50 €'],
+  ];
+  menu.innerHTML = OPTIONS.map(([v, l]) =>
+    `<button class="cmd-row ${(state.walletSort || '') === v ? 'on' : ''}" data-wsort="${v}"><span>${l}</span></button>`).join('');
+  menu.classList.remove('hidden');
+  menu.querySelectorAll('[data-wsort]').forEach(x => x.onclick = () => {
+    state.walletSort = x.dataset.wsort;
+    menu.classList.add('hidden');
+    renderWallet();
+  });
+});
 
 $('#btn-home').addEventListener('click', () => {
   state.activeChip = 'fuer-dich';
@@ -3462,6 +3637,7 @@ let chatBadges = {};
 let chatPaints = [];
 let chatRanks = [];
 let chatLastTs = 0;
+const chatSeenUsers = new Set();
 
 const CHAT_COLORS = ['#e91e63', '#9c27b0', '#3f51b5', '#03a9f4', '#009688', '#4caf50', '#ff9800', '#f44336', '#8d6e63', '#607d8b'];
 function chatColor(name) {
@@ -3504,9 +3680,13 @@ function chatMsgHtml(m) {
   const nameStyle = pnt ? `--paint:${pnt.css}; color:${pnt.fallbackColor}` : `color:${chatColor(m.user)}`;
   // Maximal EIN Abzeichen neben dem Rang: das getragene Badge schlägt das Rollen-Icon
   const insignia = badge || role;
+  chatSeenUsers.add(m.user);
+  // Emotes zuerst, dann @Erwähnungen klickbar machen
+  let body = withEmotes(esc(m.text));
+  body = body.replace(/@([A-Za-z0-9_.-]{3,24})/g, '<button class="mention" data-user="$1">@$1</button>');
   return `<div class="chat-msg ${m.user === state.userName ? 'own' : ''}" data-mid="${esc(m.id)}">
     ${rankImg}${insignia}<span class="chat-user ${pnt ? 'paint' : ''}" style="${nameStyle}">${esc(m.user)}</span>
-    <span class="chat-text">${withEmotes(esc(m.text))}</span>
+    <span class="chat-text">${body}</span>
     ${msgMenuHtml(m.user === state.userName, m.id)}
   </div>`;
 }
@@ -3526,7 +3706,20 @@ function setChatMode(mode, partner) {
   $('#dm-head').classList.toggle('hidden', mode !== 'dm');
   $('#chat-pinbar').classList.toggle('hidden', mode !== 'global' || !$('#chat-pinbar').innerHTML);
   $('#chat-input-row').style.display = mode === 'dmlist' ? 'none' : 'flex';
-  if (mode === 'dm') $('#dm-partner-name').textContent = dmPartner;
+  if (mode === 'dm') {
+    $('#dm-partner-name').textContent = dmPartner;
+    // Profilbild der Person im Chat-Kopf
+    $('#dm-partner-ava').innerHTML = `<span class="avatar-mini" style="background:${chatColor(dmPartner)}">${esc(dmPartner[0].toUpperCase())}</span>`;
+    api('/api/avatars?names=' + encodeURIComponent(dmPartner)).then(m => {
+      if (m[dmPartner]) $('#dm-partner-ava').innerHTML = `<img class="avatar-mini avatar-img" src="${m[dmPartner]}" alt="">`;
+    }).catch(() => { });
+  } else {
+    $('#dm-partner-ava').innerHTML = '';
+  }
+  // Moduswechsel gleitet weich
+  const cl = $('#chat-list');
+  cl.classList.add('enter-drop');
+  setTimeout(() => cl.classList.remove('enter-drop'), 500);
   delete $('#chat-box').dataset.scrolled;
   pollChat(true);
 }
@@ -3577,11 +3770,14 @@ async function pollChat(force) {
       if (r.messages.length) {
         const box = $('#chat-box'), list = $('#chat-list');
         const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+        // Erwähnungen: nur für WIRKLICH neue Nachrichten, nicht beim Neuladen der Historie
+        const mentionSeen = Number(localStorage.getItem('ra.mentionSeen') || 0);
+        let batchMax = mentionSeen;
         r.messages.forEach(m => {
           list.insertAdjacentHTML('beforeend', chatMsgHtml(m));
           chatLastTs = Math.max(chatLastTs, m.ts);
-          // Erwähnung: @Name oder Name im Text -> Plop + Banner mit Absprung
-          if (state.userName && m.user !== state.userName && !m.deleted
+          batchMax = Math.max(batchMax, m.ts);
+          if (state.userName && m.user !== state.userName && !m.deleted && m.ts > mentionSeen
             && new RegExp(`(^|\\W)@?${state.userName}(\\W|$)`, 'i').test(m.text)) {
             playSfx('plop'); buzz(25);
             if (state.activeView !== 'chat') {
@@ -3591,6 +3787,7 @@ async function pollChat(force) {
             }
           }
         });
+        localStorage.setItem('ra.mentionSeen', String(batchMax));
         while (list.children.length > 150) list.firstChild.remove();
         if (nearBottom || !box.dataset.scrolled) box.scrollTop = box.scrollHeight;
         box.dataset.scrolled = '1';
@@ -3685,7 +3882,29 @@ function renderCmdPalette(show) {
   });
 }
 $('#chat-input').addEventListener('input', e => {
-  renderCmdPalette(chatMode !== 'dm' && e.target.value.startsWith('!'));
+  const v = e.target.value;
+  // Command-Palette bei "!", @Namens-Vorschläge beim Tippen einer Erwähnung
+  const at = v.match(/@([A-Za-z0-9_.-]*)$/);
+  if (at && chatMode !== 'dm') {
+    const pool = [...new Set([...(myProfile?.friends || []), ...chatSeenUsers])]
+      .filter(n => n !== state.userName && n.toLowerCase().startsWith(at[1].toLowerCase()))
+      .slice(0, 5);
+    let el = $('#chat-cmds');
+    if (!el) { el = document.createElement('div'); el.id = 'chat-cmds'; $('#chat-input-row').before(el); }
+    if (pool.length) {
+      el.style.display = 'block';
+      el.innerHTML = pool.map(n => `<button class="cmd-row" data-atname="${esc(n)}"><b>@${esc(n)}</b></button>`).join('');
+      el.querySelectorAll('[data-atname]').forEach(b => b.onclick = () => {
+        $('#chat-input').value = v.replace(/@[A-Za-z0-9_.-]*$/, '@' + b.dataset.atname + ' ');
+        el.style.display = 'none';
+        $('#chat-input').focus();
+      });
+      return;
+    }
+    el.style.display = 'none';
+    return;
+  }
+  renderCmdPalette(chatMode !== 'dm' && v.startsWith('!'));
 });
 
 async function sendChat() {
@@ -3730,16 +3949,22 @@ async function sendChat() {
   } catch (e) { island(e.message); }
 }
 
-// ---- Nutzer-Popup: Profil, Flüstern, Freund, Melden (+ Moderation)
+// ---- Nutzer-Profil: eigene Seite (ersetzt das alte Popup)
+let userPageReturn = 'feed';
 async function openUserPop(user, msgId) {
-  if (user === state.userName) return;
-  const pop = $('#user-pop');
+  if (user === state.userName) { switchView('profile'); return; }
+  if (state.activeView !== 'user') userPageReturn = state.activeView;
+  const pop = $('#user-page');
   pop.innerHTML = '<div class="status">Lade Profil …</div>';
-  $('#user-pop-backdrop').classList.remove('hidden');
+  $('#user-page-title').textContent = '@' + user;
+  switchView('user', 'enter-drop');
   let u = { user };
   try { u = await api('/api/user?name=' + encodeURIComponent(user)); } catch { }
   const isFriend = (myProfile?.friends || []).includes(user);
   const mod = ['admin', 'mod'].includes(state.role);
+  const favLogo = v => BRAND_DOMAINS[String(v || '').toLowerCase()]
+    ? `<span class="fav-logo">${brandChipHtml(v)}<small>${esc(v)}</small></span>`
+    : `<span class="pill">${esc(v)}</span>`;
   pop.innerHTML = `
     <div class="offer-head">
       ${u.avatar ? `<img class="avatar-big" src="${u.avatar}" alt="">`
@@ -3748,15 +3973,17 @@ async function openUserPop(user, msgId) {
         <div class="offer-merchant">${esc(user)} ${u.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : u.role === 'mod' ? icon('check', 'icon icon-sm role-mod') : ''}</div>
         <div class="offer-cat">${u.private ? 'Profil ist privat' : esc(u.bio || 'Keine Bio')}</div>
       </div>
-      <button class="fav-remove" id="up-close">${icon('x', 'icon icon-sm')}</button>
     </div>
     ${!u.private && u.favs && Object.values(u.favs).some(Boolean) ? `
     <div class="favs-view">
-      ${u.favs.discounter ? `<span class="pill">Discounter: ${esc(u.favs.discounter)}</span>` : ''}
-      ${u.favs.supermarkt ? `<span class="pill">Supermarkt: ${esc(u.favs.supermarkt)}</span>` : ''}
-      ${u.favs.essen ? `<span class="pill">Essen: ${esc(u.favs.essen)}</span>` : ''}
-      ${u.favs.onlineshop ? `<span class="pill">Onlineshop: ${esc(u.favs.onlineshop)}</span>` : ''}
-      ${u.favs.mode ? `<span class="pill">Mode: ${esc(u.favs.mode)}</span>` : ''}
+      ${['discounter', 'supermarkt', 'essen', 'onlineshop', 'mode'].map(k => u.favs[k] ? favLogo(u.favs[k]) : '').join('')}
+    </div>` : ''}
+    ${!u.private && (u.showcase || []).length ? `<div class="me-showcase">
+      ${u.showcase.map(key => {
+        const [kind, id] = key.split(':');
+        const fl = (u.floats || {})[key] ?? 0;
+        return `<div class="sc-slot ${isShinyF(fl) ? 'shiny' : ''}" style="--rc:#8B96A5">${itemVisual(kind, id)}<span class="inv-float">#${String(fl).padStart(3, '0')}</span></div>`;
+      }).join('')}
     </div>` : ''}
     ${!u.private && (u.badges || []).length ? `<div class="badge-grid" style="margin-top:10px">
       ${u.badges.map(id => u.badgesAll?.[id] ? badgeChip(id, u.badgesAll[id], id === u.activeBadge) : '').join('')}
@@ -3774,9 +4001,12 @@ async function openUserPop(user, msgId) {
       ${msgId ? `<button class="btn btn-small btn-ghost" id="up-delmsg">Nachricht löschen</button>
       <button class="btn btn-small btn-ghost" id="up-pin">Anpinnen</button>` : ''}
     </div>` : ''}`;
-  const close = () => hideOverlay($('#user-pop-backdrop'));
-  $('#up-close').onclick = close;
-  $('#up-whisper').onclick = () => { close(); if (!state.token) { island('Zum Flüstern bitte anmelden'); return; } setChatMode('dm', user); };
+  const close = () => switchView(userPageReturn, 'enter-drop');
+  $('#up-whisper').onclick = () => {
+    if (!state.token) { island('Zum Flüstern bitte anmelden'); return; }
+    switchView('chat');
+    setChatMode('dm', user);
+  };
   $('#up-friend').onclick = async () => {
     if (!state.token) { island('Bitte anmelden'); return; }
     await api('/api/friend', { method: 'POST', body: JSON.stringify({ user, action: isFriend ? 'remove' : 'add' }) })
@@ -3819,6 +4049,8 @@ async function deleteOwnMsg(id) {
 $('#chat-list').addEventListener('click', e => {
   const del = e.target.closest('[data-msg-del]');
   if (del) { deleteOwnMsg(del.dataset.msgDel); return; }
+  const mention = e.target.closest('.mention');
+  if (mention) { openUserPop(mention.dataset.user); return; }
   const nameEl = e.target.closest('.chat-user');
   if (!nameEl || chatMode === 'dm') return;
   const msgEl = e.target.closest('.chat-msg');
@@ -3874,6 +4106,14 @@ setInterval(pollChat, 3000);
 setInterval(refreshDmBadge, 12000);
 
 // ---------------- Start ----------------
+
+// Tastatur auf dem Handy: die sichtbare Höhe als CSS-Variable, damit der Chat
+// kompakt bleibt und nichts unkontrolliert hochgeschoben wird
+if (window.visualViewport) {
+  const setVVH = () => document.documentElement.style.setProperty('--vvh', window.visualViewport.height + 'px');
+  window.visualViewport.addEventListener('resize', setVVH);
+  setVVH();
+}
 
 // Als Home-Bildschirm-App: Pinch-Zoom (iOS-Geste) komplett blocken –
 // Doppeltipp-Zoom verhindert touch-action in style.css
