@@ -93,6 +93,26 @@ let posts = loadJson('posts.json', {});         // { channelSlug: [ {id,user,tit
 let customChannels = loadJson('channels.json', []); // [ {slug,name,emoji,type:'community',desc,createdTs} ]
 let wallets = loadJson('wallets.json', {});     // { user: {vouchers:[], cards:[], ts} } – Wallet hängt am Konto
 
+// ---------------------------------------------------------------- Global-Chat
+// Twitch-artig: nur Angemeldete schreiben. Beleidigungen werden ZENSIERT (nicht
+// gesperrt) – sperren/timeouten kann nur die Moderation. Emotes: 7TV (verifizierte IDs).
+const CHAT_EMOTES = {
+  peepoHappy: '01KZEVPCH9KT9VGKYN580CMR35',
+  peepoClap: '01KY2R9YZRM3S5DCWXG56D6MWM',
+  peepoLove: '01KN4C1AGRRG7QSWH4RSWFMY5G',
+  peepoRun: '01KJX0TGBVXBHV11JEAR6GE6ZV',
+  peepoGiggles: '01KMKYNDNC6CSXW46S8RFT9Q8T',
+  FeelsOkayMan: '01KPQ8GWMB8A02VWCPNWTBXC7K',
+  Prayge: '01KZTXEW9DGCNT2QTFFN8KHPYG',
+  Sadge: '01KZ75T5XV0ZAQBNEK65Y8CMMF',
+};
+let chat = loadJson('chat.json', { messages: [], mutes: {}, bans: {} });
+const chatLast = {}; // user -> {ts, text} für den Spam-Schutz (RAM reicht)
+const BAD_WORDS = /hurensohn|hurentochter|fotze|wichser|missgeburt|schlampe|arschloch|spast(i|en)?|behindert(er|e)?|nutte|fick\s*dich|verpiss|fu+ck(er|\s*you)?|bitch|asshole|cunt|nigg\w*|fag(got)?|hitler|nazi/gi;
+function censor(text) {
+  return text.replace(BAD_WORDS, m => m[0] + '*'.repeat(Math.max(2, m.length - 1)));
+}
+
 function allChannels() {
   // Eigene Kanäle bekommen immer das Standard-Icon und die Community-Regeln
   return [...BUILTIN_CHANNELS, ...customChannels.map(c => ({ icon: 'tag', rules: COMMUNITY_RULES, ...c, emoji: undefined }))];
@@ -564,6 +584,48 @@ const server = http.createServer(async (req, res) => {
       sessions[token] = user;
       saveJson('sessions.json', sessions);
       return send(res, 200, { token, user });
+    }
+
+    // ---- Global-Chat
+    if (p === '/api/chat' && req.method === 'GET') {
+      const since = Number(url.searchParams.get('since') || 0);
+      const msgs = chat.messages.filter(m => m.ts > since).slice(-80);
+      return send(res, 200, { messages: msgs, emotes: CHAT_EMOTES });
+    }
+    if (p === '/api/chat' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Zum Schreiben bitte anmelden.' });
+      if (chat.bans[user]) return send(res, 403, { error: 'Du bist aus dem Chat ausgeschlossen.' });
+      const muteUntil = chat.mutes[user] || 0;
+      if (muteUntil > Date.now()) {
+        const min = Math.ceil((muteUntil - Date.now()) / 60000);
+        return send(res, 403, { error: `Timeout – du kannst in ${min} Min. wieder schreiben.` });
+      }
+      const b = await readBody(req);
+      const text = String(b.text || '').trim().slice(0, 220);
+      if (!text) return send(res, 400, { error: 'Leere Nachricht.' });
+      const last = chatLast[user];
+      if (last && Date.now() - last.ts < 2000) return send(res, 429, { error: 'Langsam – kurz warten.' });
+      if (last && last.text === text && Date.now() - last.ts < 30000) return send(res, 429, { error: 'Gleiche Nachricht schon gesendet.' });
+      chatLast[user] = { ts: Date.now(), text };
+      const msg = { id: crypto.randomBytes(6).toString('hex'), user, text: censor(text), ts: Date.now() };
+      chat.messages.push(msg);
+      if (chat.messages.length > 500) chat.messages = chat.messages.slice(-500);
+      saveJson('chat.json', chat);
+      return send(res, 201, { ok: true, message: msg });
+    }
+    // Moderation: Timeout / Bann / Nachricht löschen (Admin-Panel)
+    if (p === '/api/admin/chat' && req.method === 'POST') {
+      if (!isAdmin(req)) return send(res, 403, { error: 'Admin-Key falsch.' });
+      const b = await readBody(req);
+      const target = String(b.user || '');
+      if (b.action === 'timeout') chat.mutes[target] = Date.now() + (Number(b.minutes) || 10) * 60000;
+      else if (b.action === 'ban') chat.bans[target] = true;
+      else if (b.action === 'unban') { delete chat.bans[target]; delete chat.mutes[target]; }
+      else if (b.action === 'delete-msg') chat.messages = chat.messages.filter(m => m.id !== b.id);
+      else return send(res, 400, { error: 'Unbekannte Aktion.' });
+      saveJson('chat.json', chat);
+      return send(res, 200, { ok: true });
     }
 
     // ---- Wallet am Konto: überlebt Gerätewechsel und App-Neuinstallation

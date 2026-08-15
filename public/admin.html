@@ -94,6 +94,18 @@
     <button class="ghost" id="btn-news-csv">Newsletter-Liste als CSV laden</button>
   </div>
 
+  <div class="card" id="chat-card" style="display:none">
+    <strong>Global-Chat: Moderation</strong> <span class="sub" id="chat-count"></span>
+    <div id="chat-mod-list"></div>
+    <div class="row" style="margin-top:10px">
+      <input id="chat-mod-user" placeholder="Nutzername" style="flex:1">
+      <button class="ghost small" id="btn-chat-timeout" style="margin-top:0">Timeout 10 Min.</button>
+      <button class="ghost small" id="btn-chat-ban" style="margin-top:0">Sperren</button>
+      <button class="ghost small" id="btn-chat-unban" style="margin-top:0">Entsperren</button>
+    </div>
+    <div class="msg" id="chat-mod-msg"></div>
+  </div>
+
   <div class="card" id="settings-card" style="display:none">
     <strong>Einstellungen: Turnstile-Captcha</strong>
     <p class="sub" style="margin-top:4px">Aktuell laufen die offiziellen Test-Keys. Für den
@@ -133,7 +145,7 @@
     });
     if (!t.ok) { msg('Admin-Key falsch.', 'err'); return; }
     sessionStorage.setItem('ra.adminkey', key());
-    ['list-card', 'form-card', 'deal-card', 'posts-card', 'users-card', 'settings-card']
+    ['list-card', 'form-card', 'deal-card', 'posts-card', 'users-card', 'settings-card', 'chat-card']
       .forEach(id => $('#' + id).style.display = 'block');
     const chs = await (await fetch('/api/channels')).json();
     $('#d-channel').innerHTML = chs.filter(c => c.type === 'community')
@@ -142,6 +154,7 @@
     render();
     loadPosts();
     loadUsers();
+    loadChat();
   }
 
   const adminFetch = (path, opts) => fetch(path, {
@@ -180,6 +193,36 @@
         </div>
       </div>`).join('') || '<div class="msg">Noch keine Nutzer.</div>';
   }
+
+  // ---- Chat-Moderation: letzte Nachrichten, löschen, Timeout/Bann
+  const chatMod = async (body, okText) => {
+    const r = await adminFetch('/api/admin/chat', { method: 'POST', body: JSON.stringify(body) });
+    const m = $('#chat-mod-msg');
+    m.textContent = r.ok ? okText : 'Fehler.';
+    m.className = 'msg ' + (r.ok ? 'ok' : 'err');
+    loadChat();
+  };
+  async function loadChat() {
+    const r = await (await fetch('/api/chat?since=0')).json();
+    const msgs = (r.messages || []).slice(-30).reverse();
+    $('#chat-count').textContent = '(' + msgs.length + ' letzte)';
+    $('#chat-mod-list').innerHTML = msgs.map(m => `
+      <div class="item">
+        <div class="info">
+          <div class="t">${m.user}: ${m.text.replace(/</g, '&lt;')}</div>
+          <div class="p" style="color:#8b96a0">${new Date(m.ts).toLocaleString('de-DE')}</div>
+        </div>
+        <button class="ghost small" data-chat-user="${m.user}" style="margin-top:0">Nutzer ↑</button>
+        <button class="danger small" data-chat-del="${m.id}">✕</button>
+      </div>`).join('') || '<div class="msg">Noch keine Nachrichten.</div>';
+    document.querySelectorAll('[data-chat-del]').forEach(b => b.onclick = () =>
+      chatMod({ action: 'delete-msg', id: b.dataset.chatDel }, 'Nachricht gelöscht.'));
+    document.querySelectorAll('[data-chat-user]').forEach(b => b.onclick = () =>
+      $('#chat-mod-user').value = b.dataset.chatUser);
+  }
+  $('#btn-chat-timeout').onclick = () => chatMod({ action: 'timeout', user: $('#chat-mod-user').value.trim(), minutes: 10 }, 'Timeout gesetzt (10 Min.).');
+  $('#btn-chat-ban').onclick = () => chatMod({ action: 'ban', user: $('#chat-mod-user').value.trim() }, 'Nutzer gesperrt.');
+  $('#btn-chat-unban').onclick = () => chatMod({ action: 'unban', user: $('#chat-mod-user').value.trim() }, 'Nutzer entsperrt.');
 
   $('#btn-news-csv').onclick = async () => {
     const r = await adminFetch('/api/admin/newsletter.csv');

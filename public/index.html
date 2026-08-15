@@ -191,6 +191,24 @@
       </div>
     </section>
 
+    <!-- ================= GLOBAL-CHAT ================= -->
+    <section id="view-chat" class="view hidden">
+      <h1>Chat</h1>
+      <p class="muted">Der globale kumulio-Chat – Deals, Fragen, Sparerfolge. Sei nett:
+        Beleidigungen werden zensiert, die Moderation kann timeouten.</p>
+      <div id="chat-box">
+        <div id="chat-list"></div>
+      </div>
+      <div id="chat-emotes" class="hidden"></div>
+      <div id="chat-input-row">
+        <button id="chat-emote-btn" class="iconbtn" aria-label="Emotes">
+          <svg class="icon"><use href="#i-star"/></svg>
+        </button>
+        <input id="chat-input" class="input" maxlength="220" placeholder="Nachricht … (Anmelden zum Schreiben)" autocomplete="off">
+        <button id="chat-send" class="btn btn-small">Senden</button>
+      </div>
+    </section>
+
     <!-- ================= SUCHE ================= -->
     <section id="view-search" class="view hidden">
       <h1>Suche</h1>
@@ -208,6 +226,9 @@
     </button>
     <button class="tabbtn active" data-view="feed">
       <svg class="icon"><use href="#i-home"/></svg><span>Feed</span>
+    </button>
+    <button class="tabbtn" data-view="chat">
+      <svg class="icon"><use href="#i-message"/></svg><span>Chat</span>
     </button>
     <button class="tabbtn" data-view="search">
       <svg class="icon"><use href="#i-search"/></svg><span>Suche</span>

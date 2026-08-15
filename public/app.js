@@ -47,7 +47,7 @@ function applyTheme(t, animate = false) {
 applyTheme(localStorage.getItem('ra.theme')
   || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
 
-const VIEW_ORDER = ['wallet', 'feed', 'search', 'profile'];
+const VIEW_ORDER = ['wallet', 'feed', 'chat', 'search', 'profile'];
 const FEED_LIMIT = 40;
 
 // Menüpunkte oben: Sparen / Verdienen / Neukunden / Coupons.
@@ -251,6 +251,7 @@ function switchView(next) {
   newView.classList.add(dir === 1 ? 'enter-right' : 'enter-left');
   // Login-Captcha erst rendern, wenn die Profil-Seite sichtbar ist
   if (next === 'profile' && !state.token) renderTurnstile('login');
+  if (next === 'chat') pollChat(true);
   viewCleanupTimer = setTimeout(settleViews, 380);
 }
 
@@ -2064,6 +2065,80 @@ $('#btn-home').addEventListener('click', () => {
   if (state.activeView !== 'feed') switchView('feed');
   window.scrollTo({ top: 0, behavior: 'smooth' });
 });
+
+// ---------------- Global-Chat (Twitch-artig) ----------------
+
+let chatEmotes = {};
+let chatLastTs = 0;
+
+const CHAT_COLORS = ['#e91e63', '#9c27b0', '#3f51b5', '#03a9f4', '#009688', '#4caf50', '#ff9800', '#f44336', '#8d6e63', '#607d8b'];
+function chatColor(name) {
+  let h = 0;
+  for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return CHAT_COLORS[h % CHAT_COLORS.length];
+}
+function emoteHtml(name) {
+  return `<img class="emote" src="https://cdn.7tv.app/emote/${chatEmotes[name]}/2x.webp" alt="${esc(name)}" title="${esc(name)}" loading="lazy">`;
+}
+function chatMsgHtml(m) {
+  let text = esc(m.text);
+  for (const name of Object.keys(chatEmotes)) {
+    text = text.replace(new RegExp(`\\b${name}\\b`, 'g'), emoteHtml(name));
+  }
+  return `<div class="chat-msg" data-mid="${esc(m.id)}">
+    <span class="chat-user" style="color:${chatColor(m.user)}">${esc(m.user)}</span>
+    <span class="chat-text">${text}</span>
+  </div>`;
+}
+async function pollChat(force) {
+  if (!force && state.activeView !== 'chat') return;
+  try {
+    const r = await api('/api/chat?since=' + chatLastTs);
+    chatEmotes = r.emotes || chatEmotes;
+    if (r.messages.length) {
+      const box = $('#chat-box'), list = $('#chat-list');
+      const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+      r.messages.forEach(m => {
+        list.insertAdjacentHTML('beforeend', chatMsgHtml(m));
+        chatLastTs = Math.max(chatLastTs, m.ts);
+      });
+      while (list.children.length > 200) list.firstChild.remove();
+      if (nearBottom || !box.dataset.scrolled) box.scrollTop = box.scrollHeight;
+      box.dataset.scrolled = '1';
+    }
+  } catch { }
+}
+async function sendChat() {
+  const inp = $('#chat-input');
+  const text = inp.value.trim();
+  if (!text) return;
+  if (!state.token) { switchView('profile'); island('Zum Chatten bitte anmelden'); return; }
+  try {
+    const r = await api('/api/chat', { method: 'POST', body: JSON.stringify({ text }) });
+    inp.value = '';
+    $('#chat-list').insertAdjacentHTML('beforeend', chatMsgHtml(r.message));
+    chatLastTs = Math.max(chatLastTs, r.message.ts);
+    $('#chat-box').scrollTop = $('#chat-box').scrollHeight;
+  } catch (e) { island(e.message); }
+}
+function toggleEmotes() {
+  const el = $('#chat-emotes');
+  if (el.classList.contains('hidden')) {
+    el.innerHTML = Object.keys(chatEmotes).length
+      ? Object.keys(chatEmotes).map(n => `<button class="emote-pick" data-emote="${esc(n)}">${emoteHtml(n)}</button>`).join('')
+      : '<span class="form-msg">Emotes laden …</span>';
+    el.classList.remove('hidden');
+    el.querySelectorAll('[data-emote]').forEach(b => b.onclick = () => {
+      const i = $('#chat-input');
+      i.value = (i.value + ' ' + b.dataset.emote + ' ').replace(/\s{2,}/g, ' ').trimStart();
+      i.focus();
+    });
+  } else el.classList.add('hidden');
+}
+$('#chat-send').addEventListener('click', sendChat);
+$('#chat-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
+$('#chat-emote-btn').addEventListener('click', toggleEmotes);
+setInterval(pollChat, 3000);
 
 // ---------------- Start ----------------
 

@@ -1315,3 +1315,33 @@ input, textarea, select, button { touch-action: manipulation; }
   .shake, .bal-bump { animation: none; }
   .rank-progress-fill { transition: none; }
 }
+
+/* ================= Global-Chat ================= */
+#chat-box {
+  /* Box + Eingabezeile müssen komplett über der Tabbar Platz finden */
+  height: calc(100dvh - 415px - env(safe-area-inset-top, 0px)); min-height: 200px;
+  overflow-y: auto; overscroll-behavior: contain;
+  background: var(--surface); border: 1px solid var(--stroke-light);
+  border-radius: 16px; padding: 10px 12px;
+  box-shadow: var(--glass-edge);
+}
+.chat-msg { padding: 3px 0; font-size: .92rem; line-height: 1.5; overflow-wrap: anywhere; }
+.chat-user { font-weight: 800; margin-right: 6px; }
+.chat-text .emote { height: 24px; vertical-align: middle; margin: -3px 1px; }
+#chat-input-row { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+#chat-input { flex: 1; min-width: 0; }
+#chat-emotes {
+  /* Overlay über der Eingabezeile – verdrängt nichts */
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(150px + env(safe-area-inset-bottom, 0px));
+  width: min(600px, calc(100vw - 28px)); z-index: 36;
+  display: flex; flex-wrap: wrap; gap: 6px;
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--stroke-light);
+  border-radius: 14px; padding: 10px;
+  box-shadow: var(--glass-edge), var(--shadow);
+}
+.emote-pick { background: none; border: none; cursor: pointer; padding: 4px; border-radius: 8px; }
+.emote-pick:hover { background: var(--surface-2); }
+.emote-pick .emote { height: 28px; display: block; }
