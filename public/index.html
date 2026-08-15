@@ -83,8 +83,12 @@
     </div>
   </header>
 
-  <!-- Dropdown-Menü (Avatar oben rechts): Anfragen, Coins, Profil, Abmelden -->
+  <!-- Dropdown-Menü (Avatar oben rechts): Freunde, Anfragen, Coins, Profil -->
+  <div id="top-menu-backdrop" class="hidden"></div>
   <div id="top-menu" class="hidden"></div>
+
+  <!-- Freundschaftsanfrage-Popup: schiebt sich unten aus dem Menü hoch -->
+  <div id="req-toast" class="hidden"></div>
 
   <!-- ================= ONBOARDING (erster Start, Fullscreen) ================= -->
   <div id="onboard" class="hidden">
@@ -124,23 +128,36 @@
           <span id="me-avatar"></span>
           <div class="me-head-text">
             <h2 class="card-h" style="margin:0">Hallo <span id="me-name"></span>!</h2>
+            <span class="me-handle" id="me-handle"></span>
             <div id="g-rank-row" class="rank-row"></div>
           </div>
         </div>
         <p id="me-bio" class="me-bio"></p>
         <div id="me-favs" class="favs-view"></div>
+        <!-- Showcase: bis zu 3 Items zum Flexen, wie bei Steam -->
+        <div id="me-showcase" class="me-showcase"></div>
         <div id="me-badges" class="badge-grid"></div>
         <div class="form-row" style="margin-top:16px">
           <button id="btn-edit-profile" class="btn btn-small">Profil bearbeiten</button>
-          <button id="btn-logout" class="btn btn-small btn-ghost">Abmelden</button>
         </div>
       </div>
 
       <!-- Gamification: Ränge über Spar-Aktivität, Kisten nur erspielbar, Paints -->
       <div class="card modal-left hidden" id="gami-card">
-        <h2 class="card-h">Dein Rang</h2>
+        <h2 class="card-h">Dein Rang
+          <button class="iconbtn info-btn" id="gm-rank-info" aria-label="Wie sammle ich Punkte?">
+            <svg class="icon icon-sm"><use href="#i-bulb"/></svg>
+          </button>
+        </h2>
         <div id="gm-rank-head"></div>
         <div id="gm-ladder" class="gm-ladder"></div>
+        <div class="form-row" style="margin-top:10px">
+          <button id="gm-inv-btn" class="btn btn-small">Inventar</button>
+          <button id="gm-catalog-btn" class="btn btn-small btn-ghost">Sammlung</button>
+          <button id="gm-shop-btn" class="btn btn-small btn-ghost">Kistenshop</button>
+        </div>
+        <h3 class="gm-h">Quests <span class="stars-count">(Coins für echtes Mitmachen)</span></h3>
+        <div id="gm-quests"></div>
         <h3 class="gm-h">Deine Kisten <span class="stars-count">(nur erspielbar, nie kaufbar)</span></h3>
         <p class="muted" style="font-size:.78rem; margin-top:2px">Kisten gibt es für Rang-Aufstiege,
           jede volle 7-Tage-Serie und jeden aufgebrauchten Gutschein.</p>
@@ -177,9 +194,46 @@
         </div>
       </div>
 
-      <!-- Einstellungen: Darstellung, Alarm, Sichtbarkeit -->
-      <div class="card modal-left" id="settings-app-card">
-        <h2 class="card-h">Einstellungen</h2>
+      <!-- Profil-Gestaltung + Privatsphäre (öffnet über "Profil bearbeiten") -->
+      <div class="card modal-left hidden" id="bio-card">
+        <h2 class="card-h">Über dich</h2>
+        <div class="avatar-row">
+          <span class="avatar-big" id="g-avatar-preview"></span>
+          <label class="btn btn-small btn-ghost" style="cursor:pointer">Profilbild wählen
+            <input id="g-avatar" type="file" accept="image/*" style="display:none"></label>
+          <button id="g-avatar-del" class="btn btn-small btn-ghost hidden">Entfernen</button>
+        </div>
+        <textarea id="g-bio" class="input" rows="2" maxlength="160" placeholder="Kurze Bio (max. 160 Zeichen), Beleidigungen werden gefiltert" style="margin-top:10px"></textarea>
+        <!-- Lieblings-Kategorien: antippen wie bei der Gutschein-Auswahl -->
+        <div id="fav-pickers"></div>
+        <label class="f-label" style="margin-top:16px">Dein @Name <span class="opt">(einmal pro Monat änderbar)</span></label>
+        <div class="form-row">
+          <input id="g-handle" class="input" maxlength="24" placeholder="neuer Name" style="flex:1">
+          <button id="g-handle-save" class="btn btn-small btn-ghost">Ändern</button>
+        </div>
+        <label style="display:flex; align-items:center; gap:8px; margin-top:10px; font-size:.86rem">
+          <input type="checkbox" id="g-public" style="width:auto"> Profil öffentlich zeigen (Name, Bio, Badges)
+        </label>
+        <div class="form-row" style="margin-top:10px">
+          <button id="g-bio-save" class="btn btn-small">Speichern</button>
+          <span id="g-bio-msg" class="form-msg"></span>
+        </div>
+      </div>
+      <button id="btn-logout" class="btn btn-danger hidden" style="margin-top:20px">Abmelden</button>
+      <p class="legal-line" style="text-align:center; margin-top:16px">
+        <a href="/agb.html" target="_blank" rel="noopener">AGB</a> ·
+        <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutz</a> ·
+        <a href="/impressum.html" target="_blank" rel="noopener">Impressum</a>
+      </p>
+    </section>
+
+    <!-- ================= EINSTELLUNGEN (eigener Bereich, über das Menü) ================= -->
+    <section id="view-settings" class="view hidden">
+      <div class="search-head">
+        <button class="btn btn-small btn-ghost" id="btn-settings-back">← Zurück</button>
+        <h1 style="margin:0">Einstellungen</h1>
+      </div>
+      <div class="card" id="settings-app-card">
         <div class="settings-row">
           <div class="settings-label">
             <b>Darstellung</b>
@@ -198,37 +252,16 @@
         </div>
         <div id="push-msg" class="form-msg"></div>
       </div>
-
-      <!-- Profil-Gestaltung + Privatsphäre (öffnet über "Profil bearbeiten") -->
-      <div class="card modal-left hidden" id="bio-card">
-        <h2 class="card-h">Über dich</h2>
-        <div class="avatar-row">
-          <span class="avatar-big" id="g-avatar-preview"></span>
-          <label class="btn btn-small btn-ghost" style="cursor:pointer">Profilbild wählen
-            <input id="g-avatar" type="file" accept="image/*" style="display:none"></label>
-          <button id="g-avatar-del" class="btn btn-small btn-ghost hidden">Entfernen</button>
-        </div>
-        <textarea id="g-bio" class="input" rows="2" maxlength="160" placeholder="Kurze Bio (max. 160 Zeichen), Beleidigungen werden gefiltert" style="margin-top:10px"></textarea>
-        <div class="favs-grid">
-          <input id="gf-discounter" class="input" maxlength="30" placeholder="Lieblings-Discounter">
-          <input id="gf-supermarkt" class="input" maxlength="30" placeholder="Lieblings-Supermarkt">
-          <input id="gf-essen" class="input" maxlength="30" placeholder="Lieblingsessen">
-          <input id="gf-onlineshop" class="input" maxlength="30" placeholder="Lieblings-Onlineshop">
-          <input id="gf-mode" class="input" maxlength="30" placeholder="Lieblings-Modemarke">
-        </div>
-        <label style="display:flex; align-items:center; gap:8px; margin-top:10px; font-size:.86rem">
-          <input type="checkbox" id="g-public" style="width:auto"> Profil öffentlich zeigen (Name, Bio, Badges)
-        </label>
-        <div class="form-row" style="margin-top:10px">
-          <button id="g-bio-save" class="btn btn-small">Speichern</button>
-          <span id="g-bio-msg" class="form-msg"></span>
+      <div class="card hidden" id="danger-card">
+        <h2 class="card-h">Konto</h2>
+        <div class="settings-row">
+          <div class="settings-label">
+            <b>Konto löschen</b>
+            <span>Entfernt Profil, Wallet und Chats endgültig</span>
+          </div>
+          <button id="btn-account-delete" class="btn btn-small btn-danger" style="width:auto">Löschen</button>
         </div>
       </div>
-      <p class="legal-line" style="text-align:center; margin-top:16px">
-        <a href="/agb.html" target="_blank" rel="noopener">AGB</a> ·
-        <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutz</a> ·
-        <a href="/impressum.html" target="_blank" rel="noopener">Impressum</a>
-      </p>
     </section>
 
     <!-- ================= FEED ================= -->
@@ -293,14 +326,11 @@
       </div>
     </section>
 
-    <!-- ================= GLOBAL-CHAT ================= -->
+    <!-- ================= GLOBAL-CHAT (Vollbild bis zum Header) ================= -->
     <section id="view-chat" class="view hidden">
-      <h1>Chat</h1>
-      <p class="muted">Der globale kumulio-Chat, Deals, Fragen, Sparerfolge. Sei nett:
-        Beleidigungen werden zensiert, die Moderation kann timeouten.</p>
       <div id="chat-modes">
         <button class="chip active" data-cmode="global">Global</button>
-        <button class="chip" data-cmode="dmlist">Flüstern <span id="dm-unread" class="pill hidden"></span></button>
+        <button class="chip" data-cmode="dmlist">Freunde <span id="dm-unread" class="pill hidden"></span></button>
       </div>
       <div id="dm-head" class="hidden">
         <button class="btn btn-small btn-ghost" id="dm-back">← Zurück</button>
@@ -321,7 +351,7 @@
         <button id="chat-emote-btn" class="iconbtn" aria-label="Emotes">
           <svg class="icon"><use href="#i-smile"/></svg>
         </button>
-        <input id="chat-input" class="input" maxlength="220" placeholder="Nachricht … (Anmelden zum Schreiben)" autocomplete="off">
+        <input id="chat-input" class="input" maxlength="220" placeholder="Nachricht …" autocomplete="off">
         <button id="chat-send" class="btn btn-small">Senden</button>
       </div>
 

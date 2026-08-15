@@ -164,18 +164,91 @@ function profileOf(user) {
 // rechtlich ein ernstes Problem. Deshalb: CaseSource enthält bewusst KEINEN
 // PURCHASE-Eintrag, und grantCase() wirft bei jeder unbekannten Quelle.
 // scripts/test-cases.js sichert genau das ab.
+// SHOP = Kauf mit ERSPIELTEN Coins. Coins selbst sind nirgends gegen Echtgeld
+// erhältlich (kein Payment-Endpoint, kein Store-Produkt), damit bleibt die
+// Echtgeld-Grenze aus dem Gamification-Brief intakt.
 const CaseSource = Object.freeze({
   RANK_UP: 'RANK_UP',
   GOAL_REACHED: 'GOAL_REACHED',
   SAVINGS_STREAK: 'SAVINGS_STREAK',
   SEASONAL: 'SEASONAL',
+  SHOP: 'SHOP',
 });
+// Freischaltbare Chat-Emotes (7TV, verifizierte IDs) als Kisten-Items
+const UNLOCK_EMOTES = {
+  LOL: { id: '01M02624P6ENNGSVJHAMTMGZX1', rarity: 'uncommon' },
+  LO: { id: '01JEB26JCY13R8BPZP6YMGAB1A', rarity: 'uncommon' },
+  GIGACHAD: { id: '01KYE940CV1QMK2KVMZHRJAZ8W', rarity: 'legendary' },
+  meow: { id: '01KZ59N97F1KY2PXMKDJAF7C47', rarity: 'uncommon' },
+  agahi: { id: '01J244ERJG000A78Z503AX8PTC', rarity: 'rare' },
+  MUGA: { id: '01GPSNNQKR00081V29Z3EHDCJ5', rarity: 'epic' },
+  peepoLove: { id: '01KN4C1AGRRG7QSWH4RSWFMY5G', rarity: 'rare' },
+  uwu: { id: '01M00WM6M941HSGKREJYN4JZCP', rarity: 'uncommon' },
+  ong: { id: '01FWS83HG0000ASC1GQNZR38QV', rarity: 'rare' },
+  AINTNOWAY: { id: '01KXR0GEPAF1ZWH9ESQ3NYGRJ9', rarity: 'epic' },
+};
+// Float 0-999 wie bei CS: Schnapszahlen (111, 222 …) und Straßen (123, 456 …)
+// sind "shiny" und wertvoller
+function rollFloat() { return Math.floor(Math.random() * 1000); }
+function isShiny(f) {
+  const s = String(f).padStart(3, '0');
+  const rep = s[0] === s[1] && s[1] === s[2];
+  const straight = (+s[1] === +s[0] + 1 && +s[2] === +s[1] + 1);
+  return rep || straight;
+}
+const SELL_VALUES = { common: 20, uncommon: 40, rare: 90, epic: 200, legendary: 500 };
+function itemValue(rarity, float) { return (SELL_VALUES[rarity] || 20) * (isShiny(float) ? 5 : 1); }
+const SHOP_CASES = { standard: 150, silber: 400, gold: 900, prisma: 2000 };
+// Quests: Coins für echte Mitmach-Meilensteine (alles ohne Echtgeld)
+const QUESTS = [
+  { key: 'comment', name: 'Kommentare schreiben', milestones: [[1, 30], [5, 60], [20, 150]] },
+  { key: 'rate', name: 'Deals bewerten', milestones: [[1, 20], [10, 80], [50, 250]] },
+  { key: 'chat', name: 'Im Chat mitreden', milestones: [[10, 40], [100, 200]] },
+  { key: 'friend', name: 'Freunde finden', milestones: [[1, 40], [5, 120]] },
+  { key: 'voucher', name: 'Gutscheine in der Wallet', milestones: [[1, 30], [5, 80], [20, 200]] },
+  { key: 'booking', name: 'Beträge abbuchen', milestones: [[5, 60], [25, 180]] },
+  { key: 'daily', name: 'Tage aktiv', milestones: [[7, 100], [30, 400]] },
+  { key: 'newsletter', name: 'Newsletter abonniert', milestones: [[1, 50]] },
+  { key: 'push', name: 'Preisfehler-Alarm aktiv', milestones: [[1, 50]] },
+];
+function bumpQuest(user, key, n = 1) {
+  const prof = profileOf(user);
+  prof.quests = prof.quests || {};
+  prof.quests[key] = (prof.quests[key] || 0) + n;
+}
+// Fortschritt lesen, fällige Meilensteine gutschreiben (eine zentrale Stelle)
+function questProgress(user) {
+  const prof = profileOf(user);
+  prof.quests = prof.quests || {};
+  prof.questsAwarded = prof.questsAwarded || [];
+  const w = wallets[user] || { vouchers: [] };
+  const live = {
+    ...prof.quests,
+    voucher: w.vouchers.length,
+    booking: w.vouchers.reduce((s, v) => s + ((v.tx || []).length), 0),
+    daily: prof.dailyCount || 0,
+    newsletter: users[user] && users[user].newsletter ? 1 : 0,
+    push: prof.pushOn ? 1 : 0,
+  };
+  const newAwards = [];
+  for (const q of QUESTS) {
+    for (const [n, coins] of q.milestones) {
+      const tag = `${q.key}:${n}`;
+      if ((live[q.key] || 0) >= n && !prof.questsAwarded.includes(tag)) {
+        prof.questsAwarded.push(tag);
+        prof.coins = (prof.coins || 0) + coins;
+        newAwards.push({ quest: q.name, n, coins });
+      }
+    }
+  }
+  return { live, newAwards };
+}
 const RARITY = {
-  common: { color: '#8B96A5', label: 'Gewöhnlich', weight: 60 },
-  uncommon: { color: '#12C77E', label: 'Ungewöhnlich', weight: 25 },
-  rare: { color: '#3B82F6', label: 'Selten', weight: 10 },
-  epic: { color: '#8B5CF6', label: 'Episch', weight: 4 },
-  legendary: { color: '#F5B301', label: 'Legendär', weight: 1 },
+  common: { color: '#8B96A5', label: 'Gewöhnlich', weight: 70 },
+  uncommon: { color: '#12C77E', label: 'Ungewöhnlich', weight: 20 },
+  rare: { color: '#3B82F6', label: 'Selten', weight: 7.5 },
+  epic: { color: '#8B5CF6', label: 'Episch', weight: 2 },
+  legendary: { color: '#F5B301', label: 'Legendär', weight: 0.5 },
 };
 // Zehn Ränge, Aufstieg über Spar-AKTIVITÄT (Buchungen, Gutscheine, aktive Tage,
 // aufgebrauchte Gutscheine = erreichte Ziele), nie über die Betragshöhe.
@@ -781,8 +854,10 @@ const server = http.createServer(async (req, res) => {
       const msgs = chat.messages.filter(m => m.ts > since).slice(-80);
       // Nachträglich gelöschte Nachrichten: der Client tauscht sie gegen einen Platzhalter
       const updates = chat.messages.filter(m => m.delTs && m.delTs > since && m.ts <= since).map(m => m.id);
+      // Freigeschaltete Emotes rendern für ALLE, benutzen darf sie nur der Besitzer
+      const allEmotes = { ...emoteCache.map, ...Object.fromEntries(Object.entries(UNLOCK_EMOTES).map(([k, v]) => [k, v.id])) };
       return send(res, 200, {
-        messages: msgs, updates, emotes: emoteCache.map, badges: BADGES,
+        messages: msgs, updates, emotes: allEmotes, badges: BADGES,
         pinned: chat.pinned || null, paints: PAINTS.paints, ranks: RANKS10,
       });
     }
@@ -822,16 +897,26 @@ const server = http.createServer(async (req, res) => {
       if (last && last.text === text && Date.now() - last.ts < 30000) return send(res, 429, { error: 'Gleiche Nachricht schon gesendet.' });
       chatLast[user] = { ts: Date.now(), text };
       const profC = profileOf(user);
+      // Freigeschaltete Emotes darf nur benutzen, wer sie besitzt
+      let cleanText = text;
+      for (const name of Object.keys(UNLOCK_EMOTES)) {
+        if (!(profC.emotes || []).includes(name)) {
+          cleanText = cleanText.replace(new RegExp(`\\b${name}\\b`, 'g'), '').replace(/\s{2,}/g, ' ').trim();
+        }
+      }
+      if (!cleanText) return send(res, 400, { error: 'Dieses Emote hast du noch nicht freigeschaltet.' });
+      bumpQuest(user, 'chat');
       const msg = {
         id: crypto.randomBytes(6).toString('hex'), user,
         badge: profC.activeBadge || '', role: roleOf(user),
         rank: profC.rankTier || 1, paint: profC.activePaint || '',
-        text: censor(text), ts: Date.now(),
+        text: censor(cleanText), ts: Date.now(),
       };
       chat.messages.push(msg);
       // Historie bewusst kurz: nur die letzten 150 Nachrichten bleiben
       if (chat.messages.length > 150) chat.messages = chat.messages.slice(-150);
       saveJson('chat.json', chat);
+      saveJson('users.json', users); // Quest-Zähler mitschreiben
       return send(res, 201, { ok: true, message: msg });
     }
     // Moderation direkt aus der App (Rolle mod/admin), Timeout, Bann, Löschen, Anpinnen
@@ -981,6 +1066,7 @@ const server = http.createServer(async (req, res) => {
         my.friendRequests = my.friendRequests.filter(f => f !== target);
         if (!my.friends.includes(target)) my.friends.push(target);
         if (!their.friends.includes(me)) their.friends.push(me);
+        bumpQuest(me, 'friend'); bumpQuest(target, 'friend');
       } else if (b.action === 'decline') {
         my.friendRequests = my.friendRequests.filter(f => f !== target);
       } else { // Anfrage senden
@@ -1012,8 +1098,83 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, {
         user: name, role: roleOf(name), bio: prof.bio || '', avatar: prof.avatar || '',
         badges: prof.badges || [], activeBadge: prof.activeBadge || '', favs: prof.favs || {},
-        badgesAll: BADGES, ...modInfo,
+        badgesAll: BADGES, showcase: prof.showcase || [], floats: prof.floats || {},
+        rankTier: prof.rankTier || 1, ...modInfo,
       });
+    }
+
+    // @Handle (Nutzername) ändern: einmal pro Monat, überall sauber umbenannt
+    if (p === '/api/handle' && req.method === 'POST') {
+      const me = authUser(req);
+      if (!me) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      const neu = String(b.name || '').trim();
+      if (!/^[a-zA-Z0-9_.-]{3,24}$/.test(neu)) return send(res, 400, { error: 'Name: 3 bis 24 Zeichen, nur Buchstaben, Zahlen und ._-' });
+      if (neu === me) return send(res, 400, { error: 'So heißt du schon.' });
+      const prof = profileOf(me);
+      if (prof.lastRename && Date.now() - prof.lastRename < 30 * 864e5) {
+        const tage = Math.ceil((prof.lastRename + 30 * 864e5 - Date.now()) / 864e5);
+        return send(res, 409, { error: `Du kannst deinen Namen erst in ${tage} Tagen wieder ändern.` });
+      }
+      if (Object.keys(users).some(k => k !== me && k.toLowerCase() === neu.toLowerCase()))
+        return send(res, 409, { error: 'Name ist schon vergeben.' });
+      // Überall umziehen: Konto, Sessions, Wallet, Chats, DMs, Freunde, Kommentare
+      const wasAdmin = roleOf(me) === 'admin';
+      users[neu] = users[me]; if (neu !== me) delete users[me];
+      if (wasAdmin && !DEFAULT_ADMINS.includes(neu.toLowerCase())) users[neu].role = 'admin';
+      profileOf(neu).lastRename = Date.now();
+      for (const [t, u] of Object.entries(sessions)) if (u === me) sessions[t] = neu;
+      if (wallets[me]) { wallets[neu] = wallets[me]; if (neu !== me) delete wallets[me]; }
+      chat.messages.forEach(m => { if (m.user === me) m.user = neu; });
+      if (chat.pinned && chat.pinned.user === me) chat.pinned.user = neu;
+      if (chat.bans[me]) { chat.bans[neu] = true; delete chat.bans[me]; }
+      if (chat.mutes[me]) { chat.mutes[neu] = chat.mutes[me]; delete chat.mutes[me]; }
+      const newDms = {};
+      for (const [key, convo] of Object.entries(dms)) {
+        const parts = key.split('|').map(x => x === me ? neu : x);
+        convo.msgs.forEach(m => { if (m.from === me) m.from = neu; });
+        if (convo.reads && convo.reads[me] != null) { convo.reads[neu] = convo.reads[me]; delete convo.reads[me]; }
+        newDms[parts.sort().join('|')] = convo;
+      }
+      dms = newDms;
+      for (const u of Object.values(users)) {
+        const pr = u.profile;
+        if (!pr) continue;
+        if (pr.friends) pr.friends = pr.friends.map(f => f === me ? neu : f);
+        if (pr.friendRequests) pr.friendRequests = pr.friendRequests.map(f => f === me ? neu : f);
+      }
+      for (const list of Object.values(comments)) {
+        list.forEach(c => {
+          if (c.user === me) c.user = neu;
+          for (const arr of Object.values(c.reactions || {})) {
+            const i = arr.indexOf(me); if (i >= 0) arr[i] = neu;
+          }
+        });
+      }
+      saveJson('users.json', users); saveJson('sessions.json', sessions);
+      saveJson('wallets.json', wallets); saveJson('chat.json', chat);
+      saveJson('dms.json', dms); saveJson('comments.json', comments);
+      return send(res, 200, { ok: true, user: neu });
+    }
+
+    // Konto löschen (aus den Einstellungen, mit Bestätigung im Client)
+    if (p === '/api/account/delete' && req.method === 'POST') {
+      const me = authUser(req);
+      if (!me) return send(res, 401, { error: 'Bitte anmelden.' });
+      delete users[me];
+      for (const [t, u] of Object.entries(sessions)) if (u === me) delete sessions[t];
+      delete wallets[me];
+      for (const key of Object.keys(dms)) if (key.split('|').includes(me)) delete dms[key];
+      chat.messages.forEach(m => { if (m.user === me) { m.user = 'Gelöschter Nutzer'; m.deleted = true; m.text = ''; } });
+      for (const u of Object.values(users)) {
+        const pr = u.profile;
+        if (!pr) continue;
+        if (pr.friends) pr.friends = pr.friends.filter(f => f !== me);
+        if (pr.friendRequests) pr.friendRequests = pr.friendRequests.filter(f => f !== me);
+      }
+      saveJson('users.json', users); saveJson('sessions.json', sessions);
+      saveJson('wallets.json', wallets); saveJson('chat.json', chat); saveJson('dms.json', dms);
+      return send(res, 200, { ok: true });
     }
 
     // ---- Web-Push: abonnieren / abmelden
@@ -1023,6 +1184,8 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/push/subscribe' && req.method === 'POST') {
       const b = await readBody(req);
       if (!b.endpoint || !b.keys?.p256dh || !b.keys?.auth) return send(res, 400, { error: 'Ungültiges Abo.' });
+      const subUser = authUser(req);
+      if (subUser) { profileOf(subUser).pushOn = true; saveJson('users.json', users); }
       if (!pushSubs.some(s => s.endpoint === b.endpoint)) {
         pushSubs.push({ endpoint: b.endpoint, keys: { p256dh: b.keys.p256dh, auth: b.keys.auth } });
         if (pushSubs.length > 5000) pushSubs = pushSubs.slice(-5000);
@@ -1055,6 +1218,16 @@ const server = http.createServer(async (req, res) => {
       // Profilbild: kleines dataURL-Bild (Client verkleinert auf 96px)
       if (typeof b.avatar === 'string' && (b.avatar === '' || (/^data:image\/(png|jpeg|webp);base64,/.test(b.avatar) && b.avatar.length < 60_000)))
         prof.avatar = b.avatar;
+      // Showcase: bis zu 3 eigene Items im Profil zeigen ("kind:id")
+      if (Array.isArray(b.showcase)) {
+        const owns = k => {
+          const [kind, id] = String(k).split(':');
+          return (kind === 'paint' && prof.paints.includes(id))
+            || (kind === 'badge' && prof.badges.includes(id))
+            || (kind === 'emote' && (prof.emotes || []).includes(id));
+        };
+        prof.showcase = b.showcase.filter(owns).slice(0, 3);
+      }
       // Lieblings-Kleinigkeiten fürs Profil, alles durch den Filter
       if (b.favs && typeof b.favs === 'object') {
         prof.favs = prof.favs || {};
@@ -1089,15 +1262,21 @@ const server = http.createServer(async (req, res) => {
       const user = authUser(req);
       if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
       ensureProgress(user);
-      saveJson('users.json', users);
       const prof = profileOf(user);
+      const q = questProgress(user);
+      saveJson('users.json', users);
       const points = activityPoints(user);
       const rank = rankOf(points);
       const next = RANKS10.find(r => r.tier === rank.tier + 1) || null;
       return send(res, 200, {
         points, rank, next, ranks: RANKS10, rarity: RARITY,
         cases: prof.cases, paints: prof.paints, activePaint: prof.activePaint,
-        paintsAll: PAINTS.paints,
+        paintsAll: PAINTS.paints, emotes: prof.emotes || [], emotesAll: UNLOCK_EMOTES,
+        floats: prof.floats || {}, showcase: prof.showcase || [],
+        coins: prof.coins || 0, streak: prof.streak || 0,
+        shop: SHOP_CASES, badgesAll: BADGES, sellValues: SELL_VALUES,
+        quests: QUESTS.map(x => ({ ...x, progress: q.live[x.key] || 0, awarded: (prof.questsAwarded || []).filter(t => t.startsWith(x.key + ':')) })),
+        questAwards: q.newAwards,
       });
     }
     // Kiste öffnen: das Ergebnis wird HIER bestimmt, die Walze im Client ist nur Show
@@ -1111,32 +1290,82 @@ const server = http.createServer(async (req, res) => {
       const box = prof.cases[idx];
       // Seltenheits-Gewichte je Kistenart: bessere Kisten heben den Boden an
       const weights = Object.fromEntries(Object.entries(RARITY).map(([k, v]) => [k, v.weight]));
-      if (box.type === 'silber') weights.common = 30;
-      if (box.type === 'gold') { weights.common = 10; weights.uncommon = 35; }
-      if (box.type === 'prisma') { weights.common = 0; weights.uncommon = 20; weights.rare = 45; }
+      if (box.type === 'silber') weights.common = 42;
+      if (box.type === 'gold') { weights.common = 18; weights.uncommon = 38; weights.rare = 12; }
+      if (box.type === 'prisma') { weights.common = 0; weights.uncommon = 40; weights.rare = 30; weights.epic = 6; weights.legendary = 1.5; }
       const total = Object.values(weights).reduce((s, w) => s + w, 0);
       let roll = Math.random() * total;
       let rarity = 'common';
       for (const [k, w] of Object.entries(weights)) { roll -= w; if (roll <= 0) { rarity = k; break; } }
-      // Pool: Paints der Stufe + Badges (häufig=common, selten=rare, episch=epic)
+      // Pool: Paints + Badges (häufig=common, selten=rare, episch=epic) + Emotes
       const badgeRar = { 'häufig': 'common', 'selten': 'rare', 'episch': 'epic' };
       const pool = [
         ...PAINTS.paints.filter(x => x.rarity === rarity).map(x => ({ kind: 'paint', id: x.id, name: x.name })),
         ...Object.entries(BADGES).filter(([, v]) => badgeRar[v.rar] === rarity).map(([k, v]) => ({ kind: 'badge', id: k, name: v.name })),
+        ...Object.entries(UNLOCK_EMOTES).filter(([, v]) => v.rarity === rarity).map(([k]) => ({ kind: 'emote', id: k, name: k })),
       ];
       const win = pool.length ? pool[Math.floor(Math.random() * pool.length)]
         : { kind: 'paint', id: PAINTS.paints[0] && PAINTS.paints[0].id, name: 'Kupfer' };
       prof.cases.splice(idx, 1);
+      prof.emotes = prof.emotes || [];
+      prof.floats = prof.floats || {};
+      const list = win.kind === 'paint' ? prof.paints : win.kind === 'badge' ? prof.badges : prof.emotes;
       let dupe = false;
-      if (win.kind === 'paint') {
-        if (prof.paints.includes(win.id)) { dupe = true; prof.coins += 40; }
-        else prof.paints.push(win.id);
+      let float = rollFloat();
+      if (list.includes(win.id)) {
+        // Duplikat: Coins im Wert des Items (bei besserem Float wird getauscht)
+        const oldF = prof.floats[`${win.kind}:${win.id}`] ?? 0;
+        if (isShiny(float) && !isShiny(oldF)) prof.floats[`${win.kind}:${win.id}`] = float;
+        else float = oldF;
+        dupe = true;
+        prof.coins += 40;
       } else {
-        if (prof.badges.includes(win.id)) { dupe = true; prof.coins += 40; }
-        else prof.badges.push(win.id);
+        list.push(win.id);
+        prof.floats[`${win.kind}:${win.id}`] = float;
       }
+      const shiny = isShiny(float);
+      const value = itemValue(rarity, float);
       saveJson('users.json', users);
-      return send(res, 200, { ok: true, win: { ...win, rarity }, dupe, coins: prof.coins, cases: prof.cases });
+      return send(res, 200, { ok: true, win: { ...win, rarity, float, shiny, value }, dupe, coins: prof.coins, cases: prof.cases });
+    }
+    // Item verkaufen: Wert nach Rarität, shiny x5; aktive Items werden abgelegt
+    if (p === '/api/item/sell' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      const prof = profileOf(user);
+      const kind = String(b.kind || ''), id = String(b.id || '');
+      const lists = { paint: prof.paints, badge: prof.badges, emote: prof.emotes = prof.emotes || [] };
+      const list = lists[kind];
+      if (!list || !list.includes(id)) return send(res, 404, { error: 'Item nicht gefunden.' });
+      const rarity = kind === 'paint' ? (PAINTS.paints.find(x => x.id === id) || {}).rarity
+        : kind === 'badge' ? ({ 'häufig': 'common', 'selten': 'rare', 'episch': 'epic' })[(BADGES[id] || {}).rar]
+        : (UNLOCK_EMOTES[id] || {}).rarity;
+      const float = (prof.floats || {})[`${kind}:${id}`] ?? 0;
+      const value = itemValue(rarity || 'common', float);
+      lists[kind].splice(list.indexOf(id), 1);
+      delete prof.floats[`${kind}:${id}`];
+      if (prof.activeBadge === id) prof.activeBadge = '';
+      if (prof.activePaint === id) prof.activePaint = '';
+      prof.showcase = (prof.showcase || []).filter(s => s !== `${kind}:${id}`);
+      prof.coins = (prof.coins || 0) + value;
+      saveJson('users.json', users);
+      return send(res, 200, { ok: true, value, coins: prof.coins });
+    }
+    // Kistenshop: Kauf NUR mit erspielten Coins (Coins sind nie gegen Echtgeld erhältlich)
+    if (p === '/api/shop/buy' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      const type = String(b.type || '');
+      const price = SHOP_CASES[type];
+      if (!price) return send(res, 400, { error: 'Diese Kiste gibt es nicht.' });
+      const prof = profileOf(user);
+      if ((prof.coins || 0) < price) return send(res, 402, { error: `Dafür brauchst du ${price} Coins, du hast ${prof.coins || 0}.` });
+      prof.coins -= price;
+      grantCase(user, type, CaseSource.SHOP);
+      saveJson('users.json', users);
+      return send(res, 200, { ok: true, coins: prof.coins, cases: prof.cases });
     }
     // Paint anlegen/ablegen
     if (p === '/api/paint' && req.method === 'POST') {
@@ -1343,6 +1572,8 @@ const server = http.createServer(async (req, res) => {
       r.sum = (r.sum || 0); r.count = (r.count || 0);
       if (prev && r.count > 0) { r.sum -= prev; r.count -= 1; }
       r.sum += stars; r.count += 1;
+      const rater = authUser(req);
+      if (rater && !prev) { bumpQuest(rater, 'rate'); saveJson('users.json', users); }
       saveJson('ratings.json', ratings);
       return send(res, 200, { rating: r.sum / r.count, ratingCount: r.count });
     }
@@ -1369,6 +1600,8 @@ const server = http.createServer(async (req, res) => {
         reactions: {}, // { art: [nutzer] }, Arten: like, helpful oder Emote-Namen
       };
       (comments[dealId] = comments[dealId] || []).push(c);
+      bumpQuest(user, 'comment');
+      saveJson('users.json', users);
       saveJson('comments.json', comments);
       return send(res, 201, c);
     }

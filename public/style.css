@@ -1749,3 +1749,124 @@ input[type="date"].input {
   .case-modal .case-idle, .case-modal .case-pop, .reel-item.reel-win, .case-win { animation: none; }
   .paint { background-position: 0 0 !important; }
 }
+
+/* ================= Runde 33: Chat-Vollbild, Menü-Blur, Quests, Inventar, Kisten V2 ================= */
+
+/* Chat nimmt die Seite bis zum Header ein */
+#chat-modes { justify-content: center; margin-bottom: 10px; }
+#chat-box { height: calc(100dvh - 285px - env(safe-area-inset-top, 0px)); min-height: 240px; }
+#view-chat.emotes-open #chat-box { height: calc(100dvh - 395px - env(safe-area-inset-top, 0px)); }
+
+/* Menü-Backdrop: darunter verschwimmt alles mit Verlauf */
+#top-menu-backdrop {
+  position: fixed; inset: 0; z-index: 55;
+  backdrop-filter: blur(9px); -webkit-backdrop-filter: blur(9px);
+  background: rgba(10, 14, 18, .12);
+  mask-image: linear-gradient(180deg, #000 0 45%, transparent 90%);
+  -webkit-mask-image: linear-gradient(180deg, #000 0 45%, transparent 90%);
+}
+
+/* Anfrage-Popup: schiebt sich unten hoch */
+#req-toast {
+  position: fixed; left: 50%; transform: translate(-50%, 120%);
+  bottom: calc(96px + env(safe-area-inset-bottom, 0px)); z-index: 70;
+  width: min(560px, calc(100vw - 24px));
+  display: flex; align-items: center; gap: 10px;
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--stroke-light); border-radius: 16px;
+  padding: 12px 14px; font-size: .86rem;
+  box-shadow: var(--glass-edge), var(--shadow);
+  transition: transform .45s cubic-bezier(.3,1.35,.45,1);
+}
+#req-toast.show { transform: translate(-50%, 0); }
+
+/* Profil: Handle + Showcase-Slots */
+.me-handle { font-size: .78rem; opacity: .55; font-weight: 700; }
+.me-showcase { display: flex; gap: 10px; margin-top: 14px; }
+.sc-slot {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  background: radial-gradient(70% 60% at 50% 40%, color-mix(in srgb, var(--rc) 22%, transparent), transparent), var(--surface);
+  border: 1px solid var(--rc); border-radius: 14px; padding: 12px 16px;
+}
+
+/* Quests */
+.quest-row { padding: 8px 0; border-bottom: 1px solid var(--stroke-light); }
+.quest-row:last-child { border-bottom: none; }
+.quest-row.done { opacity: .55; }
+.quest-main { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px; }
+.quest-main b { font-size: .86rem; }
+.quest-main span { font-size: .72rem; opacity: .65; }
+
+/* Inventar + Sammlung */
+.inv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin-top: 8px; }
+.inv-item {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  background: radial-gradient(70% 55% at 50% 32%, color-mix(in srgb, var(--rc) 20%, transparent), transparent), var(--surface);
+  border: 1px solid var(--stroke-light); border-bottom: 3px solid var(--rc);
+  border-radius: 14px; padding: 12px 8px; text-align: center; position: relative; overflow: hidden;
+}
+.inv-item b { font-size: .78rem; }
+.inv-item.locked { filter: grayscale(1) opacity(.45); }
+.inv-visual .icon { width: 30px; height: 30px; }
+.inv-float { font-family: ui-monospace, monospace; font-size: .68rem; opacity: .7; }
+.inv-actions { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; margin-top: 6px; }
+.shop-price { color: var(--k-accent, #12C77E); font-size: .72rem; }
+
+/* Shiny: Glitzer-Schimmer für Schnapszahlen und Straßen */
+.inv-item.shiny::after, .sc-slot.shiny::after, .case-win.shiny .case-win-visual::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,.55) 48%, transparent 62%);
+  background-size: 260% 100%;
+  animation: shinySweep 2.4s linear infinite;
+}
+.inv-item.shiny, .sc-slot.shiny { border-color: #F5B301; }
+@keyframes shinySweep { to { background-position: -160% 0; } }
+
+/* Kisten-Öffnung V2: fallen, schütteln, aufplatzen */
+.case-modal { position: relative; overflow: hidden; }
+.case-drop { animation: caseDrop .65s cubic-bezier(.3,1.35,.45,1) forwards; }
+@keyframes caseDrop { from { transform: translateY(-180px); opacity: 0; } 70% { transform: translateY(8px); opacity: 1; } to { transform: none; } }
+.case-shake { animation: caseShake .7s ease-in-out; }
+@keyframes caseShake {
+  15%, 45%, 75% { transform: rotate(-7deg) scale(1.02); }
+  30%, 60%, 90% { transform: rotate(7deg) scale(1.04); }
+}
+.case-burst { animation: caseBurst .45s ease forwards; }
+@keyframes caseBurst { to { transform: scale(1.7); opacity: 0; filter: brightness(2); } }
+.case-flash {
+  position: absolute; left: 50%; top: 70px; width: 10px; height: 10px;
+  border-radius: 999px; pointer-events: none;
+  background: radial-gradient(circle, var(--rc), transparent 70%);
+  animation: caseFlash .6s ease-out forwards;
+}
+@keyframes caseFlash { to { transform: scale(38); opacity: 0; } }
+.case-win.v2 { position: relative; }
+.case-win-visual {
+  position: relative; overflow: hidden; border-radius: 18px;
+  padding: 20px 26px; margin-bottom: 6px;
+  background: radial-gradient(70% 60% at 50% 40%, color-mix(in srgb, var(--rc) 30%, transparent), transparent), var(--surface);
+  border: 1px solid var(--rc);
+  animation: chestPop .55s cubic-bezier(.3,1.4,.5,1);
+}
+.case-win-visual .icon { width: 52px; height: 52px; }
+.case-win-visual .reel-paint { width: 84px; height: 38px; }
+.case-win.epic-glow .case-win-visual { box-shadow: 0 0 34px var(--rc); }
+.case-spark {
+  position: absolute; left: 50%; top: 45%; width: 7px; height: 7px;
+  border-radius: 999px; pointer-events: none;
+  animation: sparkFly 1.2s cubic-bezier(.2,.7,.4,1) forwards;
+}
+@keyframes sparkFly { to { transform: translate(var(--dx), var(--dy)); opacity: 0; } }
+
+/* Fav-Picker im Profil */
+.fav-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.fav-row .chip.active { background: var(--k-accent, #12C77E) !important; color: #fff !important; border-color: var(--k-accent, #12C77E) !important; }
+.fav-custom { margin-top: 6px; }
+.info-btn { width: 28px; height: 28px; vertical-align: middle; margin-left: 6px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .case-drop, .case-shake, .case-burst, .case-flash, .case-spark,
+  .inv-item.shiny::after, .sc-slot.shiny::after, .case-win.shiny .case-win-visual::after { animation: none; }
+  #req-toast { transition: none; }
+}

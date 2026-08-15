@@ -47,7 +47,7 @@ function applyTheme(t, animate = false) {
 applyTheme(localStorage.getItem('ra.theme')
   || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
 
-const VIEW_ORDER = ['wallet', 'feed', 'chat', 'search', 'profile'];
+const VIEW_ORDER = ['wallet', 'feed', 'chat', 'search', 'profile', 'settings'];
 const FEED_LIMIT = 40;
 
 // Menüpunkte oben: Sparen / Verdienen / Neukunden / Coupons.
@@ -265,6 +265,22 @@ $('#btn-search-top').addEventListener('click', () => {
   setTimeout(() => $('#search').focus(), 420);
 });
 $('#btn-search-back').addEventListener('click', () => switchView(searchReturnView, 'enter-drop'));
+$('#btn-settings-back').addEventListener('click', () => switchView('profile', 'enter-drop'));
+
+// Konto löschen: doppelte Rückfrage, dann endgültig
+$('#btn-account-delete').addEventListener('click', async () => {
+  if (!await askConfirm('Willst du dein Konto wirklich löschen? Profil, Wallet und Chats sind dann weg.', { okLabel: 'Ja, weiter' })) return;
+  if (!await askConfirm('Letzte Frage: endgültig löschen? Das lässt sich nicht rückgängig machen.', { okLabel: 'Endgültig löschen' })) return;
+  try {
+    await api('/api/account/delete', { method: 'POST', body: '{}' });
+    state.token = ''; state.userName = ''; state.role = '';
+    localStorage.removeItem('ra.token'); localStorage.removeItem('ra.user'); localStorage.removeItem('ra.wallet');
+    myProfile = null;
+    refreshProfileTab();
+    switchView('feed');
+    island('Konto gelöscht. Mach es gut!');
+  } catch (e) { island(e.message); }
+});
 
 $('#tabbar').addEventListener('click', e => {
   const btn = e.target.closest('.tabbtn');
@@ -1264,6 +1280,8 @@ function refreshProfileTab() {
   $('#auth-card').classList.toggle('hidden', !!state.token);
   $('#me-card').classList.toggle('hidden', !state.token);
   $('#gami-card').classList.toggle('hidden', !state.token);
+  $('#btn-logout').classList.toggle('hidden', !state.token);
+  $('#danger-card').classList.toggle('hidden', !state.token);
   if (!state.token) $('#bio-card').classList.add('hidden'); // öffnet nur über "Profil bearbeiten"
   if (state.token) { $('#me-name').textContent = state.userName; refreshGami(); }
   renderWallet(); // Wallet-Sperre folgt dem Login-Status
@@ -1290,12 +1308,6 @@ async function refreshGami() {
   if (myProfile.avatar) av.outerHTML = `<img class="avatar-big" id="g-avatar-preview" src="${myProfile.avatar}" alt="">`;
   else av.outerHTML = `<span class="avatar-big" id="g-avatar-preview" style="background:${chatColor(state.userName || '?')}">${esc((state.userName || '?')[0].toUpperCase())}</span>`;
   $('#g-avatar-del').classList.toggle('hidden', !myProfile.avatar);
-  const favs = myProfile.favs || {};
-  $('#gf-discounter').value = favs.discounter || '';
-  $('#gf-supermarkt').value = favs.supermarkt || '';
-  $('#gf-essen').value = favs.essen || '';
-  $('#gf-onlineshop').value = favs.onlineshop || '';
-  $('#gf-mode').value = favs.mode || '';
   // Profil so zeigen, wie Besucher es sehen
   const rank = rankFor(renderWallet.lastTotal || 0);
   $('#g-rank-row').innerHTML = `<span class="rank-chip">${esc(rank.name)}</span>`;
@@ -1313,6 +1325,19 @@ async function refreshGami() {
   ].filter(Boolean).join('');
   $('#me-badges').innerHTML = (myProfile.badges || [])
     .map(id => myProfile.badgesAll[id] ? badgeChip(id, myProfile.badgesAll[id], id === myProfile.activeBadge) : '').join('');
+  $('#me-handle').textContent = '@' + (state.userName || '');
+  // Showcase: bis zu 3 Items zum Flexen
+  const sc = gami?.showcase || [];
+  $('#me-showcase').innerHTML = sc.length ? sc.map(key => {
+    const [kind, id] = key.split(':');
+    const rar = itemRarity(kind, id);
+    const col = (gami?.rarity || {})[rar]?.color || '#888';
+    const fl = (gami?.floats || {})[key] ?? 0;
+    return `<div class="sc-slot ${isShinyF(fl) ? 'shiny' : ''}" style="--rc:${col}" title="${esc(itemName(kind, id))}">
+      ${itemVisual(kind, id)}<span class="inv-float">#${String(fl).padStart(3, '0')}</span>
+    </div>`;
+  }).join('') : '';
+  renderFavPickers();
   $('#g-badges').innerHTML = (myProfile.badges || []).length
     ? myProfile.badges.map(id => badgeChip(id, myProfile.badgesAll[id], id === myProfile.activeBadge)).join('')
     : '<span class="form-msg">Noch keine Badges, öffne eine Kiste.</span>';
@@ -1361,9 +1386,61 @@ const CASE_IMGS = { standard: 'case-01-standard', silber: 'case-02-silber', gold
 const rankFile = r => `/gamification/rank-${String(r.tier).padStart(2, '0')}-${r.id}.svg`;
 const paintById = id => (gami?.paintsAll || chatPaints || []).find(x => x.id === id);
 
+// Item-Helfer: Anzeige, Float, Shiny, Wert
+const isShinyF = f => {
+  const s = String(f ?? 0).padStart(3, '0');
+  return (s[0] === s[1] && s[1] === s[2]) || (+s[1] === +s[0] + 1 && +s[2] === +s[1] + 1);
+};
+function itemVisual(kind, id) {
+  if (kind === 'paint') {
+    const pnt = paintById(id);
+    return `<span class="reel-paint" style="background-image:${pnt?.css || 'none'}"></span>`;
+  }
+  if (kind === 'badge') return `<svg class="icon"><use href="#i-${(gami?.badgesAll || {})[id]?.icon || 'star'}"/></svg>`;
+  return `<img class="emote" style="height:26px" src="https://cdn.7tv.app/emote/${(gami?.emotesAll || {})[id]?.id}/2x.webp" alt="">`;
+}
+function itemRarity(kind, id) {
+  if (kind === 'paint') return paintById(id)?.rarity || 'common';
+  if (kind === 'badge') return ({ 'häufig': 'common', 'selten': 'rare', 'episch': 'epic' })[(gami?.badgesAll || {})[id]?.rar] || 'common';
+  return (gami?.emotesAll || {})[id]?.rarity || 'common';
+}
+function itemName(kind, id) {
+  if (kind === 'paint') return paintById(id)?.name || id;
+  if (kind === 'badge') return (gami?.badgesAll || {})[id]?.name || id;
+  return id;
+}
+function myItems() {
+  if (!gami) return [];
+  return [
+    ...gami.paints.map(id => ({ kind: 'paint', id })),
+    ...(gami.badgesOwned || myProfile?.badges || []).map(id => ({ kind: 'badge', id })),
+    ...(gami.emotes || []).map(id => ({ kind: 'emote', id })),
+  ].map(it => ({ ...it, float: (gami.floats || {})[`${it.kind}:${it.id}`] ?? 0, rarity: itemRarity(it.kind, it.id) }));
+}
+
 async function refreshGamiSystem() {
   if (!state.token) return;
   try { gami = await api('/api/gami'); } catch { return; }
+  // Quest-Belohnungen feiern
+  (gami.questAwards || []).forEach((a, i) => setTimeout(() => {
+    island(`Quest geschafft: ${a.quest} (+${a.coins} Coins)`);
+    playSfx('kaching');
+  }, i * 1800));
+  animateInt($('#g-coins'), Number($('#g-coins').textContent) || 0, gami.coins || 0);
+  // Quests mit Fortschritt und Meilensteinen
+  $('#gm-quests').innerHTML = gami.quests.map(q => {
+    const nextMs = q.milestones.find(([n]) => !q.awarded.includes(`${q.key}:${n}`));
+    const target = nextMs ? nextMs[0] : q.milestones[q.milestones.length - 1][0];
+    const done = !nextMs;
+    return `
+    <div class="quest-row ${done ? 'done' : ''}">
+      <div class="quest-main">
+        <b>${esc(q.name)}</b>
+        <span>${done ? 'Alle Stufen geschafft!' : `${Math.min(q.progress, target)} / ${target} · +${nextMs[1]} Coins`}</span>
+      </div>
+      <div class="rank-progress"><div class="rank-progress-fill" style="width:${Math.min(100, Math.round(q.progress / target * 100))}%"></div></div>
+    </div>`;
+  }).join('');
   const rank = gami.rank;
   $('#gm-rank-head').innerHTML = `
     <div class="gm-rank-row">
@@ -1407,6 +1484,133 @@ async function refreshGamiSystem() {
   });
 }
 
+// Info: Wie sammelt man Aktivitätspunkte?
+$('#gm-rank-info').addEventListener('click', () => askConfirm(
+  'So sammelst du Aktivitätspunkte: 2 je Abbuchung, 5 je Gutschein in der Wallet, 1 je aktivem Tag (Tagesbonus) und 8 je aufgebrauchtem Gutschein. Es zählt dein Sparverhalten, nie die Betragshöhe.',
+  { alertOnly: true }));
+
+// Inventar: alle Items mit Float, Shiny-Glitzer, Anlegen/Showcase/Verkaufen
+function openInventory() {
+  state.sheetMode = 'gami-inv';
+  const items = myItems();
+  $('#sheet-content').innerHTML = `
+    <div class="sheet-title">Inventar</div>
+    <p class="muted" style="font-size:.8rem">Float bis 999: Schnapszahlen und Straßen glitzern und sind beim Verkauf das Fünffache wert. Bis zu 3 Items kannst du in dein Profil stellen.</p>
+    ${items.length ? `<div class="inv-grid">${items.map(it => {
+      const col = (gami.rarity || {})[it.rarity]?.color || '#888';
+      const shiny = isShinyF(it.float);
+      const val = (gami.sellValues || {})[it.rarity] * (shiny ? 5 : 1);
+      const inShowcase = (gami.showcase || []).includes(`${it.kind}:${it.id}`);
+      const equipped = (it.kind === 'paint' && gami.activePaint === it.id) || (it.kind === 'badge' && myProfile?.activeBadge === it.id);
+      return `
+      <div class="inv-item ${shiny ? 'shiny' : ''}" style="--rc:${col}">
+        <div class="inv-visual">${itemVisual(it.kind, it.id)}</div>
+        <b>${esc(itemName(it.kind, it.id))}</b>
+        <span class="inv-float">#${String(it.float).padStart(3, '0')}${shiny ? ' ✦' : ''}</span>
+        <span style="color:${col}; font-size:.68rem">${esc((gami.rarity || {})[it.rarity]?.label || it.rarity)}</span>
+        <div class="inv-actions">
+          ${it.kind !== 'emote' ? `<button class="c-act ${equipped ? 'on' : ''}" data-inv-equip="${it.kind}:${esc(it.id)}">${equipped ? 'Angelegt' : 'Anlegen'}</button>` : ''}
+          <button class="c-act ${inShowcase ? 'on' : ''}" data-inv-show="${it.kind}:${esc(it.id)}">Profil</button>
+          <button class="c-act" data-inv-sell="${it.kind}:${esc(it.id)}">Verkaufen (${val})</button>
+        </div>
+      </div>`;
+    }).join('')}</div>` : '<div class="status">Noch keine Items. Öffne Kisten!</div>'}`;
+  $('#sheet-content').querySelectorAll('[data-inv-equip]').forEach(b => b.onclick = async () => {
+    const [kind, id] = b.dataset.invEquip.split(':');
+    if (kind === 'paint') {
+      const next = gami.activePaint === id ? '' : id;
+      await api('/api/paint', { method: 'POST', body: JSON.stringify({ id: next }) }).catch(() => { });
+      gami.activePaint = next;
+    } else {
+      const next = myProfile.activeBadge === id ? '' : id;
+      await api('/api/profile', { method: 'POST', body: JSON.stringify({ activeBadge: next }) }).catch(() => { });
+      myProfile.activeBadge = next;
+    }
+    openInventory(); refreshGami();
+  });
+  $('#sheet-content').querySelectorAll('[data-inv-show]').forEach(b => b.onclick = async () => {
+    const key = b.dataset.invShow;
+    let sc = gami.showcase || [];
+    if (sc.includes(key)) sc = sc.filter(x => x !== key);
+    else if (sc.length >= 3) { island('Maximal 3 Items im Profil'); return; }
+    else sc = [...sc, key];
+    await api('/api/profile', { method: 'POST', body: JSON.stringify({ showcase: sc }) }).catch(() => { });
+    gami.showcase = sc;
+    openInventory(); refreshGami();
+  });
+  $('#sheet-content').querySelectorAll('[data-inv-sell]').forEach(b => b.onclick = async () => {
+    const [kind, id] = b.dataset.invSell.split(':');
+    if (!await askConfirm(`${esc(itemName(kind, id))} wirklich verkaufen?`, { okLabel: 'Verkaufen' })) return;
+    try {
+      const r = await api('/api/item/sell', { method: 'POST', body: JSON.stringify({ kind, id }) });
+      playSfx('pay'); island(`Verkauft für ${r.value} Coins`);
+      await refreshGamiSystem(); await refreshGami();
+      openInventory();
+    } catch (e) { island(e.message); }
+  });
+  openSheetShell();
+}
+$('#gm-inv-btn').addEventListener('click', openInventory);
+
+// Sammlung: alles was es gibt, nach Seltenheit, plus Kisten-Übersicht
+$('#gm-catalog-btn').addEventListener('click', () => {
+  state.sheetMode = 'gami-catalog';
+  const all = [
+    ...(gami?.paintsAll || []).map(x => ({ kind: 'paint', id: x.id, rarity: x.rarity })),
+    ...Object.keys(gami?.badgesAll || {}).map(id => ({ kind: 'badge', id, rarity: itemRarity('badge', id) })),
+    ...Object.entries(gami?.emotesAll || {}).map(([id, v]) => ({ kind: 'emote', id, rarity: v.rarity })),
+  ];
+  const owned = new Set(myItems().map(it => `${it.kind}:${it.id}`));
+  const order = ['legendary', 'epic', 'rare', 'uncommon', 'common'];
+  $('#sheet-content').innerHTML = `
+    <div class="sheet-title">Sammlung</div>
+    ${order.map(rar => {
+      const list = all.filter(x => x.rarity === rar);
+      if (!list.length) return '';
+      const col = (gami.rarity || {})[rar]?.color || '#888';
+      return `<h3 class="gm-h" style="color:${col}">${esc((gami.rarity || {})[rar]?.label || rar)}</h3>
+      <div class="inv-grid">${list.map(it => `
+        <div class="inv-item ${owned.has(`${it.kind}:${it.id}`) ? '' : 'locked'}" style="--rc:${col}">
+          <div class="inv-visual">${itemVisual(it.kind, it.id)}</div>
+          <b>${esc(itemName(it.kind, it.id))}</b>
+          <span style="font-size:.66rem; opacity:.6">${owned.has(`${it.kind}:${it.id}`) ? 'im Besitz' : 'noch nicht gefunden'}</span>
+        </div>`).join('')}</div>`;
+    }).join('')}
+    <h3 class="gm-h">Die Kisten</h3>
+    <div class="gm-cases">${Object.entries(CASE_IMGS).map(([type, img]) => `
+      <div class="gm-case" style="cursor:default">
+        <img class="px-icon big" src="/gamification/${img}.svg" alt="">
+        <span>${esc(type)}</span>
+      </div>`).join('')}</div>
+    <p class="muted" style="font-size:.78rem">Bessere Kisten heben die Chancen auf seltene Items. Die genauen Prozente stehen beim Öffnen unter „Chancen anzeigen".</p>`;
+  openSheetShell();
+});
+
+// Kistenshop: Kauf ausschließlich mit erspielten Coins
+$('#gm-shop-btn').addEventListener('click', () => {
+  state.sheetMode = 'gami-shop';
+  $('#sheet-content').innerHTML = `
+    <div class="sheet-title">Kistenshop</div>
+    <p class="muted" style="font-size:.8rem">Coins gibt es nur fürs Mitmachen (Quests, Tagesbonus, Verkäufe), niemals für Echtgeld. Du hast <b id="shop-coins">${gami?.coins ?? 0}</b> Coins.</p>
+    <div class="gm-cases">${Object.entries(gami?.shop || {}).map(([type, price]) => `
+      <button class="gm-case" data-shop-buy="${esc(type)}">
+        <img class="px-icon big" src="/gamification/${CASE_IMGS[type]}.svg" alt="">
+        <span>${esc(type)}</span>
+        <span class="shop-price">${price} Coins</span>
+      </button>`).join('')}</div>`;
+  $('#sheet-content').querySelectorAll('[data-shop-buy]').forEach(b => b.onclick = async () => {
+    try {
+      const r = await api('/api/shop/buy', { method: 'POST', body: JSON.stringify({ type: b.dataset.shopBuy }) });
+      playSfx('kaching'); buzz(30);
+      island('Kiste gekauft!');
+      gami.coins = r.coins; gami.cases = r.cases;
+      $('#shop-coins').textContent = r.coins;
+      refreshGamiSystem();
+    } catch (e) { island(e.message); }
+  });
+  openSheetShell();
+});
+
 // ---- Kisten-Öffnung: Ergebnis kommt VOR der Animation vom Server, die Walze ist Show
 let caseCtx = null;
 function openCaseModal(box) {
@@ -1445,6 +1649,78 @@ async function startCaseOpen() {
   catch (e) { island(e.message); return; }
   caseCtx.result = r;
   $('#case-open-btn').classList.add('hidden');
+  const col = (gami?.rarity || {})[r.win.rarity]?.color || '#888';
+  const label = (gami?.rarity || {})[r.win.rarity]?.label || r.win.rarity;
+  const bigReveal = () => {
+    caseCtx.timers.forEach(clearTimeout);
+    $('#case-img').classList.add('hidden');
+    $('#case-skip').classList.add('hidden');
+    $('#case-result').classList.remove('hidden');
+    const epicPlus = ['epic', 'legendary'].includes(r.win.rarity);
+    $('#case-result').innerHTML = `
+      <div class="case-win v2 ${r.win.shiny ? 'shiny' : ''} ${epicPlus ? 'epic-glow' : ''}" style="--rc:${col}">
+        <div class="case-win-visual">${itemVisual(r.win.kind, r.win.id)}</div>
+        <b>${esc(r.win.name)}</b>
+        <span class="inv-float">#${String(r.win.float).padStart(3, '0')}${r.win.shiny ? ' ✦ SHINY' : ''}</span>
+        <span style="color:${col}; font-weight:800">${esc(label)} · Wert: ${r.win.value} Coins</span>
+        ${r.dupe ? '<span class="stars-count">Schon vorhanden: +40 Coins gutgeschrieben</span>' : `
+        <div class="form-row" style="justify-content:center; margin-top:10px">
+          <button class="btn btn-small" id="cw-keep">Behalten</button>
+          <button class="btn btn-small btn-ghost" id="cw-sell">Verkaufen für ${r.win.value} Coins</button>
+        </div>`}
+      </div>`;
+    if (epicPlus && !reducedMotion()) {
+      // Partikel-Burst in der Rarity-Farbe, einmalig
+      for (let i = 0; i < 14; i++) {
+        const s = document.createElement('span');
+        s.className = 'case-spark';
+        s.style.background = col;
+        s.style.setProperty('--dx', (Math.random() * 220 - 110) + 'px');
+        s.style.setProperty('--dy', (Math.random() * -180 - 30) + 'px');
+        s.style.animationDelay = (i * 25) + 'ms';
+        $('#case-result').appendChild(s);
+        setTimeout(() => s.remove(), 1400);
+      }
+    }
+    buzz(r.win.shiny ? [30, 40, 60] : 18);
+    playSfx('kaching');
+    $('#cw-keep')?.addEventListener('click', () => { hideOverlay($('#case-backdrop')); island('Ab ins Inventar!'); });
+    $('#cw-sell')?.addEventListener('click', async () => {
+      try {
+        const sold = await api('/api/item/sell', { method: 'POST', body: JSON.stringify({ kind: r.win.kind, id: r.win.id }) });
+        playSfx('pay');
+        hideOverlay($('#case-backdrop'));
+        island(`Verkauft für ${sold.value} Coins`);
+        refreshGamiSystem();
+      } catch (e) { island(e.message); }
+    });
+    refreshGamiSystem();
+    refreshGami();
+  };
+  caseCtx.bigReveal = bigReveal;
+  if (reducedMotion()) { bigReveal(); return; }
+  // Die Kiste fällt, schüttelt sich und platzt in der Rarity-Farbe auf
+  const img = $('#case-img');
+  img.classList.remove('case-idle');
+  img.classList.add('case-drop');
+  $('#case-skip').classList.remove('hidden');
+  caseCtx.timers.push(setTimeout(() => {
+    img.classList.remove('case-drop');
+    img.classList.add('case-shake');
+    caseCtx.timers.push(setTimeout(() => {
+      img.classList.remove('case-shake');
+      img.classList.add('case-burst');
+      const flash = document.createElement('div');
+      flash.className = 'case-flash';
+      flash.style.setProperty('--rc', col);
+      img.parentElement.insertBefore(flash, img);
+      setTimeout(() => flash.remove(), 700);
+      caseCtx.timers.push(setTimeout(bigReveal, 480));
+    }, 700));
+  }, 650));
+}
+async function startCaseOpenLegacy() {
+  const r = caseCtx.result;
   const reveal = () => {
     caseCtx.timers.forEach(clearTimeout);
     $('#reel-wrap').classList.add('hidden');
@@ -1502,7 +1778,7 @@ async function startCaseOpen() {
   }, 340));
 }
 $('#case-open-btn').addEventListener('click', startCaseOpen);
-$('#case-skip').addEventListener('click', () => { if (caseCtx?.result) { caseCtx.timers.forEach(clearTimeout); startCaseOpenReveal(); } });
+$('#case-skip').addEventListener('click', () => { if (caseCtx?.bigReveal) caseCtx.bigReveal(); });
 // Überspringen springt direkt zum Ergebnis
 function startCaseOpenReveal() {
   const r = caseCtx.result;
@@ -1525,6 +1801,66 @@ $('#case-close').addEventListener('click', () => {
   hideOverlay($('#case-backdrop'));
 });
 $('#case-odds').addEventListener('click', () => $('#case-odds-panel').classList.toggle('hidden'));
+// Lieblings-Kategorien: Auswahl-Chips wie bei den Gutscheinen + eigenes Feld
+const FAV_OPTIONS = {
+  discounter: { label: 'Lieblings-Discounter', opts: ['Lidl', 'Aldi', 'Netto', 'Penny', 'Norma'] },
+  supermarkt: { label: 'Lieblings-Supermarkt', opts: ['REWE', 'EDEKA', 'Kaufland', 'Globus', 'tegut'] },
+  essen: { label: 'Lieblingsessen', opts: ['Pizza', 'Döner', 'Burger', 'Sushi', 'Pasta'] },
+  onlineshop: { label: 'Lieblings-Onlineshop', opts: ['Amazon', 'Zalando', 'Otto', 'eBay', 'Temu'] },
+  mode: { label: 'Lieblings-Modemarke', opts: ['Nike', 'Adidas', 'H&M', 'Zara', 'Shein'] },
+};
+const favPick = {};
+function renderFavPickers() {
+  const host = $('#fav-pickers');
+  if (!host) return;
+  const favs = myProfile?.favs || {};
+  host.innerHTML = Object.entries(FAV_OPTIONS).map(([key, def]) => {
+    const cur = favPick[key] ?? favs[key] ?? '';
+    favPick[key] = cur;
+    const isCustom = cur && !def.opts.includes(cur);
+    return `
+    <label class="f-label">${def.label}</label>
+    <div class="fav-row" data-favkey="${key}">
+      ${def.opts.map(o => `<button type="button" class="chip ${cur === o ? 'active' : ''}" data-favopt="${esc(o)}">${esc(o)}</button>`).join('')}
+      <button type="button" class="chip ${isCustom ? 'active' : ''}" data-favopt="__custom">Eigenes</button>
+      <input class="input fav-custom ${isCustom ? '' : 'hidden'}" maxlength="30" placeholder="eigene Antwort" value="${esc(isCustom ? cur : '')}">
+    </div>`;
+  }).join('');
+  host.querySelectorAll('.fav-row').forEach(row => {
+    const key = row.dataset.favkey;
+    row.querySelectorAll('[data-favopt]').forEach(b => b.addEventListener('click', () => {
+      const inp = row.querySelector('.fav-custom');
+      const wasActive = b.classList.contains('active');
+      row.querySelectorAll('[data-favopt]').forEach(x => x.classList.remove('active'));
+      if (b.dataset.favopt === '__custom') {
+        favPick[key] = inp.value.trim();
+        b.classList.add('active');
+        inp.classList.remove('hidden'); inp.focus();
+      } else {
+        favPick[key] = wasActive ? '' : b.dataset.favopt;
+        if (!wasActive) b.classList.add('active');
+        inp.classList.add('hidden'); inp.value = '';
+      }
+    }));
+    row.querySelector('.fav-custom').addEventListener('input', e => { favPick[key] = e.target.value.trim(); });
+  });
+}
+
+// @Handle ändern (einmal pro Monat, Server zieht überall mit um)
+$('#g-handle-save').addEventListener('click', async () => {
+  const neu = $('#g-handle').value.trim();
+  if (!neu) return;
+  if (!await askConfirm(`Deinen Namen zu @${esc(neu)} ändern? Das geht dann erst in 30 Tagen wieder.`, { okLabel: 'Ja, ändern' })) return;
+  try {
+    const r = await api('/api/handle', { method: 'POST', body: JSON.stringify({ name: neu }) });
+    state.userName = r.user;
+    localStorage.setItem('ra.user', r.user);
+    $('#g-handle').value = '';
+    island(`Du heißt jetzt @${r.user}`);
+    refreshProfileTab();
+  } catch (e) { island(e.message); }
+});
+
 // "Profil bearbeiten": klappt die Bearbeiten-Karte auf und scrollt hin
 $('#btn-edit-profile').addEventListener('click', () => {
   const c = $('#bio-card');
@@ -1543,10 +1879,7 @@ $('#g-bio-save').addEventListener('click', async () => {
       method: 'POST',
       body: JSON.stringify({
         bio: $('#g-bio').value, publicProfile: $('#g-public').checked,
-        favs: {
-          discounter: $('#gf-discounter').value, supermarkt: $('#gf-supermarkt').value,
-          essen: $('#gf-essen').value, onlineshop: $('#gf-onlineshop').value, mode: $('#gf-mode').value,
-        },
+        favs: { ...favPick },
       }),
     });
     $('#g-bio').value = r.bio; // Server-Fassung (ggf. zensiert) zurückspiegeln
@@ -1591,7 +1924,8 @@ $('#btn-profile-top').addEventListener('click', () => {
 
 function toggleTopMenu() {
   const menu = $('#top-menu');
-  if (!menu.classList.contains('hidden')) { menu.classList.add('hidden'); return; }
+  if (!menu.classList.contains('hidden')) { menu.classList.add('hidden'); $('#top-menu-backdrop').classList.add('hidden'); return; }
+  $('#top-menu-backdrop').classList.remove('hidden');
   const reqs = myProfile?.friendRequests || [];
   const rank = rankFor(renderWallet.lastTotal || 0);
   menu.innerHTML = `
@@ -1611,12 +1945,24 @@ function toggleTopMenu() {
       <button class="btn btn-small" data-freq-ok="${esc(u)}">Annehmen</button>
       <button class="btn btn-small btn-ghost" data-freq-no="${esc(u)}">Ablehnen</button>
     </div>`).join('')}` : ''}
+    <div class="tm-section">Freunde</div>
+    ${(myProfile?.friends || []).length
+      ? (myProfile.friends).map(f => `<div class="tm-req">
+        <span class="avatar-mini" style="background:${chatColor(f)}">${esc(f[0].toUpperCase())}</span>
+        <span style="flex:1; font-weight:700">@${esc(f)}</span>
+        <button class="btn btn-small btn-ghost" data-tm-whisper="${esc(f)}">Flüstern</button>
+      </div>`).join('')
+      : '<div class="tm-sub" style="padding:4px 0">Noch keine Freunde. Frag jemanden an:</div>'}
+    <div class="form-row" style="margin-top:8px">
+      <input id="tm-req-name" class="input" maxlength="24" placeholder="@Name" style="flex:1; min-width:0">
+      <button id="tm-req-send" class="btn btn-small">Anfragen</button>
+    </div>
     <button class="tm-item" id="tm-profile">${icon('user', 'icon icon-sm')} Profil</button>
     <button class="tm-item" id="tm-favs">${icon('star', 'icon icon-sm')} Favoriten</button>
     <button class="tm-item" id="tm-settings">${icon('sliders', 'icon icon-sm')} Einstellungen</button>
     <button class="tm-item" id="tm-logout">${icon('x', 'icon icon-sm')} Abmelden</button>`;
   menu.classList.remove('hidden');
-  const done = () => menu.classList.add('hidden');
+  const done = () => { menu.classList.add('hidden'); $('#top-menu-backdrop').classList.add('hidden'); };
   $('#tm-head-profile').onclick = () => { done(); switchView('profile'); };
   $('#tm-profile').onclick = () => { done(); switchView('profile'); };
   $('#tm-favs').onclick = () => {
@@ -1625,11 +1971,24 @@ function toggleTopMenu() {
     renderChipbar(); renderFeed(true);
     if (state.activeView !== 'feed') switchView('feed');
   };
-  $('#tm-settings').onclick = () => {
-    done(); switchView('profile');
-    setTimeout(() => $('#settings-app-card').scrollIntoView({ behavior: 'smooth', block: 'center' }), 400);
-  };
+  $('#tm-settings').onclick = () => { done(); switchView('settings', 'enter-drop'); };
   $('#tm-logout').onclick = () => { done(); $('#btn-logout').click(); };
+  // Freund per Namen anfragen
+  $('#tm-req-send')?.addEventListener('click', async () => {
+    const name = $('#tm-req-name').value.trim();
+    if (!name) return;
+    await api('/api/friend', { method: 'POST', body: JSON.stringify({ user: name, action: 'add' }) })
+      .then(r => {
+        if (myProfile) { myProfile.friends = r.friends; myProfile.friendRequests = r.friendRequests; }
+        island(r.friends.includes(name) ? 'Ihr seid jetzt Freunde!' : 'Anfrage gesendet');
+        $('#tm-req-name').value = '';
+      }).catch(e => island(e.message));
+  });
+  menu.querySelectorAll('[data-tm-whisper]').forEach(b => b.onclick = () => {
+    done();
+    if (state.activeView !== 'chat') switchView('chat');
+    setChatMode('dm', b.dataset.tmWhisper);
+  });
   menu.querySelectorAll('[data-freq-ok]').forEach(b => b.onclick = async () => {
     const r = await api('/api/friend', { method: 'POST', body: JSON.stringify({ user: b.dataset.freqOk, action: 'accept' }) }).catch(e => { island(e.message); });
     if (r && myProfile) { myProfile.friends = r.friends; myProfile.friendRequests = r.friendRequests; }
@@ -1648,9 +2007,52 @@ function updateReqDot() {
 }
 document.addEventListener('click', e => {
   const menu = $('#top-menu');
-  if (!menu.classList.contains('hidden') && !e.target.closest('#top-menu') && !e.target.closest('#btn-profile-top'))
+  if (!menu.classList.contains('hidden') && !e.target.closest('#top-menu') && !e.target.closest('#btn-profile-top')) {
     menu.classList.add('hidden');
+    $('#top-menu-backdrop').classList.add('hidden');
+  }
 });
+
+// ---- Freundschaftsanfragen live: Popup schiebt sich von unten hoch
+let knownReqs = null;
+function showReqToast(user) {
+  const t = $('#req-toast');
+  t.innerHTML = `
+    <span class="avatar-mini" style="background:${chatColor(user)}">${esc(user[0].toUpperCase())}</span>
+    <span style="flex:1"><b>@${esc(user)}</b> möchte dein Freund sein</span>
+    <button class="btn btn-small" id="rt-ok">Annehmen</button>
+    <button class="btn btn-small btn-ghost" id="rt-no">Ablehnen</button>`;
+  t.classList.remove('hidden');
+  t.classList.add('show');
+  const hide = () => { t.classList.remove('show'); setTimeout(() => t.classList.add('hidden'), 350); };
+  $('#rt-ok').onclick = async () => {
+    const r = await api('/api/friend', { method: 'POST', body: JSON.stringify({ user, action: 'accept' }) }).catch(() => null);
+    if (r && myProfile) { myProfile.friends = r.friends; myProfile.friendRequests = r.friendRequests; }
+    island('Ihr seid jetzt Freunde!'); playSfx('kaching');
+    hide(); updateReqDot();
+  };
+  $('#rt-no').onclick = async () => {
+    const r = await api('/api/friend', { method: 'POST', body: JSON.stringify({ user, action: 'decline' }) }).catch(() => null);
+    if (r && myProfile) myProfile.friendRequests = r.friendRequests;
+    hide(); updateReqDot();
+  };
+  setTimeout(hide, 12000);
+}
+async function checkFriendReqs() {
+  if (!state.token) return;
+  try {
+    const p = await api('/api/profile');
+    const reqs = p.friendRequests || [];
+    if (knownReqs !== null) {
+      const fresh = reqs.filter(u => !knownReqs.includes(u));
+      if (fresh.length) { buzz(25); showReqToast(fresh[0]); }
+    }
+    knownReqs = reqs;
+    if (myProfile) { myProfile.friendRequests = reqs; myProfile.friends = p.friends || myProfile.friends; }
+    updateReqDot();
+  } catch { }
+}
+setInterval(checkFriendReqs, 20000);
 
 // Cloudflare Turnstile: etabliertes Captcha für Login und Registrierung
 const tsWidgets = { login: null, reg: null };
@@ -2996,8 +3398,10 @@ function chatMsgHtml(m) {
     : '';
   const pnt = m.paint ? chatPaints.find(x => x.id === m.paint) : null;
   const nameStyle = pnt ? `--paint:${pnt.css}; color:${pnt.fallbackColor}` : `color:${chatColor(m.user)}`;
+  // Maximal EIN Abzeichen neben dem Rang: das getragene Badge schlägt das Rollen-Icon
+  const insignia = badge || role;
   return `<div class="chat-msg ${m.user === state.userName ? 'own' : ''}" data-mid="${esc(m.id)}">
-    ${rankImg}${role}${badge}<span class="chat-user ${pnt ? 'paint' : ''}" style="${nameStyle}">${esc(m.user)}</span>
+    ${rankImg}${insignia}<span class="chat-user ${pnt ? 'paint' : ''}" style="${nameStyle}">${esc(m.user)}</span>
     <span class="chat-text">${withEmotes(esc(m.text))}</span>
     ${msgMenuHtml(m.user === state.userName, m.id)}
   </div>`;
@@ -3313,12 +3717,18 @@ $('#chat-gate-login').addEventListener('click', () => switchView('profile'));
 function toggleEmotes() {
   const el = $('#chat-emotes');
   // Box macht Platz, damit die letzten Nachrichten sichtbar bleiben
-  $('#view-chat').classList.toggle('emotes-open', el.classList.contains('hidden'));
-  if (el.classList.contains('hidden')) {
-    el.innerHTML = Object.keys(chatEmotes).length
-      ? Object.keys(chatEmotes).map(n => `<button class="emote-pick" data-emote="${esc(n)}">${emoteHtml(n)}</button>`).join('')
+  const opening = el.classList.contains('hidden');
+  $('#view-chat').classList.toggle('emotes-open', opening);
+  if (opening) {
+    // Freigeschaltete Emotes nur zeigen, wenn man sie besitzt
+    const locked = new Set(Object.keys(gami?.emotesAll || {}).filter(n => !(gami?.emotes || []).includes(n)));
+    const usable = Object.keys(chatEmotes).filter(n => !locked.has(n));
+    el.innerHTML = usable.length
+      ? usable.map(n => `<button class="emote-pick" data-emote="${esc(n)}">${emoteHtml(n)}</button>`).join('')
       : '<span class="form-msg">Emotes laden …</span>';
     el.classList.remove('hidden');
+    // Nachrichten nachziehen: die letzten bleiben beim Schreiben sichtbar
+    setTimeout(() => { const box = $('#chat-box'); box.scrollTop = box.scrollHeight; }, 320);
     el.querySelectorAll('[data-emote]').forEach(b => b.onclick = () => {
       const i = $('#chat-input');
       i.value = (i.value + ' ' + b.dataset.emote + ' ').replace(/\s{2,}/g, ' ').trimStart();
