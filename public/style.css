@@ -190,16 +190,13 @@ html.theme-anim, html.theme-anim *, html.theme-anim *::before, html.theme-anim *
 
 /* ---------- Layout + View-Übergänge ---------- */
 main { max-width: 640px; margin: 0 auto; padding: 20px 16px 110px; position: relative; }
+/* Wechsel ohne Überlappung: die alte View verschwindet sofort, nur die neue
+   animiert herein – so kann nichts springen, doppelt erscheinen oder verrutschen. */
 .view { will-change: transform, opacity; }
-.view.enter-right { animation: enterRight .45s var(--spring); }
-.view.enter-left { animation: enterLeft .45s var(--spring); }
-.view.leave { position: absolute; left: 16px; right: 16px; top: 20px; pointer-events: none; }
-.view.leave-left { animation: leaveLeft .45s var(--spring) forwards; }
-.view.leave-right { animation: leaveRight .45s var(--spring) forwards; }
-@keyframes enterRight { from { opacity: 0; transform: translateX(56px); } to { opacity: 1; transform: none; } }
-@keyframes enterLeft { from { opacity: 0; transform: translateX(-56px); } to { opacity: 1; transform: none; } }
-@keyframes leaveLeft { to { opacity: 0; transform: translateX(-56px); } }
-@keyframes leaveRight { to { opacity: 0; transform: translateX(56px); } }
+.view.enter-right { animation: enterRight .32s cubic-bezier(.2,.8,.3,1) backwards; }
+.view.enter-left { animation: enterLeft .32s cubic-bezier(.2,.8,.3,1) backwards; }
+@keyframes enterRight { from { opacity: 0; transform: translateX(22px); } to { opacity: 1; transform: none; } }
+@keyframes enterLeft { from { opacity: 0; transform: translateX(-22px); } to { opacity: 1; transform: none; } }
 
 .view h1 { font-size: 1.55rem; letter-spacing: -.03em; margin-bottom: 6px; }
 .view > p.muted { margin-bottom: 18px; font-size: .9rem; line-height: 1.5; }
@@ -1208,7 +1205,96 @@ body.no-select { user-select: none; -webkit-user-select: none; }
 
 @media (max-width: 520px) {
   main { padding: 16px 12px 104px; }
-  .view.leave { left: 12px; right: 12px; top: 16px; }
   .deal-img { flex-basis: 66px; width: 66px; height: 66px; }
   .onboarding-grid { grid-template-columns: 1fr; }
+}
+
+/* ================= Handy-Stabilität & Wallet-Spielgefühl ================= */
+
+/* Kein Pinch-Zoom, kein Doppeltipp-Zoom, kein Gummiband-Verschieben */
+html, body { overscroll-behavior-y: none; }
+body { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; }
+input, textarea, select, button { touch-action: manipulation; }
+
+/* Grünes/rotes Aufleuchten über dem ganzen Bildschirm (Geld rein / Geld raus) */
+.money-flash {
+  position: fixed; inset: 0; z-index: 220; pointer-events: none;
+  opacity: 0; animation: moneyFlash .75s ease-out forwards;
+}
+.money-flash.green { background: radial-gradient(120% 90% at 50% 85%, rgba(18,199,126,.38), rgba(18,199,126,0) 65%); }
+.money-flash.red { background: radial-gradient(120% 90% at 50% 85%, rgba(255,77,79,.34), rgba(255,77,79,0) 65%); }
+@keyframes moneyFlash { 0% { opacity: 0; } 18% { opacity: 1; } 100% { opacity: 0; } }
+
+/* Kurzer Schüttler beim Abbuchen */
+.shake { animation: shake .45s cubic-bezier(.36,.07,.19,.97); }
+@keyframes shake {
+  10%, 90% { transform: translateX(-1px); }
+  20%, 80% { transform: translateX(2px); }
+  30%, 50%, 70% { transform: translateX(-3px); }
+  40%, 60% { transform: translateX(3px); }
+}
+
+/* Geldscheine steigen auf (beim Hinzufügen/Aufladen) */
+.bill-float {
+  position: fixed; z-index: 221; pointer-events: none;
+  color: var(--k-accent, #12C77E);
+  animation: billUp 1.15s cubic-bezier(.2,.7,.3,1) forwards;
+}
+.bill-float .icon { width: 26px; height: 26px; }
+@keyframes billUp {
+  0% { opacity: 0; transform: translateY(0) rotate(var(--rot, 0deg)) scale(.7); }
+  15% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-140px) rotate(var(--rot, 0deg)) scale(1.05); }
+}
+
+/* Zahl pulsiert kurz, während sie hoch-/runterzählt */
+.bal-bump { animation: balBump .5s cubic-bezier(.3,1.4,.5,1); }
+@keyframes balBump { 40% { transform: scale(1.07); } }
+
+/* ---- Spar-Ränge: je mehr Guthaben, desto edler die Karte ---- */
+.rank-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.rank-chip {
+  font-size: .72rem; font-weight: 800; letter-spacing: .02em;
+  padding: 4px 10px; border-radius: 999px; white-space: nowrap;
+  background: rgba(18,199,126,.14); color: var(--k-accent, #12C77E);
+  border: 1px solid rgba(18,199,126,.35);
+}
+.rank-progress {
+  flex: 1; height: 6px; border-radius: 999px; overflow: hidden;
+  background: rgba(127,127,127,.18);
+}
+.rank-progress-fill {
+  height: 100%; width: 0; border-radius: 999px;
+  background: linear-gradient(90deg, #12C77E, #34e3a0);
+  transition: width .8s cubic-bezier(.2,.8,.3,1);
+}
+.rank-next { font-size: .68rem; opacity: .6; white-space: nowrap; }
+
+/* Stufen-Optik der Gesamtkarte: Tier steigt = Karte wird cooler */
+.balance-card { position: relative; overflow: hidden; transition: box-shadow .5s ease; }
+.balance-card.tier-2 { box-shadow: 0 6px 22px rgba(18,199,126,.16); }
+.balance-card.tier-3 { box-shadow: 0 8px 26px rgba(18,199,126,.24); border-color: rgba(18,199,126,.35); }
+.balance-card.tier-4 {
+  box-shadow: 0 10px 30px rgba(18,199,126,.3); border-color: rgba(18,199,126,.5);
+  background-image: linear-gradient(135deg, rgba(18,199,126,.10), rgba(18,199,126,0) 55%);
+}
+.balance-card.tier-5 {
+  box-shadow: 0 12px 36px rgba(255,196,0,.28); border-color: rgba(255,196,0,.55);
+  background-image: linear-gradient(135deg, rgba(255,196,0,.14), rgba(18,199,126,.10) 60%);
+}
+.balance-card.tier-5 .rank-chip {
+  background: rgba(255,196,0,.16); color: #d9a400; border-color: rgba(255,196,0,.45);
+}
+
+/* Ausgeschnittener Kassen-Code: weiß hinterlegt, damit Scanner ihn sauber lesen */
+.wallet-code-img {
+  display: block; width: 100%; margin-top: 12px;
+  background: #fff; border-radius: 14px; padding: 14px;
+  box-sizing: border-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .money-flash, .bill-float { display: none; }
+  .shake, .bal-bump { animation: none; }
+  .rank-progress-fill { transition: none; }
 }

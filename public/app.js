@@ -227,14 +227,16 @@ let viewCleanupTimer = null;
 function settleViews() {
   clearTimeout(viewCleanupTimer);
   document.querySelectorAll('.view').forEach(v => {
-    v.classList.remove('leave', 'leave-left', 'leave-right', 'enter-right', 'enter-left');
+    v.classList.remove('enter-right', 'enter-left');
     v.classList.toggle('hidden', v.id !== 'view-' + state.activeView);
   });
 }
 
+// Wechsel ohne Überlappung: alte View sofort weg, nur die neue animiert herein.
+// So kann bei schnellem Durchschalten nichts springen oder doppelt erscheinen.
 function switchView(next) {
   if (next === state.activeView) return;
-  settleViews(); // alles vom vorherigen Wechsel aufräumen
+  settleViews();
   const oldView = $('#view-' + state.activeView);
   const newView = $('#view-' + next);
   const dir = VIEW_ORDER.indexOf(next) > VIEW_ORDER.indexOf(state.activeView) ? 1 : -1;
@@ -243,13 +245,13 @@ function switchView(next) {
   document.querySelectorAll('.tabbtn').forEach(t => t.classList.toggle('active', t.dataset.view === next));
   moveTabPill();
 
-  oldView.classList.add('leave', dir === 1 ? 'leave-left' : 'leave-right');
+  oldView.classList.add('hidden');
+  window.scrollTo(0, 0);
   newView.classList.remove('hidden');
   newView.classList.add(dir === 1 ? 'enter-right' : 'enter-left');
-  window.scrollTo({ top: 0 });
   // Login-Captcha erst rendern, wenn die Profil-Seite sichtbar ist
   if (next === 'profile' && !state.token) renderTurnstile('login');
-  viewCleanupTimer = setTimeout(settleViews, 460);
+  viewCleanupTimer = setTimeout(settleViews, 380);
 }
 
 $('#tabbar').addEventListener('click', e => {
@@ -1414,14 +1416,82 @@ $('#btn-wallet-login').addEventListener('click', () => switchView('profile'));
 
 // Migration alter Einträge: value-String -> Guthaben, neue Felder ergänzen
 state.wallet.vouchers = state.wallet.vouchers.map(v => ({
-  pin: '', img: '', tx: [], balance: v.balance ?? (parseFloat(String(v.value || '').replace(',', '.')) || null),
+  pin: '', img: '', codeImg: '', tx: [], balance: v.balance ?? (parseFloat(String(v.value || '').replace(',', '.')) || null),
   amount: v.amount ?? (parseFloat(String(v.value || '').replace(',', '.')) || null),
   ...v,
 }));
-state.wallet.cards = state.wallet.cards.map(c => ({ img: '', ...c }));
+state.wallet.cards = state.wallet.cards.map(c => ({ img: '', codeImg: '', ...c }));
 
 function saveWallet() { save('wallet', state.wallet); renderWallet(); }
 function euroFmt(n) { return n == null ? '' : n.toFixed(2).replace('.', ',') + ' €'; }
+
+// ---- Spielgefühl: Sounds, Vibration, Aufleuchten, Geldscheine, Zähl-Animation ----
+
+const SFX = { kaching: '/sounds/kaching.mp3', pay: '/sounds/pay.mp3' };
+function playSfx(name) {
+  try { const a = new Audio(SFX[name]); a.volume = 0.55; a.play().catch(() => { }); } catch { }
+}
+function buzz(pattern) { try { navigator.vibrate && navigator.vibrate(pattern); } catch { } }
+
+const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function moneyFlash(kind) {
+  if (reducedMotion()) return;
+  const el = document.createElement('div');
+  el.className = 'money-flash ' + kind;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 800);
+}
+
+// Geldscheine steigen vom unteren Bildschirmrand auf
+function billRain(count = 6) {
+  if (reducedMotion()) return;
+  for (let i = 0; i < count; i++) {
+    const el = document.createElement('div');
+    el.className = 'bill-float';
+    el.style.left = (12 + (i / count) * 76 + (i % 3) * 3) + 'vw';
+    el.style.bottom = (90 + (i % 3) * 26) + 'px';
+    el.style.setProperty('--rot', ((i % 2 ? 1 : -1) * (8 + i * 4)) + 'deg');
+    el.style.animationDelay = (i * 70) + 'ms';
+    el.innerHTML = icon('banknote', 'icon');
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 1500 + i * 70);
+  }
+}
+
+// Zahl zählt sichtbar hoch/runter (Gesamtguthaben, Gutschein-Guthaben)
+function animateNumber(el, from, to, ms = 700) {
+  if (!el) return;
+  if (reducedMotion() || from == null || from === to) { el.textContent = euroFmt(to) || '0,00 €'; return; }
+  const t0 = performance.now();
+  el.classList.remove('bal-bump'); void el.offsetWidth; el.classList.add('bal-bump');
+  // Sicherung: Endwert landet auch, wenn rAF pausiert (Tab im Hintergrund)
+  const safety = setTimeout(() => { el.textContent = euroFmt(to) || '0,00 €'; }, ms + 100);
+  const tick = now => {
+    const p = Math.min(1, (now - t0) / ms);
+    const eased = 1 - Math.pow(1 - p, 3);
+    el.textContent = euroFmt(from + (to - from) * eased) || '0,00 €';
+    if (p < 1) requestAnimationFrame(tick);
+    else clearTimeout(safety);
+  };
+  requestAnimationFrame(tick);
+}
+
+// ---- Spar-Ränge: motivieren, Guthaben zu sammeln ----
+const RANKS = [
+  { min: 0, name: 'Spar-Neuling', tier: 1 },
+  { min: 25, name: 'Sparfuchs', tier: 2 },
+  { min: 75, name: 'Schnäppchenjäger', tier: 3 },
+  { min: 150, name: 'Spar-Meister', tier: 4 },
+  { min: 300, name: 'Gutschein-Guru', tier: 4 },
+  { min: 500, name: 'Wallet-Legende', tier: 5 },
+];
+function rankFor(total) {
+  let cur = RANKS[0];
+  for (const r of RANKS) if (total >= r.min) cur = r;
+  const next = RANKS[RANKS.indexOf(cur) + 1] || null;
+  return { ...cur, next };
+}
 
 // Code aus eingefügtem Text erkennen (regelbasiert – echte KI folgt mit dem Backend)
 function detectCode(text) {
@@ -1463,6 +1533,7 @@ async function copyText(t) {
 let addImg = '';
 let addType = 'voucher';
 let addPrefill = '';
+let addCodeImg = ''; // ausgeschnittener Kassen-Code (falls der Scanner ihn findet)
 
 // Bekannte Shops für die manuelle Schnell-Auswahl
 const VENDOR_QUICK = ['REWE', 'Amazon', 'Wunschgutschein', 'Zalando', 'IKEA', 'Rossmann', 'Lidl', 'EDEKA'];
@@ -1470,13 +1541,29 @@ const VENDOR_QUICK = ['REWE', 'Amazon', 'Wunschgutschein', 'Zalando', 'IKEA', 'R
 // Bild automatisch auslesen: QR/Barcode (BarcodeDetector) + Text (TextDetector, wo verfügbar).
 // Volle KI-Auslese (Claude Vision) kommt mit dem Live-Backend.
 async function analyzeWalletImage(dataUrl) {
-  const out = { barcode: '', text: '', supported: { barcode: 'BarcodeDetector' in window, text: 'TextDetector' in window } };
+  const out = { barcode: '', codeImg: '', text: '', supported: { barcode: 'BarcodeDetector' in window, text: 'TextDetector' in window } };
   const img = new Image();
   await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = dataUrl; });
   if (out.supported.barcode) {
     try {
       const codes = await new BarcodeDetector().detect(img);
-      if (codes.length) out.barcode = codes[0].rawValue || '';
+      if (codes.length) {
+        out.barcode = codes[0].rawValue || '';
+        // Kassen-Code ausschneiden: nur der Barcode/QR, großzügig gepolstert –
+        // den hält man an der Kasse hin, perfekt lesbar statt Mini-Ausschnitt im Foto
+        const bb = codes[0].boundingBox;
+        if (bb && bb.width > 20 && bb.height > 10) {
+          const padX = bb.width * 0.14, padY = bb.height * 0.35;
+          const x = Math.max(0, bb.x - padX), y = Math.max(0, bb.y - padY);
+          const w = Math.min(img.naturalWidth - x, bb.width + padX * 2);
+          const h = Math.min(img.naturalHeight - y, bb.height + padY * 2);
+          const c = document.createElement('canvas');
+          const scale = Math.min(2, 900 / w); // hochskalieren für Scanner-Schärfe
+          c.width = Math.round(w * scale); c.height = Math.round(h * scale);
+          c.getContext('2d').drawImage(img, x, y, w, h, 0, 0, c.width, c.height);
+          out.codeImg = c.toDataURL('image/png');
+        }
+      }
     } catch { }
   }
   if (out.supported.text) {
@@ -1494,6 +1581,7 @@ function openWalletAdd(type, prefillName) {
   addPrefill = prefillName || '';
   state.sheetMode = 'wallet-add';
   addImg = '';
+  addCodeImg = '';
   $('#sheet-content').innerHTML = `
     <div class="sheet-title">Zur Wallet hinzufügen</div>
     <div class="seg-type">
@@ -1572,6 +1660,7 @@ function openWalletAdd(type, prefillName) {
       m.className = 'form-msg';
       m.textContent = 'Lese das Bild aus …';
       const r = await analyzeWalletImage(addImg);
+      if (r.codeImg) { addCodeImg = r.codeImg; $('#wa-preview').src = r.codeImg; }
       const filled = [];
       if (addType === 'voucher') {
         if (r.barcode && !$('#wa-code').value) { $('#wa-code').value = r.barcode.slice(0, 40); filled.push('Code (aus QR/Barcode)'); }
@@ -1597,6 +1686,7 @@ function openWalletAdd(type, prefillName) {
           if (num && !$('#wa-cnumber').value) { $('#wa-cnumber').value = num.replace(/\s+/g, ''); filled.push('Kartennummer'); }
         }
       }
+      if (r.codeImg) filled.push('Kassen-Code ausgeschnitten');
       if (filled.length) {
         m.className = 'form-msg ok';
         m.textContent = `Automatisch ausgefüllt: ${filled.join(', ')} – bitte prüfen.`;
@@ -1626,7 +1716,7 @@ function openWalletAdd(type, prefillName) {
         end: $('#wa-end').value || '',
         amount: isNaN(amount) ? null : amount,
         balance: isNaN(amount) ? null : amount,
-        img: addImg, tx: [],
+        img: addImg, codeImg: addCodeImg, tx: [],
       };
       if (!v.vendor || !v.code) { msg.className = 'form-msg error'; msg.textContent = 'Anbieter und Code sind Pflicht.'; return; }
       state.wallet.vouchers.unshift(v);
@@ -1635,20 +1725,25 @@ function openWalletAdd(type, prefillName) {
         id: Math.random().toString(36).slice(2, 9),
         name: $('#wa-cname').value.trim().slice(0, 30),
         number: $('#wa-cnumber').value.trim().slice(0, 30),
-        img: addImg,
+        img: addImg, codeImg: addCodeImg,
       };
       if (!c.name || !c.number) { msg.className = 'form-msg error'; msg.textContent = 'Name und Nummer sind Pflicht.'; return; }
       state.wallet.cards.unshift(c);
     }
     saveWallet();
     closeSheet();
-    island('Gespeichert');
+    // Ka-ching! Neues Guthaben in der Wallet
+    playSfx('kaching');
+    buzz(35);
+    moneyFlash('green');
+    billRain(7);
+    island('In der Wallet gespeichert');
   });
   openSheetShell();
 }
 
 // ---- Detail: Guthaben, Abbuchen/Aufladen mit Notiz, Verlauf mit Revert
-function openVoucherSheet(id) {
+function openVoucherSheet(id, animFrom) {
   const v = state.wallet.vouchers.find(x => x.id === id);
   if (!v) return;
   state.sheetMode = 'wallet-detail';
@@ -1662,7 +1757,7 @@ function openVoucherSheet(id) {
       </div>
       <button class="fav-remove" id="wv-del" aria-label="Löschen">${icon('x', 'icon icon-sm')}</button>
     </div>
-    ${v.balance != null ? `<div class="balance-big" style="margin-top:12px">${euroFmt(v.balance)}
+    ${v.balance != null ? `<div class="balance-big" style="margin-top:12px"><span id="wv-balance">${euroFmt(v.balance)}</span>
       ${v.amount != null && v.amount !== v.balance ? `<span class="stars-count">von ${euroFmt(v.amount)}</span>` : ''}</div>` : ''}
     <div class="tx-row" style="margin-top:12px">
       <span class="wallet-code" style="flex:1">${esc(v.code)}</span>
@@ -1670,7 +1765,8 @@ function openVoucherSheet(id) {
     </div>
     ${v.pin ? `<div class="tx-row"><span class="wallet-code" style="flex:1">PIN: ${esc(v.pin)}</span>
       <button class="btn btn-small btn-ghost" data-copy-txt="${esc(v.pin)}">PIN kopieren</button></div>` : ''}
-    ${v.img ? `<img class="wallet-img" src="${v.img}" alt="QR/Barcode">` : ''}
+    ${v.codeImg ? `<img class="wallet-code-img" src="${v.codeImg}" alt="Code für die Kasse">`
+      : v.img ? `<img class="wallet-img" src="${v.img}" alt="QR/Barcode">` : ''}
     ${v.balance != null ? `
     <div class="sheet-section">
       <h3>Betrag abbuchen / aufladen</h3>
@@ -1705,12 +1801,24 @@ function openVoucherSheet(id) {
     const amt = parseFloat($('#wv-amt').value.replace(',', '.'));
     const msg = $('#wv-msg');
     if (isNaN(amt) || amt <= 0) { msg.className = 'form-msg error'; msg.textContent = 'Betrag angeben.'; return; }
+    const before = v.balance;
     v.tx = v.tx || [];
     v.tx.unshift({ id: Math.random().toString(36).slice(2, 9), amt: sign * amt, note: $('#wv-note').value.trim().slice(0, 60), ts: Date.now() });
     v.balance = Math.round((v.balance + sign * amt) * 100) / 100;
     saveWallet();
-    openVoucherSheet(id);
-    // Erfolgs-Moment: Buchung quittiert der Punkt – zeitgleich mit dem neuen Kontostand
+    openVoucherSheet(id, before);
+    // Spielgefühl: Geld raus = Apple-Pay-Sound, rotes Aufleuchten, kurzer Shake;
+    // Geld rein = Ka-ching, grünes Aufleuchten, Geldscheine
+    if (sign < 0) {
+      playSfx('pay'); buzz([45, 40, 45]); moneyFlash('red');
+      const sheet = document.querySelector('.sheet');
+      if (sheet && !reducedMotion()) {
+        sheet.classList.remove('shake'); void sheet.offsetWidth; sheet.classList.add('shake');
+        setTimeout(() => sheet.classList.remove('shake'), 500);
+      }
+    } else {
+      playSfx('kaching'); buzz(35); moneyFlash('green'); billRain(5);
+    }
     showToast({
       title: sign < 0 ? 'Abbuchung gespeichert' : 'Aufladung gespeichert',
       text: `Restguthaben: ${euroFmt(v.balance)}`,
@@ -1719,13 +1827,16 @@ function openVoucherSheet(id) {
   };
   $('#wv-sub')?.addEventListener('click', () => book(-1));
   $('#wv-addamt')?.addEventListener('click', () => book(1));
+  // Guthaben zählt sichtbar vom alten zum neuen Stand
+  if (animFrom != null && v.balance != null) animateNumber($('#wv-balance'), animFrom, v.balance);
   $('#sheet-content').querySelectorAll('[data-revert]').forEach(b => b.addEventListener('click', () => {
     const t = v.tx.find(x => x.id === b.dataset.revert);
     if (!t || t.reverted) return;
+    const before = v.balance;
     t.reverted = true;
     v.balance = Math.round((v.balance - t.amt) * 100) / 100;
     saveWallet();
-    openVoucherSheet(id);
+    openVoucherSheet(id, before);
     island('Buchung rückgängig gemacht');
   }));
   openSheetShell();
@@ -1745,7 +1856,8 @@ function openCardSheet(id) {
       <span class="wallet-code" style="flex:1">${esc(c.number)}</span>
       <button class="btn btn-small" data-copy-txt="${esc(c.number)}">Kopieren</button>
     </div>
-    ${c.img ? `<img class="wallet-img" src="${c.img}" alt="QR/Barcode">`
+    ${c.codeImg ? `<img class="wallet-code-img" src="${c.codeImg}" alt="Code für die Kasse">`
+      : c.img ? `<img class="wallet-img" src="${c.img}" alt="QR/Barcode">`
       : '<p class="muted" style="margin-top:10px; font-size:.82rem">Tipp: Screenshot vom Karten-Barcode anhängen (beim Anlegen), dann kannst du ihn an der Kasse scannen lassen.</p>'}`;
   $('#sheet-content').querySelectorAll('[data-copy-txt]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copyTxt)));
   $('#wc-del').addEventListener('click', () => {
@@ -1765,12 +1877,29 @@ function renderWallet() {
   const active = state.wallet.vouchers.filter(v => v.balance == null || v.balance > 0);
   const used = state.wallet.vouchers.filter(v => v.balance != null && v.balance <= 0);
 
-  // Kontostand: Summe aller Restguthaben, ändert sich mit jeder Buchung
-  const total = active.reduce((s, v) => s + (v.balance || 0), 0);
-  $('#wallet-total').textContent = euroFmt(total) || '0,00 €';
+  // Kontostand: Summe aller Restguthaben – zählt animiert zum neuen Stand
+  const total = Math.round(active.reduce((s, v) => s + (v.balance || 0), 0) * 100) / 100;
+  animateNumber($('#wallet-total'), renderWallet.lastTotal, total);
+  renderWallet.lastTotal = total;
   $('#wallet-total-sub').textContent = active.length
     ? `über ${active.length} Gutschein${active.length > 1 ? 'e' : ''}`
     : 'noch keine Gutscheine mit Guthaben';
+
+  // Spar-Rang: je mehr Guthaben, desto edler die Karte + Fortschritt zur nächsten Stufe
+  const rank = rankFor(total);
+  const card = $('#balance-card');
+  if (card) {
+    card.className = 'card balance-card tier-' + rank.tier;
+    $('#wallet-rank').textContent = rank.name;
+    if (rank.next) {
+      const span = rank.next.min - rank.min;
+      $('#wallet-rank-fill').style.width = Math.round(((total - rank.min) / span) * 100) + '%';
+      $('#wallet-rank-next').textContent = `${euroFmt(rank.next.min - total)} bis ${rank.next.name}`;
+    } else {
+      $('#wallet-rank-fill').style.width = '100%';
+      $('#wallet-rank-next').textContent = 'Höchste Stufe erreicht';
+    }
+  }
   const vCard = v => `
     <div class="wallet-card" data-wv="${esc(v.id)}" style="--bc:${brandColor(v.vendor)}">
       <div class="wallet-card-head">
@@ -1829,6 +1958,11 @@ $('#btn-home').addEventListener('click', () => {
 });
 
 // ---------------- Start ----------------
+
+// Als Home-Bildschirm-App: Pinch-Zoom (iOS-Geste) komplett blocken –
+// Doppeltipp-Zoom verhindert touch-action in style.css
+['gesturestart', 'gesturechange', 'gestureend'].forEach(t =>
+  document.addEventListener(t, e => e.preventDefault(), { passive: false }));
 
 (async function init() {
   refreshProfileTab();

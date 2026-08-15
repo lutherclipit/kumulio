@@ -2,8 +2,13 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1, user-scalable=no">
   <title>kumulio</title>
+  <!-- Als Home-Bildschirm-App (iOS/Android): Vollbild, kein Browser-Chrome -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="kumulio">
   <link rel="icon" href="/brand/kumulio-icon.svg" type="image/svg+xml">
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#12C77E">
@@ -126,7 +131,8 @@
       </div>
       <p class="legal-line" style="text-align:center; margin-top:16px">
         <a href="/agb.html" target="_blank" rel="noopener">AGB</a> ·
-        <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutz</a>
+        <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutz</a> ·
+        <a href="/impressum.html" target="_blank" rel="noopener">Impressum</a>
       </p>
     </section>
 
@@ -157,10 +163,15 @@
         <button class="btn btn-big" id="btn-wallet-login">Anmelden / Registrieren</button>
       </div>
       <div id="wallet-content">
-        <div class="card balance-card">
+        <div class="card balance-card" id="balance-card">
           <div class="offer-cat">Gesamtguthaben</div>
           <div class="balance-big" id="wallet-total">0,00 €</div>
           <div class="offer-cat" id="wallet-total-sub"></div>
+          <div class="rank-row">
+            <span class="rank-chip" id="wallet-rank"></span>
+            <div class="rank-progress"><div class="rank-progress-fill" id="wallet-rank-fill"></div></div>
+            <span class="rank-next" id="wallet-rank-next"></span>
+          </div>
         </div>
         <h3 class="wallet-h">Gutscheine</h3>
         <div id="voucher-list" class="wallet-list"></div>
