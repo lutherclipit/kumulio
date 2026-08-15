@@ -39,6 +39,9 @@
       <symbol id="i-warning" viewBox="0 0 24 24"><path d="M12 3.5l9.5 16.5H2.5z"/><path d="M12 10v4.5M12 17.5h.01"/></symbol>
       <symbol id="i-message" viewBox="0 0 24 24"><path d="M12 4c5 0 9 3.4 9 7.5S17 19 12 19c-1 0-2-.1-2.9-.4L4 20l1.6-3.4C4.6 15.4 3 13.6 3 11.5 3 7.4 7 4 12 4z"/></symbol>
       <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-smile" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M8.8 14c.8 1.2 1.9 1.8 3.2 1.8s2.4-.6 3.2-1.8"/><path d="M9.3 9.6h.01M14.7 9.6h.01"/></symbol>
+      <symbol id="i-crown" viewBox="0 0 24 24"><path d="M4.5 9l3.4 2.8L12 5.5l4.1 6.3L19.5 9l-1.2 9h-12.6z"/></symbol>
+      <symbol id="i-pin" viewBox="0 0 24 24"><path d="M9.5 3.5h5l-.7 6 3.2 3v1.5H7v-1.5l3.2-3z"/><path d="M12 14v6"/></symbol>
       <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
       <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
       <symbol id="i-arrow-out" viewBox="0 0 24 24"><path d="M7 17L17 7M9.5 7H17v7.5"/></symbol>
@@ -66,8 +69,8 @@
   </svg>
 
   <header class="topbar">
-    <button class="iconbtn" id="btn-theme" aria-label="Dark Mode umschalten">
-      <svg class="icon"><use href="#i-moon"/></svg>
+    <button class="iconbtn" id="btn-search-top" aria-label="Suche">
+      <svg class="icon"><use href="#i-search"/></svg>
     </button>
     <button class="brand brand-center" id="btn-home" aria-label="kumulio — zur Startseite">
       <span id="brand-wordmark"></span>
@@ -150,7 +153,20 @@
       <!-- Profil-Gestaltung + Privatsphäre -->
       <div class="card modal-left hidden" id="bio-card">
         <h2 class="card-h">Über dich</h2>
-        <textarea id="g-bio" class="input" rows="2" maxlength="160" placeholder="Kurze Bio (max. 160 Zeichen) – Beleidigungen werden gefiltert"></textarea>
+        <div class="avatar-row">
+          <span class="avatar-big" id="g-avatar-preview"></span>
+          <label class="btn btn-small btn-ghost" style="cursor:pointer">Profilbild wählen
+            <input id="g-avatar" type="file" accept="image/*" style="display:none"></label>
+          <button id="g-avatar-del" class="btn btn-small btn-ghost hidden">Entfernen</button>
+        </div>
+        <textarea id="g-bio" class="input" rows="2" maxlength="160" placeholder="Kurze Bio (max. 160 Zeichen) – Beleidigungen werden gefiltert" style="margin-top:10px"></textarea>
+        <div class="favs-grid">
+          <input id="gf-discounter" class="input" maxlength="30" placeholder="Lieblings-Discounter">
+          <input id="gf-supermarkt" class="input" maxlength="30" placeholder="Lieblings-Supermarkt">
+          <input id="gf-essen" class="input" maxlength="30" placeholder="Lieblingsessen">
+          <input id="gf-onlineshop" class="input" maxlength="30" placeholder="Lieblings-Onlineshop">
+          <input id="gf-mode" class="input" maxlength="30" placeholder="Lieblings-Modemarke">
+        </div>
         <label style="display:flex; align-items:center; gap:8px; margin-top:10px; font-size:.86rem">
           <input type="checkbox" id="g-public" style="width:auto"> Profil öffentlich zeigen (Name, Bio, Badges)
         </label>
@@ -167,6 +183,15 @@
           <div class="teaser-row"><svg class="icon"><use href="#i-trophy"/></svg><span>Dein Platz im Deal-Scout-Ranking</span></div>
         </div>
       </div>
+      <!-- Darstellung: Dark Mode wohnt jetzt hier statt in der Topbar -->
+      <div class="card" id="appearance-card">
+        <h2 class="card-h">Darstellung</h2>
+        <div class="form-row" style="align-items:center">
+          <button id="btn-theme" class="btn btn-small btn-ghost">
+            <svg class="icon icon-sm"><use href="#i-moon"/></svg>&nbsp;Hell / Dunkel umschalten
+          </button>
+        </div>
+      </div>
       <p class="legal-line" style="text-align:center; margin-top:16px">
         <a href="/agb.html" target="_blank" rel="noopener">AGB</a> ·
         <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutz</a> ·
@@ -176,6 +201,10 @@
 
     <!-- ================= FEED ================= -->
     <section id="view-feed" class="view">
+      <!-- Nur für Admins sichtbar: Deal direkt aus der App posten -->
+      <button id="btn-admin-post" class="btn btn-small hidden" style="margin-bottom:10px">
+        <svg class="icon icon-sm"><use href="#i-plus"/></svg>&nbsp;Deal posten
+      </button>
       <div class="chipbar" id="chipbar"></div>
       <div id="community-banner" class="notice hidden">
         <svg class="icon notice-icon"><use href="#i-warning"/></svg>
@@ -237,22 +266,39 @@
       <h1>Chat</h1>
       <p class="muted">Der globale kumulio-Chat – Deals, Fragen, Sparerfolge. Sei nett:
         Beleidigungen werden zensiert, die Moderation kann timeouten.</p>
+      <div id="chat-modes">
+        <button class="chip active" data-cmode="global">Global</button>
+        <button class="chip" data-cmode="dmlist">Flüstern <span id="dm-unread" class="pill hidden"></span></button>
+      </div>
+      <div id="dm-head" class="hidden">
+        <button class="btn btn-small btn-ghost" id="dm-back">← Zurück</button>
+        <span id="dm-partner-name"></span>
+      </div>
+      <div id="chat-pinbar" class="hidden"></div>
       <div id="chat-box">
         <div id="chat-list"></div>
       </div>
       <div id="chat-emotes" class="hidden"></div>
       <div id="chat-input-row">
         <button id="chat-emote-btn" class="iconbtn" aria-label="Emotes">
-          <svg class="icon"><use href="#i-star"/></svg>
+          <svg class="icon"><use href="#i-smile"/></svg>
         </button>
         <input id="chat-input" class="input" maxlength="220" placeholder="Nachricht … (Anmelden zum Schreiben)" autocomplete="off">
         <button id="chat-send" class="btn btn-small">Senden</button>
       </div>
+
+      <!-- Nutzer-Popup: Profil, Flüstern, Freund, Melden (+ Moderation für Mods) -->
+      <div id="user-pop-backdrop" class="overlay hidden">
+        <div class="modal modal-left" id="user-pop"></div>
+      </div>
     </section>
 
-    <!-- ================= SUCHE ================= -->
+    <!-- ================= SUCHE (öffnet über das Lupen-Icon oben links) ================= -->
     <section id="view-search" class="view hidden">
-      <h1>Suche</h1>
+      <div class="search-head">
+        <button class="btn btn-small btn-ghost" id="btn-search-back">← Zurück</button>
+        <h1 style="margin:0">Suche</h1>
+      </div>
       <input id="search" class="input search-big" type="search"
         placeholder="Angebote, Marken, Codes durchsuchen …" autocomplete="off">
       <div id="search-results" class="feed" style="margin-top:14px"></div>
@@ -270,9 +316,6 @@
     </button>
     <button class="tabbtn" data-view="chat">
       <svg class="icon"><use href="#i-message"/></svg><span>Chat</span>
-    </button>
-    <button class="tabbtn" data-view="search">
-      <svg class="icon"><use href="#i-search"/></svg><span>Suche</span>
     </button>
   </nav>
 

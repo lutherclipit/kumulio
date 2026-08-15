@@ -96,17 +96,34 @@ let wallets = loadJson('wallets.json', {});     // { user: {vouchers:[], cards:[
 // ---------------------------------------------------------------- Global-Chat
 // Twitch-artig: nur Angemeldete schreiben. Beleidigungen werden ZENSIERT (nicht
 // gesperrt) – sperren/timeouten kann nur die Moderation. Emotes: 7TV (verifizierte IDs).
-const CHAT_EMOTES = {
-  peepoHappy: '01KZEVPCH9KT9VGKYN580CMR35',
-  peepoClap: '01KY2R9YZRM3S5DCWXG56D6MWM',
-  peepoLove: '01KN4C1AGRRG7QSWH4RSWFMY5G',
-  peepoRun: '01KJX0TGBVXBHV11JEAR6GE6ZV',
-  peepoGiggles: '01KMKYNDNC6CSXW46S8RFT9Q8T',
-  FeelsOkayMan: '01KPQ8GWMB8A02VWCPNWTBXC7K',
-  Prayge: '01KZTXEW9DGCNT2QTFFN8KHPYG',
-  Sadge: '01KZ75T5XV0ZAQBNEK65Y8CMMF',
-};
-let chat = loadJson('chat.json', { messages: [], mutes: {}, bans: {} });
+// Es gelten NUR die offiziellen 7TV-Global-Emotes – täglich aktualisiert, gecacht
+let emoteCache = loadJson('emotes.json', { ts: 0, map: {} });
+async function refreshEmotes() {
+  if (Date.now() - emoteCache.ts < 12 * 3600e3 && Object.keys(emoteCache.map).length) return;
+  try {
+    const r = await fetch('https://7tv.io/v3/emote-sets/global');
+    const j = await r.json();
+    const map = {};
+    for (const e of j.emotes || []) if (/^[A-Za-z0-9]+$/.test(e.name)) map[e.name] = e.id;
+    if (Object.keys(map).length) { emoteCache = { ts: Date.now(), map }; saveJson('emotes.json', emoteCache); }
+  } catch { /* offline → alter Cache bleibt */ }
+}
+refreshEmotes();
+setInterval(refreshEmotes, 3600e3);
+
+// Rollen: LUTHER ist fest Admin, weitere Rollen liegen am Nutzer (users[x].role)
+const DEFAULT_ADMINS = ['luther'];
+function roleOf(user) {
+  if (!user) return '';
+  if (DEFAULT_ADMINS.includes(user.toLowerCase())) return 'admin';
+  return (users[user] && users[user].role) || '';
+}
+const isModUser = u => ['admin', 'mod'].includes(roleOf(u));
+
+let chat = loadJson('chat.json', { messages: [], mutes: {}, bans: {}, pinned: null });
+let dms = loadJson('dms.json', {});      // { "a|b": {msgs:[{id,from,text,ts}], reads:{user:ts}} }
+let reports = loadJson('reports.json', []);
+const dmKey = (a, b) => [a, b].sort().join('|');
 const chatLast = {}; // user -> {ts, text} für den Spam-Schutz (RAM reicht)
 const BAD_WORDS = /hurensohn|hurentochter|fotze|wichser|missgeburt|schlampe|arschloch|spast(i|en)?|behindert(er|e)?|nutte|fick\s*dich|verpiss|fu+ck(er|\s*you)?|bitch|asshole|cunt|nigg\w*|fag(got)?|hitler|nazi/gi;
 function censor(text) {
@@ -677,7 +694,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/chat' && req.method === 'GET') {
       const since = Number(url.searchParams.get('since') || 0);
       const msgs = chat.messages.filter(m => m.ts > since).slice(-80);
-      return send(res, 200, { messages: msgs, emotes: CHAT_EMOTES, badges: BADGES });
+      return send(res, 200, { messages: msgs, emotes: emoteCache.map, badges: BADGES, pinned: chat.pinned || null });
     }
     if (p === '/api/chat' && req.method === 'POST') {
       const user = authUser(req);
@@ -691,17 +708,60 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req);
       const text = String(b.text || '').trim().slice(0, 220);
       if (!text) return send(res, 400, { error: 'Leere Nachricht.' });
+      // Chat-Command: !v (Vanish) löscht alle eigenen Nachrichten
+      if (text === '!v') {
+        chat.messages = chat.messages.filter(m => m.user !== user);
+        if (chat.pinned && chat.pinned.user === user) chat.pinned = null;
+        saveJson('chat.json', chat);
+        return send(res, 200, { ok: true, vanished: true });
+      }
       const last = chatLast[user];
       if (last && Date.now() - last.ts < 2000) return send(res, 429, { error: 'Langsam – kurz warten.' });
       if (last && last.text === text && Date.now() - last.ts < 30000) return send(res, 429, { error: 'Gleiche Nachricht schon gesendet.' });
       chatLast[user] = { ts: Date.now(), text };
-      const msg = { id: crypto.randomBytes(6).toString('hex'), user, badge: profileOf(user).activeBadge || '', text: censor(text), ts: Date.now() };
+      const msg = {
+        id: crypto.randomBytes(6).toString('hex'), user,
+        badge: profileOf(user).activeBadge || '', role: roleOf(user),
+        text: censor(text), ts: Date.now(),
+      };
       chat.messages.push(msg);
-      if (chat.messages.length > 500) chat.messages = chat.messages.slice(-500);
+      // Historie bewusst kurz: nur die letzten 150 Nachrichten bleiben
+      if (chat.messages.length > 150) chat.messages = chat.messages.slice(-150);
       saveJson('chat.json', chat);
       return send(res, 201, { ok: true, message: msg });
     }
-    // Moderation: Timeout / Bann / Nachricht löschen (Admin-Panel)
+    // Moderation direkt aus der App (Rolle mod/admin) – Timeout, Bann, Löschen, Anpinnen
+    if (p === '/api/chat/mod' && req.method === 'POST') {
+      const me = authUser(req);
+      if (!isModUser(me)) return send(res, 403, { error: 'Nur für Moderatoren.' });
+      const b = await readBody(req);
+      const target = String(b.user || '');
+      if (isModUser(target) && b.action !== 'pin' && b.action !== 'unpin' && b.action !== 'delete-msg')
+        return send(res, 403, { error: 'Moderatoren können sich nicht gegenseitig sperren.' });
+      if (b.action === 'timeout') chat.mutes[target] = Date.now() + (Number(b.minutes) || 10) * 60000;
+      else if (b.action === 'ban') chat.bans[target] = true;
+      else if (b.action === 'unban') { delete chat.bans[target]; delete chat.mutes[target]; }
+      else if (b.action === 'delete-msg') {
+        chat.messages = chat.messages.filter(m => m.id !== b.id);
+        if (chat.pinned && chat.pinned.id === b.id) chat.pinned = null;
+      }
+      else if (b.action === 'pin') chat.pinned = chat.messages.find(m => m.id === b.id) || chat.pinned;
+      else if (b.action === 'unpin') chat.pinned = null;
+      else return send(res, 400, { error: 'Unbekannte Aktion.' });
+      saveJson('chat.json', chat);
+      return send(res, 200, { ok: true });
+    }
+    // Nutzer melden
+    if (p === '/api/chat/report' && req.method === 'POST') {
+      const me = authUser(req);
+      if (!me) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      reports.push({ id: crypto.randomBytes(5).toString('hex'), user: String(b.user || '').slice(0, 24), msgId: String(b.id || ''), by: me, ts: Date.now() });
+      if (reports.length > 500) reports = reports.slice(-500);
+      saveJson('reports.json', reports);
+      return send(res, 200, { ok: true });
+    }
+    // Moderation: Timeout / Bann / Nachricht löschen (Admin-Panel, per Key)
     if (p === '/api/admin/chat' && req.method === 'POST') {
       if (!isAdmin(req)) return send(res, 403, { error: 'Admin-Key falsch.' });
       const b = await readBody(req);
@@ -713,6 +773,89 @@ const server = http.createServer(async (req, res) => {
       else return send(res, 400, { error: 'Unbekannte Aktion.' });
       saveJson('chat.json', chat);
       return send(res, 200, { ok: true });
+    }
+
+    // ---- Flüstern (private 1:1-Chats, WhatsApp-artige Liste)
+    if (p === '/api/dm/list' && req.method === 'GET') {
+      const me = authUser(req);
+      if (!me) return send(res, 401, { error: 'Bitte anmelden.' });
+      const list = [];
+      for (const [key, convo] of Object.entries(dms)) {
+        const [a, b] = key.split('|');
+        if (a !== me && b !== me) continue;
+        const partner = a === me ? b : a;
+        const lastMsg = convo.msgs[convo.msgs.length - 1];
+        if (!lastMsg) continue;
+        const readTs = (convo.reads || {})[me] || 0;
+        list.push({
+          partner, lastText: lastMsg.text.slice(0, 60), lastTs: lastMsg.ts,
+          unread: convo.msgs.filter(m => m.from !== me && m.ts > readTs).length,
+        });
+      }
+      list.sort((x, y) => y.lastTs - x.lastTs);
+      // Freunde ohne bisherigen Chat mit anbieten
+      const friends = (profileOf(me).friends || []).filter(f => !list.some(l => l.partner === f));
+      return send(res, 200, { list, friends });
+    }
+    if (p === '/api/dm/with' && req.method === 'GET') {
+      const me = authUser(req);
+      if (!me) return send(res, 401, { error: 'Bitte anmelden.' });
+      const partner = String(url.searchParams.get('user') || '');
+      const since = Number(url.searchParams.get('since') || 0);
+      const convo = dms[dmKey(me, partner)] || { msgs: [], reads: {} };
+      convo.reads = convo.reads || {};
+      convo.reads[me] = Date.now();
+      if (dms[dmKey(me, partner)]) saveJson('dms.json', dms);
+      return send(res, 200, { messages: convo.msgs.filter(m => m.ts > since).slice(-60) });
+    }
+    if (p === '/api/dm/send' && req.method === 'POST') {
+      const me = authUser(req);
+      if (!me) return send(res, 401, { error: 'Zum Flüstern bitte anmelden.' });
+      const b = await readBody(req);
+      const to = String(b.to || '');
+      if (!users[to]) return send(res, 404, { error: 'Nutzer nicht gefunden.' });
+      if (to === me) return send(res, 400, { error: 'Mit dir selbst flüstern? Sadge.' });
+      const text = String(b.text || '').trim().slice(0, 220);
+      if (!text) return send(res, 400, { error: 'Leere Nachricht.' });
+      const last = chatLast['dm:' + me];
+      if (last && Date.now() - last.ts < 1000) return send(res, 429, { error: 'Langsam – kurz warten.' });
+      chatLast['dm:' + me] = { ts: Date.now(), text };
+      const key = dmKey(me, to);
+      dms[key] = dms[key] || { msgs: [], reads: {} };
+      const msg = { id: crypto.randomBytes(5).toString('hex'), from: me, text: censor(text), ts: Date.now() };
+      dms[key].msgs.push(msg);
+      if (dms[key].msgs.length > 200) dms[key].msgs = dms[key].msgs.slice(-200);
+      dms[key].reads[me] = Date.now();
+      saveJson('dms.json', dms);
+      return send(res, 201, { ok: true, message: msg });
+    }
+    // Freunde
+    if (p === '/api/friend' && req.method === 'POST') {
+      const me = authUser(req);
+      if (!me) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      const target = String(b.user || '');
+      if (!users[target]) return send(res, 404, { error: 'Nutzer nicht gefunden.' });
+      const prof = profileOf(me);
+      prof.friends = prof.friends || [];
+      if (b.action === 'remove') prof.friends = prof.friends.filter(f => f !== target);
+      else if (!prof.friends.includes(target) && target !== me) prof.friends.push(target);
+      saveJson('users.json', users);
+      return send(res, 200, { ok: true, friends: prof.friends });
+    }
+    // Öffentliches Profil eines Nutzers ansehen
+    if (p === '/api/user' && req.method === 'GET') {
+      const name = String(url.searchParams.get('name') || '');
+      if (!users[name]) return send(res, 404, { error: 'Nutzer nicht gefunden.' });
+      const prof = profileOf(name);
+      if (prof.publicProfile === false) {
+        return send(res, 200, { user: name, private: true, role: roleOf(name) });
+      }
+      return send(res, 200, {
+        user: name, role: roleOf(name), bio: prof.bio || '', avatar: prof.avatar || '',
+        badges: prof.badges || [], activeBadge: prof.activeBadge || '', favs: prof.favs || {},
+        badgesAll: BADGES,
+      });
     }
 
     // ---- Web-Push: abonnieren / abmelden
@@ -745,12 +888,22 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/profile' && req.method === 'POST') {
       const user = authUser(req);
       if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
-      const b = await readBody(req);
+      const b = await readBody(req, 300_000); // Platz fürs (komprimierte) Profilbild
       const prof = profileOf(user);
       if (typeof b.bio === 'string') prof.bio = censor(b.bio.trim().slice(0, 160));
       if (typeof b.publicProfile === 'boolean') prof.publicProfile = b.publicProfile;
       if (typeof b.activeBadge === 'string')
         prof.activeBadge = (b.activeBadge === '' || prof.badges.includes(b.activeBadge)) ? b.activeBadge : prof.activeBadge;
+      // Profilbild: kleines dataURL-Bild (Client verkleinert auf 96px)
+      if (typeof b.avatar === 'string' && (b.avatar === '' || (/^data:image\/(png|jpeg|webp);base64,/.test(b.avatar) && b.avatar.length < 60_000)))
+        prof.avatar = b.avatar;
+      // Lieblings-Kleinigkeiten fürs Profil – alles durch den Filter
+      if (b.favs && typeof b.favs === 'object') {
+        prof.favs = prof.favs || {};
+        for (const k of ['discounter', 'supermarkt', 'essen', 'onlineshop', 'mode']) {
+          if (typeof b.favs[k] === 'string') prof.favs[k] = censor(b.favs[k].trim().slice(0, 30));
+        }
+      }
       saveJson('users.json', users);
       return send(res, 200, { ok: true, ...prof });
     }
@@ -815,7 +968,7 @@ const server = http.createServer(async (req, res) => {
 
     if (p === '/api/me' && req.method === 'GET') {
       const user = authUser(req);
-      return user ? send(res, 200, { user }) : send(res, 401, { error: 'Nicht angemeldet.' });
+      return user ? send(res, 200, { user, role: roleOf(user) }) : send(res, 401, { error: 'Nicht angemeldet.' });
     }
 
     // ---- Startseiten-Kacheln (Admin pflegt sie über /admin.html)
@@ -922,7 +1075,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p === '/api/admin/delete-post' && req.method === 'POST') {
-      if (!isAdmin(req)) return send(res, 403, { error: 'Admin-Key falsch.' });
+      if (!isAdmin(req) && roleOf(authUser(req)) !== 'admin') return send(res, 403, { error: 'Admin-Key falsch.' });
       const b = await readBody(req);
       const id = String(b.id || '');
       let removed = false;
@@ -993,8 +1146,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p === '/api/posts' && req.method === 'POST') {
-      // Deals postet nur noch die Redaktion (Admin-Key) – Nutzer kommentieren und bewerten
-      if (!isAdmin(req)) return send(res, 403, { error: 'Deals postet aktuell die Redaktion. Du kannst kommentieren und mit Sternen bewerten.' });
+      // Deals postet die Redaktion: per Admin-Key ODER direkt in der App mit Admin-Rolle
+      if (!isAdmin(req) && roleOf(authUser(req)) !== 'admin')
+        return send(res, 403, { error: 'Deals postet aktuell die Redaktion. Du kannst kommentieren und mit Sternen bewerten.' });
       const b = await readBody(req);
       const ch = findChannel(String(b.channel || ''));
       if (!ch) return send(res, 404, { error: 'Kanal nicht gefunden.' });

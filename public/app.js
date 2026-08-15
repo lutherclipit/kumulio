@@ -227,14 +227,14 @@ let viewCleanupTimer = null;
 function settleViews() {
   clearTimeout(viewCleanupTimer);
   document.querySelectorAll('.view').forEach(v => {
-    v.classList.remove('enter-right', 'enter-left');
+    v.classList.remove('enter-right', 'enter-left', 'enter-drop');
     v.classList.toggle('hidden', v.id !== 'view-' + state.activeView);
   });
 }
 
 // Wechsel ohne Überlappung: alte View sofort weg, nur die neue animiert herein.
 // So kann bei schnellem Durchschalten nichts springen oder doppelt erscheinen.
-function switchView(next) {
+function switchView(next, animClass) {
   if (next === state.activeView) return;
   settleViews();
   const oldView = $('#view-' + state.activeView);
@@ -248,12 +248,22 @@ function switchView(next) {
   oldView.classList.add('hidden');
   window.scrollTo(0, 0);
   newView.classList.remove('hidden');
-  newView.classList.add(dir === 1 ? 'enter-right' : 'enter-left');
+  newView.classList.add(animClass || (dir === 1 ? 'enter-right' : 'enter-left'));
   // Login-Captcha erst rendern, wenn die Profil-Seite sichtbar ist
   if (next === 'profile' && !state.token) renderTurnstile('login');
   if (next === 'chat') pollChat(true);
-  viewCleanupTimer = setTimeout(settleViews, 380);
+  viewCleanupTimer = setTimeout(settleViews, 520);
 }
+
+// Suche: fällt mit Feder-Bounce von oben ein (Lupe oben links), Zurück-Button führt heim
+let searchReturnView = 'feed';
+$('#btn-search-top').addEventListener('click', () => {
+  if (state.activeView === 'search') return;
+  searchReturnView = state.activeView;
+  switchView('search', 'enter-drop');
+  setTimeout(() => $('#search').focus(), 420);
+});
+$('#btn-search-back').addEventListener('click', () => switchView(searchReturnView, 'enter-drop'));
 
 $('#tabbar').addEventListener('click', e => {
   const btn = e.target.closest('.tabbtn');
@@ -1192,6 +1202,17 @@ async function refreshGami() {
   animateInt($('#g-coins'), oldCoins, myProfile.coins || 0);
   $('#g-bio').value = myProfile.bio || '';
   $('#g-public').checked = myProfile.publicProfile !== false;
+  // Profilbild + Lieblings-Kleinigkeiten
+  const av = $('#g-avatar-preview');
+  if (myProfile.avatar) av.outerHTML = `<img class="avatar-big" id="g-avatar-preview" src="${myProfile.avatar}" alt="">`;
+  else av.outerHTML = `<span class="avatar-big" id="g-avatar-preview" style="background:${chatColor(state.userName || '?')}">${esc((state.userName || '?')[0].toUpperCase())}</span>`;
+  $('#g-avatar-del').classList.toggle('hidden', !myProfile.avatar);
+  const favs = myProfile.favs || {};
+  $('#gf-discounter').value = favs.discounter || '';
+  $('#gf-supermarkt').value = favs.supermarkt || '';
+  $('#gf-essen').value = favs.essen || '';
+  $('#gf-onlineshop').value = favs.onlineshop || '';
+  $('#gf-mode').value = favs.mode || '';
   // Rang aus dem Wallet auch im Profil zeigen
   const rank = rankFor(renderWallet.lastTotal || 0);
   $('#g-rank-row').innerHTML = `<span class="rank-chip">${esc(rank.name)}</span>
@@ -1199,6 +1220,8 @@ async function refreshGami() {
   $('#g-badges').innerHTML = (myProfile.badges || []).length
     ? myProfile.badges.map(id => badgeChip(id, myProfile.badgesAll[id], id === myProfile.activeBadge)).join('')
     : '<span class="form-msg">Noch keine Badges – öffne eine Kiste.</span>';
+  // Topbar-Avatar: Profilbild statt Initiale
+  if (myProfile.avatar && state.token) $('#btn-profile-top').innerHTML = `<img class="avatar-mini avatar-img" src="${myProfile.avatar}" alt="">`;
   $('#g-badges').querySelectorAll('[data-badge]').forEach(b => b.onclick = async () => {
     const next = myProfile.activeBadge === b.dataset.badge ? '' : b.dataset.badge;
     await api('/api/profile', { method: 'POST', body: JSON.stringify({ activeBadge: next }) }).catch(() => { });
@@ -1253,11 +1276,46 @@ $('#g-bio-save').addEventListener('click', async () => {
   try {
     const r = await api('/api/profile', {
       method: 'POST',
-      body: JSON.stringify({ bio: $('#g-bio').value, publicProfile: $('#g-public').checked }),
+      body: JSON.stringify({
+        bio: $('#g-bio').value, publicProfile: $('#g-public').checked,
+        favs: {
+          discounter: $('#gf-discounter').value, supermarkt: $('#gf-supermarkt').value,
+          essen: $('#gf-essen').value, onlineshop: $('#gf-onlineshop').value, mode: $('#gf-mode').value,
+        },
+      }),
     });
     $('#g-bio').value = r.bio; // Server-Fassung (ggf. zensiert) zurückspiegeln
     m.className = 'form-msg ok'; m.textContent = 'Gespeichert.';
+    refreshGami();
   } catch (e) { m.className = 'form-msg error'; m.textContent = e.message; }
+});
+
+// Profilbild: quadratisch auf 96px verkleinert, als kleines JPEG gespeichert
+$('#g-avatar').addEventListener('change', async e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  try {
+    const url = await new Promise((res, rej) => {
+      const rd = new FileReader();
+      rd.onload = () => res(rd.result); rd.onerror = rej; rd.readAsDataURL(f);
+    });
+    const img = new Image();
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+    const c = document.createElement('canvas');
+    c.width = c.height = 96;
+    const s = Math.min(img.naturalWidth, img.naturalHeight);
+    c.getContext('2d').drawImage(img, (img.naturalWidth - s) / 2, (img.naturalHeight - s) / 2, s, s, 0, 0, 96, 96);
+    const avatar = c.toDataURL('image/jpeg', 0.82);
+    await api('/api/profile', { method: 'POST', body: JSON.stringify({ avatar }) });
+    island('Profilbild gespeichert');
+    refreshGami();
+    refreshProfileTab();
+  } catch { island('Bild konnte nicht verarbeitet werden'); }
+});
+$('#g-avatar-del').addEventListener('click', async () => {
+  await api('/api/profile', { method: 'POST', body: JSON.stringify({ avatar: '' }) }).catch(() => { });
+  refreshGami();
+  refreshProfileTab();
 });
 
 $('#btn-profile-top').addEventListener('click', () => {
@@ -1330,6 +1388,7 @@ function authOk(r, { welcome = false } = {}) {
   localStorage.setItem('ra.user', r.user);
   refreshProfileTab();
   pullWallet(); // Wallet vom Konto holen (Gerätewechsel/Neuinstallation)
+  api('/api/me').then(x => { state.role = x.role || ''; refreshAdminUi(); }).catch(() => { });
   if (welcome) {
     // Willkommens-Moment: der Punkt quittiert das neue Konto
     $('#welcome-title').textContent = `Willkommen, ${r.user}!`;
@@ -1768,25 +1827,25 @@ async function analyzeWalletImage(dataUrl) {
   return out;
 }
 
+// Große, interaktive Shop-Auswahl beim Hinzufügen
+const VENDOR_GRID = ['REWE', 'Amazon', 'Wunschgutschein', 'Zalando', 'IKEA', 'Rossmann', 'Lidl', 'EDEKA', 'Netto', 'dm', 'Müller', 'MediaMarkt', 'H&M', 'Douglas', 'Nike', 'Anderer'];
+
 function openWalletAdd(type, prefillName) {
   if (!state.token) { switchView('profile'); island('Für die Wallet bitte anmelden'); return; }
-  if (type) addType = type;
+  addType = type || 'voucher';
   addPrefill = prefillName || '';
   state.sheetMode = 'wallet-add';
   addImg = '';
   addCodeImg = '';
+  const isCard = addType === 'card';
   $('#sheet-content').innerHTML = `
-    <div class="sheet-title">Zur Wallet hinzufügen</div>
-    <div class="seg-type">
-      <button class="btn btn-ghost ${addType === 'voucher' ? 'on' : ''}" data-wtype="voucher">Gutschein</button>
-      <button class="btn btn-ghost ${addType === 'card' ? 'on' : ''}" data-wtype="card">Sparkarte</button>
-    </div>
+    <div class="sheet-title">${isCard ? 'Sparkarte hinzufügen' : 'Gutschein hinzufügen'}</div>
 
-    <!-- Bild zuerst: hochladen oder direkt fotografieren, Felder füllen sich automatisch -->
+    <!-- Bild zuerst: hochladen, fotografieren oder einfach reinziehen -->
     <div class="dropzone" id="wa-drop">
       <div class="dropzone-empty" id="wa-drop-empty">
         ${icon('plus', 'icon')}
-        <span>Screenshot oder Foto vom Gutschein / der Karte</span>
+        <span>Screenshot / Foto hierher ziehen<br>oder unten auswählen</span>
       </div>
       <img id="wa-preview" class="wallet-img hidden" alt="">
       <div class="form-row" style="justify-content:center">
@@ -1798,51 +1857,56 @@ function openWalletAdd(type, prefillName) {
       <div id="wa-ai-msg" class="form-msg" style="text-align:center"></div>
     </div>
 
-    <div id="wa-voucher" class="${addType === 'card' ? 'hidden' : ''}">
-      <div class="vendor-quick" id="wa-vendor-quick">
-        ${VENDOR_QUICK.map(v => `<button class="chip chip-vendor" data-vq="${esc(v)}">${esc(v)}</button>`).join('')}
+    ${isCard ? `
+    <label class="f-label">Karte <span class="req">*</span></label>
+    <input id="wa-cname" class="input" maxlength="30" placeholder="Payback, Lidl Plus, IKEA Family …" value="${esc(addPrefill)}">
+    <label class="f-label">Kartennummer <span class="req">*</span></label>
+    <input id="wa-cnumber" class="input" maxlength="30" placeholder="Nummer auf der Karte">
+    ` : `
+    <label class="f-label">Shop <span class="req">*</span></label>
+    <div class="vendor-grid" id="wa-vendor-grid">
+      ${VENDOR_GRID.map(v => `<button class="vendor-tile" data-vg="${esc(v)}">
+        <span class="brand-chip" style="--bc:${brandColor(v)}">${esc(brandInitials(v))}</span>
+        <span>${esc(v)}</span>
+      </button>`).join('')}
+    </div>
+    <input id="wa-vendor" class="input hidden" maxlength="30" placeholder="Shop-Name eintippen">
+    <div class="form-grid">
+      <div>
+        <label class="f-label" for="wa-amount">Wert (€) <span class="req">*</span></label>
+        <input id="wa-amount" class="input" inputmode="decimal" placeholder="z. B. 25">
       </div>
-      <div class="form-row">
-        <input id="wa-vendor" class="input" maxlength="30" placeholder="Shop (oder oben antippen)">
-        <input id="wa-amount" class="input" inputmode="decimal" placeholder="Wert (€)">
-      </div>
-      <div class="form-row">
-        <input id="wa-code" class="input" maxlength="40" placeholder="Code">
-        <input id="wa-pin" class="input" maxlength="16" placeholder="PIN">
-      </div>
-      <input id="wa-end" class="input" type="date" title="Gültig bis (optional)">
-      <textarea id="wa-paste" class="input" rows="2" placeholder="Oder Gutschein-Text einfügen – Code wird erkannt"></textarea>
-      <div class="form-row">
-        <button id="wa-detect" class="btn btn-ghost btn-small">Code aus Text erkennen</button>
-        <span id="wa-detect-msg" class="form-msg"></span>
+      <div>
+        <label class="f-label" for="wa-pin">PIN <span class="req">*</span></label>
+        <input id="wa-pin" class="input" maxlength="16" placeholder="z. B. 0689">
       </div>
     </div>
-    <div id="wa-card" class="${addType === 'voucher' ? 'hidden' : ''}">
-      <div class="form-row">
-        <input id="wa-cname" class="input" maxlength="30" placeholder="Karte (Payback, Lidl Plus, IKEA Family …)" value="${esc(addType === 'card' ? addPrefill : '')}">
-        <input id="wa-cnumber" class="input" maxlength="30" placeholder="Kartennummer">
-      </div>
-    </div>
-    <div class="form-row">
+    <label class="f-label" for="wa-code">Code / Kartennummer <span class="req">*</span></label>
+    <input id="wa-code" class="input" maxlength="40" placeholder="Der Code, den du an der Kasse brauchst">
+    <label class="f-label" for="wa-end">Ablaufdatum <span class="opt">(optional – bis wann ist der Gutschein gültig?)</span></label>
+    <input id="wa-end" class="input" type="date">
+    `}
+    <div class="form-row" style="margin-top:14px">
       <button id="wa-save" class="btn">Speichern</button>
       <span id="wa-msg" class="form-msg"></span>
     </div>`;
 
-  $('#sheet-content').querySelectorAll('[data-wtype]').forEach(b => b.addEventListener('click', () => {
-    openWalletAdd(b.dataset.wtype);
+  // Shop-Kacheln: Antippen wählt aus, „Anderer" öffnet das Freitextfeld
+  let pickedVendor = '';
+  $('#sheet-content').querySelectorAll('[data-vg]').forEach(b => b.addEventListener('click', () => {
+    $('#sheet-content').querySelectorAll('.vendor-tile').forEach(x => x.classList.toggle('on', x === b));
+    if (b.dataset.vg === 'Anderer') {
+      pickedVendor = '';
+      $('#wa-vendor').classList.remove('hidden');
+      $('#wa-vendor').focus();
+    } else {
+      pickedVendor = b.dataset.vg;
+      $('#wa-vendor').classList.add('hidden');
+    }
   }));
-  $('#sheet-content').querySelectorAll('[data-vq]').forEach(b => b.addEventListener('click', () => {
-    $('#wa-vendor').value = b.dataset.vq;
-  }));
-  $('#wa-detect')?.addEventListener('click', () => {
-    const code = detectCode($('#wa-paste').value);
-    const m = $('#wa-detect-msg');
-    if (code) { $('#wa-code').value = code; m.className = 'form-msg ok'; m.textContent = 'Code erkannt: ' + code; }
-    else { m.className = 'form-msg error'; m.textContent = 'Keinen Code gefunden.'; }
-  });
+  const currentVendor = () => pickedVendor || $('#wa-vendor')?.value.trim() || '';
 
-  const onImage = async e => {
-    const f = e.target.files[0];
+  const handleImageFile = async f => {
     const m = $('#wa-ai-msg');
     if (!f) return;
     try {
@@ -1867,9 +1931,14 @@ function openWalletAdd(type, prefillName) {
             if (code) { $('#wa-code').value = code; filled.push('Code'); }
           }
           const low = r.text.toLowerCase();
-          if (!$('#wa-vendor').value) {
-            const hit = [...VENDOR_QUICK.map(v => v.toLowerCase()), ...Object.keys(BRAND_COLORS)].find(k => low.includes(k));
-            if (hit) { $('#wa-vendor').value = hit.charAt(0).toUpperCase() + hit.slice(1); filled.push('Shop'); }
+          if (!currentVendor()) {
+            const hit = [...VENDOR_GRID.map(v => v.toLowerCase()), ...Object.keys(BRAND_COLORS)].find(k => low.includes(k));
+            if (hit) {
+              const tile = [...document.querySelectorAll('[data-vg]')].find(t => t.dataset.vg.toLowerCase() === hit);
+              if (tile) tile.click();
+              else { $('#wa-vendor').classList.remove('hidden'); $('#wa-vendor').value = hit.charAt(0).toUpperCase() + hit.slice(1); }
+              filled.push('Shop');
+            }
           }
         }
       } else {
@@ -1895,15 +1964,21 @@ function openWalletAdd(type, prefillName) {
       m.textContent = 'Bild konnte nicht gelesen werden.';
     }
   };
-  $('#wa-img').addEventListener('change', onImage);
-  $('#wa-cam').addEventListener('change', onImage);
+  $('#wa-img').addEventListener('change', e => handleImageFile(e.target.files[0]));
+  $('#wa-cam').addEventListener('change', e => handleImageFile(e.target.files[0]));
+  // Drag & Drop (Web): Bild einfach in die Zone ziehen
+  const drop = $('#wa-drop');
+  ['dragover', 'dragenter'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('drag'); }));
+  ['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('drag'); }));
+  drop.addEventListener('drop', e => handleImageFile(e.dataTransfer.files[0]));
+
   $('#wa-save').addEventListener('click', () => {
     const msg = $('#wa-msg');
     if (addType === 'voucher') {
       const amount = parseFloat($('#wa-amount').value.replace(',', '.'));
       const v = {
         id: Math.random().toString(36).slice(2, 9),
-        vendor: $('#wa-vendor').value.trim().slice(0, 30),
+        vendor: currentVendor().slice(0, 30),
         code: $('#wa-code').value.trim().slice(0, 40),
         pin: $('#wa-pin').value.trim().slice(0, 16),
         end: $('#wa-end').value || '',
@@ -1911,7 +1986,16 @@ function openWalletAdd(type, prefillName) {
         balance: isNaN(amount) ? null : amount,
         img: addImg, codeImg: addCodeImg, tx: [],
       };
-      if (!v.vendor || !v.code) { msg.className = 'form-msg error'; msg.textContent = 'Anbieter und Code sind Pflicht.'; return; }
+      // Pflicht: Shop, Wert, Code, PIN – fehlende Felder leuchten rot
+      $('#wa-amount').classList.toggle('err', v.amount == null);
+      $('#wa-code').classList.toggle('err', !v.code);
+      $('#wa-pin').classList.toggle('err', !v.pin);
+      $('#wa-vendor-grid')?.classList.toggle('err', !v.vendor);
+      if (!v.vendor || v.amount == null || !v.code || !v.pin) {
+        msg.className = 'form-msg error';
+        msg.textContent = !v.vendor ? 'Bitte einen Shop auswählen.' : 'Bitte die rot markierten Pflichtfelder ausfüllen.';
+        return;
+      }
       state.wallet.vouchers.unshift(v);
     } else {
       const c = {
@@ -2200,6 +2284,80 @@ $('#btn-home').addEventListener('click', () => {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
+// ---------------- Admin direkt in der App: Deals posten ----------------
+
+function refreshAdminUi() {
+  $('#btn-admin-post').classList.toggle('hidden', state.role !== 'admin');
+}
+function openAdminPost() {
+  state.sheetMode = 'admin-post';
+  const chs = state.channels.filter(c => c.type === 'community');
+  $('#sheet-content').innerHTML = `
+    <div class="sheet-title">Deal posten (Redaktion)</div>
+    <label class="f-label">Kanal <span class="req">*</span></label>
+    <select id="ap-channel" class="input">${chs.map(c => `<option value="${esc(c.slug)}">${esc(c.name)}</option>`).join('')}</select>
+    <label class="f-label">Deal-Link</label>
+    <div class="form-row">
+      <input id="ap-link" class="input" placeholder="https://…" style="flex:1">
+      <button id="ap-extract" class="btn btn-small btn-ghost">Auslesen</button>
+    </div>
+    <label class="f-label">Titel <span class="req">*</span></label>
+    <input id="ap-title" class="input" maxlength="90">
+    <label class="f-label">Beschreibung</label>
+    <textarea id="ap-text" class="input" rows="3" maxlength="1200"></textarea>
+    <div class="form-grid">
+      <div><label class="f-label">Preis (€)</label><input id="ap-price" class="input" inputmode="decimal"></div>
+      <div><label class="f-label">Vergleichspreis (€)</label><input id="ap-compare" class="input" inputmode="decimal"></div>
+    </div>
+    <label class="f-label">Enddatum <span class="opt">(optional)</span></label>
+    <input id="ap-end" class="input" type="date">
+    <label style="display:flex; align-items:center; gap:8px; margin-top:10px; font-size:.86rem">
+      <input type="checkbox" id="ap-newcustomer" style="width:auto"> Nur für Neukunden
+    </label>
+    <input type="hidden" id="ap-image">
+    <div class="form-row" style="margin-top:12px">
+      <button id="ap-post" class="btn">Veröffentlichen</button>
+      <span id="ap-msg" class="form-msg"></span>
+    </div>`;
+  $('#ap-extract').addEventListener('click', async () => {
+    const m = $('#ap-msg');
+    m.className = 'form-msg'; m.textContent = 'Lese den Link aus …';
+    try {
+      const r = await api('/api/extract?url=' + encodeURIComponent($('#ap-link').value.trim()));
+      if (r.title && !$('#ap-title').value) $('#ap-title').value = r.title;
+      if (r.draft && !$('#ap-text').value) $('#ap-text').value = r.draft;
+      if (r.priceNum != null && !$('#ap-price').value) $('#ap-price').value = String(r.priceNum).replace('.', ',');
+      if (r.compare?.priceNum != null && !$('#ap-compare').value) $('#ap-compare').value = String(r.compare.priceNum).replace('.', ',');
+      if (r.image) $('#ap-image').value = r.image;
+      m.className = 'form-msg ok'; m.textContent = 'Ausgelesen – bitte prüfen.';
+    } catch (e) { m.className = 'form-msg error'; m.textContent = e.message; }
+  });
+  $('#ap-post').addEventListener('click', async () => {
+    const m = $('#ap-msg');
+    setBtnLoading($('#ap-post'), true);
+    try {
+      await api('/api/posts', {
+        method: 'POST',
+        body: JSON.stringify({
+          channel: $('#ap-channel').value, user: state.userName,
+          title: $('#ap-title').value,
+          // Der Deal-Link wandert wie im Admin-Panel ans Ende der Beschreibung
+          text: ($('#ap-text').value + '\n' + $('#ap-link').value.trim()).trim(),
+          price: $('#ap-price').value, comparePrice: $('#ap-compare').value,
+          endDate: $('#ap-end').value, newCustomer: $('#ap-newcustomer').checked,
+          image: $('#ap-image').value, merchant: '',
+        }),
+      });
+      closeSheet();
+      island('Deal veröffentlicht');
+      loadFeed();
+    } catch (e) { m.className = 'form-msg error'; m.textContent = e.message; }
+    finally { setBtnLoading($('#ap-post'), false); }
+  });
+  openSheetShell();
+}
+$('#btn-admin-post').addEventListener('click', openAdminPost);
+
 // ---------------- Preisfehler-Alarm (Web-Push) ----------------
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => { });
@@ -2271,43 +2429,221 @@ function chatMsgHtml(m) {
   const badge = m.badge && chatBadges[m.badge]
     ? `<svg class="icon icon-sm chat-badge" aria-label="${esc(chatBadges[m.badge].name)}"><use href="#i-${chatBadges[m.badge].icon}"/></svg>`
     : '';
+  const role = m.role === 'admin' ? `<svg class="icon icon-sm chat-badge role-admin" aria-label="Admin"><use href="#i-crown"/></svg>`
+    : m.role === 'mod' ? `<svg class="icon icon-sm chat-badge role-mod" aria-label="Mod"><use href="#i-check"/></svg>` : '';
   return `<div class="chat-msg" data-mid="${esc(m.id)}">
-    ${badge}<span class="chat-user" style="color:${chatColor(m.user)}">${esc(m.user)}</span>
+    ${role}${badge}<span class="chat-user" style="color:${chatColor(m.user)}">${esc(m.user)}</span>
     <span class="chat-text">${text}</span>
   </div>`;
 }
+// Chat-Modi: Global, Flüster-Liste oder ein konkreter Privat-Chat
+let chatMode = 'global';
+let dmPartner = '';
+let dmLastTs = 0;
+
+function setChatMode(mode, partner) {
+  chatMode = mode;
+  dmPartner = partner || '';
+  dmLastTs = 0;
+  $('#chat-list').innerHTML = '';
+  chatLastTs = mode === 'global' ? 0 : chatLastTs;
+  document.querySelectorAll('[data-cmode]').forEach(b =>
+    b.classList.toggle('active', b.dataset.cmode === (mode === 'dm' ? 'dmlist' : mode)));
+  $('#dm-head').classList.toggle('hidden', mode !== 'dm');
+  $('#chat-pinbar').classList.toggle('hidden', mode !== 'global' || !$('#chat-pinbar').innerHTML);
+  $('#chat-input-row').style.display = mode === 'dmlist' ? 'none' : 'flex';
+  if (mode === 'dm') $('#dm-partner-name').textContent = dmPartner;
+  delete $('#chat-box').dataset.scrolled;
+  pollChat(true);
+}
+
+function renderPinbar(pinned) {
+  const bar = $('#chat-pinbar');
+  if (!pinned) { bar.classList.add('hidden'); bar.innerHTML = ''; return; }
+  bar.innerHTML = `${icon('pin', 'icon icon-sm')}
+    <span class="chat-user" style="color:${chatColor(pinned.user)}">${esc(pinned.user)}</span>
+    <span class="pin-text">${esc(pinned.text)}</span>
+    ${['admin', 'mod'].includes(state.role) ? `<button class="fav-remove" id="pin-remove">${icon('x', 'icon icon-sm')}</button>` : ''}`;
+  bar.classList.toggle('hidden', chatMode !== 'global');
+  $('#pin-remove')?.addEventListener('click', () =>
+    api('/api/chat/mod', { method: 'POST', body: JSON.stringify({ action: 'unpin' }) }).then(() => renderPinbar(null)).catch(e => island(e.message)));
+}
+
+function dmMsgHtml(m) {
+  return `<div class="chat-msg dm-${m.from === state.userName ? 'me' : 'them'}">
+    <span class="chat-user" style="color:${chatColor(m.from)}">${esc(m.from)}</span>
+    <span class="chat-text">${esc(m.text)}</span>
+  </div>`;
+}
+
 async function pollChat(force) {
-  if (!force && state.activeView !== 'chat') return;
+  if (state.activeView !== 'chat' && !force) return;
   try {
-    const r = await api('/api/chat?since=' + chatLastTs);
-    chatEmotes = r.emotes || chatEmotes;
-    chatBadges = r.badges || chatBadges;
-    if (r.messages.length) {
-      const box = $('#chat-box'), list = $('#chat-list');
-      const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
-      r.messages.forEach(m => {
-        list.insertAdjacentHTML('beforeend', chatMsgHtml(m));
-        chatLastTs = Math.max(chatLastTs, m.ts);
-      });
-      while (list.children.length > 200) list.firstChild.remove();
-      if (nearBottom || !box.dataset.scrolled) box.scrollTop = box.scrollHeight;
-      box.dataset.scrolled = '1';
+    if (chatMode === 'global') {
+      const r = await api('/api/chat?since=' + chatLastTs);
+      chatEmotes = r.emotes || chatEmotes;
+      chatBadges = r.badges || chatBadges;
+      renderPinbar(r.pinned);
+      if (r.messages.length) {
+        const box = $('#chat-box'), list = $('#chat-list');
+        const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+        r.messages.forEach(m => {
+          list.insertAdjacentHTML('beforeend', chatMsgHtml(m));
+          chatLastTs = Math.max(chatLastTs, m.ts);
+        });
+        while (list.children.length > 150) list.firstChild.remove();
+        if (nearBottom || !box.dataset.scrolled) box.scrollTop = box.scrollHeight;
+        box.dataset.scrolled = '1';
+      }
+    } else if (chatMode === 'dmlist') {
+      if (!state.token) { $('#chat-list').innerHTML = '<div class="status">Zum Flüstern bitte anmelden.</div>'; return; }
+      const r = await api('/api/dm/list');
+      const rows = r.list.map(c => `
+        <button class="dm-row" data-dm-open="${esc(c.partner)}">
+          <span class="avatar-mini" style="background:${chatColor(c.partner)}">${esc(c.partner[0].toUpperCase())}</span>
+          <span class="dm-row-main">
+            <span class="dm-row-name">${esc(c.partner)}</span>
+            <span class="dm-row-last">${esc(c.lastText)}</span>
+          </span>
+          ${c.unread ? `<span class="dm-unread-pill">${c.unread}</span>` : ''}
+        </button>`).join('');
+      const friendRows = (r.friends || []).map(f => `
+        <button class="dm-row" data-dm-open="${esc(f)}">
+          <span class="avatar-mini" style="background:${chatColor(f)}">${esc(f[0].toUpperCase())}</span>
+          <span class="dm-row-main"><span class="dm-row-name">${esc(f)}</span>
+          <span class="dm-row-last">Freund – noch kein Chat</span></span>
+        </button>`).join('');
+      $('#chat-list').innerHTML = (rows + friendRows) || '<div class="status">Noch keine Flüster-Chats. Tippe im Global-Chat auf einen Namen, um zu flüstern.</div>';
+      $('#chat-list').querySelectorAll('[data-dm-open]').forEach(b => b.onclick = () => setChatMode('dm', b.dataset.dmOpen));
+    } else if (chatMode === 'dm') {
+      const r = await api(`/api/dm/with?user=${encodeURIComponent(dmPartner)}&since=${dmLastTs}`);
+      if (r.messages.length) {
+        const box = $('#chat-box'), list = $('#chat-list');
+        r.messages.forEach(m => { list.insertAdjacentHTML('beforeend', dmMsgHtml(m)); dmLastTs = Math.max(dmLastTs, m.ts); });
+        box.scrollTop = box.scrollHeight;
+      }
     }
+    refreshDmBadge();
   } catch { }
 }
+
+let dmBadgeLast = 0;
+async function refreshDmBadge() {
+  if (!state.token || Date.now() - dmBadgeLast < 8000) return;
+  dmBadgeLast = Date.now();
+  try {
+    const r = await api('/api/dm/list');
+    const unread = r.list.reduce((s, c) => s + c.unread, 0);
+    const pill = $('#dm-unread');
+    pill.textContent = unread;
+    pill.classList.toggle('hidden', !unread);
+  } catch { }
+}
+
 async function sendChat() {
   const inp = $('#chat-input');
   const text = inp.value.trim();
   if (!text) return;
   if (!state.token) { switchView('profile'); island('Zum Chatten bitte anmelden'); return; }
   try {
+    if (chatMode === 'dm') {
+      const r = await api('/api/dm/send', { method: 'POST', body: JSON.stringify({ to: dmPartner, text }) });
+      inp.value = '';
+      $('#chat-list').insertAdjacentHTML('beforeend', dmMsgHtml(r.message));
+      dmLastTs = Math.max(dmLastTs, r.message.ts);
+      $('#chat-box').scrollTop = $('#chat-box').scrollHeight;
+      return;
+    }
     const r = await api('/api/chat', { method: 'POST', body: JSON.stringify({ text }) });
     inp.value = '';
+    if (r.vanished) {
+      // !v: alle eigenen Nachrichten sind weg – Liste frisch aufbauen
+      $('#chat-list').innerHTML = '';
+      chatLastTs = 0;
+      island('Deine Nachrichten sind verschwunden');
+      pollChat(true);
+      return;
+    }
     $('#chat-list').insertAdjacentHTML('beforeend', chatMsgHtml(r.message));
     chatLastTs = Math.max(chatLastTs, r.message.ts);
     $('#chat-box').scrollTop = $('#chat-box').scrollHeight;
   } catch (e) { island(e.message); }
 }
+
+// ---- Nutzer-Popup: Profil, Flüstern, Freund, Melden (+ Moderation)
+async function openUserPop(user, msgId) {
+  if (user === state.userName) return;
+  const pop = $('#user-pop');
+  pop.innerHTML = '<div class="status">Lade Profil …</div>';
+  $('#user-pop-backdrop').classList.remove('hidden');
+  let u = { user };
+  try { u = await api('/api/user?name=' + encodeURIComponent(user)); } catch { }
+  const isFriend = (myProfile?.friends || []).includes(user);
+  const mod = ['admin', 'mod'].includes(state.role);
+  pop.innerHTML = `
+    <div class="offer-head">
+      ${u.avatar ? `<img class="avatar-big" src="${u.avatar}" alt="">`
+        : `<span class="avatar-big" style="background:${chatColor(user)}">${esc(user[0].toUpperCase())}</span>`}
+      <div class="offer-brand">
+        <div class="offer-merchant">${esc(user)} ${u.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : u.role === 'mod' ? icon('check', 'icon icon-sm role-mod') : ''}</div>
+        <div class="offer-cat">${u.private ? 'Profil ist privat' : esc(u.bio || 'Keine Bio')}</div>
+      </div>
+      <button class="fav-remove" id="up-close">${icon('x', 'icon icon-sm')}</button>
+    </div>
+    ${!u.private && u.favs && Object.values(u.favs).some(Boolean) ? `
+    <div class="favs-view">
+      ${u.favs.discounter ? `<span class="pill">Discounter: ${esc(u.favs.discounter)}</span>` : ''}
+      ${u.favs.supermarkt ? `<span class="pill">Supermarkt: ${esc(u.favs.supermarkt)}</span>` : ''}
+      ${u.favs.essen ? `<span class="pill">Essen: ${esc(u.favs.essen)}</span>` : ''}
+      ${u.favs.onlineshop ? `<span class="pill">Onlineshop: ${esc(u.favs.onlineshop)}</span>` : ''}
+      ${u.favs.mode ? `<span class="pill">Mode: ${esc(u.favs.mode)}</span>` : ''}
+    </div>` : ''}
+    ${!u.private && (u.badges || []).length ? `<div class="badge-grid" style="margin-top:10px">
+      ${u.badges.map(id => u.badgesAll?.[id] ? badgeChip(id, u.badgesAll[id], id === u.activeBadge) : '').join('')}
+    </div>` : ''}
+    <div class="form-row" style="margin-top:14px; flex-wrap:wrap">
+      <button class="btn btn-small" id="up-whisper">Flüstern</button>
+      <button class="btn btn-small btn-ghost" id="up-friend">${isFriend ? 'Freund entfernen' : 'Als Freund hinzufügen'}</button>
+      <button class="btn btn-small btn-ghost" id="up-report">Melden</button>
+    </div>
+    ${mod ? `<div class="form-row" style="margin-top:8px; flex-wrap:wrap">
+      <button class="btn btn-small btn-ghost" id="up-timeout">Timeout 10 Min.</button>
+      <button class="btn btn-small btn-ghost" id="up-ban">Sperren</button>
+      ${msgId ? `<button class="btn btn-small btn-ghost" id="up-delmsg">Nachricht löschen</button>
+      <button class="btn btn-small btn-ghost" id="up-pin">Anpinnen</button>` : ''}
+    </div>` : ''}`;
+  const close = () => hideOverlay($('#user-pop-backdrop'));
+  $('#up-close').onclick = close;
+  $('#up-whisper').onclick = () => { close(); if (!state.token) { island('Zum Flüstern bitte anmelden'); return; } setChatMode('dm', user); };
+  $('#up-friend').onclick = async () => {
+    if (!state.token) { island('Bitte anmelden'); return; }
+    await api('/api/friend', { method: 'POST', body: JSON.stringify({ user, action: isFriend ? 'remove' : 'add' }) })
+      .then(r => { if (myProfile) myProfile.friends = r.friends; island(isFriend ? 'Freund entfernt' : 'Als Freund hinzugefügt'); })
+      .catch(e => island(e.message));
+    close();
+  };
+  $('#up-report').onclick = async () => {
+    await api('/api/chat/report', { method: 'POST', body: JSON.stringify({ user, id: msgId || '' }) })
+      .then(() => island('Gemeldet – danke!')).catch(e => island(e.message));
+    close();
+  };
+  const modAct = (action, extra) => api('/api/chat/mod', { method: 'POST', body: JSON.stringify({ action, user, id: msgId, ...extra }) })
+    .then(() => { island('Erledigt'); $('#chat-list').innerHTML = ''; chatLastTs = 0; pollChat(true); close(); })
+    .catch(e => island(e.message));
+  $('#up-timeout')?.addEventListener('click', () => modAct('timeout', { minutes: 10 }));
+  $('#up-ban')?.addEventListener('click', () => modAct('ban'));
+  $('#up-delmsg')?.addEventListener('click', () => modAct('delete-msg'));
+  $('#up-pin')?.addEventListener('click', () => modAct('pin'));
+}
+$('#user-pop-backdrop').addEventListener('click', e => { if (e.target.id === 'user-pop-backdrop') hideOverlay($('#user-pop-backdrop')); });
+$('#chat-list').addEventListener('click', e => {
+  const nameEl = e.target.closest('.chat-user');
+  if (!nameEl || chatMode === 'dm') return;
+  const msgEl = e.target.closest('.chat-msg');
+  openUserPop(nameEl.textContent, msgEl?.dataset.mid);
+});
+document.querySelectorAll('[data-cmode]').forEach(b => b.addEventListener('click', () => setChatMode(b.dataset.cmode)));
+$('#dm-back').addEventListener('click', () => setChatMode('dmlist'));
 function toggleEmotes() {
   const el = $('#chat-emotes');
   if (el.classList.contains('hidden')) {
@@ -2339,7 +2675,7 @@ setInterval(pollChat, 3000);
   renderWallet();
   initTurnstile();
   if (state.token) {
-    api('/api/me').then(r => { state.userName = r.user; refreshProfileTab(); pullWallet(); })
+    api('/api/me').then(r => { state.userName = r.user; state.role = r.role || ''; refreshProfileTab(); pullWallet(); refreshAdminUi(); })
       .catch(() => { state.token = ''; localStorage.removeItem('ra.token'); refreshProfileTab(); });
   }
   moveTabPill();
