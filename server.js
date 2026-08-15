@@ -130,6 +130,76 @@ function profileOf(user) {
   return u.profile;
 }
 
+// ---------------------------------------------------------------- Web-Push (RFC 8291/8292, ohne Abhängigkeiten)
+// Preisfehler-Alarm: Browser abonnieren per VAPID, der Server verschlüsselt
+// jede Nachricht einzeln (aes128gcm) – alles mit Node-Bordmitteln.
+let pushSubs = loadJson('push-subs.json', []); // [{endpoint, keys:{p256dh,auth}}]
+const b64u = buf => Buffer.from(buf).toString('base64url');
+function getVapid() {
+  let v = loadJson('vapid.json', null);
+  if (!v || !v.publicKey) {
+    const { publicKey, privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+    const jwk = publicKey.export({ format: 'jwk' });
+    const pub = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')]);
+    v = { publicKey: b64u(pub), privateKeyPem: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString() };
+    saveJson('vapid.json', v);
+  }
+  return v;
+}
+function vapidJwt(aud) {
+  const v = getVapid();
+  const enc = o => b64u(JSON.stringify(o));
+  const input = enc({ typ: 'JWT', alg: 'ES256' }) + '.' +
+    enc({ aud, exp: Math.floor(Date.now() / 1000) + 12 * 3600, sub: 'mailto:kontakt@kumulio.de' });
+  const sig = crypto.sign('sha256', Buffer.from(input), { key: v.privateKeyPem, dsaEncoding: 'ieee-p1363' });
+  return input + '.' + b64u(sig);
+}
+function encryptPush(payload, sub) {
+  const uaPub = Buffer.from(sub.keys.p256dh, 'base64url');
+  const uaAuth = Buffer.from(sub.keys.auth, 'base64url');
+  const ecdh = crypto.createECDH('prime256v1');
+  const asPub = ecdh.generateKeys();
+  const shared = ecdh.computeSecret(uaPub);
+  const hkdf = (key, salt, info, len) => Buffer.from(crypto.hkdfSync('sha256', key, salt, info, len));
+  const salt = crypto.randomBytes(16);
+  const ikm = hkdf(shared, uaAuth, Buffer.concat([Buffer.from('WebPush: info\0'), uaPub, asPub]), 32);
+  const cek = hkdf(ikm, salt, Buffer.from('Content-Encoding: aes128gcm\0'), 16);
+  const nonce = hkdf(ikm, salt, Buffer.from('Content-Encoding: nonce\0'), 12);
+  const cipher = crypto.createCipheriv('aes-128-gcm', cek, nonce);
+  const padded = Buffer.concat([Buffer.from(payload), Buffer.from([2])]); // 0x02 = letzter Record
+  const ct = Buffer.concat([cipher.update(padded), cipher.final(), cipher.getAuthTag()]);
+  const header = Buffer.concat([salt, Buffer.from([0, 0, 16, 0]), Buffer.from([asPub.length]), asPub]);
+  return Buffer.concat([header, ct]);
+}
+async function sendPush(sub, dataObj) {
+  const body = encryptPush(JSON.stringify(dataObj), sub);
+  const jwt = vapidJwt(new URL(sub.endpoint).origin);
+  const r = await fetch(sub.endpoint, {
+    method: 'POST',
+    headers: {
+      'TTL': '86400', 'Urgency': 'high',
+      'Content-Encoding': 'aes128gcm',
+      'Content-Type': 'application/octet-stream',
+      'Authorization': `vapid t=${jwt}, k=${getVapid().publicKey}`,
+    },
+    body,
+  });
+  return r.status;
+}
+async function pushToAll(dataObj) {
+  const dead = [];
+  for (const sub of pushSubs) {
+    try {
+      const st = await sendPush(sub, dataObj);
+      if (st === 404 || st === 410) dead.push(sub.endpoint); // Abo existiert nicht mehr
+    } catch { }
+  }
+  if (dead.length) {
+    pushSubs = pushSubs.filter(s => !dead.includes(s.endpoint));
+    saveJson('push-subs.json', pushSubs);
+  }
+}
+
 function allChannels() {
   // Eigene Kanäle bekommen immer das Standard-Icon und die Community-Regeln
   return [...BUILTIN_CHANNELS, ...customChannels.map(c => ({ icon: 'tag', rules: COMMUNITY_RULES, ...c, emoji: undefined }))];
@@ -645,6 +715,27 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true });
     }
 
+    // ---- Web-Push: abonnieren / abmelden
+    if (p === '/api/push/key' && req.method === 'GET') {
+      return send(res, 200, { key: getVapid().publicKey });
+    }
+    if (p === '/api/push/subscribe' && req.method === 'POST') {
+      const b = await readBody(req);
+      if (!b.endpoint || !b.keys?.p256dh || !b.keys?.auth) return send(res, 400, { error: 'Ungültiges Abo.' });
+      if (!pushSubs.some(s => s.endpoint === b.endpoint)) {
+        pushSubs.push({ endpoint: b.endpoint, keys: { p256dh: b.keys.p256dh, auth: b.keys.auth } });
+        if (pushSubs.length > 5000) pushSubs = pushSubs.slice(-5000);
+        saveJson('push-subs.json', pushSubs);
+      }
+      return send(res, 201, { ok: true });
+    }
+    if (p === '/api/push/unsubscribe' && req.method === 'POST') {
+      const b = await readBody(req);
+      pushSubs = pushSubs.filter(s => s.endpoint !== b.endpoint);
+      saveJson('push-subs.json', pushSubs);
+      return send(res, 200, { ok: true });
+    }
+
     // ---- Profil & Gamification: Coins, Kisten, Badges – alles OHNE Echtgeld
     if (p === '/api/profile' && req.method === 'GET') {
       const user = authUser(req);
@@ -934,6 +1025,11 @@ const server = http.createServer(async (req, res) => {
       };
       (posts[ch.slug] = posts[ch.slug] || []).unshift(post);
       saveJson('posts.json', posts);
+      // Preisfehler-Alarm: alle Push-Abos benachrichtigen (bewusst nur dieser Kanal –
+      // Preisfehler sind zeitkritisch, alles andere wäre Spam)
+      if (ch.slug === 'preisfehler') {
+        pushToAll({ title: 'Preisfehler entdeckt!', body: title, url: '/' }).catch(() => { });
+      }
       return send(res, 201, post);
     }
 

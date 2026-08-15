@@ -2151,6 +2151,54 @@ $('#btn-home').addEventListener('click', () => {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
+// ---------------- Preisfehler-Alarm (Web-Push) ----------------
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => { });
+
+function urlB64ToUint8(s) {
+  const pad = '='.repeat((4 - s.length % 4) % 4);
+  const raw = atob((s + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+async function refreshPushBtn() {
+  const btn = $('#push-enable');
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) { btn.textContent = 'Alarm ist aktiv – deaktivieren'; btn.dataset.on = '1'; }
+    else { btn.textContent = 'Alarm aktivieren'; delete btn.dataset.on; }
+  } catch { }
+}
+$('#push-enable').addEventListener('click', async () => {
+  const m = $('#push-msg');
+  m.className = 'form-msg'; m.textContent = '';
+  setBtnLoading($('#push-enable'), true);
+  try {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      throw new Error('Dieser Browser kann keine Push-Nachrichten. iPhone: kumulio erst zum Home-Bildschirm hinzufügen und dort öffnen.');
+    }
+    const reg = await navigator.serviceWorker.ready;
+    const existing = await reg.pushManager.getSubscription();
+    if (existing) {
+      await api('/api/push/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint: existing.endpoint }) }).catch(() => { });
+      await existing.unsubscribe();
+      m.className = 'form-msg ok'; m.textContent = 'Alarm deaktiviert.';
+    } else {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') throw new Error('Benachrichtigungen wurden nicht erlaubt.');
+      const { key } = await api('/api/push/key');
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8(key) });
+      await api('/api/push/subscribe', { method: 'POST', body: JSON.stringify(sub) });
+      m.className = 'form-msg ok'; m.textContent = 'Alarm aktiv – du bekommst Preisfehler sofort.';
+      window.KBrand?.playSuccess?.($('#push-card'));
+    }
+    refreshPushBtn();
+  } catch (e) { m.className = 'form-msg error'; m.textContent = e.message; }
+  finally { setBtnLoading($('#push-enable'), false); }
+});
+refreshPushBtn();
+
 // ---------------- Global-Chat (Twitch-artig) ----------------
 
 let chatEmotes = {};
