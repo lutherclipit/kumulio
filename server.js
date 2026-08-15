@@ -536,7 +536,9 @@ const server = http.createServer(async (req, res) => {
       if (!/^[a-zA-Z0-9_.-]{3,24}$/.test(user)) return send(res, 400, { error: 'Name: 3–24 Zeichen, nur Buchstaben/Zahlen/._-' });
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return send(res, 400, { error: 'Bitte eine gültige E-Mail-Adresse angeben.' });
       if (pass.length < 6) return send(res, 400, { error: 'Passwort: mindestens 6 Zeichen.' });
-      if (users[user]) return send(res, 409, { error: 'Name ist schon vergeben.' });
+      // Namen sind ohne Groß/Klein-Unterscheidung eindeutig ("Luther" = "luther")
+      if (Object.keys(users).some(k => k.toLowerCase() === user.toLowerCase()))
+        return send(res, 409, { error: 'Name ist schon vergeben.' });
       if (Object.values(users).some(u => u.email === email)) return send(res, 409, { error: 'E-Mail wird schon verwendet.' });
       const salt = crypto.randomBytes(12).toString('hex');
       users[user] = { hash: hashPass(pass, salt), salt, email, newsletter: !!b.newsletter, ts: Date.now() };
@@ -550,8 +552,10 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/login' && req.method === 'POST') {
       const b = await readBody(req);
       if (!await verifyTurnstile(b.turnstileToken)) return send(res, 400, { error: 'Captcha-Prüfung fehlgeschlagen – bitte erneut bestätigen.' });
-      const user = String(b.user || '').trim();
-      const u = users[user];
+      const typed = String(b.user || '').trim();
+      // Groß/Klein egal: Nutzer findet sich auch als "luther", wenn er "Luther" heißt
+      const user = Object.keys(users).find(k => k.toLowerCase() === typed.toLowerCase());
+      const u = user ? users[user] : null;
       if (!u || hashPass(String(b.pass || ''), u.salt) !== u.hash) {
         return send(res, 401, { error: 'Name oder Passwort falsch.' });
       }
