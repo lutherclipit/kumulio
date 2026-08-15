@@ -60,15 +60,12 @@ export function iconHTML({ size = 60 } = {}) {
   </svg>`;
 }
 
-// ---- Splash: der Punkt fällt wie eine Münze – einmal pro Session ----
+// ---- Splash: der Punkt fällt wie eine Münze – bei jedem App-Start ----
 let appReadyResolve = null;
 const appReadyPromise = new Promise(r => { appReadyResolve = r; });
 export function appReady() { appReadyResolve?.(); }
 
 export function runSplash() {
-  if (sessionStorage.getItem('k.splashShown')) return;
-  sessionStorage.setItem('k.splashShown', '1');
-
   const el = document.createElement('div');
   el.className = 'k-splash';
   el.setAttribute('role', 'presentation');

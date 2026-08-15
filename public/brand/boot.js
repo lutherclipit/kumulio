@@ -15,7 +15,6 @@ if (obLogo) {
   KBrand.mountWordmark(obLogo, { height: 40 });
   if (!localStorage.getItem('ra.tutorialDone') && !KBrand.prefersReducedMotion()) {
     obLogo.classList.add('k-anim-splash');
-    sessionStorage.setItem('k.splashShown', '1'); // kein zweiter Splash in dieser Session
   }
 }
 
