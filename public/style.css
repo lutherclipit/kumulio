@@ -485,6 +485,20 @@ main { max-width: 640px; margin: 0 auto; padding: 20px 16px 110px; position: rel
   animation: viewIn .5s var(--spring);
 }
 .ob-step { animation: enterRight .45s var(--spring); }
+/* Möglichkeiten-Vorschau: kleine Stücke echter UI, nicht klickbar */
+.ob-visual {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  flex-wrap: wrap; margin-bottom: 16px; pointer-events: none;
+  animation: viewIn .5s var(--spring) .05s backwards;
+}
+.ob-visual .wallet-card.ob-mini { width: min(280px, 80vw); text-align: left; }
+.ob-star {
+  width: 34px; height: 34px; border-radius: 999px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255, 196, 40, .25); color: #c08a0a;
+}
+.ob-star .icon { fill: rgba(255, 196, 40, .5); }
+@media (prefers-reduced-motion: reduce) { .ob-visual { animation: none; } }
 .ob-step h2 {
   font-size: 1.5rem; letter-spacing: -.03em; margin-bottom: 10px;
   animation: viewIn .5s var(--spring) backwards;

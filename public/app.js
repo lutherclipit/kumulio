@@ -1324,12 +1324,40 @@ $('#btn-theme').addEventListener('click', () => {
 // Splash und Tutorial sind ein Fluss: Logo animiert, rutscht nach oben,
 // dann wird der Nutzer Schritt für Schritt begrüßt und zum Konto geführt.
 
+// Jeder Step zeigt die Möglichkeit als kleines Stück echter UI (visual)
 const OB_STEPS = [
   { title: 'Schön, dass du da bist.', text: 'kumulio ist deine kuratierte Spar-App: handverlesene Angebote, deine Gutschein-Wallet und alle Coupons an einem Ort – ohne Deal-Spam.', cta: 'Los geht’s' },
-  { title: 'Sparen & Verdienen', text: 'Oben wechselst du zwischen Sparen, Verdienen und Neukunden-Aktionen – sauber getrennt, damit du sofort findest, was du suchst.', cta: 'Weiter' },
-  { title: 'Deine Wallet', text: 'Gutschein fotografieren, Felder füllen sich automatisch. Restguthaben abbuchen, PIN und Barcode griffbereit – und Sparkarten wie Payback immer dabei.', cta: 'Weiter' },
-  { title: 'Coupons & Merken', text: 'Der Coupons-Tab bündelt Rossmann, Lidl Plus, McDonald’s & Co. Mit dem Stern merkst du dir Angebote – auf Wunsch mit Erinnerung, bevor sie ablaufen.', cta: 'Weiter' },
-  { title: 'Bleib verbunden.', text: 'Mit deinem Profil sicherst du Wallet und Bewertungen. Den Newsletter kannst du optional dazunehmen – damit du keinen Top-Deal verpasst.', cta: 'Konto erstellen', final: true },
+  {
+    title: 'Sparen & Verdienen', text: 'Oben wechselst du zwischen Sparen, Verdienen und Neukunden-Aktionen – sauber getrennt, damit du sofort findest, was du suchst.', cta: 'Weiter',
+    visual: () => `
+      <span class="chip active">${icon('gift')} Sparen</span>
+      <span class="chip">${icon('banknote')} Verdienen</span>
+      <span class="chip">${icon('sparkle')} Neukunden</span>`,
+  },
+  {
+    title: 'Deine Wallet', text: 'Gutschein fotografieren, Felder füllen sich automatisch. Restguthaben abbuchen, PIN und Barcode griffbereit – und Sparkarten wie Payback immer dabei.', cta: 'Weiter',
+    visual: () => `
+      <div class="wallet-card ob-mini" style="--bc:${brandColor('rewe')}">
+        <div class="wallet-card-head">
+          <span class="brand-chip" style="--bc:rgba(255,255,255,.22)">RE</span>
+          <span class="wallet-card-name">REWE</span>
+          <span class="wallet-card-balance">25,00 €</span>
+        </div>
+        <div class="wallet-card-sub"><span>GUTSCHEIN-123</span><span class="pill">PIN</span><span class="pill">QR</span></div>
+      </div>`,
+  },
+  {
+    title: 'Coupons & Merken', text: 'Der Coupons-Tab bündelt Rossmann, Lidl Plus, McDonald’s & Co. Mit dem Stern merkst du dir Angebote – auf Wunsch mit Erinnerung, bevor sie ablaufen.', cta: 'Weiter',
+    visual: () => ['Rossmann', 'Lidl', 'McDonalds', 'Payback'].map(b =>
+      `<span class="brand-chip" style="--bc:${brandColor(b)}">${esc(brandInitials(b))}</span>`).join('')
+      + `<span class="ob-star">${icon('star')}</span>`,
+  },
+  {
+    title: 'Bleib verbunden.', text: 'Mit deinem Profil sicherst du Wallet und Bewertungen. Den Newsletter kannst du optional dazunehmen – damit du keinen Top-Deal verpasst.', cta: 'Konto erstellen', final: true,
+    visual: () => `
+      <span class="avatar-mini" style="width:34px;height:34px;font-size:1rem">du</span>
+      <span class="pill pill-accent">${icon('bell', 'icon icon-sm')} Newsletter optional</span>`,
+  },
 ];
 let obStep = 0;
 
@@ -1338,6 +1366,7 @@ function renderObStep() {
   const stepEl = $('#ob-step');
   stepEl.innerHTML = `
     <div class="ob-step">
+      ${s.visual ? `<div class="ob-visual">${s.visual()}</div>` : ''}
       <h2>${esc(s.title)}</h2>
       <p>${esc(s.text)}</p>
     </div>`;
