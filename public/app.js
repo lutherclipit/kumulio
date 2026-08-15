@@ -1684,31 +1684,80 @@ const VENDOR_QUICK = ['REWE', 'Amazon', 'Wunschgutschein', 'Zalando', 'IKEA', 'R
 
 // Bild automatisch auslesen: QR/Barcode (BarcodeDetector) + Text (TextDetector, wo verfügbar).
 // Volle KI-Auslese (Claude Vision) kommt mit dem Live-Backend.
+// Kassen-Code ausschneiden: nur der Barcode/QR, großzügig gepolstert und
+// hochskaliert – den hält man an der Kasse hin, perfekt lesbar
+function cropCode(img, bb) {
+  if (!bb || bb.width < 20 || bb.height < 10) return '';
+  const padX = bb.width * 0.14, padY = Math.max(bb.height * 0.35, 20);
+  const x = Math.max(0, bb.x - padX), y = Math.max(0, bb.y - padY);
+  const w = Math.min(img.naturalWidth - x, bb.width + padX * 2);
+  const h = Math.min(img.naturalHeight - y, bb.height + padY * 2);
+  const c = document.createElement('canvas');
+  const scale = Math.min(2, 900 / w);
+  c.width = Math.round(w * scale); c.height = Math.round(h * scale);
+  c.getContext('2d').drawImage(img, x, y, w, h, 0, 0, c.width, c.height);
+  return c.toDataURL('image/png');
+}
+
+// iPhone-Fallback: Safari hat keinen BarcodeDetector – ZXing (lokal in
+// public/vendor, wird nur bei Bedarf geladen) liest QR/EAN/Code128 & Co.
+async function zxingDetect(img) {
+  if (!window.ZXing) {
+    await new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = '/vendor/zxing.min.js'; s.onload = res; s.onerror = rej;
+      document.head.appendChild(s);
+    }).catch(() => { });
+  }
+  if (!window.ZXing) return null;
+  const c = document.createElement('canvas');
+  c.width = img.naturalWidth; c.height = img.naturalHeight;
+  c.getContext('2d').drawImage(img, 0, 0);
+  try {
+    const source = new ZXing.HTMLCanvasElementLuminanceSource(c);
+    const bitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(source));
+    const hints = new Map();
+    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+    const result = new ZXing.MultiFormatReader().decode(bitmap, hints);
+    const pts = (result.getResultPoints() || []).filter(Boolean);
+    let box = null;
+    if (pts.length >= 2) {
+      const xs = pts.map(p => p.getX()), ys = pts.map(p => p.getY());
+      box = {
+        x: Math.min(...xs), y: Math.min(...ys),
+        width: Math.max(...xs) - Math.min(...xs),
+        height: Math.max(...ys) - Math.min(...ys),
+      };
+      // 1D-Barcodes liefern nur eine Scan-Linie – Höhe/Breite großzügig auffüllen
+      if (box.height < 30) { box.y = Math.max(0, box.y - 70); box.height += 140; }
+      if (box.width < 30) { box.x = Math.max(0, box.x - 70); box.width += 140; }
+    }
+    return { text: result.getText(), box };
+  } catch { return null; }
+}
+
 async function analyzeWalletImage(dataUrl) {
-  const out = { barcode: '', codeImg: '', text: '', supported: { barcode: 'BarcodeDetector' in window, text: 'TextDetector' in window } };
+  const out = { barcode: '', codeImg: '', text: '', supported: { barcode: true, text: 'TextDetector' in window } };
   const img = new Image();
   await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = dataUrl; });
-  if (out.supported.barcode) {
+  if ('BarcodeDetector' in window) {
     try {
       const codes = await new BarcodeDetector().detect(img);
       if (codes.length) {
         out.barcode = codes[0].rawValue || '';
-        // Kassen-Code ausschneiden: nur der Barcode/QR, großzügig gepolstert –
-        // den hält man an der Kasse hin, perfekt lesbar statt Mini-Ausschnitt im Foto
-        const bb = codes[0].boundingBox;
-        if (bb && bb.width > 20 && bb.height > 10) {
-          const padX = bb.width * 0.14, padY = bb.height * 0.35;
-          const x = Math.max(0, bb.x - padX), y = Math.max(0, bb.y - padY);
-          const w = Math.min(img.naturalWidth - x, bb.width + padX * 2);
-          const h = Math.min(img.naturalHeight - y, bb.height + padY * 2);
-          const c = document.createElement('canvas');
-          const scale = Math.min(2, 900 / w); // hochskalieren für Scanner-Schärfe
-          c.width = Math.round(w * scale); c.height = Math.round(h * scale);
-          c.getContext('2d').drawImage(img, x, y, w, h, 0, 0, c.width, c.height);
-          out.codeImg = c.toDataURL('image/png');
-        }
+        out.codeImg = cropCode(img, codes[0].boundingBox);
       }
     } catch { }
+  }
+  if (!out.barcode) {
+    // Kein eingebauter Detector (iPhone) oder nichts gefunden → ZXing versucht es
+    const r = await zxingDetect(img);
+    if (r) {
+      out.barcode = r.text || '';
+      out.codeImg = out.codeImg || cropCode(img, r.box);
+    } else if (!('BarcodeDetector' in window) && !window.ZXing) {
+      out.supported.barcode = false;
+    }
   }
   if (out.supported.text) {
     try {
