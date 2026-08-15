@@ -1106,8 +1106,8 @@ function openChannelsSheet() {
 
 // ---------------- Favoriten-Sheet ----------------
 
-// Goldener Stern oben → Segment "Gespeichert"
-$('#btn-favs').addEventListener('click', () => {
+// Goldener Stern oben (aktuell aus dem Header entfernt – Gespeichert bleibt über Karten-Sterne erreichbar)
+$('#btn-favs')?.addEventListener('click', () => {
   state.activeChip = 'saved';
   renderChipbar();
   renderFeed(true);
