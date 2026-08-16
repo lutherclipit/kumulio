@@ -162,14 +162,15 @@
 
       <!-- Gamification: Ränge über Spar-Aktivität, Container nur erspielbar, Paints -->
       <div class="card modal-left hidden" id="gami-card">
+        <button class="iconbtn info-btn gm-info-corner" id="gm-rank-info" aria-label="Wie sammle ich Punkte?">
+          <svg class="icon icon-sm"><use href="#i-bulb"/></svg>
+        </button>
         <div id="gm-rank-head"></div>
         <div class="form-row" style="margin-top:10px; align-items:center">
           <span class="coin-chip"><img class="px-icon" src="/gamification/currency-funke.svg" alt="Funken"> <b id="g-coins">0</b>&nbsp;Funken</span>
           <button id="g-daily" class="btn btn-small">Daily abholen</button>
           <button id="gm-inv-open" class="btn btn-small btn-ghost"><svg class="icon icon-sm"><use href="#i-gift"/></svg> Inventar</button>
-          <button class="iconbtn info-btn" id="gm-rank-info" aria-label="Wie sammle ich Punkte?">
-            <svg class="icon icon-sm"><use href="#i-bulb"/></svg>
-          </button>
+          <button id="gm-shop-open" class="btn btn-small btn-ghost"><svg class="icon icon-sm"><use href="#i-banknote"/></svg> Shop</button>
         </div>
         <div id="gm-ladder" class="gm-ladder"></div>
         <details class="rules-fold" id="quests-fold" style="margin-top:14px">
@@ -287,9 +288,8 @@
         </button>
         <h1 style="margin:0">Container-Shop</h1>
       </div>
-      <p class="muted" style="font-size:.82rem">Funken gibt es nur fürs Mitmachen, niemals für Echtgeld.
-        Du hast <span class="coin-chip"><img class="px-icon" src="/gamification/currency-funke.svg" alt="Funken"> <b id="shop-coins">0</b>&nbsp;Funken</span></p>
-      <div id="shop-page" class="gm-cases" style="margin-top:10px"></div>
+      <span class="hidden" id="shop-coins" aria-hidden="true"></span>
+      <div id="shop-page" style="margin-top:4px"></div>
     </section>
 
     <!-- ================= GESCHENKE (eigene Seite) ================= -->

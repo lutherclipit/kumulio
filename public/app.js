@@ -264,6 +264,7 @@ function switchView(next, animClass) {
   newView.classList.add(animClass || (dir === 1 ? 'enter-right' : 'enter-left'));
   // Login-Captcha erst rendern, wenn die Profil-Seite sichtbar ist
   if (next === 'profile' && !state.token) renderTurnstile('login');
+  if (next === 'profile' && state.token) { refreshGami(); refreshGamiSystem(); }
   if (next === 'chat') {
     updateChatGate();
     pollChat(true);
@@ -1963,25 +1964,43 @@ function openStickerApply(id) {
   document.body.appendChild(wrap);
 }
 
-// ---- Container-Shop als eigene Seite
+// ---- Container-Shop als eigene Seite: erst ansehen (Inhalt + Chancen), dann kaufen
+const SHOP_DESC = {
+  'emote-capsule': 'Chat-Emotes aus dem 7TV-Global-Set',
+  'sticker-capsule': 'Sticker zum Aufkleben auf deine Gutscheine',
+  'paint-capsule': 'Namens-Paints für den Chat, auch animierte',
+  'border-capsule': 'Rahmen für dein Profilbild',
+  'emote-case': 'Emotes, Paints und Badges, mit Legendary-Chance',
+};
 async function renderShopPage() {
   if (!gami) await refreshGamiSystem();
   $('#shop-coins').textContent = fmtFunken(gami?.coins ?? 0);
-  $('#shop-page').innerHTML = Object.entries(gami?.containers || {}).map(([type, c]) => `
-    <button class="gm-case" data-shop-buy2="${esc(type)}">
+  const entries = Object.entries(gami?.containers || {});
+  const capsules = entries.filter(([, c]) => Object.keys(c.odds).length === 4);
+  const cases = entries.filter(([, c]) => Object.keys(c.odds).length > 4);
+  const card = ([type, c]) => `
+    <button class="shop-card" data-shop-view="${esc(type)}">
       <img class="px-icon big" src="/gamification/${c.img}.svg" alt="">
-      <span>${esc(c.name)}</span>
-      <span class="shop-price">${funkeIcon(true)} ${fmtFunken(c.price)} Funken</span>
-    </button>`).join('');
-  $('#shop-page').querySelectorAll('[data-shop-buy2]').forEach(b => b.onclick = async () => {
-    try {
-      const r = await api('/api/shop/buy', { method: 'POST', body: JSON.stringify({ type: b.dataset.shopBuy2 }) });
-      playSfx('kaching'); buzz(30);
-      island('Container gekauft, ab ins Inventar!');
-      gami.coins = r.coins; gami.cases = r.cases;
-      renderShopPage();
-    } catch (e) { island(e.message); }
-  });
+      <span class="shop-card-name">${esc(c.name)}</span>
+      <span class="shop-card-desc">${esc(SHOP_DESC[type] || '')}</span>
+      <span class="shop-card-meta">${casePool(type).length} Items</span>
+      <span class="shop-price">${funkeIcon(true)} ${fmtFunken(c.price)}</span>
+    </button>`;
+  $('#shop-page').innerHTML = `
+    <div class="shop-hero">
+      <div class="shop-hero-text">
+        <b>Funken einlösen</b>
+        <span>Antippen zeigt den Inhalt mit allen Chancen, gekauft wird erst danach.</span>
+      </div>
+      <span class="coin-chip shop-hero-coins">${funkeIcon()} <b>${fmtFunken(gami?.coins ?? 0)}</b>&nbsp;Funken</span>
+    </div>
+    <h3 class="gm-h">Kapseln</h3>
+    <div class="shop-grid">${capsules.map(card).join('')}</div>
+    ${cases.length ? `<h3 class="gm-h">Cases</h3>
+    <div class="shop-grid">${cases.map(card).join('')}</div>` : ''}
+    <p class="muted" style="font-size:.78rem">Funken gibt es nur fürs Mitmachen, niemals für Echtgeld.</p>`;
+  $('#shop-page').querySelectorAll('[data-shop-view]').forEach(b => b.onclick = () =>
+    openCaseModal({ type: b.dataset.shopView, shop: true }));
 }
 
 // ---- Rank-Up: Vollbild-Feier
@@ -2064,7 +2083,11 @@ function openCaseModal(box) {
   $('#reel-wrap').classList.add('hidden');
   $('#case-result').classList.add('hidden');
   $('#case-open-btn').classList.remove('hidden');
+  $('#case-open-btn').textContent = box.shop
+    ? `Kaufen für ${fmtFunken(gami?.containers?.[box.type]?.price || 0)} Funken`
+    : 'Öffnen';
   $('#case-skip').classList.add('hidden');
+  $('#case-backdrop').classList.remove('case-dark');
   // Chancen kommen 1:1 aus der Server-Tabelle des Container-Typs — die Anzeige
   // kann von der echten Ziehung nicht mehr abweichen
   const odds = gami?.containers?.[box.type]?.odds || {};
@@ -2112,6 +2135,32 @@ function caseItemHtml(it) {
 }
 async function startCaseOpen() {
   const { box } = caseCtx;
+  if (box.shop) {
+    // Shop-Modus: dieses Fenster ist die Detail-Ansicht, der Knopf kauft
+    try {
+      const rb = await api('/api/shop/buy', { method: 'POST', body: JSON.stringify({ type: box.type }) });
+      playSfx('kaching'); buzz(30);
+      gami.coins = rb.coins; gami.cases = rb.cases;
+      $('#case-open-btn').classList.add('hidden');
+      $('#case-preview').classList.add('hidden');
+      $('#case-odds-panel').classList.add('hidden');
+      $('#case-result').classList.remove('hidden');
+      $('#case-result').innerHTML = `
+        <div class="case-win" style="--rc:#12C77E">
+          <b>Gekauft!</b>
+          <span>Die ${esc(containerName(box.type))} liegt in deinem Inventar.</span>
+          <div class="form-row" style="justify-content:center; margin-top:12px">
+            <button class="btn btn-small" id="cbuy-inv">Zum Inventar</button>
+            <button class="btn btn-small btn-ghost" id="cbuy-more">Weiter stöbern</button>
+          </div>
+        </div>`;
+      $('#cbuy-inv').onclick = () => { hideOverlay($('#case-backdrop')); switchView('inventory', 'enter-drop'); };
+      $('#cbuy-more').onclick = () => { hideOverlay($('#case-backdrop')); renderShopPage(); };
+      renderShopPage();
+      refreshGamiSystem();
+    } catch (e) { island(e.message); }
+    return;
+  }
   let r;
   try { r = await api('/api/case/open', { method: 'POST', body: JSON.stringify({ id: box.id }) }); }
   catch (e) { island(e.message); return; }
@@ -2119,6 +2168,7 @@ async function startCaseOpen() {
   $('#case-open-btn').classList.add('hidden');
   $('#case-preview').classList.add('hidden');
   $('#case-odds-panel').classList.add('hidden');
+  $('#case-backdrop').classList.add('case-dark'); // Buehne frei: weich abdunkeln
   const col = (gami?.rarity || {})[r.win.rarity]?.color || '#888';
   const label = (gami?.rarity || {})[r.win.rarity]?.label || r.win.rarity;
   const bigReveal = () => {
@@ -2490,6 +2540,7 @@ function toggleTopMenu() {
   menu.querySelector('.tm-head').onclick = () => { done(); switchView('profile'); };
   $('#tm-inv').onclick = () => { done(); switchView('inventory', 'enter-drop'); };
   $('#gm-inv-open') && ($('#gm-inv-open').onclick = () => switchView('inventory', 'enter-drop'));
+  $('#gm-shop-open') && ($('#gm-shop-open').onclick = () => switchView('shop', 'enter-drop'));
   $('#tm-shop').onclick = () => { done(); switchView('shop', 'enter-drop'); };
   $('#tm-catalog').onclick = () => { done(); openCatalogSheet(); };
   $('#tm-quests').onclick = () => {

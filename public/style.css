@@ -2539,8 +2539,9 @@ body:has(.sheet.open) {
 
 /* Animierte Paints: shimmer/holo/sweep sind dieselbe Bewegung (Lauflicht),
    der Glow kommt als Schein in der Paint-Farbe dazu */
-.pn-anim { background-size: 220% 100% !important; animation: paintShimmer 3.4s linear infinite; }
-@keyframes paintShimmer { to { background-position: 220% 0; } }
+.pn-anim { background-size: 200% 100% !important; animation: paintShimmer 3.4s linear infinite; }
+/* 200%-Kachel + 200%-Zielposition = Verschiebung um EXAKT eine Periode: nahtlos */
+@keyframes paintShimmer { to { background-position: 200% 0; } }
 .pn-glow { filter: drop-shadow(0 0 6px var(--glow, transparent)); }
 @media (prefers-reduced-motion: reduce) { .pn-anim { animation: none; } }
 
@@ -2644,3 +2645,38 @@ body:has(.sheet.open) {
 .cp-item .reel-paint { width: 30px; height: 15px; }
 .cp-item .avatar-mini.border-demo { width: 26px; height: 26px; font-size: .7rem; }
 .cp-item .icon { width: 20px; height: 20px; }
+
+
+/* ================= Runde 49 ================= */
+
+/* Beim Oeffnen eines Containers dunkelt die Buehne weich ab */
+#case-backdrop { transition: background .55s ease; }
+#case-backdrop.case-dark { background: rgba(8, 11, 15, .78); }
+
+/* Rang-Info sitzt oben rechts in der Karte */
+#gami-card { position: relative; }
+.gm-info-corner { position: absolute; top: 10px; right: 10px; z-index: 2; }
+
+/* Container-Shop: Hero + geordnete Karten-Sektionen */
+.shop-hero {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: linear-gradient(120deg, #141A22 0%, #1E2833 60%, #232F3E 100%);
+  color: #EDF2F7; border-radius: 18px; padding: 16px 18px; margin-bottom: 14px;
+}
+.shop-hero-text { display: flex; flex-direction: column; gap: 3px; }
+.shop-hero-text b { font-size: 1.05rem; }
+.shop-hero-text span { font-size: .78rem; opacity: .75; }
+.shop-hero-coins { background: rgba(255,255,255,.1); color: #F5B301; border-radius: 999px; padding: 6px 12px; white-space: nowrap; }
+.shop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.shop-card {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  background: var(--surface); border: 1px solid var(--stroke-light);
+  border-radius: 16px; padding: 14px 10px 12px; cursor: pointer;
+  font: inherit; color: inherit; text-align: center;
+}
+.shop-card:active { transform: scale(.97); }
+.shop-card .px-icon.big { width: 44px; height: 44px; }
+.shop-card-name { font-weight: 800; font-size: .9rem; }
+.shop-card-desc { font-size: .7rem; color: var(--muted); line-height: 1.35; min-height: 2.7em; }
+.shop-card-meta { font-size: .66rem; color: var(--muted); opacity: .8; }
+.shop-card .shop-price { font-weight: 800; color: var(--accent-strong, #12C77E); margin-top: 2px; }
