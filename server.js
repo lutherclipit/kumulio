@@ -46,6 +46,7 @@ function saveJson(file, obj) {
 }
 
 let comments = loadJson('comments.json', {});   // { dealId: [ {user,text,ts,flags} ] }
+let profComments = loadJson('profile-comments.json', {}); // { user: [ {from,text,stars,ts} ] }
 // Alt-Kommentare aus fruehen Versionen hatten keine id und liessen sich dadurch
 // nie loeschen ("Kommentar nicht gefunden"): einmalig nachruesten und sichern
 {
@@ -1685,41 +1686,95 @@ const server = http.createServer(async (req, res) => {
       saveJson('users.json', users);
       return send(res, 200, { ok: true, win: { ...win, rarity, float, shiny, value }, dupe, coins: prof.coins, cases: prof.cases });
     }
-    // Item verkaufen: Wert nach Rarität, shiny x5; aktive Items werden abgelegt
-    if (p === '/api/item/sell' && req.method === 'POST') {
-      const user = authUser(req);
-      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
-      const b = await readBody(req);
-      const prof = profileOf(user);
-      const kind = String(b.kind || ''), id = String(b.id || '');
+    // Item verkaufen: Wert nach Rarität, shiny x5; aktive Items werden abgelegt.
+    // sellOneItem ist die EINE Verkaufs-Wahrheit für Einzel- und Sammelverkauf.
+    function sellOneItem(prof, kind, id, copy) {
       const lists = { paint: prof.paints, badge: prof.badges, emote: prof.emotes = prof.emotes || [], sticker: prof.stickers = prof.stickers || [], border: prof.borders = prof.borders || [] };
       const list = lists[kind];
-      if (!list || !list.includes(id)) return send(res, 404, { error: 'Item nicht gefunden.' });
+      if (!list || !list.includes(id)) return { error: 'Item nicht gefunden.' };
       const rarity = kind === 'paint' ? (PAINTS.paints.find(x => x.id === id) || {}).rarity
         : kind === 'badge' ? ({ 'häufig': 'common', 'selten': 'rare', 'episch': 'epic' })[(BADGES[id] || {}).rar]
         : kind === 'sticker' ? (STICKERS_ALL[id] || {}).rarity
         : kind === 'border' ? (BORDERS[id] || {}).rarity
         : (EMOTES_ALL[id] || {}).rarity;
-      // Genau EINE Kopie verkaufen (b.copy); die Floats der Kopien danach
-      // ruecken eins nach vorn, damit die Kette lueckenlos bleibt
       const copies = list.filter(x => x === id).length;
-      const copy = Math.min(Math.max(Number(b.copy) || 0, 0), copies - 1);
+      const c = Math.min(Math.max(Number(copy) || 0, 0), copies - 1);
       prof.floats = prof.floats || {};
-      const float = prof.floats[floatKeyOf(kind, id, copy)] ?? 0;
+      const float = prof.floats[floatKeyOf(kind, id, c)] ?? 0;
       const value = itemValue(rarity || 'common', float);
-      for (let k = copy; k < copies - 1; k++) prof.floats[floatKeyOf(kind, id, k)] = prof.floats[floatKeyOf(kind, id, k + 1)] ?? 0;
+      for (let k = c; k < copies - 1; k++) prof.floats[floatKeyOf(kind, id, k)] = prof.floats[floatKeyOf(kind, id, k + 1)] ?? 0;
       delete prof.floats[floatKeyOf(kind, id, copies - 1)];
       list.splice(list.indexOf(id), 1);
       if (copies === 1) {
-        // Die letzte Kopie ging weg: aktive Verwendung aufraeumen
         if (kind === 'badge' && prof.activeBadge === id) prof.activeBadge = '';
         if (kind === 'paint' && prof.activePaint === id) prof.activePaint = '';
         if (kind === 'border' && prof.activeBorder === id) prof.activeBorder = '';
         prof.showcase = (prof.showcase || []).filter(s => s !== `${kind}:${id}`);
       }
       prof.coins = (prof.coins || 0) + value;
+      return { value };
+    }
+    if (p === '/api/item/sell' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      const prof = profileOf(user);
+      const r = sellOneItem(prof, String(b.kind || ''), String(b.id || ''), b.copy);
+      if (r.error) return send(res, 404, { error: r.error });
       saveJson('users.json', users);
-      return send(res, 200, { ok: true, value, coins: prof.coins });
+      return send(res, 200, { ok: true, value: r.value, coins: prof.coins });
+    }
+    // Sammelverkauf: mehrere markierte Items in einem Rutsch. Pro (kind,id)
+    // wird von der hoechsten Kopie abwaerts verkauft, damit die beim
+    // Einzelverkauf nachrueckenden Kopie-Nummern nicht verrutschen.
+    if (p === '/api/item/sell-many' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      const items = (Array.isArray(b.items) ? b.items : []).slice(0, 100)
+        .map(x => ({ kind: String(x.kind || ''), id: String(x.id || ''), copy: Number(x.copy) || 0 }))
+        .sort((a, z) => z.copy - a.copy);
+      if (!items.length) return send(res, 400, { error: 'Nichts ausgewählt.' });
+      const prof = profileOf(user);
+      let total = 0, sold = 0;
+      for (const it of items) {
+        const r = sellOneItem(prof, it.kind, it.id, it.copy);
+        if (!r.error) { total += r.value; sold++; }
+      }
+      if (!sold) return send(res, 404, { error: 'Keins der Items gefunden.' });
+      saveJson('users.json', users);
+      return send(res, 200, { ok: true, sold, total, coins: prof.coins });
+    }
+    // Profil einmalig bewerten und kommentieren (ein Eintrag pro Besucher, Upsert)
+    if (p === '/api/profile/comments' && req.method === 'GET') {
+      const target = String(url.searchParams.get('user') || '');
+      if (!users[target]) return send(res, 404, { error: 'Nutzer nicht gefunden.' });
+      const me = authUser(req);
+      const list = (profComments[target] || []).map(c => {
+        const cp = users[c.from] ? profileOf(c.from) : null;
+        return { ...c, avatar: cp ? cp.avatar || '' : '', paint: cp ? cp.activePaint || '' : '', border: cp ? cp.activeBorder || '' : '' };
+      }).sort((a, z) => z.ts - a.ts);
+      const stars = list.map(c => c.stars).filter(Boolean);
+      const avg = stars.length ? Math.round(stars.reduce((a, x) => a + x, 0) / stars.length * 10) / 10 : 0;
+      return send(res, 200, { list, avg, count: stars.length, mine: me ? (profComments[target] || []).find(c => c.from === me) || null : null });
+    }
+    if (p === '/api/profile/comment' && req.method === 'POST') {
+      const me = authUser(req);
+      if (!me) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      const target = String(b.user || '');
+      if (!users[target]) return send(res, 404, { error: 'Nutzer nicht gefunden.' });
+      if (target === me) return send(res, 400, { error: 'Das eigene Profil bewertet man nicht selbst.' });
+      const text = String(b.text || '').trim().slice(0, 140);
+      const stars = Math.min(5, Math.max(1, Math.round(Number(b.stars) || 0)));
+      profComments[target] = (profComments[target] || []).filter(c => c.from !== me);
+      if (text || b.stars) {
+        const mod = moderate(text);
+        if (mod.blocked) return send(res, 400, { error: mod.reason });
+        profComments[target].push({ from: me, text: censor(text), stars, ts: Date.now() });
+      }
+      saveJson('profile-comments.json', profComments);
+      return send(res, 200, { ok: true });
     }
     // Sticker aufkleben: verbraucht das Inventar-Item (die Klebe-Position selbst
     // lebt am Gutschein in der Wallet und wird vom Client gesynct)

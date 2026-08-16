@@ -1747,13 +1747,15 @@ function openInventory() {
       const val = (gami.sellValues || {})[it.rarity] * (shiny ? 5 : 1);
       const inShowcase = (gami.showcase || []).includes(`${it.kind}:${it.id}`);
       const equipped = (it.kind === 'paint' && gami.activePaint === it.id) || (it.kind === 'badge' && myProfile?.activeBadge === it.id) || (it.kind === 'border' && gami.activeBorder === it.id);
+      const selKey = `${it.kind}:${it.id}:${it.copy}`;
       return `
-      <div class="inv-item ${shiny ? 'shiny' : ''}" style="--rc:${col}">
+      <div class="inv-item ${shiny ? 'shiny' : ''} ${invSelect ? 'sel-mode' : ''} ${invSelected.has(selKey) ? 'selected' : ''}" style="--rc:${col}" ${invSelect ? `data-sel="${esc(selKey)}" data-sel-val="${val}"` : ''}>
+        ${invSelect ? `<span class="sel-check">${icon('check', 'icon icon-sm')}</span>` : ''}
         <div class="inv-visual">${itemVisual(it.kind, it.id)}</div>
         <b>${esc(itemName(it.kind, it.id))}</b>
         <span class="inv-float">#${String(it.float).padStart(3, '0')}${shiny ? ' ✦' : ''}</span>
         <span style="color:${col}; font-size:.68rem">${esc((gami.rarity || {})[it.rarity]?.label || it.rarity)}</span>
-        <div class="inv-actions">
+        <div class="inv-actions" ${invSelect ? 'style="display:none"' : ''}>
           ${it.kind === 'sticker' ? `<button class="c-act" data-inv-stick="${esc(it.id)}">Aufkleben</button>`
           : it.kind !== 'emote' ? `<button class="c-act ${equipped ? 'on' : ''}" data-inv-equip="${it.kind}:${esc(it.id)}">${equipped ? 'Angelegt' : 'Anlegen'}</button>` : ''}
           <button class="c-act ${inShowcase ? 'on' : ''}" data-inv-show="${it.kind}:${esc(it.id)}">Profil</button>
@@ -1800,13 +1802,21 @@ $('#gm-inv-btn')?.addEventListener('click', () => switchView('inventory', 'enter
 
 // ---- Inventar als eigene Seite: Items UND Kisten, filterbar
 let invFilter = 'alle';
+let invSortRar = false;
+let invSelect = false;
+const invSelected = new Set(); // "kind:id:copy"
+const RAR_RANK = { legendary: 5, epic: 4, rare: 3, uncommon: 2, common: 1 };
 async function renderInventoryPage() {
   if (!gami) await refreshGamiSystem();
   const host = $('#inv-page');
   if (!gami) { host.innerHTML = '<div class="status">Bitte anmelden.</div>'; return; }
   const items = myItems();
-  const showCases = invFilter === 'alle' || invFilter === 'case';
-  const list = invFilter === 'alle' ? items : items.filter(it => it.kind === invFilter);
+  const showCases = !invSelect && (invFilter === 'alle' || invFilter === 'case');
+  let list = invFilter === 'alle' ? items : items.filter(it => it.kind === invFilter);
+  if (invSortRar) list = [...list].sort((a, z) => (RAR_RANK[z.rarity] || 0) - (RAR_RANK[a.rarity] || 0) || z.float - a.float);
+  $('#inv-sort')?.classList.toggle('active', invSortRar);
+  $('#inv-select') && ($('#inv-select').textContent = invSelect ? 'Fertig' : 'Auswählen');
+  renderInvSellbar();
   host.innerHTML = `
     ${showCases && gami.cases.length ? `<h3 class="gm-h" style="margin-top:0">Container</h3>
     <div class="gm-cases">${gami.cases.map(c => `
@@ -1821,13 +1831,15 @@ async function renderInventoryPage() {
       const val = ((gami.sellValues || {})[it.rarity] || 20) * (shiny ? 5 : 1);
       const inShowcase = (gami.showcase || []).includes(`${it.kind}:${it.id}`);
       const equipped = (it.kind === 'paint' && gami.activePaint === it.id) || (it.kind === 'badge' && myProfile?.activeBadge === it.id) || (it.kind === 'border' && gami.activeBorder === it.id);
+      const selKey = `${it.kind}:${it.id}:${it.copy}`;
       return `
-      <div class="inv-item ${shiny ? 'shiny' : ''}" style="--rc:${col}">
+      <div class="inv-item ${shiny ? 'shiny' : ''} ${invSelect ? 'sel-mode' : ''} ${invSelected.has(selKey) ? 'selected' : ''}" style="--rc:${col}" ${invSelect ? `data-sel="${esc(selKey)}" data-sel-val="${val}"` : ''}>
+        ${invSelect ? `<span class="sel-check">${icon('check', 'icon icon-sm')}</span>` : ''}
         <div class="inv-visual">${itemVisual(it.kind, it.id)}</div>
         <b>${esc(itemName(it.kind, it.id))}</b>
         <span class="inv-float">#${String(it.float).padStart(3, '0')}${shiny ? ' ✦' : ''}</span>
         <span style="color:${col}; font-size:.68rem">${esc((gami.rarity || {})[it.rarity]?.label || it.rarity)}</span>
-        <div class="inv-actions">
+        <div class="inv-actions" ${invSelect ? 'style="display:none"' : ''}>
           ${it.kind === 'sticker' ? `<button class="c-act" data-inv-stick="${esc(it.id)}">Aufkleben</button>`
           : it.kind !== 'emote' ? `<button class="c-act ${equipped ? 'on' : ''}" data-inv-equip="${it.kind}:${esc(it.id)}">${equipped ? 'Angelegt' : 'Anlegen'}</button>` : ''}
           <button class="c-act ${inShowcase ? 'on' : ''}" data-inv-show="${it.kind}:${esc(it.id)}">Profil</button>
@@ -1838,6 +1850,13 @@ async function renderInventoryPage() {
   host.querySelectorAll('[data-case-open]').forEach(b => b.onclick = () =>
     openCaseModal(gami.cases.find(c => c.id === b.dataset.caseOpen)));
   host.querySelectorAll('[data-inv-stick]').forEach(b => b.onclick = () => openStickerApply(b.dataset.invStick));
+  host.querySelectorAll('[data-sel]').forEach(el => el.onclick = () => {
+    const k = el.dataset.sel;
+    if (invSelected.has(k)) invSelected.delete(k); else invSelected.add(k);
+    el.classList.toggle('selected', invSelected.has(k));
+    buzz(10);
+    renderInvSellbar();
+  });
   // Antippen des Item-Bilds = groß inspecten
   host.querySelectorAll('.inv-item').forEach(el => {
     const vis = el.querySelector('.inv-visual');
@@ -1845,6 +1864,7 @@ async function renderInventoryPage() {
     const sellBtn = el.querySelector('[data-inv-sell]');
     if (!sellBtn) return;
     const [kind, id] = sellBtn.dataset.invSell.split(':');
+    if (invSelect) { vis.style.cursor = ''; vis.onclick = null; return; }
     vis.style.cursor = 'zoom-in';
     vis.onclick = () => openInspect(kind, id, (gami.floats || {})[`${kind}:${id}`] ?? 0, itemRarity(kind, id));
   });
@@ -1900,6 +1920,41 @@ document.querySelectorAll('[data-invf]').forEach(b => b.addEventListener('click'
   document.querySelectorAll('[data-invf]').forEach(x => x.classList.toggle('active', x === b));
   renderInventoryPage();
 }));
+// Sammelverkauf: Leiste zeigt Anzahl und Gesamtwert der markierten Items
+function renderInvSellbar() {
+  const bar = $('#inv-sellbar');
+  if (!bar) return;
+  bar.classList.toggle('hidden', !invSelect);
+  if (!invSelect) return;
+  let total = 0;
+  document.querySelectorAll('#inv-page [data-sel]').forEach(el => {
+    if (invSelected.has(el.dataset.sel)) total += Number(el.dataset.selVal) || 0;
+  });
+  $('#inv-selcount').textContent = `${invSelected.size} ausgewählt`;
+  const btn = $('#inv-sell-selected');
+  btn.disabled = !invSelected.size;
+  btn.innerHTML = `Verkaufen ${invSelected.size ? `(${fmtFunken(total)} ${funkeIcon(true)})` : ''}`;
+}
+$('#inv-sort')?.addEventListener('click', () => { invSortRar = !invSortRar; renderInventoryPage(); });
+$('#inv-select')?.addEventListener('click', () => {
+  invSelect = !invSelect;
+  invSelected.clear();
+  renderInventoryPage();
+});
+$('#inv-sel-cancel')?.addEventListener('click', () => { invSelect = false; invSelected.clear(); renderInventoryPage(); });
+$('#inv-sell-selected')?.addEventListener('click', async () => {
+  if (!invSelected.size) return;
+  const items = [...invSelected].map(k => { const [kind, id, copy] = k.split(':'); return { kind, id, copy: Number(copy) || 0 }; });
+  if (!await askConfirm(`${items.length} Item${items.length > 1 ? 's' : ''} wirklich verkaufen?`, { okLabel: 'Verkaufen' })) return;
+  try {
+    const r = await api('/api/item/sell-many', { method: 'POST', body: JSON.stringify({ items }) });
+    playSfx('coin'); buzz([30, 30]);
+    island(`${r.sold} verkauft für ${fmtFunken(r.total)} Funken`);
+    invSelect = false; invSelected.clear();
+    await refreshGamiSystem(); refreshGami();
+    renderInventoryPage();
+  } catch (e) { island(e.message); }
+});
 
 // ---- Sticker auf Gutscheine kleben (wie CS-Sticker auf der Waffe) ----
 // Position in Prozent der Kartenfläche, damit sie auf jedem Display sitzt
@@ -5687,7 +5742,6 @@ async function openUserPop(user, msgId) {
   if (state.activeView !== 'user') userPageReturn = state.activeView;
   const pop = $('#user-page');
   pop.innerHTML = '<div class="status">Lade Profil …</div>';
-  $('#user-page-title').textContent = '@' + user;
   switchView('user', 'enter-drop');
   let u = { user };
   try { u = await api('/api/user?name=' + encodeURIComponent(user)); } catch { }
@@ -5695,17 +5749,16 @@ async function openUserPop(user, msgId) {
   const favLogo = v => BRAND_DOMAINS[String(v || '').toLowerCase()]
     ? `<span class="fav-logo">${brandChipHtml(v)}<small>${esc(v)}</small></span>`
     : `<span class="pill">${esc(v)}</span>`;
+  const ns = nameStyleOf(user, u.activePaint);
   pop.innerHTML = `
-    <div class="offer-head">
-      ${u.avatar ? `<img class="avatar-big${u.activeBorder ? ' pfb-' + esc(u.activeBorder) : ''}" src="${u.avatar}" alt="">`
-        : `<span class="avatar-big${u.activeBorder ? ' pfb-' + esc(u.activeBorder) : ''}" style="background:${chatColor(user)}">${esc(user[0].toUpperCase())}</span>`}
-      <div class="offer-brand">
-        <div class="offer-merchant"><span class="${nameStyleOf(user, u.activePaint).cls.trim()}" style="${nameStyleOf(user, u.activePaint).style}">${esc(user)}</span> ${u.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : u.role === 'mod' ? icon('check', 'icon icon-sm role-mod') : ''}</div>
-        <div class="offer-cat">${u.private ? 'Profil ist privat' : esc(u.bio || 'Keine Bio')}</div>
-      </div>
+    <div class="up-hero">
+      ${u.avatar ? `<img class="avatar-big up-ava${u.activeBorder ? ' pfb-' + esc(u.activeBorder) : ''}" src="${u.avatar}" alt="">`
+        : `<span class="avatar-big up-ava${u.activeBorder ? ' pfb-' + esc(u.activeBorder) : ''}" style="background:${chatColor(user)}">${esc(user[0].toUpperCase())}</span>`}
+      <div class="up-name"><span class="${ns.cls.trim()}" style="${ns.style}">${esc(user)}</span> ${u.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : u.role === 'mod' ? icon('check', 'icon icon-sm role-mod') : ''}</div>
+      <div class="up-bio">${u.private ? 'Profil ist privat' : esc(u.bio || 'Keine Bio')}</div>
     </div>
     ${!u.private && u.favs && Object.values(u.favs).some(Boolean) ? `
-    <div class="favs-view">
+    <div class="favs-view up-center">
       ${['discounter', 'supermarkt', 'essen', 'onlineshop', 'mode'].map(k => u.favs[k] ? favLogo(u.favs[k]) : '').join('')}
     </div>` : ''}
     ${!u.private && (u.showcase || []).length ? `<div class="me-showcase">
@@ -5718,11 +5771,13 @@ async function openUserPop(user, msgId) {
     ${!u.private && (u.badges || []).length ? `<div class="badge-grid" style="margin-top:10px">
       ${u.badges.map(id => u.badgesAll?.[id] ? badgeChip(id, u.badgesAll[id], id === u.activeBadge) : '').join('')}
     </div>` : ''}
-    <div class="form-row" style="margin-top:14px; flex-wrap:wrap">
+    <div class="form-row up-actions" style="margin-top:14px; flex-wrap:wrap; justify-content:center">
       <button class="btn btn-small" id="up-whisper">Flüstern</button>
       <button class="btn btn-small btn-ghost" id="up-friend">${isFriend ? 'Freund entfernen' : 'Freundschaftsanfrage'}</button>
       <button class="btn btn-small btn-ghost" id="up-report">Melden</button>
-    </div>`;
+    </div>
+    <div id="up-ratings"></div>`;
+  renderProfileRatings(user);
   // Bewusst KEINE Mod-Buttons hier: die Profilseite zeigt das Profil, wie es der
   // Nutzer gestaltet hat; Moderation läuft über das Chat-Popup
   const close = () => switchView(userPageReturn, 'enter-drop');
@@ -5748,6 +5803,61 @@ async function openUserPop(user, msgId) {
   };
 }
 $('#user-pop-backdrop').addEventListener('click', e => { if (e.target.id === 'user-pop-backdrop') hideOverlay($('#user-pop-backdrop')); });
+// Profil-Bewertungen: jeder Besucher hat EINEN Eintrag (Sterne + kurzer Text),
+// der jederzeit ueberschrieben oder entfernt werden kann
+function starRow(n, interactive) {
+  return `<span class="star-row${interactive ? ' star-pick' : ''}">${[1, 2, 3, 4, 5].map(i =>
+    `<svg class="icon icon-sm star ${i <= n ? 'on' : ''}" ${interactive ? `data-star="${i}"` : ''}><use href="#i-star"/></svg>`).join('')}</span>`;
+}
+async function renderProfileRatings(user) {
+  const host = $('#up-ratings');
+  if (!host) return;
+  let r;
+  try { r = await api('/api/profile/comments?user=' + encodeURIComponent(user)); } catch { return; }
+  let pickedStars = r.mine?.stars || 0;
+  host.innerHTML = `
+    <h3 class="gm-h up-center-h">Profil-Bewertungen ${r.count ? `<span class="stars-count">${String(r.avg).replace('.', ',')} von 5 · ${r.count}</span>` : ''}</h3>
+    ${state.token ? `
+    <div class="up-rate-form">
+      ${starRow(pickedStars, true)}
+      <div class="form-row" style="margin-top:8px">
+        <input class="input" id="up-rate-text" maxlength="140" placeholder="Kurzer Kommentar (optional)" value="${esc(r.mine?.text || '')}">
+        <button class="btn btn-small" id="up-rate-send">${r.mine ? 'Aktualisieren' : 'Bewerten'}</button>
+        ${r.mine ? '<button class="btn btn-small btn-ghost" id="up-rate-del">Entfernen</button>' : ''}
+      </div>
+    </div>` : ''}
+    ${r.list.length ? r.list.map(c => {
+    const cns = nameStyleOf(c.from, c.paint);
+    return `
+    <div class="up-rate-row">
+      ${c.avatar ? `<img class="avatar-mini avatar-img${c.border ? ' pfb-' + esc(c.border) : ''}" src="${c.avatar}" alt="">`
+      : `<span class="avatar-mini${c.border ? ' pfb-' + esc(c.border) : ''}" style="background:${chatColor(c.from)}">${esc(c.from[0].toUpperCase())}</span>`}
+      <div class="up-rate-body">
+        <div><span class="chat-user${cns.cls}" style="${cns.style}">${esc(c.from)}</span> ${starRow(c.stars, false)} <span class="comment-time">${esc(timeAgo(c.ts))}</span></div>
+        ${c.text ? `<div class="up-rate-text">${withEmotes(esc(c.text))}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('') : '<div class="status">Noch keine Bewertungen. Sei die erste Stimme!</div>'}`;
+  host.querySelectorAll('[data-star]').forEach(st => st.onclick = () => {
+    pickedStars = Number(st.dataset.star);
+    host.querySelectorAll('.star-pick .star').forEach((s, i) => s.classList.toggle('on', i < pickedStars));
+  });
+  $('#up-rate-send')?.addEventListener('click', async () => {
+    if (!pickedStars) { island('Erst Sterne antippen'); return; }
+    try {
+      await api('/api/profile/comment', { method: 'POST', body: JSON.stringify({ user, stars: pickedStars, text: $('#up-rate-text').value }) });
+      island('Danke für deine Bewertung!'); playSfx('plop');
+      renderProfileRatings(user);
+    } catch (e) { island(e.message); }
+  });
+  $('#up-rate-del')?.addEventListener('click', async () => {
+    try {
+      await api('/api/profile/comment', { method: 'POST', body: JSON.stringify({ user, stars: 0, text: '' }) });
+      island('Bewertung entfernt');
+      renderProfileRatings(user);
+    } catch (e) { island(e.message); }
+  });
+}
 // Eigene Nachricht löschen (Global + Flüstern), wird zum Platzhalter
 async function deleteOwnMsg(id) {
   if (!await askConfirm('Diese Nachricht löschen?', { okLabel: 'Löschen' })) return;

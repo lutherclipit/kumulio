@@ -257,12 +257,9 @@
 
     <!-- ================= NUTZER-PROFIL (öffentliche Seite) ================= -->
     <section id="view-user" class="view hidden">
-      <div class="search-head">
-        <button class="iconbtn back-btn" id="btn-user-back" aria-label="Zurück">
-          <svg class="icon"><use href="#i-arrow-back"/></svg>
-        </button>
-        <h1 style="margin:0" id="user-page-title">Profil</h1>
-      </div>
+      <button class="iconbtn back-btn up-back" id="btn-user-back" aria-label="Zurück">
+        <svg class="icon"><use href="#i-arrow-back"/></svg>
+      </button>
       <div id="user-page"></div>
     </section>
 
@@ -282,6 +279,13 @@
         <button class="chip" data-invf="emote">Emotes</button>
         <button class="chip" data-invf="sticker">Sticker</button>
         <button class="chip" data-invf="border">Rahmen</button>
+        <button class="chip" id="inv-sort" title="Nach Seltenheit sortieren">Seltenheit</button>
+        <button class="chip" id="inv-select">Auswählen</button>
+      </div>
+      <div id="inv-sellbar" class="inv-sellbar hidden">
+        <b id="inv-selcount">0 ausgewählt</b>
+        <button class="btn btn-small" id="inv-sell-selected">Verkaufen</button>
+        <button class="btn btn-small btn-ghost" id="inv-sel-cancel">Abbrechen</button>
       </div>
       <div id="inv-page" style="margin-top:12px"></div>
     </section>

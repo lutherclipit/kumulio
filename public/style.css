@@ -2761,3 +2761,52 @@ body:has(.sheet.open) {
 
 /* Dropdown-Kopf: der Paint-Name erbt die Chat-Optik */
 .tm-name .paint { font-weight: 900; }
+
+/* ================= Runde 54 ================= */
+
+/* Fremdprofil: zentrierter Hero, Zurueck schwebt oben links */
+#view-user { position: relative; }
+.up-back { position: absolute; top: 8px; left: 10px; z-index: 5; }
+.up-hero { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 26px 0 6px; text-align: center; }
+.up-ava { width: 84px; height: 84px; font-size: 2rem; }
+.up-name { font-size: 1.3rem; font-weight: 900; }
+.up-bio { font-size: .86rem; color: var(--muted); max-width: 320px; }
+.up-center { justify-content: center; }
+#user-page .me-showcase, #user-page .badge-grid { justify-content: center; }
+.up-center-h { text-align: center; margin-top: 18px; }
+
+/* Profil-Bewertungen */
+.star-row { display: inline-flex; gap: 2px; vertical-align: -3px; }
+.star-row .star { color: var(--muted); opacity: .45; }
+.star-row .star.on { color: #F5B301; opacity: 1; fill: #F5B301; }
+.star-pick .star { cursor: pointer; width: 22px; height: 22px; }
+.up-rate-form {
+  background: var(--surface); border: 1px solid var(--stroke-light);
+  border-radius: 16px; padding: 12px 14px; margin-bottom: 12px; text-align: center;
+}
+.up-rate-form .form-row { justify-content: center; }
+.up-rate-form .input { max-width: 260px; }
+.up-rate-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 2px; }
+.up-rate-row .avatar-mini { flex: none; }
+.up-rate-body { flex: 1; min-width: 0; }
+.up-rate-text { font-size: .9rem; line-height: 1.45; margin-top: 2px; }
+.up-rate-text .emote { height: 20px; vertical-align: -4px; }
+
+/* Inventar: Mehrfachauswahl + Sammelverkauf */
+.inv-sellbar {
+  position: sticky; top: calc(env(safe-area-inset-top, 0px) + 60px); z-index: 8;
+  display: flex; align-items: center; gap: 10px; justify-content: space-between;
+  background: var(--surface); border: 1px solid var(--stroke-light);
+  border-radius: 14px; padding: 10px 14px; margin: 8px 0;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .12);
+}
+.inv-item.sel-mode { cursor: pointer; position: relative; user-select: none; }
+.inv-item.sel-mode .sel-check {
+  position: absolute; top: 8px; right: 8px; width: 22px; height: 22px;
+  border-radius: 999px; border: 2px solid var(--stroke-light);
+  display: flex; align-items: center; justify-content: center;
+  color: transparent; background: var(--surface-2);
+}
+.inv-item.sel-mode.selected { outline: 2px solid var(--accent-strong, #12C77E); }
+.inv-item.sel-mode.selected .sel-check { background: var(--accent-strong, #12C77E); border-color: var(--accent-strong, #12C77E); color: #fff; }
+#inv-sort.active { outline: 2px solid var(--accent-strong, #12C77E); }
