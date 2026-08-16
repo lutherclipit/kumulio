@@ -3136,15 +3136,58 @@ async function analyzeWalletImage(dataUrl, statusCb) {
   }
   // PIN-Suche: erst im Volltext; der PIN-Kasten sitzt aber oft klein rechts außen
   // und geht in der Vollbild-OCR unter → rechten Randstreifen gezielt nochmal lesen
-  const pinFrom = t => (t.match(/\bpin\b\D{0,80}?(\d{3,10})\b/i)
-    || t.match(/(?:^|\n)[^\S\n]*(\d{4})[^\S\n]*(?:\n|$)/))?.[1] || '';
+  const pinFrom = t => {
+    // Alphanumerischer PIN direkt hinterm Label (Zalando: „PIN: 2ZWJWAPA24MEULCL");
+    // muss eine Ziffer enthalten (filtert Wörter wie „für") und darf keine
+    // reine lange Zahl sein (das wäre die Kartennummer)
+    const alnum = t.match(/\bpin\b\s*[:=]?\s*([A-Za-z0-9]{6,20})\b/i);
+    if (alnum && /\d/.test(alnum[1]) && !/^\d{11,}$/.test(alnum[1])) return alnum[1];
+    return (t.match(/\bpin\b\D{0,80}?(\d{3,10})\b/i)
+      || t.match(/(?:^|\n)[^\S\n]*(\d{4})[^\S\n]*(?:\n|$)/))?.[1] || '';
+  };
+  // Wert: „25,00 €", „5 €" und „€5" (manche Anbieter schreiben das Zeichen davor)
+  const amtFrom = t => {
+    const m = t.match(/(\d{1,4}[.,]\d{2})\s*€|\b(\d{1,3})\s*(?:€|EUR)\b/i)
+      || t.match(/(?:€|EUR)\s*(\d{1,4}(?:[.,]\d{2})?)\b/i);
+    return m ? (m[1] || m[2]) : '';
+  };
   out.pin = pinFrom(out.text);
+  out.amount = amtFrom(out.text);
+  if (!out.pin || !out.amount) {
+    // Zweitpass in hartem Schwarz-Weiß: Schrift auf farbigen Kacheln (z. B. der
+    // Zalando-Kasten mit „€5") verschluckt die normale OCR sonst komplett
+    const bwText = await ocrBW(img);
+    if (!out.pin) out.pin = pinFrom(bwText);
+    if (!out.amount) out.amount = amtFrom(bwText);
+  }
   if (!out.pin) {
     const iw = img.naturalWidth, ih = img.naturalHeight;
     const rightText = await ocrRegion(img, Math.round(iw * 0.62), 0, iw - Math.round(iw * 0.62), ih);
     out.pin = pinFrom(rightText) || (rightText.match(/\b(\d{4})\b/) || [])[1] || '';
   }
   return out;
+}
+
+// Bild hart binarisieren (dunkle Schrift → schwarz, alles andere → weiß) und lesen
+async function ocrBW(img) {
+  try {
+    const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+    const c = document.createElement('canvas');
+    const s = Math.min(1, 1600 / Math.max(iw, ih));
+    c.width = Math.round(iw * s); c.height = Math.round(ih * s);
+    const ctx = c.getContext('2d');
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    const im = ctx.getImageData(0, 0, c.width, c.height);
+    const d = im.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const y = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      d[i] = d[i + 1] = d[i + 2] = y < 110 ? 0 : 255;
+    }
+    ctx.putImageData(im, 0, 0);
+    const worker = await getOcrWorker();
+    const { data } = await worker.recognize(c.toDataURL('image/jpeg', 0.9));
+    return data.text || '';
+  } catch { return ''; }
 }
 
 // Einen Bildausschnitt hochskaliert durch die OCR schicken (z. B. den PIN-Kasten)
@@ -3335,8 +3378,8 @@ function openWalletAdd(type, prefillName) {
         // PIN kommt aus dem Scanner (Volltext ODER gezielte Zweit-Suche im rechten Kasten)
         if (r.pin && !$('#wa-pin').value) { $('#wa-pin').value = r.pin.slice(0, 16); filled.push('PIN'); }
         if (r.text) {
-          const amt = r.text.match(/(\d{1,4}[.,]\d{2})\s*€|\b(\d{1,3})\s*(?:€|EUR)\b/i);
-          if (amt && !$('#wa-amount').value) { $('#wa-amount').value = (amt[1] || amt[2]).replace('.', ','); filled.push('Wert'); }
+          // Wert kommt zentral aus dem Scanner (inkl. Schwarz-Weiß-Zweitpass)
+          if (r.amount && !$('#wa-amount').value) { $('#wa-amount').value = r.amount.replace('.', ','); filled.push('Wert'); }
           if (!$('#wa-code').value) {
             // Beschriftete Kartennummer schlägt alles („Kartennummer 2094 2565 …")
             const kn = r.text.match(/karten\s*-?\s*(?:nr\.?|nummer)\D{0,30}?(\d[\d ]{6,28}\d)/i);
