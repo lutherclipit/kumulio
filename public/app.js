@@ -3252,17 +3252,41 @@ function showTourFinale() {
 // ---- Interaktive Tour: Spotlight wandert ueber die echte App, Hinweise in
 // Kreis-Bubbles, alles andere ist abgedunkelt. Kein Karten-Gespamme mehr.
 function startTour() {
+  // Prototypen mit dem ECHTEN App-Markup: so sieht es nachher wirklich aus
   const walletDemo = `<div class="tour-visual">
-    <div class="wallet-card ob-mini" style="--bc:${brandColor('rewe')}">
-      <div class="wallet-card-head"><span class="brand-chip" style="--bc:rgba(255,255,255,.22)">RE</span><span class="wallet-card-name">REWE</span><span class="wallet-card-balance">25,00 €</span></div>
-      <div class="wallet-card-sub"><span>GUTSCHEIN-123</span><span class="pill">PIN</span><span class="pill">QR</span></div>
+    <div class="tour-proto">
+      <div class="wallet-card" style="--bc:${brandColor('rewe')}">
+        <div class="wallet-card-head">
+          ${brandChipHtml('REWE')}
+          <span class="wallet-card-name">REWE</span>
+          <span class="wallet-card-balance">25,00 €</span>
+        </div>
+        <div class="wallet-card-sub"><span>2094 4258 9452</span><span class="pill">PIN 3374</span></div>
+        <span class="wallet-card-date">16.08.26</span>
+      </div>
     </div>
-    <span class="tour-mini-note">Auch Sparkarten wie Payback und Coupons wohnen hier.</span>
+    <span class="tour-mini-note">Foto vom Gutschein reicht, die Felder füllen sich selbst. Sparkarten und Coupons wohnen hier auch.</span>
   </div>`;
-  const feedDemo = `<div class="tour-visual tour-badges">
-    <span class="tv-badge tv-pf">PREISFEHLER −71 %</span>
-    <span class="tv-badge tv-neu">NUR NEUKUNDEN</span>
-    <span class="tv-badge tv-earn">+ VERDIENST</span>
+  const feedDemo = `<div class="tour-visual">
+    <div class="tour-proto">
+      <article class="deal offer deal-pf" style="display:block">
+        <div class="offer-head">
+          ${brandChipHtml('MediaMarkt')}
+          <div class="offer-brand">
+            <div class="offer-merchant">MediaMarkt</div>
+            <div class="offer-cat">Preisfehler · gerade eben</div>
+          </div>
+        </div>
+        <div class="deal-title" style="margin-top:8px">4K-Fernseher 55 Zoll für 111 €</div>
+        <div class="deal-sub">
+          <span class="price">111 €</span>
+          <span class="badge badge-pf"><span class="pf-glitch" data-text="PREISFEHLER">PREISFEHLER</span></span>
+          <span class="badge badge-hot">${icon('flame')} −86 %</span>
+          <span class="pf-timer" data-pf-ts="${Date.now() - 2 * 60000}">${icon('clock')} <span>${pfElapsed(Date.now() - 2 * 60000)}</span></span>
+        </div>
+      </article>
+    </div>
+    <span class="tour-mini-note">Dazu Neukunden-Deals und Wege, nebenbei etwas zu verdienen.</span>
   </div>`;
   const chatDemo = `<div class="tour-visual"><div class="win-ctx chat-demo" style="margin:0; padding:8px 14px">
     <svg class="icon icon-sm chat-badge"><use href="#i-flame"/></svg>
@@ -3320,10 +3344,15 @@ function startTour() {
     btns.innerHTML = `<button class="btn btn-big" data-t="next">${s.cta || 'Weiter'}</button>`;
     btns.querySelector('[data-t]').onclick = () => {
       i++;
-      if (i < steps.length) show();
+      if (i < steps.length) showSmooth();
       else { end(); showTourFinale(); }
     };
+    // Erst rendern, dann MESSEN und ordentlich platzieren: die Bubble sitzt
+    // mittig im freien Raum, klebt nie am Rand oder am Kreis
     requestAnimationFrame(() => {
+      const M = 18;
+      const safeTop = 64;
+      const bh = bubble.offsetHeight;
       const el = s.sel && document.querySelector(s.sel);
       if (el && !s.center) {
         const rct = el.getBoundingClientRect();
@@ -3332,21 +3361,33 @@ function startTour() {
         spot.style.left = (cx - r) + 'px';
         spot.style.top = (cy - r) + 'px';
         spot.style.width = spot.style.height = (r * 2) + 'px';
-        // Bubble weicht dem Kreis aus und zoomt aus seiner Richtung heran
-        const below = cy < innerHeight / 2;
-        bubble.style.top = below ? Math.min(innerHeight - 320, cy + r + 18) + 'px' : '';
-        bubble.style.bottom = below ? '' : Math.min(innerHeight - 120, innerHeight - cy + r + 18) + 'px';
-        bubble.style.transformOrigin = below ? 'center top' : 'center bottom';
+        const spotTop = cy - r;
+        const spotBottom = cy + r;
+        const roomAbove = spotTop - safeTop;
+        if (roomAbove >= bh + M) {
+          // mittig im Raum zwischen Kopfzeile und Kreis
+          bubble.style.top = (safeTop + (roomAbove - bh) / 2) + 'px';
+          bubble.style.transformOrigin = 'center bottom';
+        } else {
+          bubble.style.top = Math.min(innerHeight - bh - M, spotBottom + M) + 'px';
+          bubble.style.transformOrigin = 'center top';
+        }
       } else {
         spot.style.left = '50%'; spot.style.top = '42%';
         spot.style.width = spot.style.height = '0px';
-        bubble.style.top = '30%'; bubble.style.bottom = '';
+        bubble.style.top = Math.max(safeTop, (innerHeight - bh) / 2 - 24) + 'px';
         bubble.style.transformOrigin = 'center center';
       }
+      bubble.style.bottom = '';
       bubble.classList.remove('pop');
       void bubble.offsetWidth;
       bubble.classList.add('pop');
     });
+  };
+  // Zwischen den Steps taucht die Bubble kurz ab und kommt federnd wieder
+  const showSmooth = () => {
+    bubble.classList.add('leave');
+    setTimeout(() => { bubble.classList.remove('leave'); show(); }, 170);
   };
   show();
 }

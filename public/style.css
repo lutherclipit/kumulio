@@ -2845,7 +2845,7 @@ body:has(.sheet.open) {
   border-radius: 999px; pointer-events: none;
   box-shadow: 0 0 0 200vmax rgba(6, 9, 13, .82), 0 0 24px rgba(18, 199, 126, .35) inset;
   border: 2px solid rgba(18, 199, 126, .8);
-  transition: all .55s cubic-bezier(.3, 1, .4, 1);
+  transition: all .62s cubic-bezier(.34, 1.2, .4, 1);
 }
 .tour-bubble {
   position: absolute; left: 50%; transform: translateX(-50%);
@@ -2922,3 +2922,26 @@ body:has(.sheet.open) {
 .tv-earn { background: linear-gradient(100deg, #12C77E, #0E9C64); }
 .tour-skip-inline { margin-top: 8px; opacity: .6; }
 .tour-btns .btn-big { width: 100%; }
+
+
+/* ================= Runde 57: Tour-Prototypen + Feder ================= */
+
+/* Ein Stueck echte App in der Bubble: dunkler App-Ausschnitt mit Radius */
+.tour-proto {
+  width: 100%; background: var(--bg, #F2F5F8);
+  border: 1px solid var(--stroke-light); border-radius: 16px;
+  padding: 10px; text-align: left;
+}
+:root[data-theme="dark"] .tour-proto { background: #10151B; }
+.tour-proto .wallet-card { margin: 0; }
+.tour-proto .deal { margin: 0; }
+.tour-proto .offer-actions { display: none; }
+.tour-bubble { max-width: min(350px, 90vw); }
+
+/* Bubble taucht zwischen den Steps kurz ab (weicher Wechsel) */
+.tour-bubble.leave {
+  opacity: 0; transform: translateX(-50%) scale(.94);
+  transition: opacity .17s ease, transform .17s ease;
+}
+.tour-bubble.pop { animation: tourZoom .55s cubic-bezier(.3, 1.35, .45, 1); }
+#tour { animation: fadeIn .35s ease; }
