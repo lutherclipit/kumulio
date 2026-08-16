@@ -262,6 +262,18 @@ const LEGACY_EMOTES = {
 };
 const markLegacy = obj => Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, { ...v, legacy: true }]));
 const EMOTES_ALL = { ...markLegacy(LEGACY_EMOTES), ...UNLOCK_EMOTES };
+// Nachrichten werden beim AUSLIEFERN mit dem aktuellen Look ihres Autors
+// angereichert (Paint, Badge, Rang, Rahmen): ein Paint-Wechsel wirkt damit
+// sofort auf alle alten Nachrichten, gespeichert wird nichts um.
+function withLiveLook(msgs, field) {
+  return msgs.map(m => {
+    const name = m[field];
+    if (m.deleted || !name || !users[name]) return m;
+    const lp = profileOf(name);
+    return { ...m, paint: lp.activePaint || '', badge: lp.activeBadge || '', rank: lp.rankTier || 1, border: lp.activeBorder || '' };
+  });
+}
+
 // Steht im Text ein ziehbares Emote, das der Nutzer nicht besitzt?
 // Sticker zaehlen mit: sie sind ebenfalls Emotes und im Chat nutzbar.
 function lockedEmoteIn(text, prof) {
@@ -1082,7 +1094,7 @@ const server = http.createServer(async (req, res) => {
     // ---- Global-Chat
     if (p === '/api/chat' && req.method === 'GET') {
       const since = Number(url.searchParams.get('since') || 0);
-      const msgs = chat.messages.filter(m => m.ts > since).slice(-80);
+      const msgs = withLiveLook(chat.messages.filter(m => m.ts > since).slice(-80), 'user');
       // Nachträglich gelöschte Nachrichten: der Client tauscht sie gegen einen Platzhalter
       const updates = chat.messages.filter(m => m.delTs && m.delTs > since && m.ts <= since).map(m => m.id);
       // Freigeschaltete Emotes rendern für ALLE, benutzen darf sie nur der Besitzer
@@ -1104,6 +1116,22 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req);
       const text = String(b.text || '').trim().slice(0, 220);
       if (!text) return send(res, 400, { error: 'Leere Nachricht.' });
+      // Admin-Command: !funken NAME BETRAG schreibt Funken gut oder zieht sie ab.
+      // Reines Betriebswerkzeug der Redaktion; Funken sind weiterhin nie kaufbar.
+      const fk = text.match(/^!funken\s+@?([A-Za-z0-9_.-]{3,24})\s+(-?\d{1,6})$/i);
+      if (fk) {
+        if (roleOf(user) !== 'admin') return send(res, 403, { error: 'Nur für Admins.' });
+        const target = fk[1];
+        if (!users[target]) return send(res, 404, { error: `Nutzer ${target} nicht gefunden.` });
+        const amount = Math.max(-100000, Math.min(100000, Number(fk[2]) || 0));
+        const tp = profileOf(target);
+        tp.coins = Math.max(0, (tp.coins || 0) + amount);
+        saveJson('users.json', users);
+        if (target !== user && amount > 0) {
+          pushToUser(target, { title: 'Funken-Gutschrift', body: `${amount.toLocaleString('de-DE')} Funken von der Redaktion sind da.`, url: '/?tab=profile', tag: 'coins-admin', kind: 'mention', from: user });
+        }
+        return send(res, 200, { ok: true, admin: `@${target} hat jetzt ${tp.coins.toLocaleString('de-DE')} Funken (${amount >= 0 ? '+' : ''}${amount.toLocaleString('de-DE')}).` });
+      }
       // Chat-Command: !v (Vanish) blendet alle eigenen Nachrichten aus
       if (text === '!v') {
         chat.messages.forEach(m => { if (m.user === user && !m.deleted) { m.deleted = true; m.text = ''; m.delTs = Date.now(); } });
@@ -1264,7 +1292,7 @@ const server = http.createServer(async (req, res) => {
       convo.reads[me] = Date.now();
       if (dms[dmKey(me, partner)]) saveJson('dms.json', dms);
       const updates = convo.msgs.filter(m => m.delTs && m.delTs > since && m.ts <= since).map(m => m.id);
-      return send(res, 200, { messages: convo.msgs.filter(m => m.ts > since).slice(-60), updates });
+      return send(res, 200, { messages: withLiveLook(convo.msgs.filter(m => m.ts > since).slice(-60), 'from'), updates });
     }
     // Eigene Flüster-Nachricht löschen
     if (p === '/api/dm/delete' && req.method === 'POST') {

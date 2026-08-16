@@ -1709,12 +1709,17 @@ async function refreshGamiSystem() {
     }).join('')
     : '<span class="form-msg">Paints kommen aus Containern und färben deinen Namen im Chat.</span>';
   if (state.activeView === 'inventory') renderInventoryPage(); // Ziehung/Verkauf sofort sichtbar
-  $('#gm-paints').querySelectorAll('[data-paint]').forEach(b => b.onclick = async () => {
+  $('#gm-paints').querySelectorAll('[data-paint]').forEach(b => b.onclick = () => {
     const next = gami.activePaint === b.dataset.paint ? '' : b.dataset.paint;
-    await api('/api/paint', { method: 'POST', body: JSON.stringify({ id: next }) }).catch(() => { });
+    // Optimistisch: sofort markieren und melden, der Server folgt im Hintergrund
     gami.activePaint = next;
-    refreshGamiSystem();
+    $('#gm-paints').querySelectorAll('[data-paint]').forEach(x => x.classList.toggle('on', x.dataset.paint === next));
     island(next ? 'Paint angelegt' : 'Paint abgelegt');
+    chatLastTs = 0; // der Chat holt alle Nachrichten neu und zeigt den neuen Look
+    if (state.activeView === 'chat') pollChat(true);
+    api('/api/paint', { method: 'POST', body: JSON.stringify({ id: next }) })
+      .then(() => refreshGamiSystem())
+      .catch(e => { island(e.message); refreshGamiSystem(); });
   });
 }
 
@@ -1837,26 +1842,28 @@ async function renderInventoryPage() {
     vis.style.cursor = 'zoom-in';
     vis.onclick = () => openInspect(kind, id, (gami.floats || {})[`${kind}:${id}`] ?? 0, itemRarity(kind, id));
   });
-  host.querySelectorAll('[data-inv-equip]').forEach(b => b.onclick = async () => {
+  host.querySelectorAll('[data-inv-equip]').forEach(b => b.onclick = () => {
     const [kind, id] = b.dataset.invEquip.split(':');
+    // Optimistisch: lokal sofort umschalten und rendern, Server im Hintergrund
+    let call;
     if (kind === 'border') {
       const next = gami.activeBorder === id ? '' : id;
-      await api('/api/border', { method: 'POST', body: JSON.stringify({ id: next }) }).catch(() => { });
       gami.activeBorder = next;
-      renderInventoryPage();
-      refreshGamiSystem();
-      return;
-    }
-    if (kind === 'paint') {
+      call = api('/api/border', { method: 'POST', body: JSON.stringify({ id: next }) });
+    } else if (kind === 'paint') {
       const next = gami.activePaint === id ? '' : id;
-      await api('/api/paint', { method: 'POST', body: JSON.stringify({ id: next }) }).catch(() => { });
       gami.activePaint = next;
+      chatLastTs = 0; // der Chat holt alle Nachrichten neu und zeigt den neuen Look
+      call = api('/api/paint', { method: 'POST', body: JSON.stringify({ id: next }) });
     } else {
       const next = myProfile.activeBadge === id ? '' : id;
-      await api('/api/profile', { method: 'POST', body: JSON.stringify({ activeBadge: next }) }).catch(() => { });
       myProfile.activeBadge = next;
+      call = api('/api/profile', { method: 'POST', body: JSON.stringify({ activeBadge: next }) });
     }
-    renderInventoryPage(); refreshGami(); refreshGamiSystem();
+    renderInventoryPage();
+    applyMyBorder();
+    call.then(() => { refreshGami(); refreshGamiSystem(); })
+      .catch(e => { island(e.message); refreshGami(); refreshGamiSystem(); });
   });
   host.querySelectorAll('[data-inv-show]').forEach(b => b.onclick = async () => {
     const key = b.dataset.invShow;
@@ -5552,6 +5559,7 @@ async function sendChat() {
     }
     const r = await api('/api/chat', { method: 'POST', body: JSON.stringify({ text }) });
     inp.value = '';
+    if (r.admin) { island(r.admin); refreshGami(); refreshGamiSystem(); return; }
     if (r.vanished) {
       // !v: eigene Nachrichten werden zum Platzhalter
       document.querySelectorAll('#chat-list .chat-msg').forEach(el => {
