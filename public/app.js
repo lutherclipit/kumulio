@@ -2466,6 +2466,7 @@ function hideOverlay(el) {
 // Button zeigt beim Warten den pulsierenden kumulio-Punkt
 function setBtnLoading(btn, on) {
   if (!btn) return;
+  btn.disabled = on; // hart sperren: kein Doppelklick, solange gearbeitet wird
   if (on) {
     btn.dataset.label = btn.textContent;
     btn.style.minWidth = btn.offsetWidth + 'px'; // Breite halten, nichts verrutscht
@@ -2714,6 +2715,17 @@ function ensureWalletDates() {
   });
 }
 ensureWalletDates();
+// Payload-Diät: das Originalfoto ist überflüssig, sobald der Kassen-Zuschnitt da
+// ist. Base64-Fotos machten die Wallet mehrere MB groß und ließen den Sync über
+// Mobilfunk regelmäßig ins Timeout laufen ("Gutschein nur lokal gespeichert")
+function slimWalletImages() {
+  let changed = false;
+  [...state.wallet.vouchers, ...state.wallet.cards].forEach(it => {
+    if (it.img && it.codeImg) { it.img = ''; changed = true; }
+  });
+  return changed;
+}
+slimWalletImages();
 // Zuschnitte aus früheren Versionen waren PNGs mit mehreren MB und sprengten den
 // Konto-Sync: einmalig zu kompaktem JPEG umwandeln
 (async function shrinkOldCodeImgs() {
@@ -2745,24 +2757,36 @@ let walletSyncTimer = null;
 // und der Sync wird wiederholt; so kann "gespeichert" nie mehr heimlich verloren gehen
 let walletSyncError = '';
 let walletSyncFatal = false; // true = der Server hat abgelehnt (Retry zwecklos)
+let walletSyncInFlight = null; // Single-Flight: parallele Syncs teilen sich EINEN Upload
 async function syncWalletNow() {
   if (!state.token) return true;
-  try {
-    // Timeout: ein hängender Upload darf den Speichern-Button nie endlos drehen lassen
-    const signal = AbortSignal.timeout ? AbortSignal.timeout(20000) : undefined;
-    await api('/api/wallet', { method: 'POST', body: JSON.stringify(state.wallet), signal });
-    localStorage.removeItem('ra.walletDirty');
-    walletSyncError = '';
-    walletSyncFatal = false;
-    return true;
-  } catch (e) {
-    walletSyncError = e.name === 'TimeoutError' || e.name === 'AbortError'
-      ? 'Das Sichern dauert zu lange (Verbindung zu langsam?).'
-      : (e.message || '');
-    walletSyncFatal = e.status >= 400 && e.status < 500;
-    localStorage.setItem('ra.walletDirty', '1');
-    return false;
-  }
+  // Läuft schon ein Upload, hängen sich alle dran, statt sich über Mobilfunk
+  // gegenseitig die Bandbreite wegzunehmen (das provozierte Timeouts)
+  if (walletSyncInFlight) return walletSyncInFlight;
+  walletSyncInFlight = (async () => {
+    renderSyncBadge();
+    try {
+      // Großzügiges Timeout: große Wallets über Mobilfunk brauchen ihre Zeit,
+      // hängen darf trotzdem nichts
+      const signal = AbortSignal.timeout ? AbortSignal.timeout(45000) : undefined;
+      await api('/api/wallet', { method: 'POST', body: JSON.stringify(state.wallet), signal });
+      localStorage.removeItem('ra.walletDirty');
+      walletSyncError = '';
+      walletSyncFatal = false;
+      return true;
+    } catch (e) {
+      walletSyncError = e.name === 'TimeoutError' || e.name === 'AbortError'
+        ? 'Das Sichern dauert zu lange (Verbindung zu langsam?).'
+        : (e.message || '');
+      walletSyncFatal = e.status >= 400 && e.status < 500;
+      localStorage.setItem('ra.walletDirty', '1');
+      return false;
+    } finally {
+      walletSyncInFlight = null;
+      renderSyncBadge();
+    }
+  })();
+  return walletSyncInFlight;
 }
 function saveWallet() {
   save('wallet', state.wallet);
@@ -2773,9 +2797,38 @@ function saveWallet() {
     walletSyncTimer = setTimeout(syncWalletNow, 800);
   }
 }
-// Nachzügler-Sync: sobald wieder Netz da ist oder regelmäßig im Hintergrund
+// Nachzügler-Sync: sobald wieder Netz da ist, die App in den Vordergrund kommt
+// oder regelmäßig im Hintergrund
 window.addEventListener('online', () => { if (localStorage.getItem('ra.walletDirty')) syncWalletNow(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && state.token && localStorage.getItem('ra.walletDirty')) syncWalletNow();
+});
 setInterval(() => { if (state.token && localStorage.getItem('ra.walletDirty')) syncWalletNow(); }, 30000);
+
+// Sicherungs-Ampel in der Wallet: zeigt ehrlich, ob alles beim Konto gesichert
+// ist; antippen stößt die Sicherung sofort an
+function renderSyncBadge() {
+  const el = $('#wallet-sync-badge');
+  if (!el) return;
+  if (!state.token) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  if (walletSyncInFlight) {
+    el.className = 'sync-badge syncing';
+    el.innerHTML = `${icon('clock', 'icon icon-sm')} Sichere am Konto …`;
+  } else if (localStorage.getItem('ra.walletDirty')) {
+    el.className = 'sync-badge dirty';
+    el.innerHTML = `${icon('warning', 'icon icon-sm')} Noch nicht gesichert, antippen zum Sichern`;
+  } else {
+    el.className = 'sync-badge ok';
+    el.innerHTML = `${icon('check', 'icon icon-sm')} Alles am Konto gesichert`;
+  }
+}
+$('#wallet-sync-badge')?.addEventListener('click', async () => {
+  if (walletSyncInFlight || !localStorage.getItem('ra.walletDirty')) return;
+  renderSyncBadge();
+  const ok = await syncWalletNow();
+  island(ok ? 'Alles gesichert' : 'Sichern fehlgeschlagen: ' + (walletSyncError || 'Server nicht erreichbar'));
+});
 async function pullWallet() {
   if (!state.token) return;
   try {
@@ -3660,7 +3713,7 @@ function openWalletAdd(type, prefillName) {
           id: Math.random().toString(36).slice(2, 9),
           vendor: ex.vendor.slice(0, 30), code: ex.code, pin: ex.pin, end: '',
           amount: ex.amount, balance: ex.amount,
-          img: small, codeImg: r.codeImg || '', tx: [], added: Date.now(),
+          img: r.codeImg ? '' : small, codeImg: r.codeImg || '', tx: [], added: Date.now(),
         };
         fresh.push(v);
         results.push({ ok: true, v });
@@ -3781,7 +3834,8 @@ function openWalletAdd(type, prefillName) {
         end: $('#wa-end').value || '',
         amount: isNaN(amount) ? null : amount,
         balance: isNaN(amount) ? null : amount,
-        img: addImg, codeImg: addCodeImg, tx: [], added: Date.now(),
+        // Originalfoto nur behalten, wenn es keinen Kassen-Zuschnitt gibt (Payload-Diät)
+        img: addCodeImg ? '' : addImg, codeImg: addCodeImg, tx: [], added: Date.now(),
       };
       // Pflicht: Shop, Wert, PIN (Code ist optional, fehlende Felder leuchten rot)
       $('#wa-amount').classList.toggle('err', v.amount == null);
@@ -3805,7 +3859,7 @@ function openWalletAdd(type, prefillName) {
         id: Math.random().toString(36).slice(2, 9),
         name: currentCard().slice(0, 30),
         number: $('#wa-cnumber').value.trim().slice(0, 30),
-        img: addImg, codeImg: addCodeImg, added: Date.now(),
+        img: addCodeImg ? '' : addImg, codeImg: addCodeImg, added: Date.now(),
       };
       $('#wa-cnumber').classList.toggle('err', !c.number);
       $('#wa-card-grid')?.classList.toggle('err', !c.name);
@@ -4176,6 +4230,7 @@ function renderWallet() {
   // Mini-Guthaben unten aktualisieren
   const mini = $('#wallet-mini-total');
   if (mini) mini.textContent = euroFmt(total) || '0,00 €';
+  renderSyncBadge();
 
   // Suchergebnisse gleiten gestaffelt herein
   document.querySelectorAll('#voucher-list .wallet-card').forEach((el, i) => {
