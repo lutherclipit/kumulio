@@ -3065,10 +3065,12 @@ async function getOcrWorker() {
   if (!ocrWorkerPromise) {
     ocrWorkerPromise = (async () => {
       if (!window.Tesseract) await loadScript('/vendor/tesseract/tesseract.min.js');
+      // ABSOLUTE URLs: der Tesseract-Worker läuft als Blob, dort sind relative
+      // Pfade ungültig ("importScripts ... is invalid") und die OCR fiel stumm aus
       return Tesseract.createWorker('deu', 1, {
-        workerPath: '/vendor/tesseract/worker.min.js',
-        corePath: '/vendor/tesseract/tesseract-core-simd.wasm.js',
-        langPath: '/vendor/tesseract',
+        workerPath: location.origin + '/vendor/tesseract/worker.min.js',
+        corePath: location.origin + '/vendor/tesseract/tesseract-core-simd.wasm.js',
+        langPath: location.origin + '/vendor/tesseract',
         logger: m => { if (m.status === 'recognizing text') ocrStatusCb?.(Math.round(m.progress * 100)); },
       });
     })().catch(e => { ocrWorkerPromise = null; throw e; });
@@ -3132,7 +3134,31 @@ async function analyzeWalletImage(dataUrl, statusCb) {
     } catch { out.supported.text = false; }
     finally { ocrStatusCb = null; }
   }
+  // PIN-Suche: erst im Volltext; der PIN-Kasten sitzt aber oft klein rechts außen
+  // und geht in der Vollbild-OCR unter → rechten Randstreifen gezielt nochmal lesen
+  const pinFrom = t => (t.match(/\bpin\b\D{0,80}?(\d{3,10})\b/i)
+    || t.match(/(?:^|\n)[^\S\n]*(\d{4})[^\S\n]*(?:\n|$)/))?.[1] || '';
+  out.pin = pinFrom(out.text);
+  if (!out.pin) {
+    const iw = img.naturalWidth, ih = img.naturalHeight;
+    const rightText = await ocrRegion(img, Math.round(iw * 0.62), 0, iw - Math.round(iw * 0.62), ih);
+    out.pin = pinFrom(rightText) || (rightText.match(/\b(\d{4})\b/) || [])[1] || '';
+  }
   return out;
+}
+
+// Einen Bildausschnitt hochskaliert durch die OCR schicken (z. B. den PIN-Kasten)
+async function ocrRegion(img, sx, sy, sw, sh) {
+  if (sw < 30 || sh < 30) return '';
+  const c = document.createElement('canvas');
+  const scale = Math.min(3, Math.max(1, 900 / sw));
+  c.width = Math.round(sw * scale); c.height = Math.round(sh * scale);
+  c.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
+  try {
+    const worker = await getOcrWorker();
+    const { data } = await worker.recognize(c.toDataURL('image/jpeg', 0.92));
+    return data.text || '';
+  } catch { return ''; }
 }
 
 // Große, interaktive Shop-Auswahl beim Hinzufügen (erst 6, Rest hinter "Weitere")
@@ -3306,12 +3332,9 @@ function openWalletAdd(type, prefillName) {
       const filled = [];
       if (addType === 'voucher') {
         if (r.barcode && !$('#wa-code').value) { $('#wa-code').value = r.barcode.slice(0, 40); filled.push('Code (aus QR/Barcode)'); }
+        // PIN kommt aus dem Scanner (Volltext ODER gezielte Zweit-Suche im rechten Kasten)
+        if (r.pin && !$('#wa-pin').value) { $('#wa-pin').value = r.pin.slice(0, 16); filled.push('PIN'); }
         if (r.text) {
-          // PIN darf ruhig weiter weg vom Wort stehen („PIN für Online-Guthabenabfrage 0689");
-          // Fallback: eine alleinstehende 4-stellige Zahl auf eigener Zeile (typischer PIN-Kasten)
-          const pin = r.text.match(/\bpin\b\D{0,80}?(\d{3,10})\b/i)
-            || r.text.match(/(?:^|\n)[^\S\n]*(\d{4})[^\S\n]*(?:\n|$)/);
-          if (pin && !$('#wa-pin').value) { $('#wa-pin').value = pin[1]; filled.push('PIN'); }
           const amt = r.text.match(/(\d{1,4}[.,]\d{2})\s*€|\b(\d{1,3})\s*(?:€|EUR)\b/i);
           if (amt && !$('#wa-amount').value) { $('#wa-amount').value = (amt[1] || amt[2]).replace('.', ','); filled.push('Wert'); }
           if (!$('#wa-code').value) {
