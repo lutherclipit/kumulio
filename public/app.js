@@ -3560,8 +3560,12 @@ function renderWallet() {
   const fMatch = v => !state.walletFilter || state.walletFilter === 'alle'
     || v.vendor.toLowerCase() === state.walletFilter.toLowerCase();
   let active = allActive.filter(v => vMatch(v) && fMatch(v));
+  // Basis-Sortierung: WIRKLICH neueste zuerst (nach Hinzugefügt-Datum, nicht
+  // nach Speicher-Reihenfolge – der Konto-Sync hängt gemergte Einträge hinten an)
+  active = [...active].sort((a, b) => (b.added || 0) - (a.added || 0));
   // Sortierung übers Filter-Icon
   const ws = state.walletSort || '';
+  if (ws === 'aelteste') active.reverse();
   if (ws === 'hoch') active = [...active].sort((a, b) => (b.balance || 0) - (a.balance || 0));
   if (ws === 'niedrig') active = [...active].sort((a, b) => (a.balance || 0) - (b.balance || 0));
   if (ws === 'bis10') active = active.filter(v => (v.balance || 0) <= 10);
@@ -3823,7 +3827,8 @@ $('#wallet-sort-btn')?.addEventListener('click', () => {
   const menu = $('#wallet-sort-menu');
   if (!menu.classList.contains('hidden')) { menu.classList.add('hidden'); return; }
   const OPTIONS = [
-    ['', 'Neueste zuerst'], ['hoch', 'Guthaben: hoch zu niedrig'], ['niedrig', 'Guthaben: niedrig zu hoch'],
+    ['', 'Neueste zuerst'], ['aelteste', 'Älteste zuerst'],
+    ['hoch', 'Guthaben: hoch zu niedrig'], ['niedrig', 'Guthaben: niedrig zu hoch'],
     ['bis10', 'Bis 10 €'], ['ab25', 'Ab 25 €'], ['ab50', 'Ab 50 €'],
   ];
   menu.innerHTML = OPTIONS.map(([v, l]) =>
