@@ -92,6 +92,9 @@ let compareCache = loadJson('compare.json', {}); // { query: {ts, price, priceNu
 let posts = loadJson('posts.json', {});         // { channelSlug: [ {id,user,title,text,ts,flags} ] }
 let customChannels = loadJson('channels.json', []); // [ {slug,name,emoji,type:'community',desc,createdTs} ]
 let wallets = loadJson('wallets.json', {});     // { user: {vouchers:[], cards:[], ts} }, Wallet hängt am Konto
+// Geschenke unterwegs: bleiben hier, bis der Empfänger sie sicher in seiner
+// Wallet verankert hat (claim) — so kann ein Gutschein beim Übergeben nie verloren gehen
+let gifts = loadJson('gifts.json', {});         // { user: [ {…voucher, giftFrom, giftTs} ] }
 
 // Wallet-Diät auch serverseitig: Originalfotos fliegen raus, sobald ein
 // Kassen-Zuschnitt existiert. Entschlackt Alt-Bestände sofort (weniger RAM,
@@ -1527,7 +1530,46 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/wallet' && req.method === 'GET') {
       const user = authUser(req);
       if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
-      return send(res, 200, wallets[user] || { vouchers: [], cards: [] });
+      // Wartende Geschenke fahren huckepack mit; gelöscht werden sie erst,
+      // wenn der Empfänger sie bestätigt hat (claim)
+      return send(res, 200, { ...(wallets[user] || { vouchers: [], cards: [] }), gifts: gifts[user] || [] });
+    }
+
+    // ---- Gutschein verschenken: wandert aus der eigenen Wallet zum Freund
+    if (p === '/api/gift/send' && req.method === 'POST') {
+      const me = authUser(req);
+      if (!me) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      const to = String(b.to || '');
+      if (!users[to]) return send(res, 404, { error: 'Nutzer nicht gefunden.' });
+      if (to === me) return send(res, 400, { error: 'An dich selbst? Das hast du schon.' });
+      // Nur an Freunde: verhindert Geschenk-Spam an Fremde
+      if (!(profileOf(me).friends || []).includes(to)) return send(res, 403, { error: 'Verschenken geht nur an Freunde.' });
+      const w = wallets[me];
+      const idx = (w?.vouchers || []).findIndex(v => v.id === String(b.id || ''));
+      if (idx < 0) return send(res, 404, { error: 'Gutschein nicht gefunden. Kurz warten, bis die Wallet gesichert ist, und nochmal versuchen.' });
+      const [v] = w.vouchers.splice(idx, 1);
+      gifts[to] = gifts[to] || [];
+      gifts[to].push({ ...v, giftFrom: me, giftTs: Date.now() });
+      saveJson('wallets.json', wallets);
+      saveJson('gifts.json', gifts);
+      ssePush('gift', to);
+      pushToUser(to, {
+        title: `Geschenk von @${me}!`,
+        body: `Ein ${v.vendor}-Gutschein${v.amount != null ? ` über ${String(v.amount).replace('.', ',')} €` : ''} wartet in deiner Wallet.`,
+        url: '/?tab=wallet', tag: 'gift-' + me, kind: 'gift', from: me,
+      });
+      return send(res, 200, { ok: true });
+    }
+    // Empfänger bestätigt: Geschenke sind sicher in seiner Wallet angekommen
+    if (p === '/api/gift/claim' && req.method === 'POST') {
+      const me = authUser(req);
+      if (!me) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      const ids = Array.isArray(b.ids) ? b.ids.map(String) : [];
+      gifts[me] = (gifts[me] || []).filter(g => !ids.includes(g.id));
+      saveJson('gifts.json', gifts);
+      return send(res, 200, { ok: true });
     }
     if (p === '/api/wallet' && req.method === 'POST') {
       const user = authUser(req);

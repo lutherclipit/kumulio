@@ -7,7 +7,7 @@ self.addEventListener('push', e => {
     // (das weiß auch, ob man genau in diesem Chat steckt), keine System-Notification obendrauf
     const wins = await clients.matchAll({ type: 'window', includeUncontrolled: true });
     const visible = wins.find(w => w.visibilityState === 'visible');
-    if (visible && (d.kind === 'dm' || d.kind === 'mention')) {
+    if (visible && (d.kind === 'dm' || d.kind === 'mention' || d.kind === 'gift')) {
       wins.forEach(w => w.postMessage({ type: 'push', data: d }));
       return;
     }

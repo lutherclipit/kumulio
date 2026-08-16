@@ -2878,8 +2878,26 @@ async function pullWallet() {
     };
     state.wallet.vouchers = mergeById(state.wallet.vouchers, remote.vouchers);
     state.wallet.cards = mergeById(state.wallet.cards, remote.cards);
+    // Geschenke von Freunden einsammeln (Dupe-sicher über die Gutschein-ID)
+    const neu = (remote.gifts || []).filter(g => !state.wallet.vouchers.some(v => v.id === g.id));
+    neu.forEach(g => state.wallet.vouchers.unshift({ ...g, added: Date.now() }));
     ensureWalletDates(); // auch vom Konto gezogene Alt-Gutscheine kriegen ein Datum
     saveWallet(); // lokal sichern + Mergestand zurück zum Server
+    if ((remote.gifts || []).length) {
+      if (neu.length) {
+        const g = neu[0];
+        playSfx('kaching'); buzz([40, 40, 40]); moneyFlash('green'); billRain(9);
+        showToast({
+          title: `Geschenk von @${g.giftFrom}!`,
+          text: `${g.vendor}-Gutschein${g.amount != null ? ' über ' + euroFmt(g.amount) : ''} ist jetzt in deiner Wallet.`,
+          iconName: 'gift', success: true,
+        }, 9000);
+      }
+      // Erst beim Server abhaken, wenn die eigene Wallet MIT dem Geschenk gesichert ist
+      syncWalletNow().then(ok => {
+        if (ok) api('/api/gift/claim', { method: 'POST', body: JSON.stringify({ ids: remote.gifts.map(g => g.id) }) }).catch(() => { });
+      });
+    }
   } catch { }
 }
 function euroFmt(n) { return n == null ? '' : n.toFixed(2).replace('.', ',') + ' €'; }
@@ -4007,12 +4025,51 @@ function openVoucherSheet(id, animFrom) {
         ${!t.reverted ? `<button class="btn btn-small btn-ghost" data-revert="${esc(t.id)}">Rückgängig</button>` : ''}
       </div>`).join('')}
     </div>` : ''}
+    ${v.balance != null && v.balance > 0 ? `
+    <div class="sheet-section">
+      <button class="btn btn-ghost" id="wv-gift" style="width:100%">${icon('gift', 'icon icon-sm')}&nbsp;An Freund verschenken</button>
+      <div id="wv-gift-pick" class="hidden"></div>
+    </div>` : ''}
+    ${v.giftFrom ? `<p class="added-line">${icon('gift', 'icon icon-sm')} Geschenk von @${esc(v.giftFrom)}</p>` : ''}
     ${v.added ? `<p class="added-line">Hinzugefügt am ${new Date(v.added).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })} um ${new Date(v.added).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} Uhr</p>` : ''}
     ${(v.balance == null || v.balance <= 0)
       ? '<button class="btn btn-danger" id="wv-del" style="margin-top:14px">Gutschein löschen</button>' : ''}`;
 
   $('#sheet-content').querySelectorAll('[data-copy-txt]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copyTxt)));
   $('#wv-close').addEventListener('click', closeSheet);
+  // Verschenken: Freund auswählen, bestätigen, der Gutschein zieht komplett um
+  $('#wv-gift')?.addEventListener('click', () => {
+    const pick = $('#wv-gift-pick');
+    if (!pick.classList.contains('hidden')) { pick.classList.add('hidden'); return; }
+    const friends = myProfile?.friends || [];
+    if (!friends.length) {
+      pick.innerHTML = '<p class="muted" style="font-size:.82rem; margin-top:8px">Du hast noch keine Freunde in kumulio. Verschenken geht nur an Freunde.</p>';
+      pick.classList.remove('hidden');
+      return;
+    }
+    pick.innerHTML = '<p class="muted" style="font-size:.8rem; margin:8px 0 6px">An wen soll der Gutschein gehen?</p>'
+      + friends.map(f => `<button class="btn btn-small btn-ghost" data-gift-to="${esc(f)}" style="margin:0 6px 6px 0">@${esc(f)}</button>`).join('');
+    pick.classList.remove('hidden');
+    pick.querySelectorAll('[data-gift-to]').forEach(b => b.addEventListener('click', async () => {
+      const to = b.dataset.giftTo;
+      if (!await askConfirm(`Deinen ${esc(v.vendor)}-Gutschein${v.balance != null ? ` (${euroFmt(v.balance)})` : ''} an @${esc(to)} verschenken? Er verschwindet dann aus deiner Wallet.`, { okLabel: 'Ja, verschenken' })) return;
+      setBtnLoading(b, true);
+      try {
+        // Erst sichern, damit der Server den Gutschein garantiert kennt
+        await syncWalletNow();
+        await api('/api/gift/send', { method: 'POST', body: JSON.stringify({ to, id: v.id }) });
+        state.wallet.vouchers = state.wallet.vouchers.filter(x => x.id !== v.id);
+        save('wallet', state.wallet);
+        renderWallet();
+        closeSheet();
+        playSfx('kaching'); buzz(35); moneyFlash('green'); billRain(6);
+        island(`Verschenkt an @${to}`);
+      } catch (e) {
+        setBtnLoading(b, false);
+        island(e.message);
+      }
+    }));
+  });
   // Löschen gibt es nur bei aufgebrauchten Gutscheinen, immer mit Rückfrage
   $('#wv-del')?.addEventListener('click', async () => {
     if (v.balance != null && v.balance > 0) return;
@@ -4223,6 +4280,7 @@ function renderWallet() {
       </div>
       <div class="wallet-card-sub">
         <span>${esc(v.code || 'Ohne Code')}</span>
+        ${v.giftFrom ? `<span class="pill">${icon('gift', 'icon icon-sm')} von @${esc(v.giftFrom)}</span>` : ''}
         ${v.end ? `<span class="pill">bis ${new Date(v.end).toLocaleDateString('de-DE')}</span>` : ''}
       </div>
       ${v.pin ? `<div class="wallet-card-pin">PIN ${esc(v.pin)}</div>` : ''}
@@ -4650,6 +4708,8 @@ function handleOpenParams(qs) {
   } else if (p.get('chat') === 'global') {
     if (state.activeView !== 'chat') switchView('chat');
     setChatMode('global');
+  } else if (p.get('tab') === 'wallet') {
+    if (state.activeView !== 'wallet') switchView('wallet');
   }
 }
 
@@ -5220,6 +5280,7 @@ function connectStream() {
   chatStream = es;
   es.onopen = () => { streamRetry = 0; };
   es.addEventListener('chat', () => pollChat(true));
+  es.addEventListener('gift', () => pullWallet()); // Geschenk kommt sofort an
   es.addEventListener('dm', () => {
     dmBadgeLast = 0;
     refreshDmBadge();
