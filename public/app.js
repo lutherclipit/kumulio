@@ -3198,13 +3198,13 @@ async function analyzeWalletImage(dataUrl, statusCb) {
   // PIN-Suche: erst im Volltext; der PIN-Kasten sitzt aber oft klein rechts außen
   // und geht in der Vollbild-OCR unter → rechten Randstreifen gezielt nochmal lesen
   const pinFrom = t => {
-    // Alphanumerischer PIN direkt hinterm Label (Zalando: „PIN: 2ZWJWAPA24MEULCL");
-    // muss eine Ziffer enthalten (filtert Wörter wie „für") und darf keine
-    // reine lange Zahl sein (das wäre die Kartennummer)
+    // NUR Treffer mit „PIN"-Label; nackte Zahlen laufen über die strenge
+    // Vertrauensprüfung in pinPick. Alphanumerischer PIN (Zalando) muss eine
+    // Ziffer enthalten (filtert Wörter wie „für") und darf keine reine lange
+    // Zahl sein (das wäre die Kartennummer)
     const alnum = t.match(/\bpin\b\s*[:=]?\s*([A-Za-z0-9]{6,20})\b/i);
     if (alnum && /\d/.test(alnum[1]) && !/^\d{11,}$/.test(alnum[1])) return alnum[1];
-    return (t.match(/\bpin\b\D{0,80}?(\d{3,10})\b/i)
-      || t.match(/(?:^|\n)[^\S\n]*(\d{4})[^\S\n]*(?:\n|$)/))?.[1] || '';
+    return (t.match(/\bpin\b\D{0,80}?(\d{3,10})\b/i))?.[1] || '';
   };
   // Wert: „25,00 €", „5 €" und „€5" (manche Anbieter schreiben das Zeichen davor)
   const amtFrom = t => {
@@ -3212,46 +3212,63 @@ async function analyzeWalletImage(dataUrl, statusCb) {
       || t.match(/(?:€|EUR)\s*(\d{1,4}(?:[.,]\d{2})?)\b/i);
     return m ? (m[1] || m[2]) : '';
   };
-  out.pin = pinFrom(out.text);
+  // Kandidaten werden NUR übernommen, wenn die OCR beim zugehörigen Wort sicher
+  // war: mit PIN-Label reicht mittlere Sicherheit, eine nackte Zahl ohne Label
+  // muss 4-stellig sein und sehr sicher gelesen worden sein. Nie raten!
+  const pinPick = (text, words) => {
+    const label = pinFrom(text);
+    if (label) return ocrTrusted(words, label, 55) ? label : '';
+    const bare = (text.match(/(?:^|\n)[^\S\n]*(\d{4})[^\S\n]*(?:\n|$)/) || [])[1];
+    return bare && ocrTrusted(words, bare, 72) ? bare : '';
+  };
+  out.pin = pinPick(out.text, out.words);
   out.amount = amtFrom(out.text);
   // Am Text orientieren: das WORT „PIN" im Bild orten und den Kasten daneben/
   // darunter stark vergrößert nachlesen (der Wert geht im Vollbild oft unter)
-  if (!out.pin) out.pin = await pinNearWord(img, out.words, pinFrom);
+  if (!out.pin) out.pin = await pinNearWord(img, out.words, pinPick);
   if (!out.pin || !out.amount) {
     // Zweitpass in hartem Schwarz-Weiß: Schrift auf farbigen Kacheln (z. B. der
     // Zalando-Kasten mit „€5") verschluckt die normale OCR sonst komplett
     const bw = await ocrBW(img);
     if (!out.amount) out.amount = amtFrom(bw.text);
-    if (!out.pin) out.pin = pinFrom(bw.text) || await pinNearWord(bw.source, bw.words, pinFrom);
+    if (!out.pin) out.pin = pinPick(bw.text, bw.words) || await pinNearWord(bw.source, bw.words, pinPick);
   }
   if (!out.pin) {
     // Der PIN wohnt im RECHTEN hellen Kasten: den gezielt ausschneiden und lesen
     const panels = findLightPanels(img);
     if (panels.length > 1) {
       const p = panels[panels.length - 1];
-      const t = await ocrRegion(img, Math.max(0, p.x - p.width * 0.05), Math.max(0, p.y - p.height * 0.15), p.width * 1.15, p.height * 1.35);
-      out.pin = pinFrom(t) || (t.match(/\b(\d{3,8})\b/) || [])[1] || '';
+      const reg = await ocrRegion(img, Math.max(0, p.x - p.width * 0.05), Math.max(0, p.y - p.height * 0.15), p.width * 1.15, p.height * 1.35);
+      out.pin = pinPick(reg.text, reg.words) || pickBareDigits(reg);
     }
   }
   if (!out.pin) {
     const iw = img.naturalWidth, ih = img.naturalHeight;
-    const rightText = await ocrRegion(img, Math.round(iw * 0.62), 0, iw - Math.round(iw * 0.62), ih);
-    out.pin = pinFrom(rightText) || (rightText.match(/\b(\d{4})\b/) || [])[1] || '';
+    const reg = await ocrRegion(img, Math.round(iw * 0.62), 0, iw - Math.round(iw * 0.62), ih);
+    out.pin = pinPick(reg.text, reg.words) || pickBareDigits(reg);
   }
+  // Ein PIN darf nie einfach ein Stück der Kartennummer sein
+  if (out.pin && out.pin.length < 6 && (out.barcode || '').includes(out.pin)) out.pin = '';
   return out;
+}
+
+// Nackte 4-stellige Zahl ohne Label: nur mit sehr sicherer Lesung übernehmen
+function pickBareDigits(reg) {
+  const bare = (reg.text.match(/\b(\d{4})\b/) || [])[1];
+  return bare && ocrTrusted(reg.words, bare, 72) ? bare : '';
 }
 
 // „PIN" wurde als Wort mit Koordinaten erkannt: die Umgebung (rechts daneben und
 // darunter, wo der Wert steht) ausschneiden, hochskalieren und gezielt lesen
-async function pinNearWord(source, words, pinFrom) {
+async function pinNearWord(source, words, pinPick) {
   const pinWord = (words || []).find(w => /^pin\b/i.test((w.text || '').trim()));
   if (!source || !pinWord || !pinWord.bbox) return '';
   const b = pinWord.bbox;
   const w = Math.max(12, b.x1 - b.x0), h = Math.max(10, b.y1 - b.y0);
   const iw = source.naturalWidth || source.width, ih = source.naturalHeight || source.height;
   const sx = Math.max(0, b.x0 - w * 1.5), sy = Math.max(0, b.y0 - h * 1.5);
-  const near = await ocrRegion(source, sx, sy, Math.min(iw - sx, w * 12), Math.min(ih - sy, h * 9));
-  return pinFrom(near) || (near.match(/\b(\d{3,8})\b/) || [])[1] || '';
+  const reg = await ocrRegion(source, sx, sy, Math.min(iw - sx, w * 12), Math.min(ih - sy, h * 9));
+  return pinPick(reg.text, reg.words) || pickBareDigits(reg);
 }
 
 // Bild hart binarisieren (dunkle Schrift → schwarz, alles andere → weiß) und lesen
@@ -3279,7 +3296,7 @@ async function ocrBW(img) {
 
 // Einen Bildausschnitt hochskaliert durch die OCR schicken (z. B. den PIN-Kasten)
 async function ocrRegion(img, sx, sy, sw, sh) {
-  if (sw < 30 || sh < 30) return '';
+  if (sw < 30 || sh < 30) return { text: '', words: [] };
   const c = document.createElement('canvas');
   const scale = Math.min(3, Math.max(1, 900 / sw));
   c.width = Math.round(sw * scale); c.height = Math.round(sh * scale);
@@ -3287,8 +3304,16 @@ async function ocrRegion(img, sx, sy, sw, sh) {
   try {
     const worker = await getOcrWorker();
     const { data } = await worker.recognize(c.toDataURL('image/jpeg', 0.92));
-    return data.text || '';
-  } catch { return ''; }
+    return { text: data.text || '', words: data.words || [] };
+  } catch { return { text: '', words: [] }; }
+}
+
+// Vertrauens-Check: der Kandidat muss aus einem Wort stammen, bei dem sich die
+// OCR sicher war. Lieber ein leeres Feld als eine geratene Zahl.
+function ocrTrusted(words, token, minConf) {
+  if (!token) return false;
+  const hit = (words || []).find(w => (w.text || '').replace(/[^A-Za-z0-9]/g, '').includes(token));
+  return !!hit && (hit.confidence ?? 0) >= minConf;
 }
 
 // Große, interaktive Shop-Auswahl beim Hinzufügen (erst 6, Rest hinter "Weitere")
@@ -3511,9 +3536,12 @@ function openWalletAdd(type, prefillName) {
         $('#wa-result').classList.remove('hidden');
         $('#wa-result').innerHTML = resRows;
       }
+      // Lieber ehrlich als geraten: sagen, was fehlt und selbst geprüft werden muss
+      const pinFehlt = addType === 'voucher' && !$('#wa-pin').value;
       if (filled.length) {
         m.className = 'form-msg ok';
-        m.textContent = `Gescannt und ausgefüllt: ${filled.join(', ')}, bitte kurz prüfen.`;
+        m.textContent = `Gescannt und ausgefüllt: ${filled.join(', ')}, bitte kurz prüfen.`
+          + (pinFehlt ? ' Der PIN war nicht sicher lesbar, bitte selbst eintragen.' : '');
       } else {
         m.className = 'form-msg';
         m.textContent = 'Bild gespeichert, nichts sicher erkannt, bitte Felder ausfüllen.';
