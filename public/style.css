@@ -2392,3 +2392,36 @@ html, body { overflow-x: clip; }
 .sync-badge.syncing { color: var(--muted); border-color: var(--stroke-light); background: var(--surface); }
 .sync-badge.dirty { color: #b8860b; border-color: rgba(245, 179, 1, .5); background: rgba(245, 179, 1, .12); cursor: pointer; }
 :root[data-theme="dark"] .sync-badge.dirty { color: #f5c84a; }
+
+/* ================= Runde 43: Mobile-Layout-Fixes ================= */
+
+/* Hintergrund darf nicht mitscrollen, solange ein Popup oder Sheet offen ist
+   (auf html UND body: das Dokument scrollt über html) */
+html:has(.overlay:not(.hidden)),
+html:has(.sheet.open),
+body:has(.overlay:not(.hidden)),
+body:has(.sheet.open) {
+  overflow: hidden !important;
+}
+.sheet-content, .modal { overscroll-behavior: contain; }
+
+/* Chat-Hoehe zentral ueber EINE Variable: DM-Kopf und Emote-Picker addieren
+   ihren Platzbedarf, statt sich mit konkurrierenden height-Regeln zu schlagen */
+#view-chat { --chatpad: 300px; }
+#view-chat:has(#dm-head:not(.hidden)) { --chatpad: 356px; }
+#view-chat.emotes-open { --chatpad: 448px; }
+#view-chat.emotes-open:has(#dm-head:not(.hidden)) { --chatpad: 504px; }
+#chat-box {
+  height: calc(var(--vvh, 100dvh) - var(--chatpad, 300px) - env(safe-area-inset-top, 0px)) !important;
+  min-height: 130px;
+}
+
+/* Wallet: unten genug Luft, damit Menü und Mini-Guthaben nichts überlappen */
+#view-wallet { padding-bottom: 190px; }
+
+/* Filter-Chips: Text wird sauber mit Punkten gekürzt statt hart abgeschnitten */
+#wallet-vendor-filters .chip { max-width: 60vw; }
+.chip .chip-label {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  min-width: 0; margin-left: 6px;
+}

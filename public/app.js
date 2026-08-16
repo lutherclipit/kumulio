@@ -267,6 +267,7 @@ function switchView(next, animClass) {
   if (next === 'shop') renderShopPage();
   if (next !== 'wallet') $('#wallet-mini')?.classList.remove('show');
   document.body.classList.toggle('chat-locked', next === 'chat');
+  if (next !== 'chat') document.body.style.transform = ''; // Tastatur-Versatz zurücksetzen
   refreshAdminUi();
   viewCleanupTimer = setTimeout(settleViews, 520);
 }
@@ -343,7 +344,13 @@ $('#btn-account-delete').addEventListener('click', async () => {
 
 $('#tabbar').addEventListener('click', e => {
   const btn = e.target.closest('.tabbtn');
-  if (btn) switchView(btn.dataset.view);
+  if (!btn) return;
+  // Nochmal auf den aktiven Tab tippen = smooth nach ganz oben
+  if (btn.dataset.view === state.activeView) {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    return;
+  }
+  switchView(btn.dataset.view);
 });
 
 // ---------------- Onboarding ----------------
@@ -4154,7 +4161,7 @@ function renderWallet() {
   const vf = $('#wallet-vendor-filters');
   if (vf) {
     vf.innerHTML = [`<button class="chip ${!state.walletFilter || state.walletFilter === 'alle' ? 'active' : ''}" data-wvf="alle">Alle</button>`,
-      ...vendors.map(vn => `<button class="chip ${state.walletFilter === vn ? 'active' : ''}" data-wvf="${esc(vn)}">${brandChipHtml(vn)} ${esc(vn)}</button>`)].join('');
+      ...vendors.map(vn => `<button class="chip ${state.walletFilter === vn ? 'active' : ''}" data-wvf="${esc(vn)}">${brandChipHtml(vn)}<span class="chip-label">${esc(vn)}</span></button>`)].join('');
     vf.querySelectorAll('[data-wvf]').forEach(b => b.onclick = () => {
       state.walletFilter = b.dataset.wvf === 'alle' ? '' : b.dataset.wvf;
       state.walletVal = 0;
@@ -5213,9 +5220,21 @@ connectStream();
 // Tastatur auf dem Handy: die sichtbare Höhe als CSS-Variable, damit der Chat
 // kompakt bleibt und nichts unkontrolliert hochgeschoben wird
 if (window.visualViewport) {
-  const setVVH = () => document.documentElement.style.setProperty('--vvh', window.visualViewport.height + 'px');
-  window.visualViewport.addEventListener('resize', setVVH);
-  setVVH();
+  const applyVV = () => {
+    const vv = window.visualViewport;
+    document.documentElement.style.setProperty('--vvh', vv.height + 'px');
+    // iOS schiebt beim Öffnen der Tastatur den sichtbaren Ausschnitt nach unten
+    // (offsetTop) und der Chat "verschwindet" oben. Der Trick: den Body um genau
+    // diesen Versatz mitschieben, dann bleibt alles lesbar an Ort und Stelle
+    if (document.body.classList.contains('chat-locked') && vv.offsetTop > 1) {
+      document.body.style.transform = `translateY(${Math.round(vv.offsetTop)}px)`;
+    } else {
+      document.body.style.transform = '';
+    }
+  };
+  window.visualViewport.addEventListener('resize', applyVV);
+  window.visualViewport.addEventListener('scroll', applyVV);
+  applyVV();
 }
 
 // Als Home-Bildschirm-App: Pinch-Zoom (iOS-Geste) komplett blocken –
