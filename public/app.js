@@ -2794,6 +2794,8 @@ async function syncWalletNow() {
       localStorage.removeItem('ra.walletDirty');
       walletSyncError = '';
       walletSyncFatal = false;
+      walletRetryDelay = 1500; // Backoff zurücksetzen
+      clearTimeout(walletRetryTimer);
       return true;
     } catch (e) {
       walletSyncError = e.name === 'TimeoutError' || e.name === 'AbortError'
@@ -2801,6 +2803,15 @@ async function syncWalletNow() {
         : (e.message || '');
       walletSyncFatal = e.status >= 400 && e.status < 500;
       localStorage.setItem('ra.walletDirty', '1');
+      // Schnell nachfassen statt aufs 30s-Intervall zu warten: die PWA hat nach
+      // dem Aufwachen oft 1-2s kein Netz, der erste Versuch scheitert dann leise
+      if (!walletSyncFatal) {
+        walletRetryDelay = Math.min(24000, walletRetryDelay * 2);
+        clearTimeout(walletRetryTimer);
+        walletRetryTimer = setTimeout(() => {
+          if (state.token && localStorage.getItem('ra.walletDirty')) syncWalletNow();
+        }, walletRetryDelay);
+      }
       return false;
     } finally {
       walletSyncInFlight = null;
@@ -2809,6 +2820,8 @@ async function syncWalletNow() {
   })();
   return walletSyncInFlight;
 }
+let walletRetryTimer = null;
+let walletRetryDelay = 1500;
 function saveWallet() {
   save('wallet', state.wallet);
   renderWallet();
@@ -2818,13 +2831,18 @@ function saveWallet() {
     walletSyncTimer = setTimeout(syncWalletNow, 800);
   }
 }
-// Nachzügler-Sync: sobald wieder Netz da ist, die App in den Vordergrund kommt
-// oder regelmäßig im Hintergrund
-window.addEventListener('online', () => { if (localStorage.getItem('ra.walletDirty')) syncWalletNow(); });
+// Nachzügler-Sync: sobald wieder Netz da ist, die App aufwacht/in den Vordergrund
+// kommt (PWA!) oder regelmäßig im Hintergrund
+function syncIfDirty() {
+  if (state.token && localStorage.getItem('ra.walletDirty')) syncWalletNow();
+}
+window.addEventListener('online', syncIfDirty);
+window.addEventListener('focus', syncIfDirty);
+window.addEventListener('pageshow', syncIfDirty);
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && state.token && localStorage.getItem('ra.walletDirty')) syncWalletNow();
+  if (document.visibilityState === 'visible') syncIfDirty();
 });
-setInterval(() => { if (state.token && localStorage.getItem('ra.walletDirty')) syncWalletNow(); }, 30000);
+setInterval(syncIfDirty, 15000);
 
 // Sicherungs-Ampel in der Wallet: zeigt ehrlich, ob alles beim Konto gesichert
 // ist; antippen stößt die Sicherung sofort an
