@@ -2370,3 +2370,13 @@ html, body { overflow-x: clip; }
 .batch-row.ok .icon { color: var(--k-accent, #12C77E); }
 .batch-row.bad { opacity: .8; }
 .batch-row.bad .icon { color: #e5484d; }
+
+/* Ergänzen-Hinweis im vorausgefüllten Formular (Mehrfach-Upload) */
+.fix-banner {
+  display: flex; align-items: flex-start; gap: 8px;
+  background: rgba(18, 199, 126, .12); border: 1px solid rgba(18, 199, 126, .4);
+  color: var(--k-accent, #12C77E); border-radius: 12px; padding: 10px 12px;
+  font-size: .84rem; font-weight: 600; line-height: 1.45;
+  margin-bottom: 12px; animation: enterDrop .35s cubic-bezier(.3,1.25,.45,1) backwards;
+}
+.fix-banner .icon { flex-shrink: 0; margin-top: 1px; }

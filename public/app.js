@@ -2948,7 +2948,8 @@ function dupeReject(text) {
   playSfx('error');
   buzz([60, 50, 60]);
   moneyFlash('red');
-  openWalletAdd(addType, addPrefill);
+  // Läuft gerade die Ergänzen-Warteschlange, geht es mit dem nächsten weiter
+  if (!nextFixOrDone()) openWalletAdd(addType, addPrefill);
   const banner = document.createElement('div');
   banner.className = 'dupe-banner';
   banner.innerHTML = `${icon('warning', 'icon icon-sm')} <span>${text} Alles wurde zurückgesetzt.</span>`;
@@ -2962,6 +2963,46 @@ function dupeReject(text) {
 
 // Speichern läuft gerade: blockt Doppelklicks auf den Speichern-Button
 let waSaving = false;
+
+// Warteschlange „fehlende Angaben ergänzen": unvollständig gescannte Gutscheine
+// aus dem Mehrfach-Upload landen hier statt im Müll
+let waFixQueue = [];
+let waFixTotal = 0;
+function openFixForm(fix, pos, total) {
+  openWalletAdd('voucher');
+  addImg = fix.img || '';
+  addCodeImg = fix.codeImg || '';
+  if (addCodeImg || addImg) {
+    $('#wa-preview').src = addCodeImg || addImg;
+    $('#wa-preview').classList.remove('hidden');
+    $('#wa-drop-empty').classList.add('hidden');
+  }
+  if (fix.vendor) {
+    const tile = [...document.querySelectorAll('[data-vg]')].find(t => t.dataset.vg.toLowerCase() === fix.vendor.toLowerCase());
+    if (tile) {
+      if (tile.classList.contains('vendor-more')) $('#wa-vendor-showmore')?.click();
+      tile.click();
+    } else {
+      [...document.querySelectorAll('[data-vg]')].find(t => t.dataset.vg === 'Anderer Gutschein')?.click();
+      const inp = $('#wa-vendor');
+      if (inp) { inp.classList.remove('hidden'); inp.value = fix.vendor; }
+    }
+  }
+  if (fix.amount != null) $('#wa-amount').value = String(fix.amount).replace('.', ',');
+  if (fix.pin) $('#wa-pin').value = fix.pin;
+  if (fix.code) $('#wa-code').value = fix.code;
+  const fehlt = [!fix.vendor && 'Shop', fix.amount == null && 'Wert', !fix.pin && 'PIN'].filter(Boolean).join(', ');
+  const banner = document.createElement('div');
+  banner.className = 'fix-banner';
+  banner.innerHTML = `${icon('bulb', 'icon icon-sm')} <span><b>Gutschein ${pos} von ${total}:</b> alles Erkannte ist schon eingetragen, bitte noch ${esc(fehlt || 'die Felder prüfen')} ergänzen und speichern.</span>`;
+  $('#sheet-content').prepend(banner);
+  $('#sheet-content').scrollTop = 0;
+}
+function nextFixOrDone() {
+  if (!waFixQueue.length) return false;
+  openFixForm(waFixQueue.shift(), waFixTotal - waFixQueue.length, waFixTotal);
+  return true;
+}
 
 // Bild aus der Zwischenablage (Strg+V) direkt ins offene Hinzufügen-Formular
 let waHandleImage = null;
@@ -3595,8 +3636,9 @@ function openWalletAdd(type, prefillName) {
       m.className = 'form-msg';
       m.textContent = `Scanne Gutschein ${i + 1} von ${files.length} …`;
       scanProgress((i / files.length) * 100);
+      let small = '';
       try {
-        const small = await readImageFile(files[i]);
+        small = await readImageFile(files[i]);
         $('#wa-preview').src = small;
         const hiRes = await readImageFile(files[i], 2200, 0.9);
         const r = await analyzeWalletImage(hiRes, p => scanProgress(((i + p / 100) / files.length) * 100));
@@ -3607,7 +3649,11 @@ function openWalletAdd(type, prefillName) {
         if (dupe) { results.push({ ok: false, name: ex.vendor || dupe.vendor, warum: 'schon in der Wallet, übersprungen' }); continue; }
         if (!ex.vendor || ex.amount == null || !ex.pin) {
           const fehlt = [!ex.vendor && 'Shop', ex.amount == null && 'Wert', !ex.pin && 'PIN'].filter(Boolean).join(', ');
-          results.push({ ok: false, name: ex.vendor || files[i].name, warum: `nicht sicher erkannt (${fehlt} fehlt), bitte einzeln hinzufügen` });
+          results.push({
+            ok: false, name: ex.vendor || files[i].name,
+            warum: `${fehlt} nicht sicher erkannt, unten ergänzen`,
+            fix: { ...ex, img: small, codeImg: r.codeImg || '' },
+          });
           continue;
         }
         const v = {
@@ -3619,7 +3665,10 @@ function openWalletAdd(type, prefillName) {
         fresh.push(v);
         results.push({ ok: true, v });
       } catch {
-        results.push({ ok: false, name: files[i].name, warum: 'Bild nicht lesbar' });
+        results.push({
+          ok: false, name: files[i].name, warum: 'Bild nicht lesbar, unten von Hand ergänzen',
+          fix: small ? { vendor: '', code: '', pin: '', amount: null, img: small, codeImg: '' } : null,
+        });
       }
     }
     scanProgress(100);
@@ -3658,7 +3707,9 @@ function openWalletAdd(type, prefillName) {
         }
       }
     }
-    // Übersicht: was ist drin, was wurde übersprungen und warum
+    // Übersicht: was ist drin, was wurde übersprungen und warum; Unvollständiges
+    // wandert in die Ergänzen-Warteschlange statt verloren zu gehen
+    const fixes = results.filter(res => res.fix).map(res => res.fix);
     $('#sheet-content').innerHTML = `
       <div class="sheet-title">Mehrere Gutscheine gescannt</div>
       <p class="muted" style="font-size:.86rem">${fresh.length} von ${files.length} neu in der Wallet.</p>
@@ -3666,12 +3717,18 @@ function openWalletAdd(type, prefillName) {
         ? `<div class="batch-row ok">${icon('check', 'icon icon-sm')} <span><b>${esc(res.v.vendor)}</b> · ${euroFmt(res.v.amount)} · PIN ${esc(res.v.pin)}</span></div>`
         : `<div class="batch-row bad">${icon('warning', 'icon icon-sm')} <span><b>${esc(res.name || 'Bild')}</b>: ${esc(res.warum)}</span></div>`).join('')}
       <div class="form-row" style="margin-top:16px">
-        <button class="btn" id="wa-batch-done">Fertig</button>
+        ${fixes.length ? `<button class="btn" id="wa-batch-fix">Fehlende ergänzen (${fixes.length})</button>` : ''}
+        <button class="btn ${fixes.length ? 'btn-ghost' : ''}" id="wa-batch-done">Fertig</button>
         <button class="btn btn-ghost" id="wa-batch-more">Weitere hinzufügen</button>
       </div>`;
     $('#sheet-content').scrollTop = 0;
     $('#wa-batch-done').onclick = closeSheet;
     $('#wa-batch-more').onclick = () => openWalletAdd('voucher');
+    $('#wa-batch-fix')?.addEventListener('click', () => {
+      waFixQueue = fixes;
+      waFixTotal = fixes.length;
+      nextFixOrDone();
+    });
     if (fresh.length) {
       playSfx('kaching'); buzz(35); moneyFlash('green'); billRain(Math.min(9, 4 + fresh.length));
       island(`${fresh.length} Gutschein${fresh.length > 1 ? 'e' : ''} gespeichert`);
@@ -3798,6 +3855,8 @@ function openWalletAdd(type, prefillName) {
     moneyFlash('green');
     billRain(7);
     island('In der Wallet gespeichert');
+    // Warten noch unvollständige Gutscheine aus dem Mehrfach-Upload? Direkt weiter
+    nextFixOrDone();
   });
   openSheetShell();
 }
