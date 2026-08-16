@@ -2899,6 +2899,17 @@ let addType = 'voucher';
 let addPrefill = '';
 let addCodeImg = ''; // ausgeschnittener Kassen-Code (falls der Scanner ihn findet)
 
+// Bild aus der Zwischenablage (Strg+V) direkt ins offene Hinzufügen-Formular
+let waHandleImage = null;
+document.addEventListener('paste', e => {
+  if (state.sheetMode !== 'wallet-add' || !waHandleImage) return;
+  const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
+  if (!item) return;
+  e.preventDefault();
+  waHandleImage(item.getAsFile());
+  island('Bild aus der Zwischenablage übernommen');
+});
+
 // Bekannte Shops für die manuelle Schnell-Auswahl
 const VENDOR_QUICK = ['REWE', 'Amazon', 'Wunschgutschein', 'Zalando', 'IKEA', 'Rossmann', 'Lidl', 'EDEKA'];
 
@@ -3085,7 +3096,7 @@ function openWalletAdd(type, prefillName) {
     <div class="dropzone" id="wa-drop">
       <div class="dropzone-empty" id="wa-drop-empty">
         ${icon('plus', 'icon')}
-        <span>Screenshot / Foto hierher ziehen<br>oder unten auswählen</span>
+        <span>Screenshot / Foto hierher ziehen,<br>einfügen (Strg+V) oder unten auswählen</span>
       </div>
       <div class="scan-frame" id="wa-scan-frame">
         <img id="wa-preview" class="wallet-img hidden" alt="">
@@ -3280,6 +3291,8 @@ function openWalletAdd(type, prefillName) {
   };
   $('#wa-img').addEventListener('change', e => handleImageFile(e.target.files[0]));
   $('#wa-cam').addEventListener('change', e => handleImageFile(e.target.files[0]));
+  // Strg+V: der globale Paste-Listener reicht das Bild hierher durch
+  waHandleImage = handleImageFile;
   // Drag & Drop (Web): Bild einfach in die Zone ziehen
   const drop = $('#wa-drop');
   ['dragover', 'dragenter'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('drag'); }));
