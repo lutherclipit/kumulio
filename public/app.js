@@ -1614,13 +1614,20 @@ function openInspect(kind, id, float, rarity) {
 
 function myItems() {
   if (!gami) return [];
+  // Mehrfachbesitz: die x-te Kopie eines Items traegt ihren Float unter kind:id#x
+  const counts = {};
   return [
     ...gami.paints.map(id => ({ kind: 'paint', id })),
     ...(gami.badgesOwned || myProfile?.badges || []).map(id => ({ kind: 'badge', id })),
     ...(gami.emotes || []).map(id => ({ kind: 'emote', id })),
     ...(gami.stickers || []).map(id => ({ kind: 'sticker', id })),
     ...(gami.borders || []).map(id => ({ kind: 'border', id })),
-  ].map(it => ({ ...it, float: (gami.floats || {})[`${it.kind}:${it.id}`] ?? 0, rarity: itemRarity(it.kind, it.id) }));
+  ].map(it => {
+    const key = `${it.kind}:${it.id}`;
+    const copy = counts[key] = (counts[key] ?? -1) + 1;
+    const fkey = copy > 0 ? `${key}#${copy}` : key;
+    return { ...it, copy, float: (gami.floats || {})[fkey] ?? 0, rarity: itemRarity(it.kind, it.id) };
+  });
 }
 
 async function refreshGamiSystem() {
@@ -1700,6 +1707,7 @@ async function refreshGamiSystem() {
       </button>`;
     }).join('')
     : '<span class="form-msg">Paints kommen aus Containern und färben deinen Namen im Chat.</span>';
+  if (state.activeView === 'inventory') renderInventoryPage(); // Ziehung/Verkauf sofort sichtbar
   $('#gm-paints').querySelectorAll('[data-paint]').forEach(b => b.onclick = async () => {
     const next = gami.activePaint === b.dataset.paint ? '' : b.dataset.paint;
     await api('/api/paint', { method: 'POST', body: JSON.stringify({ id: next }) }).catch(() => { });
@@ -1737,7 +1745,7 @@ function openInventory() {
           ${it.kind === 'sticker' ? `<button class="c-act" data-inv-stick="${esc(it.id)}">Aufkleben</button>`
           : it.kind !== 'emote' ? `<button class="c-act ${equipped ? 'on' : ''}" data-inv-equip="${it.kind}:${esc(it.id)}">${equipped ? 'Angelegt' : 'Anlegen'}</button>` : ''}
           <button class="c-act ${inShowcase ? 'on' : ''}" data-inv-show="${it.kind}:${esc(it.id)}">Profil</button>
-          <button class="c-act" data-inv-sell="${it.kind}:${esc(it.id)}">Verkaufen (${val})</button>
+          <button class="c-act" data-inv-sell="${it.kind}:${esc(it.id)}:${it.copy}">Verkaufen (${val})</button>
         </div>
       </div>`;
     }).join('')}</div>` : '<div class="status">Noch keine Items. Öffne Container!</div>'}`;
@@ -1765,10 +1773,10 @@ function openInventory() {
     openInventory(); refreshGami();
   });
   $('#sheet-content').querySelectorAll('[data-inv-sell]').forEach(b => b.onclick = async () => {
-    const [kind, id] = b.dataset.invSell.split(':');
+    const [kind, id, copy] = b.dataset.invSell.split(':');
     if (!await askConfirm(`${esc(itemName(kind, id))} wirklich verkaufen?`, { okLabel: 'Verkaufen' })) return;
     try {
-      const r = await api('/api/item/sell', { method: 'POST', body: JSON.stringify({ kind, id }) });
+      const r = await api('/api/item/sell', { method: 'POST', body: JSON.stringify({ kind, id, copy: Number(copy) || 0 }) });
       playSfx('coin'); island(`Verkauft für ${fmtFunken(r.value)} Funken`);
       await refreshGamiSystem(); await refreshGami();
       openInventory();
@@ -1811,7 +1819,7 @@ async function renderInventoryPage() {
           ${it.kind === 'sticker' ? `<button class="c-act" data-inv-stick="${esc(it.id)}">Aufkleben</button>`
           : it.kind !== 'emote' ? `<button class="c-act ${equipped ? 'on' : ''}" data-inv-equip="${it.kind}:${esc(it.id)}">${equipped ? 'Angelegt' : 'Anlegen'}</button>` : ''}
           <button class="c-act ${inShowcase ? 'on' : ''}" data-inv-show="${it.kind}:${esc(it.id)}">Profil</button>
-          <button class="c-act" data-inv-sell="${it.kind}:${esc(it.id)}">Verkaufen (${val})</button>
+          <button class="c-act" data-inv-sell="${it.kind}:${esc(it.id)}:${it.copy}">Verkaufen (${val})</button>
         </div>
       </div>`;
     }).join('') || '<div class="status">Nichts in dieser Kategorie. Öffne Container!</div>'}</div>` : ''}`;
@@ -1847,7 +1855,7 @@ async function renderInventoryPage() {
       await api('/api/profile', { method: 'POST', body: JSON.stringify({ activeBadge: next }) }).catch(() => { });
       myProfile.activeBadge = next;
     }
-    renderInventoryPage(); refreshGami();
+    renderInventoryPage(); refreshGami(); refreshGamiSystem();
   });
   host.querySelectorAll('[data-inv-show]').forEach(b => b.onclick = async () => {
     const key = b.dataset.invShow;
@@ -1860,10 +1868,10 @@ async function renderInventoryPage() {
     renderInventoryPage(); refreshGami();
   });
   host.querySelectorAll('[data-inv-sell]').forEach(b => b.onclick = async () => {
-    const [kind, id] = b.dataset.invSell.split(':');
+    const [kind, id, copy] = b.dataset.invSell.split(':');
     if (!await askConfirm(`${esc(itemName(kind, id))} wirklich verkaufen?`, { okLabel: 'Verkaufen' })) return;
     try {
-      const r = await api('/api/item/sell', { method: 'POST', body: JSON.stringify({ kind, id }) });
+      const r = await api('/api/item/sell', { method: 'POST', body: JSON.stringify({ kind, id, copy: Number(copy) || 0 }) });
       playSfx('coin'); island(`Verkauft für ${fmtFunken(r.value)} Funken`);
       await refreshGamiSystem();
       renderInventoryPage(); refreshGami();
@@ -2062,7 +2070,37 @@ function openCaseModal(box) {
   const odds = gami?.containers?.[box.type]?.odds || {};
   $('#case-odds-panel').innerHTML = Object.entries(odds).map(([k, x]) =>
     `<div class="odds-row"><span style="color:${(gami?.rarity || {})[k]?.color || '#888'}">${esc((gami?.rarity || {})[k]?.label || k)}</span><b>${String(x).replace('.', ',')} %</b></div>`).join('');
+  // Vorschau wie bei CS: was ist drin, gruppiert nach Stufe, mit Prozent
+  const pool = casePool(box.type);
+  const order = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+  $('#case-preview').innerHTML = order.filter(rar => odds[rar]).map(rar => {
+    const items = pool.filter(x => x.rarity === rar);
+    if (!items.length) return '';
+    const col = (gami?.rarity || {})[rar]?.color || '#888';
+    return `
+    <div class="cp-group">
+      <div class="cp-head"><span style="color:${col}">${esc((gami?.rarity || {})[rar]?.label || rar)}</span><b>${String(odds[rar]).replace('.', ',')} %</b></div>
+      <div class="cp-items">${items.map(it => `
+        <span class="cp-item" style="--rc:${col}" title="${esc(itemName(it.kind, it.id))}">${itemVisual(it.kind, it.id)}</span>`).join('')}</div>
+    </div>`;
+  }).join('');
+  $('#case-preview').classList.remove('hidden');
   $('#case-backdrop').classList.remove('hidden');
+}
+// Was kann DIESER Container ziehen? Kinds vom Server, Legacy-Eintraege und
+// Stufen ausserhalb der Odds fliegen raus — Walze und Vorschau luegen nie
+function casePool(type) {
+  const c = gami?.containers?.[type] || { kinds: ['emote'], odds: {} };
+  const stufen = new Set(Object.keys(c.odds));
+  const kinds = c.kinds || [];
+  const badgeRar = { 'häufig': 'common', 'selten': 'rare', 'episch': 'epic' };
+  return [
+    ...(kinds.includes('paint') ? (gami?.paintsAll || []).map(x => ({ kind: 'paint', id: x.id, rarity: x.rarity })) : []),
+    ...(kinds.includes('badge') ? Object.entries(gami?.badgesAll || {}).map(([k, v]) => ({ kind: 'badge', id: k, rarity: badgeRar[v.rar] || 'common' })) : []),
+    ...(kinds.includes('emote') ? Object.entries(gami?.emotesAll || {}).filter(([, v]) => !v.legacy).map(([k, v]) => ({ kind: 'emote', id: k, rarity: v.rarity })) : []),
+    ...(kinds.includes('sticker') ? Object.entries(gami?.stickersAll || {}).filter(([, v]) => !v.legacy).map(([k, v]) => ({ kind: 'sticker', id: k, rarity: v.rarity })) : []),
+    ...(kinds.includes('border') ? Object.entries(gami?.bordersAll || {}).map(([k, v]) => ({ kind: 'border', id: k, rarity: v.rarity })) : []),
+  ].filter(x => stufen.has(x.rarity));
 }
 function caseItemHtml(it) {
   const col = (gami?.rarity || {})[it.rarity]?.color || '#888';
@@ -2079,6 +2117,8 @@ async function startCaseOpen() {
   catch (e) { island(e.message); return; }
   caseCtx.result = r;
   $('#case-open-btn').classList.add('hidden');
+  $('#case-preview').classList.add('hidden');
+  $('#case-odds-panel').classList.add('hidden');
   const col = (gami?.rarity || {})[r.win.rarity]?.color || '#888';
   const label = (gami?.rarity || {})[r.win.rarity]?.label || r.win.rarity;
   const bigReveal = () => {
@@ -2123,7 +2163,8 @@ async function startCaseOpen() {
       openInspect(r.win.kind, r.win.id, r.win.float, r.win.rarity));
     $('#cw-sell')?.addEventListener('click', async () => {
       try {
-        const sold = await api('/api/item/sell', { method: 'POST', body: JSON.stringify({ kind: r.win.kind, id: r.win.id }) });
+        const copies = myItems().filter(x => x.kind === r.win.kind && x.id === r.win.id).length;
+        const sold = await api('/api/item/sell', { method: 'POST', body: JSON.stringify({ kind: r.win.kind, id: r.win.id, copy: Math.max(0, copies - 1) }) });
         playSfx('coin');
         hideOverlay($('#case-backdrop'));
         island(`Verkauft für ${fmtFunken(sold.value)} Funken`);
@@ -2160,11 +2201,7 @@ async function startCaseOpen() {
       // Jetzt die Walze: Gewinn liegt fest auf Index 60, alles andere ist Show
       caseCtx.timers.push(setTimeout(() => {
         img.classList.add('hidden');
-        const pool = [
-          ...(gami?.paintsAll || []).map(x => ({ kind: 'paint', id: x.id, rarity: x.rarity })),
-          ...Object.entries(gami?.badgesAll || myProfile?.badgesAll || {}).map(([k, v]) => ({ kind: 'badge', id: k, rarity: v.rar === 'häufig' ? 'common' : v.rar === 'selten' ? 'rare' : 'epic' })),
-          ...Object.entries(gami?.emotesAll || {}).map(([k, v]) => ({ kind: 'emote', id: k, rarity: v.rarity })),
-        ];
+        const pool = casePool(box.type);
         const items = Array.from({ length: 64 }, (_, i) => i === 60 ? { kind: r.win.kind, id: r.win.id, rarity: r.win.rarity } : pool[Math.floor(Math.random() * pool.length)]);
         $('#reel').innerHTML = items.map(it => {
           const c2 = (gami?.rarity || {})[it.rarity]?.color || '#888';
@@ -2188,7 +2225,7 @@ async function startCaseOpen() {
           reel.children[60]?.classList.add('reel-win');
           caseCtx.timers.push(setTimeout(bigReveal, 620));
         }, reelMs + 120));
-      }, 480));
+      }, 200));
     }, 700));
   }, 650));
 }
@@ -3141,8 +3178,9 @@ async function pullWallet() {
       out.push(...srvBy.values());
       return out.filter(it => !(tombs[it.id] && tombs[it.id] >= (it.added || 0)));
     };
-    state.wallet.vouchers = mergeById(state.wallet.vouchers, remote.vouchers);
-    state.wallet.cards = mergeById(state.wallet.cards, remote.cards);
+    const dedupeById = list => { const seen = new Set(); return list.filter(x => x && x.id && !seen.has(x.id) && seen.add(x.id)); };
+    state.wallet.vouchers = dedupeById(mergeById(state.wallet.vouchers, remote.vouchers));
+    state.wallet.cards = dedupeById(mergeById(state.wallet.cards, remote.cards));
     state.wallet.deleted = Object.entries(tombs).map(([id, ts]) => ({ id, ts })).slice(-500);
     ensureWalletDates(); // auch vom Konto gezogene Alt-Gutscheine kriegen ein Datum
     saveWallet(); // lokal sichern + Mergestand zurück zum Server
@@ -3235,6 +3273,16 @@ function openGiftReveal(gift) {
   box.style.cursor = 'pointer';
   box.addEventListener('click', () => {
     if (opened) return;
+    // Alter Tab, altes Popup: Wenn das Geschenk laengst eingebucht ist (oder
+    // nicht mehr im Server-Vorrat wartet), gibt es KEINE zweite Gutschrift
+    if (state.wallet.vouchers.some(v => v.id === gift.id) || !pendingGifts.some(g => g.id === gift.id)) {
+      wrap.remove();
+      pendingGifts = pendingGifts.filter(g => g.id !== gift.id);
+      updateGiftBadges();
+      if (state.activeView === 'gifts') renderGiftsPage();
+      island('Dieses Geschenk ist schon in deiner Wallet');
+      return;
+    }
     opened = true;
     playSfx('wow', 0.3); // der volle WOW-Moment, aber gedaempft
     buzz(30);

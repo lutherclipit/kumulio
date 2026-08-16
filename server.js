@@ -260,7 +260,8 @@ const LEGACY_EMOTES = {
   ong: { id: '01FWS83HG0000ASC1GQNZR38QV', rarity: 'rare' },
   AINTNOWAY: { id: '01KXR0GEPAF1ZWH9ESQ3NYGRJ9', rarity: 'epic' },
 };
-const EMOTES_ALL = { ...LEGACY_EMOTES, ...UNLOCK_EMOTES };
+const markLegacy = obj => Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, { ...v, legacy: true }]));
+const EMOTES_ALL = { ...markLegacy(LEGACY_EMOTES), ...UNLOCK_EMOTES };
 // Steht im Text ein ziehbares Emote, das der Nutzer nicht besitzt?
 // Sticker zaehlen mit: sie sind ebenfalls Emotes und im Chat nutzbar.
 function lockedEmoteIn(text, prof) {
@@ -280,6 +281,8 @@ function isShiny(f) {
   return rep || straight;
 }
 const SELL_VALUES = { common: 20, uncommon: 40, rare: 90, epic: 200, legendary: 500 };
+// Mehrfachbesitz: die x-te Kopie eines Items hat ihren Float unter kind:id#x
+function floatKeyOf(kind, id, copy) { return copy > 0 ? `${kind}:${id}#${copy}` : `${kind}:${id}`; }
 function itemValue(rarity, float) { return (SELL_VALUES[rarity] || 20) * (isShiny(float) ? 5 : 1); }
 // Quests: Funken für echte Mitmach-Meilensteine (alles ohne Echtgeld)
 const QUESTS = [
@@ -423,7 +426,7 @@ const LEGACY_STICKERS = {
   PepePls: { id: '01GAFTZ9K80003DHH026MC7JW0', rarity: 'uncommon' },
   WAYTOODANK: { id: '01G98W833R0000BRQD106P0ZNT', rarity: 'rare' },
 };
-const STICKERS_ALL = { ...LEGACY_STICKERS, ...STICKERS };
+const STICKERS_ALL = { ...markLegacy(LEGACY_STICKERS), ...STICKERS };
 // Profilbild-Rahmen (Border-Kapsel): reine CSS-Looks im Discord/Steam-Stil,
 // der Client kennt zu jeder ID eine .pfb-<id>-Klasse
 const BORDERS = {
@@ -1626,19 +1629,13 @@ const server = http.createServer(async (req, res) => {
       prof.borders = prof.borders || [];
       const list = win.kind === 'paint' ? prof.paints : win.kind === 'badge' ? prof.badges
         : win.kind === 'sticker' ? prof.stickers : win.kind === 'border' ? prof.borders : prof.emotes;
-      let dupe = false;
-      let float = rollFloat();
-      if (list.includes(win.id)) {
-        // Duplikat: Funken im Wert des Items (bei besserem Float wird getauscht)
-        const oldF = prof.floats[`${win.kind}:${win.id}`] ?? 0;
-        if (isShiny(float) && !isShiny(oldF)) prof.floats[`${win.kind}:${win.id}`] = float;
-        else float = oldF;
-        dupe = true;
-        prof.coins += 40;
-      } else {
-        list.push(win.id);
-        prof.floats[`${win.kind}:${win.id}`] = float;
-      }
+      // Mehrfachbesitz: jedes gezogene Item landet als eigene Kopie mit eigenem
+      // Float im Inventar (kein +40-Trostpreis mehr)
+      const dupe = false;
+      const float = rollFloat();
+      const copiesBefore = list.filter(x => x === win.id).length;
+      list.push(win.id);
+      prof.floats[floatKeyOf(win.kind, win.id, copiesBefore)] = float;
       const shiny = isShiny(float);
       const value = itemValue(rarity, float);
       saveJson('users.json', users);
@@ -1659,14 +1656,23 @@ const server = http.createServer(async (req, res) => {
         : kind === 'sticker' ? (STICKERS_ALL[id] || {}).rarity
         : kind === 'border' ? (BORDERS[id] || {}).rarity
         : (EMOTES_ALL[id] || {}).rarity;
-      const float = (prof.floats || {})[`${kind}:${id}`] ?? 0;
+      // Genau EINE Kopie verkaufen (b.copy); die Floats der Kopien danach
+      // ruecken eins nach vorn, damit die Kette lueckenlos bleibt
+      const copies = list.filter(x => x === id).length;
+      const copy = Math.min(Math.max(Number(b.copy) || 0, 0), copies - 1);
+      prof.floats = prof.floats || {};
+      const float = prof.floats[floatKeyOf(kind, id, copy)] ?? 0;
       const value = itemValue(rarity || 'common', float);
-      lists[kind].splice(list.indexOf(id), 1);
-      delete prof.floats[`${kind}:${id}`];
-      if (kind === 'badge' && prof.activeBadge === id) prof.activeBadge = '';
-      if (kind === 'paint' && prof.activePaint === id) prof.activePaint = '';
-      if (kind === 'border' && prof.activeBorder === id) prof.activeBorder = '';
-      prof.showcase = (prof.showcase || []).filter(s => s !== `${kind}:${id}`);
+      for (let k = copy; k < copies - 1; k++) prof.floats[floatKeyOf(kind, id, k)] = prof.floats[floatKeyOf(kind, id, k + 1)] ?? 0;
+      delete prof.floats[floatKeyOf(kind, id, copies - 1)];
+      list.splice(list.indexOf(id), 1);
+      if (copies === 1) {
+        // Die letzte Kopie ging weg: aktive Verwendung aufraeumen
+        if (kind === 'badge' && prof.activeBadge === id) prof.activeBadge = '';
+        if (kind === 'paint' && prof.activePaint === id) prof.activePaint = '';
+        if (kind === 'border' && prof.activeBorder === id) prof.activeBorder = '';
+        prof.showcase = (prof.showcase || []).filter(s => s !== `${kind}:${id}`);
+      }
       prof.coins = (prof.coins || 0) + value;
       saveJson('users.json', users);
       return send(res, 200, { ok: true, value, coins: prof.coins });
@@ -1682,9 +1688,10 @@ const server = http.createServer(async (req, res) => {
       prof.stickers = prof.stickers || [];
       const i = prof.stickers.indexOf(id);
       if (i < 0) return send(res, 404, { error: 'Diesen Sticker hast du nicht.' });
+      const stCopies = prof.stickers.filter(x => x === id).length;
       prof.stickers.splice(i, 1);
-      delete (prof.floats || {})[`sticker:${id}`];
-      prof.showcase = (prof.showcase || []).filter(x => x !== `sticker:${id}`);
+      delete (prof.floats || {})[floatKeyOf('sticker', id, stCopies - 1)];
+      if (stCopies === 1) prof.showcase = (prof.showcase || []).filter(x => x !== `sticker:${id}`);
       saveJson('users.json', users);
       return send(res, 200, { ok: true, stickers: prof.stickers });
     }
@@ -1778,9 +1785,10 @@ const server = http.createServer(async (req, res) => {
       if (!me) return send(res, 401, { error: 'Bitte anmelden.' });
       const b = await readBody(req);
       const ids = Array.isArray(b.ids) ? b.ids.map(String) : [];
+      const claimed = (gifts[me] || []).filter(g => ids.includes(g.id)).map(g => g.id);
       gifts[me] = (gifts[me] || []).filter(g => !ids.includes(g.id));
       saveJson('gifts.json', gifts);
-      return send(res, 200, { ok: true });
+      return send(res, 200, { ok: true, claimed });
     }
     if (p === '/api/wallet' && req.method === 'POST') {
       const user = authUser(req);
