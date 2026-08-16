@@ -3299,8 +3299,8 @@ function startTour() {
     <img class="emote" style="height:28px" src="https://cdn.7tv.app/emote/01FE3XY508000AA32JP519W2EW/2x.webp" alt="">
   </div>`;
   const steps = [
-    { view: 'wallet', sel: '.tabbtn[data-view="wallet"]', title: 'Deine Wallet', text: 'Gutschein fotografieren, fertig: Guthaben, PIN und Barcode griffbereit, Restsummen immer im Blick.', visual: walletDemo },
     { view: 'feed', sel: '.tabbtn[data-view="feed"]', title: 'Deals, die sich lohnen', text: 'Preisfehler als Alarm aufs Handy, Neukunden-Deals und Wege, nebenbei etwas zu verdienen.', visual: feedDemo },
+    { view: 'wallet', sel: '.tabbtn[data-view="wallet"]', title: 'Deine Wallet', text: 'Gutschein fotografieren, fertig: Guthaben, PIN und Barcode griffbereit, Restsummen immer im Blick.', visual: walletDemo },
     { view: 'chat', sel: '.tabbtn[data-view="chat"]', title: 'Chat und Freunde', text: 'Global mitreden oder flüstern: Deals direkt an Freunde schicken und zusammen zuschlagen.', visual: chatDemo },
     { center: true, title: 'Dein Look', text: 'Mit Spar-Aktivität erspielst du Container: Emotes, Namens-Paints, Sticker und Profilrahmen. Nie für Geld.', visual: lookDemo },
     ...(!isStandalone && (uaIOS || uaAndroid) ? [{
@@ -3335,11 +3335,13 @@ function startTour() {
   };
   const show = () => {
     const s = steps[i];
-    if (s.view && state.activeView !== s.view) switchView(s.view);
+    // Ein wackelnder View-Wechsel (geraetespezifisch) darf die Tour nicht killen
+    try { if (s.view && state.activeView !== s.view) switchView(s.view); } catch (e) { console.warn('Tour: View-Wechsel', e); }
     tour.querySelector('.tour-num').textContent = i + 1;
     tour.querySelector('h3').textContent = s.title;
     tour.querySelector('p').textContent = s.text;
-    tour.querySelector('.tour-media').innerHTML = s.visual || '';
+    try { tour.querySelector('.tour-media').innerHTML = s.visual || ''; }
+    catch (e) { tour.querySelector('.tour-media').innerHTML = ''; console.warn('Tour: Demo', e); }
     const btns = tour.querySelector('.tour-btns');
     btns.innerHTML = `<button class="btn btn-big" data-t="next">${s.cta || 'Weiter'}</button>`;
     btns.querySelector('[data-t]').onclick = () => {
@@ -3349,7 +3351,7 @@ function startTour() {
     };
     // Erst rendern, dann MESSEN und ordentlich platzieren: die Bubble sitzt
     // mittig im freien Raum, klebt nie am Rand oder am Kreis
-    requestAnimationFrame(() => {
+    requestAnimationFrame(() => { try {
       const M = 18;
       const safeTop = 64;
       const bh = bubble.offsetHeight;
@@ -3382,7 +3384,13 @@ function startTour() {
       bubble.classList.remove('pop');
       void bubble.offsetWidth;
       bubble.classList.add('pop');
-    });
+    } catch (e) {
+      // Notnagel: Bubble mittig zeigen statt gar nichts
+      console.warn('Tour: Platzierung', e);
+      spot.style.width = spot.style.height = '0px';
+      bubble.style.top = '30%'; bubble.style.bottom = '';
+      bubble.classList.add('pop');
+    } });
   };
   // Zwischen den Steps taucht die Bubble kurz ab und kommt federnd wieder
   const showSmooth = () => {
