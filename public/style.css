@@ -2707,6 +2707,10 @@ body:has(.sheet.open) {
   display: flex; flex-direction: column;
   overflow: hidden;
 }
+.case-modal #case-img { align-self: center; }
+/* Waehrend die Walze laeuft, sitzt sie mittig statt oben unterm Titel */
+.case-modal #reel-wrap:not(.hidden) { margin-top: auto; }
+.case-modal #reel-wrap:not(.hidden) ~ .form-row { margin-bottom: auto; }
 .case-modal .case-preview { flex: 1; min-height: 0; max-height: none; }
 .case-modal #case-result { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; overflow-y: auto; }
 .case-modal #case-result.hidden { display: none; }
@@ -2715,13 +2719,16 @@ body:has(.sheet.open) {
 /* Waehrend Walze/Leerlauf haelt ein Spacer die Hoehe stabil */
 .case-modal::after { content: ""; flex: 0 1 auto; }
 
-/* Schliessen im macOS-Stil: roter Punkt oben links */
+/* Schliessen: rote Ecklasche, buendig mit der Modal-Ecke, Kreuz weiss/glasig */
 #case-close {
-  position: absolute; top: 12px; left: 12px; z-index: 5;
-  width: 22px; height: 22px; border-radius: 999px;
-  background: #FF5F57; border: 1px solid #E0443E;
+  position: absolute; top: 0; left: 0; z-index: 5;
+  width: 46px; height: 40px;
+  border: none; padding: 0 8px 6px 0;
+  border-radius: 22px 0 22px 0;
+  background: linear-gradient(135deg, #FF6A5E 0%, #E8473F 100%);
   display: flex; align-items: center; justify-content: center;
-  color: rgba(80, 10, 5, .85); padding: 0; cursor: pointer;
+  color: rgba(255, 255, 255, .92); cursor: pointer;
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, .12);
 }
-#case-close .icon { width: 11px; height: 11px; stroke-width: 3; }
-#case-close:active { transform: scale(.9); }
+#case-close .icon { width: 13px; height: 13px; stroke-width: 2.6; }
+#case-close:active { filter: brightness(.9); }
