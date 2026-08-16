@@ -385,9 +385,24 @@ function layoutChipCarousel() {
   const chips = [...document.querySelectorAll('#chipbar .carousel-chip')];
   let ai = SEGMENTS.findIndex(s => s.slug === state.activeChip);
   if (ai < 0) ai = 0;
+  const GAP = 14;
+  const scaleOf = o => o === 0 ? 1 : Math.max(.68, .84 - Math.abs(o) * .06);
+  // Mittelpunkte aus den ECHTEN (skalierten) Chip-Breiten aufsummieren, damit
+  // die Lücke zwischen allen Nachbarn gleich groß ist (feste 112px waren es nicht)
+  const centers = chips.map(() => 0);
+  for (let i = ai + 1; i < chips.length; i++) {
+    centers[i] = centers[i - 1]
+      + (chips[i - 1].offsetWidth * scaleOf(i - 1 - ai)) / 2 + GAP
+      + (chips[i].offsetWidth * scaleOf(i - ai)) / 2;
+  }
+  for (let i = ai - 1; i >= 0; i--) {
+    centers[i] = centers[i + 1]
+      - ((chips[i + 1].offsetWidth * scaleOf(i + 1 - ai)) / 2 + GAP
+      + (chips[i].offsetWidth * scaleOf(i - ai)) / 2);
+  }
   chips.forEach((ch, i) => {
     const o = i - ai;
-    ch.style.transform = `translateX(calc(-50% + ${o * 112}px)) scale(${o === 0 ? 1 : Math.max(.68, .84 - Math.abs(o) * .06)})`;
+    ch.style.transform = `translateX(calc(-50% + ${Math.round(centers[i])}px)) scale(${scaleOf(o)})`;
     ch.style.opacity = o === 0 ? 1 : Math.max(.3, .6 - Math.abs(o) * .14);
     ch.style.zIndex = 20 - Math.abs(o);
     ch.classList.toggle('active', o === 0 && state.activeChip === SEGMENTS[i]?.slug);
@@ -2685,6 +2700,16 @@ state.wallet.vouchers = state.wallet.vouchers.map(v => ({
   ...v,
 }));
 state.wallet.cards = state.wallet.cards.map(c => ({ img: '', codeImg: '', ...c }));
+// Bestandsdaten ohne Datum reparieren (sehr alte Einträge haben weder added
+// noch Buchungs-Zeitstempel) – sonst ignoriert die Statistik sie stumm
+function ensureWalletDates() {
+  state.wallet.vouchers.forEach(v => {
+    const stamps = (v.tx || []).map(t => t.ts).filter(Boolean);
+    if (!v.added) v.added = stamps.length ? Math.min(...stamps) : Date.now();
+    (v.tx || []).forEach(t => { if (!t.ts) t.ts = v.added; });
+  });
+}
+ensureWalletDates();
 
 // Wallet: lokal speichern + (angemeldet) ans Konto syncen, Gutscheine überleben
 // so App-Neuinstallation und Gerätewechsel
@@ -2724,6 +2749,7 @@ async function pullWallet() {
     };
     state.wallet.vouchers = mergeById(state.wallet.vouchers, remote.vouchers);
     state.wallet.cards = mergeById(state.wallet.cards, remote.cards);
+    ensureWalletDates(); // auch vom Konto gezogene Alt-Gutscheine kriegen ein Datum
     saveWallet(); // lokal sichern + Mergestand zurück zum Server
   } catch { }
 }
@@ -3761,11 +3787,26 @@ function renderWalletStats(range) {
   });
 }
 let balanceFlipped = false;
+let flipBusy = false;
 $('#balance-flip')?.addEventListener('click', () => {
+  if (flipBusy) return;
   balanceFlipped = !balanceFlipped;
   if (balanceFlipped) renderWalletStats(statsRange);
-  $('#flip-inner').classList.toggle('flipped', balanceFlipped);
   buzz(15);
+  const swap = () => {
+    $('#balance-card').classList.toggle('hidden', balanceFlipped);
+    $('#balance-back').classList.toggle('hidden', !balanceFlipped);
+  };
+  if (reducedMotion()) { swap(); return; }
+  // Zur Kante drehen, Seite tauschen, zurückdrehen: kein Durchscheinen, kein Matsch
+  flipBusy = true;
+  const inner = $('#flip-inner');
+  inner.classList.add('flip-half');
+  setTimeout(() => {
+    swap();
+    inner.classList.remove('flip-half');
+    setTimeout(() => { flipBusy = false; }, 320);
+  }, 290);
 });
 
 // ---- Mini-Guthaben: erscheint über dem Menü, sobald die große Karte aus dem Bild ist

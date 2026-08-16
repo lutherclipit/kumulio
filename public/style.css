@@ -2114,8 +2114,10 @@ body.chat-locked { overflow: hidden; height: 100dvh; }
 @keyframes kJump { 0%, 100% { transform: translateY(0); } 35% { transform: translateY(-120px); } 55% { transform: translateY(0); } 70% { transform: translateY(-34px); } 85% { transform: translateY(0); } }
 @media (prefers-reduced-motion: reduce) { #conn-screen .k-dot.k-jump { animation: none; } }
 
-/* Kein horizontales Wegscrollen der Seite (Karussell-Chips ragen sonst raus) */
-html, body { overflow-x: hidden; }
+/* Kein horizontales Wegscrollen der Seite (Karussell-Chips ragen sonst raus).
+   WICHTIG: clip statt hidden – hidden macht html/body zum Scroll-Container
+   und killt das normale Runterscrollen komplett */
+html, body { overflow-x: clip; }
 #views { overflow-x: clip; }
 
 /* Wallet: Untertitel-Zeile mit Wert-Chips */
@@ -2146,17 +2148,17 @@ html, body { overflow-x: hidden; }
   font-size: .64rem; opacity: .65; font-variant-numeric: tabular-nums;
 }
 
-/* Gesamtguthaben mit Kartenflip zur Statistik */
-.balance-flip { perspective: 1100px; margin-bottom: 18px; cursor: pointer; }
-.flip-inner {
-  position: relative; transform-style: preserve-3d;
-  transition: transform .65s cubic-bezier(.3, 1.15, .4, 1);
-}
-.flip-inner.flipped { transform: rotateY(180deg); }
-.flip-front, .flip-back { backface-visibility: hidden; -webkit-backface-visibility: hidden; margin-bottom: 0 !important; }
+/* Gesamtguthaben mit Kartenflip zur Statistik.
+   Bewusst KEIN preserve-3d: echtes 3D + Milchglas-Karten rastert unscharf und
+   die Rückseite scheint durch. Stattdessen: zur Kante drehen, Seite tauschen, zurückdrehen. */
+.balance-flip { margin-bottom: 18px; cursor: pointer; }
+.flip-inner { transition: transform .28s ease-in; }
+.flip-inner.flip-half { transform: perspective(900px) rotateY(88deg); }
+.flip-inner:not(.flip-half) { transition: transform .3s cubic-bezier(.2, .8, .3, 1); }
+.flip-front, .flip-back { margin-bottom: 0 !important; }
 .flip-back {
-  position: absolute; inset: 0; transform: rotateY(180deg);
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  min-height: 150px;
 }
 .flip-hint {
   display: flex; align-items: center; justify-content: center; gap: 6px;
@@ -2310,10 +2312,10 @@ html, body { overflow-x: hidden; }
 .us-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 10px; }
 .us-modbox { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--stroke-light); text-align: center; }
 
-/* Deal-posten-FAB: unten mittig über dem Menü (nur Admin im Feed) */
+/* Deal-posten-FAB: unten mittig, mit Luft zum Menü (nur Admin im Feed) */
 .admin-fab {
   position: fixed !important; left: 50%; transform: translateX(-50%);
-  bottom: calc(86px + env(safe-area-inset-bottom, 0px)); z-index: 29;
+  bottom: calc(112px + env(safe-area-inset-bottom, 0px)); z-index: 29;
   border-radius: 999px !important; padding: 11px 20px !important;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35), 0 10px 28px rgba(47, 164, 92, .45) !important;
 }
@@ -2338,3 +2340,16 @@ html, body { overflow-x: hidden; }
 .switch input:checked + .switch-slider::before { transform: translateX(20px); }
 .switch input:disabled + .switch-slider { opacity: .5; cursor: wait; }
 @media (prefers-reduced-motion: reduce) { .switch-slider, .switch-slider::before { transition: none; } }
+
+/* ================= Runde 38: Nachbesserungen ================= */
+
+/* Chat-Eingabe exakt auf einer Linie: das globale .input-margin-top raus */
+#chat-input-row { align-items: center; }
+#chat-input-row .input { margin-top: 0; }
+
+/* Global/Freunde wirklich mittig: das alte padding-right/Mask der Chipbar-Regel weg */
+#chat-modes {
+  padding-right: 0;
+  mask-image: none; -webkit-mask-image: none;
+  overflow-x: visible;
+}
