@@ -307,13 +307,13 @@ async function renderFriendsView() {
     const r = await api('/api/dm/list');
     const friends = myProfile?.friends || [];
     const meta = {};
-    r.list.forEach(l => { meta[l.partner] = { avatar: l.avatar, ts: l.lastTs }; });
-    (r.friends || []).forEach(f => { meta[f.name] = meta[f.name] || { avatar: f.avatar, ts: 0 }; });
+    r.list.forEach(l => { meta[l.partner] = { avatar: l.avatar, border: l.border, ts: l.lastTs }; });
+    (r.friends || []).forEach(f => { meta[f.name] = meta[f.name] || { avatar: f.avatar, border: f.border, ts: 0 }; });
     const sorted = [...friends].sort((a, b) => (meta[b]?.ts || 0) - (meta[a]?.ts || 0));
     host.innerHTML = sorted.length ? sorted.map(f => `
       <div class="friend-row">
-        ${meta[f]?.avatar ? `<img class="avatar-big" src="${meta[f].avatar}" alt="">`
-        : `<span class="avatar-big" style="background:${chatColor(f)}">${esc(f[0].toUpperCase())}</span>`}
+        ${meta[f]?.avatar ? `<img class="avatar-big${meta[f]?.border ? ' pfb-' + esc(meta[f].border) : ''}" src="${meta[f].avatar}" alt="">`
+        : `<span class="avatar-big${meta[f]?.border ? ' pfb-' + esc(meta[f].border) : ''}" style="background:${chatColor(f)}">${esc(f[0].toUpperCase())}</span>`}
         <span class="friend-name">@${esc(f)}</span>
         <button class="btn btn-small btn-ghost" data-fr-profile="${esc(f)}">Profil</button>
         <button class="btn btn-small" data-fr-write="${esc(f)}">Schreiben</button>
@@ -2602,7 +2602,7 @@ function toggleTopMenu() {
     $('#tm-friends').innerHTML = rows.length ? rows.map(f => `
       <div class="tm-req">
         <span class="tm-friend-open" data-tm-user="${esc(f.name)}" style="display:flex; align-items:center; gap:8px; flex:1; cursor:pointer">
-          ${f.avatar ? `<img class="avatar-mini avatar-img" src="${f.avatar}" alt="">`
+          ${f.avatar ? `<img class="avatar-mini avatar-img${f.border ? ' pfb-' + esc(f.border) : ''}" src="${f.avatar}" alt="">`
         : `<span class="avatar-mini" style="background:${chatColor(f.name)}">${esc(f.name[0].toUpperCase())}</span>`}
           <span style="font-weight:700">@${esc(f.name)}</span>
         </span>

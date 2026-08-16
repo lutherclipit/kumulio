@@ -46,6 +46,15 @@ function saveJson(file, obj) {
 }
 
 let comments = loadJson('comments.json', {});   // { dealId: [ {user,text,ts,flags} ] }
+// Alt-Kommentare aus fruehen Versionen hatten keine id und liessen sich dadurch
+// nie loeschen ("Kommentar nicht gefunden"): einmalig nachruesten und sichern
+{
+  let commentsFixed = false;
+  for (const clist of Object.values(comments)) {
+    for (const c of clist) if (c && !c.id) { c.id = crypto.randomBytes(5).toString('hex'); commentsFixed = true; }
+  }
+  if (commentsFixed) saveJson('comments.json', comments);
+}
 let ratings = loadJson('ratings.json', {});     // { dealId: {up, down, clicks} }
 let users = loadJson('users.json', {});         // { username: {hash, salt, ts} }
 let sessions = loadJson('sessions.json', {});   // { token: username }
@@ -1268,11 +1277,18 @@ const server = http.createServer(async (req, res) => {
         });
       }
       list.sort((x, y) => y.lastTs - x.lastTs);
-      list.forEach(l => { l.avatar = users[l.partner] ? profileOf(l.partner).avatar || '' : ''; });
+      list.forEach(l => {
+        const lp = users[l.partner] ? profileOf(l.partner) : null;
+        l.avatar = lp ? lp.avatar || '' : '';
+        l.border = lp ? lp.activeBorder || '' : '';
+      });
       // Freunde ohne bisherigen Chat mit anbieten
       const friends = (profileOf(me).friends || [])
         .filter(f => !list.some(l => l.partner === f))
-        .map(f => ({ name: f, avatar: users[f] ? profileOf(f).avatar || '' : '' }));
+        .map(f => {
+          const fp = users[f] ? profileOf(f) : null;
+          return { name: f, avatar: fp ? fp.avatar || '' : '', border: fp ? fp.activeBorder || '' : '' };
+        });
       return send(res, 200, { list, friends });
     }
     // Avatare für Listen (Freunde, Anfragen), nur kleine Profilbilder

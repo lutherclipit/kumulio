@@ -184,7 +184,8 @@ html.theme-anim, html.theme-anim *, html.theme-anim *::before, html.theme-anim *
 
 /* Dynamic-Island-artige Statuskapsel */
 .island {
-  position: absolute; left: 50%; top: 50%;
+  position: fixed; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 30px);
+  z-index: 400;
   transform: translate(-50%, -50%) scale(.85);
   background: rgba(14, 18, 22, .92); color: #f3f5f7;
   border-radius: 999px; padding: 7px 18px;
@@ -2560,20 +2561,23 @@ body:has(.sheet.open) {
 @keyframes pfbPulse { 50% { box-shadow: 0 0 0 2px currentColor, 0 0 4px transparent; } }
 .pfb-neonpink { color: #EC4899; }
 .pfb-eisring { color: #67E8F9; }
-/* Die zwei Epischen: rotierender Verlaufsring über ein Pseudo-Element */
-.pfb-regenbogen, .pfb-plasma { position: relative; }
-.pfb-regenbogen::after, .pfb-plasma::after {
-  content: ""; position: absolute; inset: -3px; border-radius: inherit;
-  padding: 2px; pointer-events: none;
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor; mask-composite: exclude;
-  background: conic-gradient(#12C77E, #3B82F6, #8B5CF6, #EC4899, #F5B301, #12C77E);
-  animation: pfbSpin 3s linear infinite;
+/* Die zwei Epischen: Farbrotation ueber box-shadow — Pseudo-Elemente sind auf
+   <img>-Avataren unsichtbar (replaced elements), box-shadow funktioniert immer */
+.pfb-regenbogen { box-shadow: 0 0 0 2.5px #12C77E, 0 0 10px #12C77E88; animation: pfbRainbow 4s linear infinite; }
+@keyframes pfbRainbow {
+  0%, 100% { box-shadow: 0 0 0 2.5px #12C77E, 0 0 10px #12C77E88; }
+  20% { box-shadow: 0 0 0 2.5px #3B82F6, 0 0 10px #3B82F688; }
+  40% { box-shadow: 0 0 0 2.5px #8B5CF6, 0 0 10px #8B5CF688; }
+  60% { box-shadow: 0 0 0 2.5px #EC4899, 0 0 10px #EC489988; }
+  80% { box-shadow: 0 0 0 2.5px #F5B301, 0 0 10px #F5B30188; }
 }
-.pfb-plasma::after { background: conic-gradient(#EC4899, #8B5CF6, #3B82F6, #8B5CF6, #EC4899); }
-@keyframes pfbSpin { to { transform: rotate(1turn); } }
+.pfb-plasma { box-shadow: 0 0 0 2.5px #EC4899, 0 0 12px #EC4899AA; animation: pfbPlasma 2.6s ease-in-out infinite; }
+@keyframes pfbPlasma {
+  0%, 100% { box-shadow: 0 0 0 2.5px #EC4899, 0 0 12px #EC4899AA; }
+  50% { box-shadow: 0 0 0 2.5px #8B5CF6, 0 0 14px #8B5CF6AA; }
+}
 @media (prefers-reduced-motion: reduce) {
-  .pfb-neonpink, .pfb-eisring, .pfb-regenbogen::after, .pfb-plasma::after { animation: none; }
+  .pfb-neonpink, .pfb-eisring, .pfb-regenbogen, .pfb-plasma { animation: none; }
 }
 .border-demo { width: 34px; height: 34px; font-size: .95rem; border-radius: 999px; }
 
@@ -2691,3 +2695,33 @@ body:has(.sheet.open) {
 .qty-btn:active { transform: scale(.9); }
 .qty-n { min-width: 34px; text-align: center; font-weight: 900; font-size: 1.15rem; font-variant-numeric: tabular-nums; }
 #case-buy-price { font-variant-numeric: tabular-nums; }
+
+
+/* ================= Runde 52: Case-Fenster ================= */
+
+/* Feste Fenstergroesse: Vorschau, Walze und Ergebnis wechseln sich in einer
+   stabilen Buehne ab, nichts springt mehr */
+.case-modal {
+  width: min(430px, 94vw);
+  height: min(640px, 88vh);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.case-modal .case-preview { flex: 1; min-height: 0; max-height: none; }
+.case-modal #case-result { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; overflow-y: auto; }
+.case-modal #case-result.hidden { display: none; }
+.case-modal .reel-wrap { flex: none; }
+#reel-wrap:not(.hidden) ~ * { flex: none; }
+/* Waehrend Walze/Leerlauf haelt ein Spacer die Hoehe stabil */
+.case-modal::after { content: ""; flex: 0 1 auto; }
+
+/* Schliessen im macOS-Stil: roter Punkt oben links */
+#case-close {
+  position: absolute; top: 12px; left: 12px; z-index: 5;
+  width: 22px; height: 22px; border-radius: 999px;
+  background: #FF5F57; border: 1px solid #E0443E;
+  display: flex; align-items: center; justify-content: center;
+  color: rgba(80, 10, 5, .85); padding: 0; cursor: pointer;
+}
+#case-close .icon { width: 11px; height: 11px; stroke-width: 3; }
+#case-close:active { transform: scale(.9); }
