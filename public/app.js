@@ -2710,19 +2710,49 @@ function ensureWalletDates() {
   });
 }
 ensureWalletDates();
+// Zuschnitte aus früheren Versionen waren PNGs mit mehreren MB und sprengten den
+// Konto-Sync: einmalig zu kompaktem JPEG umwandeln
+(async function shrinkOldCodeImgs() {
+  let changed = false;
+  for (const item of [...state.wallet.vouchers, ...state.wallet.cards]) {
+    if (item.codeImg && item.codeImg.startsWith('data:image/png') && item.codeImg.length > 300000) {
+      try {
+        const img = new Image();
+        await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = item.codeImg; });
+        const c = document.createElement('canvas');
+        const s = Math.min(1, 700 / Math.max(img.width, img.height));
+        c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, c.width, c.height);
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        item.codeImg = c.toDataURL('image/jpeg', 0.88);
+        changed = true;
+      } catch { }
+    }
+  }
+  if (changed) saveWallet();
+})();
 
 // Wallet: lokal speichern + (angemeldet) ans Konto syncen, Gutscheine überleben
 // so App-Neuinstallation und Gerätewechsel
 let walletSyncTimer = null;
 // Solange etwas nicht beim Server angekommen ist, bleibt die Dirty-Marke stehen
 // und der Sync wird wiederholt; so kann "gespeichert" nie mehr heimlich verloren gehen
+let walletSyncError = '';
 async function syncWalletNow() {
   if (!state.token) return true;
   try {
-    await api('/api/wallet', { method: 'POST', body: JSON.stringify(state.wallet) });
+    // Timeout: ein hängender Upload darf den Speichern-Button nie endlos drehen lassen
+    const signal = AbortSignal.timeout ? AbortSignal.timeout(20000) : undefined;
+    await api('/api/wallet', { method: 'POST', body: JSON.stringify(state.wallet), signal });
     localStorage.removeItem('ra.walletDirty');
+    walletSyncError = '';
     return true;
-  } catch {
+  } catch (e) {
+    walletSyncError = e.name === 'TimeoutError' || e.name === 'AbortError'
+      ? 'Das Sichern dauert zu lange (Verbindung zu langsam?).'
+      : (e.message || '');
     localStorage.setItem('ra.walletDirty', '1');
     return false;
   }
@@ -2925,9 +2955,10 @@ function cropCode(img, bb) {
   const x = Math.max(0, bb.x - padX), y = Math.max(0, bb.y - padY);
   const w = Math.min(iw - x, bb.width + padX * 2);
   const h = Math.min(ih - y, bb.height + padY * 2);
-  // Immer 1:1: der Code sitzt mittig auf einem weißen Quadrat, an der Kasse perfekt scannbar
+  // Immer 1:1: der Code sitzt mittig auf einem weißen Quadrat, an der Kasse perfekt scannbar.
+  // JPEG statt PNG: Foto-Zuschnitte als PNG wurden mehrere MB groß und sprengten den Konto-Sync
   const side = Math.max(w, h);
-  const out = Math.min(900, Math.max(480, Math.round(side)));
+  const out = Math.min(700, Math.max(440, Math.round(side)));
   const c = document.createElement('canvas');
   c.width = out; c.height = out;
   const ctx = c.getContext('2d');
@@ -2936,7 +2967,50 @@ function cropCode(img, bb) {
   const scale = (out * 0.9) / side;
   const dw = w * scale, dh = h * scale;
   ctx.drawImage(img, x, y, w, h, (out - dw) / 2, (out - dh) / 2, dw, dh);
-  return c.toDataURL('image/png');
+  return c.toDataURL('image/jpeg', 0.88);
+}
+
+// Fallback ohne erkennbaren Barcode: den hellen Kartennummer-Kasten im Foto finden
+// (heller, farbarmer Querstreifen) und den als Kassen-Zuschnitt nehmen
+function findLightPanel(img) {
+  const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+  if (!iw || !ih) return null;
+  const W = 160;
+  const H = Math.max(40, Math.round(ih / iw * W));
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(img, 0, 0, W, H);
+  let d;
+  try { d = ctx.getImageData(0, 0, W, H).data; } catch { return null; }
+  const light = (x, y) => {
+    const i = (y * W + x) * 4;
+    const mx = Math.max(d[i], d[i + 1], d[i + 2]);
+    const mn = Math.min(d[i], d[i + 1], d[i + 2]);
+    return mx > 160 && (mx - mn) < 46; // hell und (fast) unbunt = Papier/Kasten
+  };
+  const rowFrac = [];
+  for (let y = 0; y < H; y++) {
+    let n = 0;
+    for (let x = 0; x < W; x++) if (light(x, y)) n++;
+    rowFrac.push(n / W);
+  }
+  // Größtes zusammenhängendes helles Zeilen-Band suchen
+  let best = null, run = null;
+  for (let y = 0; y <= H; y++) {
+    if (y < H && rowFrac[y] > 0.35) { run = run || { y0: y }; run.y1 = y; }
+    else if (run) { if (!best || run.y1 - run.y0 > best.y1 - best.y0) best = run; run = null; }
+  }
+  if (!best || best.y1 - best.y0 < H * 0.08) return null;
+  let x0 = W, x1 = 0;
+  for (let x = 0; x < W; x++) {
+    let n = 0;
+    for (let y = best.y0; y <= best.y1; y++) if (light(x, y)) n++;
+    if (n / (best.y1 - best.y0 + 1) > 0.5) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); }
+  }
+  if (x1 - x0 < W * 0.25) return null;
+  const sx = iw / W, sy = ih / H;
+  return { x: x0 * sx, y: best.y0 * sy, width: (x1 - x0 + 1) * sx, height: (best.y1 - best.y0 + 1) * sy };
 }
 
 // iPhone-Fallback: Safari hat keinen BarcodeDetector, ZXing (lokal in
@@ -3035,6 +3109,12 @@ async function analyzeWalletImage(dataUrl, statusCb) {
   if (hit && hit.text) {
     out.barcode = hit.text;
     out.codeImg = cropCode(img, hit.box);
+  }
+  if (!out.codeImg) {
+    // Kein Code lesbar (z. B. abfotografierter Bildschirm mit Moiré):
+    // wenigstens den hellen Kartennummer-Kasten sauber ausschneiden
+    const panel = findLightPanel(img);
+    if (panel) out.codeImg = cropCode(img, panel);
   }
   // Text lesen: erst der schnelle native Weg (falls vorhanden), sonst Tesseract
   if ('TextDetector' in window) {
@@ -3227,8 +3307,10 @@ function openWalletAdd(type, prefillName) {
       if (addType === 'voucher') {
         if (r.barcode && !$('#wa-code').value) { $('#wa-code').value = r.barcode.slice(0, 40); filled.push('Code (aus QR/Barcode)'); }
         if (r.text) {
-          // PIN darf ruhig weiter weg vom Wort stehen („PIN für Online-Guthabenabfrage 0689")
-          const pin = r.text.match(/\bpin\b\D{0,60}?(\d{3,10})\b/i);
+          // PIN darf ruhig weiter weg vom Wort stehen („PIN für Online-Guthabenabfrage 0689");
+          // Fallback: eine alleinstehende 4-stellige Zahl auf eigener Zeile (typischer PIN-Kasten)
+          const pin = r.text.match(/\bpin\b\D{0,80}?(\d{3,10})\b/i)
+            || r.text.match(/(?:^|\n)[^\S\n]*(\d{4})[^\S\n]*(?:\n|$)/);
           if (pin && !$('#wa-pin').value) { $('#wa-pin').value = pin[1]; filled.push('PIN'); }
           const amt = r.text.match(/(\d{1,4}[.,]\d{2})\s*€|\b(\d{1,3})\s*(?:€|EUR)\b/i);
           if (amt && !$('#wa-amount').value) { $('#wa-amount').value = (amt[1] || amt[2]).replace('.', ','); filled.push('Wert'); }
@@ -3366,7 +3448,7 @@ function openWalletAdd(type, prefillName) {
         save('wallet', state.wallet);
         renderWallet();
         msg.className = 'form-msg error';
-        msg.textContent = 'Der Server war gerade nicht erreichbar, es wurde NICHT gespeichert. Bitte gleich nochmal versuchen.';
+        msg.textContent = 'NICHT gespeichert: ' + (walletSyncError || 'Der Server war gerade nicht erreichbar.') + ' Bitte gleich nochmal versuchen.';
         return;
       }
     }

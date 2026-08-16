@@ -744,8 +744,20 @@ function send(res, code, body, type = 'application/json') {
 function readBody(req, maxBytes = 50_000) {
   return new Promise((resolve, reject) => {
     let buf = '';
-    req.on('data', c => { buf += c; if (buf.length > maxBytes) req.destroy(); });
-    req.on('end', () => { try { resolve(buf ? JSON.parse(buf) : {}); } catch (e) { reject(e); } });
+    let over = false;
+    // Kein req.destroy() bei Überlänge: das kappt die Verbindung hart und der
+    // Client sieht nur "Server nicht erreichbar". Stattdessen Rest verwerfen
+    // und sauber mit Fehler antworten, damit eine echte Fehlermeldung ankommt.
+    req.on('data', c => {
+      if (over) return;
+      buf += c;
+      if (buf.length > maxBytes) { over = true; buf = ''; }
+    });
+    req.on('end', () => {
+      if (over) { const e = new Error('Anfrage zu groß.'); e.tooLarge = true; return reject(e); }
+      try { resolve(buf ? JSON.parse(buf) : {}); } catch (e) { reject(e); }
+    });
+    req.on('error', reject);
     req.on('error', reject);
   });
 }
@@ -1445,7 +1457,16 @@ const server = http.createServer(async (req, res) => {
       const user = authUser(req);
       if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
       // Bilder (Barcode-Fotos als dataURL) brauchen ein größeres Body-Limit
-      const b = await readBody(req, 4_000_000);
+      let b;
+      try {
+        b = await readBody(req, 15_000_000);
+      } catch (e) {
+        return send(res, e.tooLarge ? 413 : 400, {
+          error: e.tooLarge
+            ? 'Die Wallet ist zu groß zum Sichern (zu viele große Fotos). Ältere Gutschein-Bilder löschen und nochmal versuchen.'
+            : 'Ungültige Daten.',
+        });
+      }
       wallets[user] = {
         vouchers: Array.isArray(b.vouchers) ? b.vouchers.slice(0, 300) : [],
         cards: Array.isArray(b.cards) ? b.cards.slice(0, 100) : [],
