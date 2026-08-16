@@ -93,6 +93,45 @@ let posts = loadJson('posts.json', {});         // { channelSlug: [ {id,user,tit
 let customChannels = loadJson('channels.json', []); // [ {slug,name,emoji,type:'community',desc,createdTs} ]
 let wallets = loadJson('wallets.json', {});     // { user: {vouchers:[], cards:[], ts} }, Wallet hängt am Konto
 
+// Wallet-Diät auch serverseitig: Originalfotos fliegen raus, sobald ein
+// Kassen-Zuschnitt existiert. Entschlackt Alt-Bestände sofort (weniger RAM,
+// schnellere Writes, kleinere Antworten), auch gegen alte Clients.
+function slimWallet(w) {
+  if (!w) return w;
+  [...(w.vouchers || []), ...(w.cards || [])].forEach(it => {
+    if (it && it.img && it.codeImg) it.img = '';
+  });
+  return w;
+}
+Object.values(wallets).forEach(slimWallet);
+
+// Hochfrequente Dateien (Chat, Quest-Zähler, Wallets) werden gebündelt und
+// asynchron geschrieben: writeFileSync bei jeder Nachricht blockierte sonst
+// ALLE parallelen Anfragen (spürbar als "der Server ist langsam")
+const saveSoonTimers = {};
+function saveJsonSoon(name, obj, delay = 400) {
+  clearTimeout(saveSoonTimers[name]);
+  saveSoonTimers[name] = setTimeout(() => {
+    delete saveSoonTimers[name];
+    try {
+      fs.writeFile(path.join(DATA, name + '.tmp'), JSON.stringify(obj), err => {
+        if (!err) fs.rename(path.join(DATA, name + '.tmp'), path.join(DATA, name), () => { });
+      });
+    } catch { }
+  }, delay);
+}
+
+// ---------------------------------------------------------------- Echtzeit (SSE)
+// Chat und DMs kommen per Push statt 3-Sekunden-Poll: der Server schickt nur
+// einen Ping, der Client holt sich die Nachrichten über die bewährten Routen
+const sseClients = new Set(); // { res, user }
+function ssePush(event, targetUser) {
+  for (const c of sseClients) {
+    if (targetUser && c.user !== targetUser) continue;
+    try { c.res.write(`event: ${event}\ndata: 1\n\n`); } catch { }
+  }
+}
+
 // ---------------------------------------------------------------- Global-Chat
 // Twitch-artig: nur Angemeldete schreiben. Beleidigungen werden ZENSIERT (nicht
 // gesperrt), sperren/timeouten kann nur die Moderation. Emotes: 7TV (verifizierte IDs).
@@ -920,7 +959,8 @@ const server = http.createServer(async (req, res) => {
           text: `wirft eine Münze: ${result}!`, ts: Date.now(),
         };
         chat.messages.push(msg);
-        saveJson('chat.json', chat);
+        saveJsonSoon('chat.json', chat);
+        ssePush('chat');
         return send(res, 201, { ok: true, message: msg });
       }
       const last = chatLast[user];
@@ -946,8 +986,9 @@ const server = http.createServer(async (req, res) => {
       chat.messages.push(msg);
       // Historie bewusst kurz: nur die letzten 150 Nachrichten bleiben
       if (chat.messages.length > 150) chat.messages = chat.messages.slice(-150);
-      saveJson('chat.json', chat);
-      saveJson('users.json', users); // Quest-Zähler mitschreiben
+      saveJsonSoon('chat.json', chat);
+      saveJsonSoon('users.json', users); // Quest-Zähler mitschreiben
+      ssePush('chat'); // alle Zuhörer holen die Nachricht sofort
       // @Erwähnungen: die Genannten kriegen einen Push (auch außerhalb der App)
       for (const m of msg.text.matchAll(/@([A-Za-z0-9_.-]{3,24})/g)) {
         const name = m[1];
@@ -990,6 +1031,7 @@ const server = http.createServer(async (req, res) => {
       m.deleted = true; m.text = ''; m.delTs = Date.now();
       if (chat.pinned && chat.pinned.id === m.id) chat.pinned = null;
       saveJson('chat.json', chat);
+      ssePush('chat'); // Löschungen sofort überall sichtbar
       return send(res, 200, { ok: true });
     }
 
@@ -1092,7 +1134,8 @@ const server = http.createServer(async (req, res) => {
       dms[key].msgs.push(msg);
       if (dms[key].msgs.length > 200) dms[key].msgs = dms[key].msgs.slice(-200);
       dms[key].reads[me] = Date.now();
-      saveJson('dms.json', dms);
+      saveJsonSoon('dms.json', dms);
+      ssePush('dm', to); // Empfänger sieht die Nachricht sofort
       // Aufs Handy, auch wenn die App zu ist; der Client blendet es im offenen Chat selbst aus
       pushToUser(to, { title: `@${me}`, body: msg.text.slice(0, 120), url: '/?chat=dm&user=' + encodeURIComponent(me), tag: 'dm-' + me, kind: 'dm', from: me });
       return send(res, 201, { ok: true, message: msg });
@@ -1225,6 +1268,26 @@ const server = http.createServer(async (req, res) => {
       saveJson('users.json', users); saveJson('sessions.json', sessions);
       saveJson('wallets.json', wallets); saveJson('chat.json', chat); saveJson('dms.json', dms);
       return send(res, 200, { ok: true });
+    }
+
+    // ---- Echtzeit-Stream: der Server pingt bei neuen Chat-/DM-Nachrichten,
+    // der Client lädt dann sofort nach (EventSource kann keine Header → Token als Query)
+    if (p === '/api/stream' && req.method === 'GET') {
+      const user = sessions[String(url.searchParams.get('token') || '')] || null;
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-store',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+        'X-Accel-Buffering': 'no',
+      });
+      res.write('retry: 3000\n\nevent: hello\ndata: 1\n\n');
+      const client = { res, user };
+      sseClients.add(client);
+      // Heartbeat hält Proxies (Cloudflare) bei Laune
+      const hb = setInterval(() => { try { res.write(': hb\n\n'); } catch { } }, 25000);
+      req.on('close', () => { clearInterval(hb); sseClients.delete(client); });
+      return;
     }
 
     // ---- Web-Push: abonnieren / abmelden
@@ -1467,11 +1530,11 @@ const server = http.createServer(async (req, res) => {
             : 'Ungültige Daten.',
         });
       }
-      wallets[user] = {
+      wallets[user] = slimWallet({
         vouchers: Array.isArray(b.vouchers) ? b.vouchers.slice(0, 300) : [],
         cards: Array.isArray(b.cards) ? b.cards.slice(0, 100) : [],
         ts: Date.now(),
-      };
+      });
       // Aufgebrauchter Gutschein = Sparziel erreicht: einmalig eine Kiste
       const prof = profileOf(user);
       for (const v of wallets[user].vouchers) {
@@ -1481,8 +1544,8 @@ const server = http.createServer(async (req, res) => {
         }
       }
       ensureProgress(user);
-      saveJson('users.json', users);
-      saveJson('wallets.json', wallets);
+      saveJsonSoon('users.json', users);
+      saveJsonSoon('wallets.json', wallets);
       return send(res, 200, { ok: true });
     }
 
@@ -1827,6 +1890,19 @@ const server = http.createServer(async (req, res) => {
     send(res, 500, { error: String(e.message || e) });
   }
 });
+
+// Beim Herunterfahren (Deploy/Neustart) ausstehende gebündelte Writes sichern
+function flushPendingSaves() {
+  Object.keys(saveSoonTimers).forEach(n => { clearTimeout(saveSoonTimers[n]); delete saveSoonTimers[n]; });
+  try {
+    saveJson('chat.json', chat);
+    saveJson('users.json', users);
+    saveJson('wallets.json', wallets);
+    saveJson('dms.json', dms);
+  } catch { }
+}
+process.on('SIGTERM', () => { flushPendingSaves(); process.exit(0); });
+process.on('SIGINT', () => { flushPendingSaves(); process.exit(0); });
 
 // RA_TEST: für scripts/test-cases.js, damit der Test importieren kann ohne den Server zu starten
 if (process.env.RA_TEST) {

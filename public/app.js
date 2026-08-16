@@ -2487,6 +2487,7 @@ function authOk(r, { welcome = false } = {}) {
   localStorage.setItem('ra.user', r.user);
   refreshProfileTab();
   pullWallet(); // Wallet vom Konto holen (Gerätewechsel/Neuinstallation)
+  connectStream(); // Echtzeit-Stream mit dem frischen Token neu verbinden
   api('/api/me').then(x => { state.role = x.role || ''; refreshAdminUi(); }).catch(() => { });
   if (welcome) {
     // Willkommens-Moment: der Punkt quittiert das neue Konto
@@ -5138,8 +5139,33 @@ function toggleEmotes() {
 $('#chat-send').addEventListener('click', sendChat);
 $('#chat-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
 $('#chat-emote-btn').addEventListener('click', toggleEmotes);
-setInterval(pollChat, 3000);
+setInterval(pollChat, 4000);
 setInterval(refreshDmBadge, 12000);
+
+// ---- Echtzeit: der Server pingt bei neuen Nachrichten, wir laden sofort nach.
+// Das Polling oben bleibt nur als Fallback-Netz (alte Browser, Verbindungslücken)
+let chatStream = null;
+let streamRetry = 0;
+function connectStream() {
+  if (!window.EventSource) return;
+  try { chatStream?.close(); } catch { }
+  const tok = state.token ? '?token=' + encodeURIComponent(state.token) : '';
+  const es = new EventSource(API_BASE + '/api/stream' + tok);
+  chatStream = es;
+  es.onopen = () => { streamRetry = 0; };
+  es.addEventListener('chat', () => pollChat(true));
+  es.addEventListener('dm', () => {
+    dmBadgeLast = 0;
+    refreshDmBadge();
+    if (chatMode === 'dm' && state.activeView === 'chat') pollChat(true);
+  });
+  es.onerror = () => {
+    es.close();
+    if (chatStream === es) chatStream = null;
+    setTimeout(() => { if (!chatStream) connectStream(); }, Math.min(15000, 1500 * ++streamRetry));
+  };
+}
+connectStream();
 
 // ---------------- Start ----------------
 
@@ -5190,7 +5216,8 @@ window.addEventListener('online', () => { if ($('#conn-screen')) location.reload
     chatBadges = r.badges || {};
   }).catch(() => { });
   if (state.token) {
-    api('/api/me').then(r => { state.userName = r.user; state.role = r.role || ''; refreshProfileTab(); pullWallet(); refreshAdminUi(); })
+    pullWallet(); // parallel statt hinter /api/me: Guthaben ist schneller aktuell
+    api('/api/me').then(r => { state.userName = r.user; state.role = r.role || ''; refreshProfileTab(); refreshAdminUi(); })
       .catch(e => {
         // Nur bei ECHTEM 401 abmelden; ist der Server kurz weg, bleibt der Login stehen
         if (/401|anmelden/i.test(String(e.message))) {
