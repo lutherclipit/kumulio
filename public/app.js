@@ -3172,6 +3172,7 @@ async function analyzeWalletImage(dataUrl, statusCb) {
       const worker = await getOcrWorker();
       const { data } = await worker.recognize(dataUrl);
       out.text = data.text || '';
+      out.words = data.words || []; // Wort-Koordinaten: damit lässt sich „PIN" im Bild ORTEN
     } catch { out.supported.text = false; }
     finally { ocrStatusCb = null; }
   }
@@ -3194,12 +3195,15 @@ async function analyzeWalletImage(dataUrl, statusCb) {
   };
   out.pin = pinFrom(out.text);
   out.amount = amtFrom(out.text);
+  // Am Text orientieren: das WORT „PIN" im Bild orten und den Kasten daneben/
+  // darunter stark vergrößert nachlesen (der Wert geht im Vollbild oft unter)
+  if (!out.pin) out.pin = await pinNearWord(img, out.words, pinFrom);
   if (!out.pin || !out.amount) {
     // Zweitpass in hartem Schwarz-Weiß: Schrift auf farbigen Kacheln (z. B. der
     // Zalando-Kasten mit „€5") verschluckt die normale OCR sonst komplett
-    const bwText = await ocrBW(img);
-    if (!out.pin) out.pin = pinFrom(bwText);
-    if (!out.amount) out.amount = amtFrom(bwText);
+    const bw = await ocrBW(img);
+    if (!out.amount) out.amount = amtFrom(bw.text);
+    if (!out.pin) out.pin = pinFrom(bw.text) || await pinNearWord(bw.source, bw.words, pinFrom);
   }
   if (!out.pin) {
     const iw = img.naturalWidth, ih = img.naturalHeight;
@@ -3207,6 +3211,19 @@ async function analyzeWalletImage(dataUrl, statusCb) {
     out.pin = pinFrom(rightText) || (rightText.match(/\b(\d{4})\b/) || [])[1] || '';
   }
   return out;
+}
+
+// „PIN" wurde als Wort mit Koordinaten erkannt: die Umgebung (rechts daneben und
+// darunter, wo der Wert steht) ausschneiden, hochskalieren und gezielt lesen
+async function pinNearWord(source, words, pinFrom) {
+  const pinWord = (words || []).find(w => /^pin\b/i.test((w.text || '').trim()));
+  if (!source || !pinWord || !pinWord.bbox) return '';
+  const b = pinWord.bbox;
+  const w = Math.max(12, b.x1 - b.x0), h = Math.max(10, b.y1 - b.y0);
+  const iw = source.naturalWidth || source.width, ih = source.naturalHeight || source.height;
+  const sx = Math.max(0, b.x0 - w * 1.5), sy = Math.max(0, b.y0 - h * 1.5);
+  const near = await ocrRegion(source, sx, sy, Math.min(iw - sx, w * 12), Math.min(ih - sy, h * 9));
+  return pinFrom(near) || (near.match(/\b(\d{3,8})\b/) || [])[1] || '';
 }
 
 // Bild hart binarisieren (dunkle Schrift → schwarz, alles andere → weiß) und lesen
@@ -3227,8 +3244,9 @@ async function ocrBW(img) {
     ctx.putImageData(im, 0, 0);
     const worker = await getOcrWorker();
     const { data } = await worker.recognize(c.toDataURL('image/jpeg', 0.9));
-    return data.text || '';
-  } catch { return ''; }
+    // Wortkoordinaten beziehen sich auf den (skalieren) BW-Canvas → mitgeben
+    return { text: data.text || '', words: data.words || [], source: c };
+  } catch { return { text: '', words: [], source: null }; }
 }
 
 // Einen Bildausschnitt hochskaliert durch die OCR schicken (z. B. den PIN-Kasten)
