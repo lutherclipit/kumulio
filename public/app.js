@@ -2947,11 +2947,11 @@ const VENDOR_QUICK = ['REWE', 'Amazon', 'Wunschgutschein', 'Zalando', 'IKEA', 'R
 // Volle KI-Auslese (Claude Vision) kommt mit dem Live-Backend.
 // Kassen-Code ausschneiden: nur der Barcode/QR, großzügig gepolstert und
 // hochskaliert, den hält man an der Kasse hin, perfekt lesbar
-function cropCode(img, bb) {
+function cropCode(img, bb, pad = 1) {
   if (!bb || bb.width < 20 || bb.height < 10) return '';
   const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
   // Großzügig Rand lassen: lieber etwas mehr Bild als ein angeschnittener Code
-  const padX = Math.max(bb.width * 0.3, 36), padY = Math.max(bb.height * 0.5, 36);
+  const padX = Math.max(bb.width * 0.3, 36) * pad, padY = Math.max(bb.height * 0.5, 36) * pad;
   const x = Math.max(0, bb.x - padX), y = Math.max(0, bb.y - padY);
   const w = Math.min(iw - x, bb.width + padX * 2);
   const h = Math.min(ih - y, bb.height + padY * 2);
@@ -3045,6 +3045,10 @@ async function zxingDetect(img) {
       // 1D-Barcodes liefern nur eine Scan-Linie, Höhe/Breite großzügig auffüllen
       if (box.height < 30) { box.y = Math.max(0, box.y - 70); box.height += 140; }
       if (box.width < 30) { box.x = Math.max(0, box.x - 70); box.width += 140; }
+      // Die ZXing-Punkte sitzen auf den Finder-MITTEN, der Code reicht darüber
+      // hinaus: Box aufblasen, damit garantiert kein Pixel des Codes fehlt
+      const ix = box.width * 0.28, iy = box.height * 0.28;
+      box = { x: Math.max(0, box.x - ix), y: Math.max(0, box.y - iy), width: box.width + ix * 2, height: box.height + iy * 2 };
     }
     return { text: result.getText(), box };
   } catch { return null; }
@@ -3110,7 +3114,20 @@ async function analyzeWalletImage(dataUrl, statusCb) {
   }
   if (hit && hit.text) {
     out.barcode = hit.text;
-    out.codeImg = cropCode(img, hit.box);
+    // Qualitätskontrolle: der Zuschnitt wird selbst nochmal gescannt. Nur wenn er
+    // denselben Code liefert, ist sicher kein Pixel abgeschnitten; sonst wird mit
+    // immer mehr Rand nachgeschnitten
+    for (const pad of [1, 1.8, 3]) {
+      const candidate = cropCode(img, hit.box, pad);
+      if (!candidate) break;
+      out.codeImg = candidate;
+      try {
+        const probe = new Image();
+        await new Promise((res, rej) => { probe.onload = res; probe.onerror = rej; probe.src = candidate; });
+        const re = await tryDetect(probe);
+        if (re && re.text === hit.text) break; // Zuschnitt ist beweisbar scannbar
+      } catch { break; }
+    }
   }
   if (!out.codeImg) {
     // Kein Code lesbar (z. B. abfotografierter Bildschirm mit Moiré):
