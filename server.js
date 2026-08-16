@@ -247,7 +247,7 @@ const QUESTS = [
   { key: 'rate', name: 'Deals bewerten', milestones: [[1, 20], [10, 80], [50, 250]] },
   { key: 'chat', name: 'Im Chat mitreden', milestones: [[10, 40], [100, 200]] },
   { key: 'friend', name: 'Freunde finden', milestones: [[1, 40], [5, 120]] },
-  { key: 'voucher', name: 'Gutscheine in der Wallet', milestones: [[1, 30], [5, 80], [20, 200]] },
+  { key: 'voucher', name: 'Gutscheine gesammelt', milestones: [[1, 30], [5, 80], [20, 200]] },
   { key: 'booking', name: 'Beträge abbuchen', milestones: [[5, 60], [25, 180]] },
   { key: 'daily', name: 'Tage aktiv', milestones: [[7, 100], [30, 400]] },
   { key: 'newsletter', name: 'Newsletter abonniert', milestones: [[1, 50]] },
@@ -258,17 +258,44 @@ function bumpQuest(user, key, n = 1) {
   prof.quests = prof.quests || {};
   prof.quests[key] = (prof.quests[key] || 0) + n;
 }
+// Lebenszeit-Zähler: was einmal geleistet wurde, bleibt gezählt — Rang und
+// Quests sinken NIE, wenn der Nutzer alte Gutscheine aus der Wallet aufräumt.
+// Erkennung über gesehene IDs (Gutschein) bzw. id:ts-Schlüssel (Abbuchung).
+function updateLifetime(user) {
+  const prof = profileOf(user);
+  const w = wallets[user] || { vouchers: [] };
+  if (!prof.life) {
+    // Bestandskonten starten mit dem aktuellen Stand als Sockel
+    prof.life = { v: 0, tx: 0 };
+    prof.seenV = [];
+    prof.seenTx = [];
+  }
+  const seenV = new Set(prof.seenV);
+  const seenTx = new Set(prof.seenTx);
+  for (const v of (w.vouchers || [])) {
+    if (!v || !v.id) continue;
+    if (!seenV.has(v.id)) { seenV.add(v.id); prof.seenV.push(v.id); prof.life.v++; }
+    for (const t of (v.tx || [])) {
+      const key = v.id + ':' + (t.ts || 0);
+      if (!seenTx.has(key)) { seenTx.add(key); prof.seenTx.push(key); prof.life.tx++; }
+    }
+  }
+  if (prof.seenV.length > 3000) prof.seenV = prof.seenV.slice(-3000);
+  if (prof.seenTx.length > 9000) prof.seenTx = prof.seenTx.slice(-9000);
+  return prof.life;
+}
+
 // Fortschritt lesen, fällige Meilensteine gutschreiben (eine zentrale Stelle)
 function questProgress(user) {
   const prof = profileOf(user);
   prof.quests = prof.quests || {};
   prof.questsAwarded = prof.questsAwarded || [];
-  const w = wallets[user] || { vouchers: [] };
+  const life = updateLifetime(user);
   const live = {
     ...prof.quests,
     friend: Math.max(prof.quests.friend || 0, (prof.friends || []).length),
-    voucher: w.vouchers.length,
-    booking: w.vouchers.reduce((s, v) => s + ((v.tx || []).length), 0),
+    voucher: life.v,
+    booking: life.tx,
     daily: prof.dailyCount || 0,
     newsletter: users[user] && users[user].newsletter ? 1 : 0,
     push: prof.pushOn ? 1 : 0,
@@ -347,12 +374,12 @@ const RANKS10 = [
 let PAINTS = { paints: [] };
 try { PAINTS = JSON.parse(fs.readFileSync(path.join(PUBLIC, 'gamification', 'paints.json'), 'utf8')); } catch { }
 
-// Aktivitätspunkte: 2 je Buchung, 5 je Gutschein, 1 je aktivem Tag, 8 je Ziel
+// Aktivitätspunkte: 2 je Buchung, 5 je Gutschein, 1 je aktivem Tag, 8 je Ziel.
+// Bewusst über die Lebenszeit-Zähler: Aufräumen der Wallet kostet keine Punkte
 function activityPoints(user) {
   const prof = profileOf(user);
-  const w = wallets[user] || { vouchers: [] };
-  const tx = w.vouchers.reduce((s, v) => s + ((v.tx || []).length), 0);
-  return tx * 2 + w.vouchers.length * 5 + prof.dailyCount + prof.goalsDone.length * 8;
+  const life = updateLifetime(user);
+  return life.tx * 2 + life.v * 5 + prof.dailyCount + prof.goalsDone.length * 8;
 }
 function rankOf(points) {
   let cur = RANKS10[0];
@@ -1616,6 +1643,7 @@ const server = http.createServer(async (req, res) => {
       const idx = (w?.vouchers || []).findIndex(v => v.id === String(b.id || ''));
       if (idx < 0) return send(res, 404, { error: 'Gutschein nicht gefunden. Kurz warten, bis die Wallet gesichert ist, und nochmal versuchen.' });
       const [v] = w.vouchers.splice(idx, 1);
+      w.deleted = [...(w.deleted || []), { id: v.id, ts: Date.now() }].slice(-500);
       // Optionale Nachricht: max 140 Zeichen, wird beim Rendern IMMER escaped
       const giftMsg = String(b.msg || '').trim().slice(0, 140);
       profMe.giftDay.count++;
@@ -1656,11 +1684,56 @@ const server = http.createServer(async (req, res) => {
             : 'Ungültige Daten.',
         });
       }
-      wallets[user] = slimWallet({
-        vouchers: Array.isArray(b.vouchers) ? b.vouchers.slice(0, 300) : [],
-        cards: Array.isArray(b.cards) ? b.cards.slice(0, 100) : [],
-        ts: Date.now(),
-      });
+      // Mehrere Geräte: NIE blind überschreiben. Ein Handy mit älterem Stand
+      // würde sonst die Neuzugänge des PCs verwerfen und Gelöschtes wiederbeleben.
+      // Stattdessen: pro Eintrag vereinigen, Löschungen über Löschmarker (deleted).
+      const incoming = {
+        vouchers: Array.isArray(b.vouchers) ? b.vouchers.filter(x => x && x.id).slice(0, 300) : [],
+        cards: Array.isArray(b.cards) ? b.cards.filter(x => x && x.id).slice(0, 100) : [],
+        deleted: Array.isArray(b.deleted) ? b.deleted.slice(0, 500) : [],
+      };
+      const cur = wallets[user] || { vouchers: [], cards: [], deleted: [] };
+      // Löschmarker beider Seiten vereinigen: pro ID der jüngste Zeitpunkt
+      const tombs = {};
+      for (const t of [...(cur.deleted || []), ...incoming.deleted]) {
+        if (t && t.id) tombs[t.id] = Math.max(tombs[t.id] || 0, Number(t.ts) || 0);
+      }
+      // Konflikt bei gleicher ID: zuletzt BEARBEITETE Fassung gewinnt (mt),
+      // sonst die mit mehr Abbuchungen — nie die, die zufällig zuletzt syncte
+      const pick = (a, o) => {
+        if ((a.mt || 0) !== (o.mt || 0)) return (a.mt || 0) > (o.mt || 0) ? a : o;
+        return ((o.tx || []).length > (a.tx || []).length) ? o : a;
+      };
+      const mergeList = (incList, curList) => {
+        const curBy = new Map(curList.filter(x => x && x.id).map(x => [x.id, x]));
+        const seen = new Set();
+        const out = [];
+        for (const it of incList) {
+          if (seen.has(it.id)) continue;
+          seen.add(it.id);
+          out.push(curBy.has(it.id) ? pick(it, curBy.get(it.id)) : it);
+        }
+        for (const it of curList) {
+          if (!it || !it.id || seen.has(it.id)) continue;
+          seen.add(it.id);
+          out.push(it);
+        }
+        // Gelöscht bleibt gelöscht — außer der Eintrag wurde NACH der Löschung
+        // neu angelegt (z. B. derselbe Gutschein zurückgeschenkt)
+        return out.filter(it => !(tombs[it.id] && tombs[it.id] >= (it.added || 0)));
+      };
+      const vouchers = mergeList(incoming.vouchers, cur.vouchers || []).slice(0, 300);
+      const cards = mergeList(incoming.cards, cur.cards || []).slice(0, 100);
+      // Der Client muss den Stand nur übernehmen, wenn der Server etwas beigesteuert hat
+      const serverAddedSomething = vouchers.length !== incoming.vouchers.length
+        || cards.length !== incoming.cards.length
+        || vouchers.some((v, i) => v !== incoming.vouchers[i])
+        || cards.some((c, i) => c !== incoming.cards[i]);
+      const deleted = Object.entries(tombs)
+        .filter(([, ts]) => Date.now() - ts < 180 * 86400e3)
+        .slice(-500).map(([id, ts]) => ({ id, ts }));
+      wallets[user] = slimWallet({ vouchers, cards, deleted, ts: Date.now() });
+      updateLifetime(user);
       // Aufgebrauchter Gutschein = Sparziel erreicht: einmalig eine Kiste
       const prof = profileOf(user);
       for (const v of wallets[user].vouchers) {
@@ -1672,7 +1745,9 @@ const server = http.createServer(async (req, res) => {
       ensureProgress(user);
       saveJsonSoon('users.json', users);
       saveJsonSoon('wallets.json', wallets);
-      return send(res, 200, { ok: true });
+      return send(res, 200, serverAddedSomething
+        ? { ok: true, merged: true, vouchers: wallets[user].vouchers, cards: wallets[user].cards, deleted }
+        : { ok: true, deleted });
     }
 
     if (p === '/api/logout' && req.method === 'POST') {

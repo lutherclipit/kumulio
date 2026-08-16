@@ -1658,7 +1658,7 @@ async function refreshGamiSystem() {
 
 // Info: Wie sammelt man Aktivitätspunkte?
 $('#gm-rank-info').addEventListener('click', () => askConfirm(
-  'So sammelst du Aktivitätspunkte: 2 je Abbuchung, 5 je Gutschein in der Wallet, 1 je aktivem Tag (Tagesbonus) und 8 je aufgebrauchtem Gutschein. Es zählt dein Sparverhalten, nie die Betragshöhe.',
+  'So sammelst du Aktivitätspunkte: 2 je Abbuchung, 5 je gesammeltem Gutschein, 1 je aktivem Tag (Tagesbonus) und 8 je aufgebrauchtem Gutschein. Einmal Verdientes bleibt: Gutscheine löschen kostet keine Punkte. Es zählt dein Sparverhalten, nie die Betragshöhe.',
   { alertOnly: true }));
 
 // Inventar: alle Items mit Float, Shiny-Glitzer, Anlegen/Showcase/Verkaufen
@@ -2897,6 +2897,35 @@ let walletSyncTimer = null;
 let walletSyncError = '';
 let walletSyncFatal = false; // true = der Server hat abgelehnt (Retry zwecklos)
 let walletSyncInFlight = null; // Single-Flight: parallele Syncs teilen sich EINEN Upload
+// Löschmarker: Gelöschtes wird dem Konto GEMELDET statt nur weggelassen —
+// sonst belebt das Zweitgerät (altes Handy) den Gutschein beim nächsten Sync wieder
+function tombstone(id) {
+  state.wallet.deleted = [...(state.wallet.deleted || []), { id, ts: Date.now() }].slice(-500);
+}
+// Änderungs-Zeitstempel je Eintrag: bei Konflikten zwischen zwei Geräten gewinnt,
+// wer zuletzt WIRKLICH etwas geändert hat — nicht, wer zufällig zuletzt syncte.
+// Erkennung über einen Inhalts-Hash je Eintrag (mt selbst zählt nicht mit).
+let walletHashes = JSON.parse(localStorage.getItem('ra.walletHashes') || '{}');
+function itemHash(it) {
+  const str = JSON.stringify(it, (k, v) => (k === 'mt' ? undefined : v));
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) h = ((h * 33) ^ str.charCodeAt(i)) >>> 0;
+  return h + ':' + str.length;
+}
+function markWalletChanges() {
+  let changed = false;
+  const alive = new Set();
+  for (const it of [...state.wallet.vouchers, ...state.wallet.cards]) {
+    if (!it || !it.id) continue;
+    alive.add(it.id);
+    const h = itemHash(it);
+    if (walletHashes[it.id] !== h) { it.mt = Date.now(); walletHashes[it.id] = h; changed = true; }
+  }
+  for (const id of Object.keys(walletHashes)) {
+    if (!alive.has(id)) { delete walletHashes[id]; changed = true; }
+  }
+  if (changed) save('walletHashes', walletHashes);
+}
 async function syncWalletNow() {
   if (!state.token) return true;
   // Läuft schon ein Upload, hängen sich alle dran, statt sich über Mobilfunk
@@ -2908,7 +2937,18 @@ async function syncWalletNow() {
       // Großzügiges Timeout: große Wallets über Mobilfunk brauchen ihre Zeit,
       // hängen darf trotzdem nichts
       const signal = AbortSignal.timeout ? AbortSignal.timeout(45000) : undefined;
-      await api('/api/wallet', { method: 'POST', body: JSON.stringify(state.wallet), signal });
+      markWalletChanges();
+      const r = await api('/api/wallet', { method: 'POST', body: JSON.stringify(state.wallet), signal });
+      // Hat das Konto Einträge beigesteuert (z. B. Neuzugänge vom anderen Gerät),
+      // übernehmen wir den vereinigten Stand sofort — ohne erneuten Upload
+      if (r && r.merged) {
+        state.wallet.vouchers = r.vouchers || state.wallet.vouchers;
+        state.wallet.cards = r.cards || state.wallet.cards;
+        ensureWalletDates();
+        save('wallet', state.wallet);
+        renderWallet();
+      }
+      if (r && r.deleted) { state.wallet.deleted = r.deleted; save('wallet', state.wallet); }
       localStorage.removeItem('ra.walletDirty');
       walletSyncError = '';
       walletSyncFatal = false;
@@ -2990,12 +3030,28 @@ async function pullWallet() {
   if (!state.token) return;
   try {
     const remote = await api('/api/wallet');
-    const mergeById = (a = [], b = []) => {
-      const seen = new Set(a.map(x => x.id));
-      return [...a, ...b.filter(x => x && !seen.has(x.id))];
+    // Löschmarker beider Seiten vereinigen: gelöscht bleibt gelöscht, auch wenn
+    // dieses Gerät den Eintrag noch aus einem alten Stand kennt
+    const tombs = {};
+    for (const t of [...(state.wallet.deleted || []), ...(remote.deleted || [])]) {
+      if (t && t.id) tombs[t.id] = Math.max(tombs[t.id] || 0, t.ts || 0);
+    }
+    const mergeById = (local = [], srv = []) => {
+      const srvBy = new Map(srv.filter(x => x && x.id).map(x => [x.id, x]));
+      const out = local.map(l => {
+        const sv = srvBy.get(l.id);
+        if (!sv) return l;
+        srvBy.delete(l.id);
+        // Konflikt: zuletzt bearbeitete Fassung gewinnt, sonst mehr Abbuchungen
+        if ((sv.mt || 0) !== (l.mt || 0)) return (sv.mt || 0) > (l.mt || 0) ? sv : l;
+        return ((sv.tx || []).length > (l.tx || []).length) ? sv : l;
+      });
+      out.push(...srvBy.values());
+      return out.filter(it => !(tombs[it.id] && tombs[it.id] >= (it.added || 0)));
     };
     state.wallet.vouchers = mergeById(state.wallet.vouchers, remote.vouchers);
     state.wallet.cards = mergeById(state.wallet.cards, remote.cards);
+    state.wallet.deleted = Object.entries(tombs).map(([id, ts]) => ({ id, ts })).slice(-500);
     ensureWalletDates(); // auch vom Konto gezogene Alt-Gutscheine kriegen ein Datum
     saveWallet(); // lokal sichern + Mergestand zurück zum Server
     // Geschenke werden NICHT still eingebucht: sie warten auf der Geschenkseite,
@@ -4286,6 +4342,7 @@ function openVoucherSheet(id, animFrom) {
         await syncWalletNow();
         const msg = ($('#wv-gift-msg')?.value || '').trim().slice(0, 140);
         await api('/api/gift/send', { method: 'POST', body: JSON.stringify({ to, id: v.id, msg }) });
+        tombstone(v.id);
         state.wallet.vouchers = state.wallet.vouchers.filter(x => x.id !== v.id);
         save('wallet', state.wallet);
         renderWallet();
@@ -4302,6 +4359,7 @@ function openVoucherSheet(id, animFrom) {
   $('#wv-del')?.addEventListener('click', async () => {
     if (v.balance != null && v.balance > 0) return;
     if (!await askConfirm(`Bist du sicher, dass du den ${esc(v.vendor)}-Gutschein löschen willst?`)) return;
+    tombstone(id);
     state.wallet.vouchers = state.wallet.vouchers.filter(x => x.id !== id);
     saveWallet(); closeSheet(); island('Gutschein gelöscht');
   });
@@ -4387,6 +4445,7 @@ function openCardSheet(id) {
   $('#wc-close').addEventListener('click', closeSheet);
   $('#wc-del').addEventListener('click', async () => {
     if (!await askConfirm(`Bist du sicher, dass du die ${esc(c.name)}-Karte löschen willst?`)) return;
+    tombstone(id);
     state.wallet.cards = state.wallet.cards.filter(x => x.id !== id);
     saveWallet(); closeSheet(); island('Karte gelöscht');
   });
