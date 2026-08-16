@@ -1382,7 +1382,20 @@ function refreshProfileTab() {
   $('#btn-logout').classList.toggle('hidden', !state.token);
   $('#danger-card').classList.toggle('hidden', !state.token);
   if (!state.token) $('#bio-card').classList.add('hidden'); // öffnet nur über "Profil bearbeiten"
-  if (state.token) { $('#me-name').textContent = state.userName; refreshGami(); }
+  if (state.token) {
+    // Eigener Name mit dem angelegten Paint, auch auf dem eigenen Profil
+    const me = $('#me-name');
+    me.textContent = state.userName;
+    if (myProfile?.activePaint) {
+      const ns = nameStyleOf(state.userName, myProfile.activePaint);
+      me.className = ns.cls.trim();
+      me.setAttribute('style', ns.style);
+    } else {
+      me.className = '';
+      me.removeAttribute('style');
+    }
+    refreshGami();
+  }
   renderWallet(); // Wallet-Sperre folgt dem Login-Status
   updateChatGate();
 }
@@ -4630,6 +4643,14 @@ function chatColor(name) {
   for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return CHAT_COLORS[h % CHAT_COLORS.length];
 }
+// Namens-Paint überall gleich: liefert Klasse+Style für einen gemalten Namen,
+// Fallback ist die stabile Chat-Farbe
+function nameStyleOf(name, paintId) {
+  const pnt = paintId ? chatPaints.find(x => x.id === paintId) : null;
+  return pnt
+    ? { cls: ' paint', style: `--paint:${pnt.css}; color:${pnt.fallbackColor}` }
+    : { cls: '', style: `color:${chatColor(name)}` };
+}
 function emoteHtml(name) {
   return `<img class="emote" src="https://cdn.7tv.app/emote/${chatEmotes[name]}/2x.webp" alt="${esc(name)}" title="${esc(name)}" loading="lazy">`;
 }
@@ -4693,10 +4714,14 @@ function setChatMode(mode, partner) {
   $('#chat-input-row').style.display = mode === 'dmlist' ? 'none' : 'flex';
   if (mode === 'dm') {
     $('#dm-partner-name').textContent = dmPartner;
-    // Profilbild der Person im Chat-Kopf
+    // Profilbild + Namens-Paint der Person im Chat-Kopf
     $('#dm-partner-ava').innerHTML = `<span class="avatar-mini" style="background:${chatColor(dmPartner)}">${esc(dmPartner[0].toUpperCase())}</span>`;
-    api('/api/avatars?names=' + encodeURIComponent(dmPartner)).then(m => {
-      if (m[dmPartner]) $('#dm-partner-ava').innerHTML = `<img class="avatar-mini avatar-img" src="${m[dmPartner]}" alt="">`;
+    api('/api/user?name=' + encodeURIComponent(dmPartner)).then(u => {
+      if (u.avatar) $('#dm-partner-ava').innerHTML = `<img class="avatar-mini avatar-img" src="${u.avatar}" alt="">`;
+      const ns = nameStyleOf(dmPartner, u.activePaint);
+      const el = $('#dm-partner-name');
+      el.className = ns.cls.trim();
+      el.setAttribute('style', ns.style);
     }).catch(() => { });
   } else {
     $('#dm-partner-ava').innerHTML = '';
@@ -4729,8 +4754,19 @@ function dmMsgHtml(m) {
     </div>`;
   }
   const own = m.from === state.userName;
+  // Auch im Privatchat: Rang-Icon, Badge/Rolle und Namens-Paint wie im Global-Chat
+  const badge = m.badge && chatBadges[m.badge]
+    ? `<svg class="icon icon-sm chat-badge" aria-label="${esc(chatBadges[m.badge].name)}"><use href="#i-${chatBadges[m.badge].icon}"/></svg>`
+    : '';
+  const role = m.role === 'admin' ? `<svg class="icon icon-sm chat-badge role-admin" aria-label="Admin"><use href="#i-crown"/></svg>`
+    : m.role === 'mod' ? `<svg class="icon icon-sm chat-badge role-mod" aria-label="Mod"><use href="#i-check"/></svg>` : '';
+  const rk = chatRanks.find(x => x.tier === (m.rank || 1));
+  const rankImg = rk && rk.tier > 1
+    ? `<img class="px-icon rank-badge" src="/gamification/rank-${String(rk.tier).padStart(2, '0')}-${rk.id}.svg" alt="" title="${esc(rk.name)}">`
+    : '';
+  const ns = nameStyleOf(m.from, m.paint);
   return `<div class="chat-msg dm-${own ? 'me' : 'them'} ${own ? 'own' : ''}" data-mid="${esc(m.id)}">
-    <span class="chat-user" style="color:${chatColor(m.from)}">${esc(m.from)}</span>
+    ${rankImg}${badge || role}<span class="chat-user${ns.cls}" style="${ns.style}">${esc(m.from)}</span>
     <span class="chat-text">${withEmotes(esc(m.text))}</span>
     ${msgMenuHtml(own, m.id)}
   </div>`;
@@ -4961,7 +4997,7 @@ async function openUserPop(user, msgId) {
       ${u.avatar ? `<img class="avatar-big" src="${u.avatar}" alt="">`
         : `<span class="avatar-big" style="background:${chatColor(user)}">${esc(user[0].toUpperCase())}</span>`}
       <div class="offer-brand">
-        <div class="offer-merchant">${esc(user)} ${u.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : u.role === 'mod' ? icon('check', 'icon icon-sm role-mod') : ''}</div>
+        <div class="offer-merchant"><span class="${nameStyleOf(user, u.activePaint).cls.trim()}" style="${nameStyleOf(user, u.activePaint).style}">${esc(user)}</span> ${u.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : u.role === 'mod' ? icon('check', 'icon icon-sm role-mod') : ''}</div>
         <div class="offer-cat">${u.private ? 'Profil ist privat' : esc(u.bio || 'Keine Bio')}</div>
       </div>
     </div>
@@ -5038,7 +5074,7 @@ async function openUserSheet(user, msgId) {
     <div class="us-head">
       ${u.avatar ? `<img class="avatar-big us-ava" src="${u.avatar}" alt="">`
       : `<span class="avatar-big us-ava" style="background:${chatColor(user)}">${esc(user[0].toUpperCase())}</span>`}
-      <div class="us-name">@${esc(user)} ${u.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : u.role === 'mod' ? icon('check', 'icon icon-sm role-mod') : ''}</div>
+      <div class="us-name"><span class="${nameStyleOf(user, u.activePaint).cls.trim()}" style="${nameStyleOf(user, u.activePaint).style}">@${esc(user)}</span> ${u.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : u.role === 'mod' ? icon('check', 'icon icon-sm role-mod') : ''}</div>
       <div class="us-bio">${u.private ? 'Profil ist privat' : esc((u.bio || '').slice(0, 80) || 'Keine Bio')}</div>
     </div>
     <button class="btn btn-block" id="us-profile">${icon('user', 'icon icon-sm')}&nbsp;Zum Profil</button>
@@ -5215,10 +5251,12 @@ window.addEventListener('online', () => { if ($('#conn-screen')) location.reload
   refreshProfileTab();
   renderWallet();
   initTurnstile();
-  // Emotes und Badge-Katalog früh laden, damit Kommentare und Chat sie kennen
+  // Emotes, Badges, Paints und Ränge früh laden, damit Profile und Chats sie kennen
   api('/api/chat?since=99999999999999').then(r => {
     chatEmotes = r.emotes || {};
     chatBadges = r.badges || {};
+    chatPaints = r.paints || chatPaints;
+    chatRanks = r.ranks || chatRanks;
   }).catch(() => { });
   if (state.token) {
     pullWallet(); // parallel statt hinter /api/me: Guthaben ist schneller aktuell

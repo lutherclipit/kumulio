@@ -164,6 +164,7 @@ let dms = loadJson('dms.json', {});      // { "a|b": {msgs:[{id,from,text,ts}], 
 let reports = loadJson('reports.json', []);
 const dmKey = (a, b) => [a, b].sort().join('|');
 const chatLast = {}; // user -> {ts, text} für den Spam-Schutz (RAM reicht)
+const chatBurst = {}; // user -> [ts, ts, ts] — 3 schnelle Nachrichten frei, dann bremsen
 const BAD_WORDS = /hurensohn|hurentochter|fotze|wichser|missgeburt|schlampe|arschloch|spast(i|en)?|behindert(er|e)?|nutte|fick\s*dich|verpiss|fu+ck(er|\s*you)?|bitch|asshole|cunt|nigg\w*|fag(got)?|hitler|nazi/gi;
 function censor(text) {
   return text.replace(BAD_WORDS, m => m[0] + '*'.repeat(Math.max(2, m.length - 1)));
@@ -963,9 +964,13 @@ const server = http.createServer(async (req, res) => {
         ssePush('chat');
         return send(res, 201, { ok: true, message: msg });
       }
+      // Spam-Bremse erst bei echtem Spam: 3 schnelle Nachrichten gehen frei durch,
+      // die vierte innerhalb von 5 Sekunden wird gebremst
       const last = chatLast[user];
-      if (last && Date.now() - last.ts < 2000) return send(res, 429, { error: 'Langsam, kurz warten.' });
       if (last && last.text === text && Date.now() - last.ts < 30000) return send(res, 429, { error: 'Gleiche Nachricht schon gesendet.' });
+      chatBurst[user] = (chatBurst[user] || []).filter(t => Date.now() - t < 5000);
+      if (chatBurst[user].length >= 3) return send(res, 429, { error: 'Langsam, kurz warten.' });
+      chatBurst[user].push(Date.now());
       chatLast[user] = { ts: Date.now(), text };
       const profC = profileOf(user);
       // Freigeschaltete Emotes darf nur benutzen, wer sie besitzt
@@ -1125,12 +1130,20 @@ const server = http.createServer(async (req, res) => {
       if (to === me) return send(res, 400, { error: 'Mit dir selbst flüstern? Sadge.' });
       const text = String(b.text || '').trim().slice(0, 220);
       if (!text) return send(res, 400, { error: 'Leere Nachricht.' });
-      const last = chatLast['dm:' + me];
-      if (last && Date.now() - last.ts < 1000) return send(res, 429, { error: 'Langsam, kurz warten.' });
+      // Auch beim Flüstern: 3 schnelle Nachrichten frei, erst dann bremsen
+      chatBurst['dm:' + me] = (chatBurst['dm:' + me] || []).filter(t => Date.now() - t < 5000);
+      if (chatBurst['dm:' + me].length >= 3) return send(res, 429, { error: 'Langsam, kurz warten.' });
+      chatBurst['dm:' + me].push(Date.now());
       chatLast['dm:' + me] = { ts: Date.now(), text };
       const key = dmKey(me, to);
       dms[key] = dms[key] || { msgs: [], reads: {} };
-      const msg = { id: crypto.randomBytes(5).toString('hex'), from: me, text: censor(text), ts: Date.now() };
+      // Paint, Badge und Rang laufen auch im Privatchat mit
+      const dmProf = profileOf(me);
+      const msg = {
+        id: crypto.randomBytes(5).toString('hex'), from: me, text: censor(text), ts: Date.now(),
+        badge: dmProf.activeBadge || '', role: roleOf(me),
+        rank: dmProf.rankTier || 1, paint: dmProf.activePaint || '',
+      };
       dms[key].msgs.push(msg);
       if (dms[key].msgs.length > 200) dms[key].msgs = dms[key].msgs.slice(-200);
       dms[key].reads[me] = Date.now();
@@ -1192,7 +1205,7 @@ const server = http.createServer(async (req, res) => {
         user: name, role: roleOf(name), bio: prof.bio || '', avatar: prof.avatar || '',
         badges: prof.badges || [], activeBadge: prof.activeBadge || '', favs: prof.favs || {},
         badgesAll: BADGES, showcase: prof.showcase || [], floats: prof.floats || {},
-        rankTier: prof.rankTier || 1, ...modInfo,
+        rankTier: prof.rankTier || 1, activePaint: prof.activePaint || '', ...modInfo,
       });
     }
 
