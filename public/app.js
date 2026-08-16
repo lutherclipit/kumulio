@@ -2787,7 +2787,7 @@ function euroFmt(n) { return n == null ? '' : n.toFixed(2).replace('.', ',') + '
 
 // ---- Spielgefühl: Sounds, Vibration, Aufleuchten, Geldscheine, Zähl-Animation ----
 
-const SFX = { kaching: '/sounds/kaching.mp3', pay: '/sounds/pay.mp3', case: '/sounds/case.mp3', plop: '/sounds/plop.mp3', coin: '/sounds/coin.mp3' };
+const SFX = { kaching: '/sounds/kaching.mp3', pay: '/sounds/pay.mp3', case: '/sounds/case.mp3', plop: '/sounds/plop.mp3', coin: '/sounds/coin.mp3', error: '/sounds/error.mp3' };
 function sfxDuration(name) { return sfxBuffers[name]?.audio?.duration || 0; }
 // WebAudio: Sounds vorgeladen und ohne Anlauf-Stille, spielen sofort beim Tipp
 let sfxCtx = null;
@@ -2928,6 +2928,30 @@ let addImg = '';
 let addType = 'voucher';
 let addPrefill = '';
 let addCodeImg = ''; // ausgeschnittener Kassen-Code (falls der Scanner ihn findet)
+
+// Doppelte Gutscheine: gleiche PIN beim gleichen Shop oder gleicher Code
+function findDupe(v, extra = []) {
+  return [...state.wallet.vouchers, ...extra].find(x =>
+    (x.pin && v.pin && x.pin === v.pin && x.vendor.toLowerCase() === v.vendor.toLowerCase())
+    || (v.code && x.code && x.code === v.code));
+}
+// Schon vorhanden: XP-Error-Sound, Wackeln, rotes Aufleuchten und das Formular
+// wird KOMPLETT zurückgesetzt (frisches Sheet mit Hinweis-Banner oben)
+function dupeReject(text) {
+  playSfx('error');
+  buzz([60, 50, 60]);
+  moneyFlash('red');
+  openWalletAdd(addType, addPrefill);
+  const banner = document.createElement('div');
+  banner.className = 'dupe-banner';
+  banner.innerHTML = `${icon('warning', 'icon icon-sm')} <span>${text} Alles wurde zurückgesetzt.</span>`;
+  $('#sheet-content').prepend(banner);
+  const c = $('#sheet-content');
+  if (c && !reducedMotion()) {
+    c.classList.remove('shake-once'); void c.offsetWidth; c.classList.add('shake-once');
+    setTimeout(() => c.classList.remove('shake-once'), 420);
+  }
+}
 
 // Bild aus der Zwischenablage (Strg+V) direkt ins offene Hinzufügen-Formular
 let waHandleImage = null;
@@ -3274,11 +3298,12 @@ function openWalletAdd(type, prefillName) {
       </div>
       <div id="wa-result" class="hidden"></div>
       <div class="form-row" style="justify-content:center">
-        <label class="btn btn-small btn-ghost" style="cursor:pointer">Bild hochladen
-          <input id="wa-img" type="file" accept="image/*" style="display:none"></label>
+        <label class="btn btn-small btn-ghost" style="cursor:pointer">${isCard ? 'Bild' : 'Bilder'} hochladen
+          <input id="wa-img" type="file" accept="image/*" ${isCard ? '' : 'multiple'} style="display:none"></label>
         <label class="btn btn-small btn-ghost" style="cursor:pointer">Foto aufnehmen
           <input id="wa-cam" type="file" accept="image/*" capture="environment" style="display:none"></label>
       </div>
+      ${isCard ? '' : '<p class="muted" style="font-size:.72rem; text-align:center; margin-top:4px">Tipp: mehrere Bilder auswählen, dann landen alle erkannten Gutscheine auf einmal in der Wallet.</p>'}
       <div id="wa-ai-msg" class="form-msg" style="text-align:center"></div>
     </div>
 
@@ -3454,15 +3479,131 @@ function openWalletAdd(type, prefillName) {
       m.textContent = 'Bild konnte nicht gelesen werden.';
     }
   };
-  $('#wa-img').addEventListener('change', e => handleImageFile(e.target.files[0]));
+  // Aus dem Scan einen fertigen Gutschein bauen (für den Mehrfach-Upload)
+  const extractVoucher = r => {
+    let code = '';
+    if (r.barcode) code = r.barcode.slice(0, 40);
+    else if (r.text) {
+      const kn = r.text.match(/karten\s*-?\s*(?:nr\.?|nummer)\D{0,30}?(\d[\d ]{6,28}\d)/i);
+      code = (kn ? kn[1].replace(/\s+/g, '') : detectCode(r.text) || '').slice(0, 40);
+    }
+    const low = (r.text || '').toLowerCase();
+    const pool = [...VENDOR_GRID.filter(x => x !== 'Anderer Gutschein'), ...Object.keys(BRAND_COLORS)];
+    const hit = pool.find(k => k.length > 2 && low.includes(k.toLowerCase()));
+    const vendor = hit ? (hit === hit.toLowerCase() ? hit[0].toUpperCase() + hit.slice(1) : hit) : '';
+    const amount = r.amount ? parseFloat(r.amount.replace(',', '.')) : NaN;
+    return { vendor, code, pin: (r.pin || '').slice(0, 16), amount: isNaN(amount) ? null : amount };
+  };
+
+  // Mehrere Gutscheine auf einmal: alle Bilder scannen, Duplikate überspringen,
+  // nur die neuen und vollständig erkannten wandern in die Wallet
+  const handleImageBatch = async files => {
+    const m = $('#wa-ai-msg');
+    $('#wa-drop-empty').classList.add('hidden');
+    $('#wa-preview').classList.remove('hidden');
+    $('#wa-progress').classList.remove('hidden');
+    $('#wa-progress').classList.remove('done');
+    $('#wa-scanline').classList.remove('hidden');
+    const results = [];
+    const fresh = [];
+    for (let i = 0; i < files.length; i++) {
+      m.className = 'form-msg';
+      m.textContent = `Scanne Gutschein ${i + 1} von ${files.length} …`;
+      scanProgress((i / files.length) * 100);
+      try {
+        const small = await readImageFile(files[i]);
+        $('#wa-preview').src = small;
+        const hiRes = await readImageFile(files[i], 2200, 0.9);
+        const r = await analyzeWalletImage(hiRes, p => scanProgress(((i + p / 100) / files.length) * 100));
+        const ex = extractVoucher(r);
+        // Duplikat zuerst prüfen: dafür reichen PIN+Shop bzw. der Code schon aus,
+        // auch wenn z. B. der Wert nicht lesbar war
+        const dupe = findDupe(ex, fresh);
+        if (dupe) { results.push({ ok: false, name: ex.vendor || dupe.vendor, warum: 'schon in der Wallet, übersprungen' }); continue; }
+        if (!ex.vendor || ex.amount == null || !ex.pin) {
+          const fehlt = [!ex.vendor && 'Shop', ex.amount == null && 'Wert', !ex.pin && 'PIN'].filter(Boolean).join(', ');
+          results.push({ ok: false, name: ex.vendor || files[i].name, warum: `nicht sicher erkannt (${fehlt} fehlt), bitte einzeln hinzufügen` });
+          continue;
+        }
+        const v = {
+          id: Math.random().toString(36).slice(2, 9),
+          vendor: ex.vendor.slice(0, 30), code: ex.code, pin: ex.pin, end: '',
+          amount: ex.amount, balance: ex.amount,
+          img: small, codeImg: r.codeImg || '', tx: [], added: Date.now(),
+        };
+        fresh.push(v);
+        results.push({ ok: true, v });
+      } catch {
+        results.push({ ok: false, name: files[i].name, warum: 'Bild nicht lesbar' });
+      }
+    }
+    scanProgress(100);
+    $('#wa-progress').classList.add('done');
+    $('#wa-scanline').classList.add('hidden');
+    // Speichern mit derselben Ehrlichkeit wie beim Einzel-Gutschein
+    if (fresh.length) {
+      if (state.token && !navigator.onLine) {
+        m.className = 'form-msg error';
+        m.textContent = 'Keine Internetverbindung, es wurde nichts gespeichert. Bitte mit Netz erneut versuchen.';
+        return;
+      }
+      state.wallet.vouchers.unshift(...fresh);
+      save('wallet', state.wallet);
+      renderWallet();
+      if (state.token) {
+        const ok = await syncWalletNow();
+        if (!ok) {
+          state.wallet.vouchers = state.wallet.vouchers.filter(x => !fresh.includes(x));
+          save('wallet', state.wallet);
+          renderWallet();
+          m.className = 'form-msg error';
+          m.textContent = 'NICHT gespeichert: ' + (walletSyncError || 'Server nicht erreichbar.') + ' Bitte nochmal versuchen.';
+          return;
+        }
+      }
+    }
+    // Übersicht: was ist drin, was wurde übersprungen und warum
+    $('#sheet-content').innerHTML = `
+      <div class="sheet-title">Mehrere Gutscheine gescannt</div>
+      <p class="muted" style="font-size:.86rem">${fresh.length} von ${files.length} neu in der Wallet.</p>
+      ${results.map(res => res.ok
+        ? `<div class="batch-row ok">${icon('check', 'icon icon-sm')} <span><b>${esc(res.v.vendor)}</b> · ${euroFmt(res.v.amount)} · PIN ${esc(res.v.pin)}</span></div>`
+        : `<div class="batch-row bad">${icon('warning', 'icon icon-sm')} <span><b>${esc(res.name || 'Bild')}</b>: ${esc(res.warum)}</span></div>`).join('')}
+      <div class="form-row" style="margin-top:16px">
+        <button class="btn" id="wa-batch-done">Fertig</button>
+        <button class="btn btn-ghost" id="wa-batch-more">Weitere hinzufügen</button>
+      </div>`;
+    $('#sheet-content').scrollTop = 0;
+    $('#wa-batch-done').onclick = closeSheet;
+    $('#wa-batch-more').onclick = () => openWalletAdd('voucher');
+    if (fresh.length) {
+      playSfx('kaching'); buzz(35); moneyFlash('green'); billRain(Math.min(9, 4 + fresh.length));
+      island(`${fresh.length} Gutschein${fresh.length > 1 ? 'e' : ''} gespeichert`);
+    } else {
+      playSfx('error'); buzz([60, 50, 60]); moneyFlash('red');
+      const c = $('#sheet-content');
+      if (c && !reducedMotion()) {
+        c.classList.remove('shake-once'); void c.offsetWidth; c.classList.add('shake-once');
+        setTimeout(() => c.classList.remove('shake-once'), 420);
+      }
+    }
+  };
+
+  const pickFiles = files => {
+    const list = [...files].filter(f => f && f.type.startsWith('image/'));
+    if (!list.length) return;
+    if (addType === 'voucher' && list.length > 1) handleImageBatch(list);
+    else handleImageFile(list[0]);
+  };
+  $('#wa-img').addEventListener('change', e => pickFiles(e.target.files));
   $('#wa-cam').addEventListener('change', e => handleImageFile(e.target.files[0]));
   // Strg+V: der globale Paste-Listener reicht das Bild hierher durch
   waHandleImage = handleImageFile;
-  // Drag & Drop (Web): Bild einfach in die Zone ziehen
+  // Drag & Drop (Web): Bilder einfach in die Zone ziehen (auch mehrere)
   const drop = $('#wa-drop');
   ['dragover', 'dragenter'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('drag'); }));
   ['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('drag'); }));
-  drop.addEventListener('drop', e => handleImageFile(e.dataTransfer.files[0]));
+  drop.addEventListener('drop', e => pickFiles(e.dataTransfer.files));
 
   $('#wa-save').addEventListener('click', async () => {
     const msg = $('#wa-msg');
@@ -3496,11 +3637,9 @@ function openWalletAdd(type, prefillName) {
         return;
       }
       // Doppelte Gutscheine abfangen: gleiche PIN beim gleichen Shop oder gleicher Code
-      const dupe = state.wallet.vouchers.find(x =>
-        (x.pin && x.pin === v.pin && x.vendor.toLowerCase() === v.vendor.toLowerCase())
-        || (v.code && x.code && x.code === v.code));
+      const dupe = findDupe(v);
       if (dupe) {
-        askConfirm(`Diesen Gutschein hast du schon in der Wallet (${esc(dupe.vendor)}, gleiche ${dupe.code === v.code && v.code ? 'Kartennummer' : 'PIN'}). Er wurde nicht doppelt gespeichert.`, { alertOnly: true });
+        dupeReject(`Diesen Gutschein hast du schon in der Wallet (${esc(dupe.vendor)}, gleiche ${dupe.code === v.code && v.code ? 'Kartennummer' : 'PIN'}).`);
         return;
       }
       state.wallet.vouchers.unshift(v);

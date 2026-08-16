@@ -2350,3 +2350,23 @@ html, body { overflow-x: clip; }
   mask-image: none; -webkit-mask-image: none;
   overflow-x: visible;
 }
+
+/* ================= Runde 40: Duplikat-Reset + Mehrfach-Upload ================= */
+.dupe-banner {
+  display: flex; align-items: flex-start; gap: 8px;
+  background: rgba(229, 72, 77, .14); border: 1px solid rgba(229, 72, 77, .45);
+  color: #e5484d; border-radius: 12px; padding: 10px 12px;
+  font-size: .84rem; font-weight: 700; line-height: 1.45;
+  margin-bottom: 12px; animation: enterDrop .35s cubic-bezier(.3,1.25,.45,1) backwards;
+}
+.dupe-banner .icon { flex-shrink: 0; margin-top: 1px; }
+.batch-row {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 9px 4px; border-bottom: 1px solid var(--stroke-light);
+  font-size: .86rem; line-height: 1.45;
+}
+.batch-row:last-of-type { border-bottom: none; }
+.batch-row .icon { flex-shrink: 0; margin-top: 2px; }
+.batch-row.ok .icon { color: var(--k-accent, #12C77E); }
+.batch-row.bad { opacity: .8; }
+.batch-row.bad .icon { color: #e5484d; }
