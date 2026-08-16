@@ -266,6 +266,8 @@ function switchView(next, animClass) {
   if (next === 'profile' && !state.token) renderTurnstile('login');
   if (next === 'profile' && state.token) { refreshGami(); refreshGamiSystem(); }
   if (next === 'chat') {
+    // Egal wo man zuletzt war (Fluester-Chat): der Chat oeffnet immer Global
+    if (chatMode !== 'global') setChatMode('global');
     updateChatGate();
     pollChat(true);
     // Immer unten einsteigen: die neueste Nachricht ist das Wichtigste
@@ -2091,7 +2093,8 @@ function openCaseModal(box) {
   if (!box) return;
   caseCtx = { box, phase: 0, result: null, timers: [] };
   $('#case-img').src = `/gamification/${CONTAINER_IMGS[box.type] || CONTAINER_IMGS['emote-capsule']}.svg`;
-  $('#case-img').classList.remove('hidden');
+  $('#case-img').classList.remove('hidden', 'case-shake', 'case-burst');
+  $('#case-img').removeAttribute('style');
   $('#case-img').classList.add('case-idle');
   $('#case-title').textContent = containerName(box.type);
   $('#reel-wrap').classList.add('hidden');
@@ -2126,15 +2129,21 @@ function openCaseModal(box) {
   // Vorschau wie bei CS: was ist drin, gruppiert nach Stufe, mit Prozent
   const pool = casePool(box.type);
   const order = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
-  $('#case-preview').innerHTML = order.filter(rar => odds[rar]).map(rar => {
+  const previewStufen = order.filter(rar => odds[rar]);
+  const previewTop = previewStufen[previewStufen.length - 1];
+  $('#case-preview').innerHTML = previewStufen.map(rar => {
     const items = pool.filter(x => x.rarity === rar);
     if (!items.length) return '';
     const col = (gami?.rarity || {})[rar]?.color || '#888';
+    // Die beste Stufe bleibt ein Geheimnis: ein goldenes ? wie bei CS
+    const tiles = rar === previewTop
+      ? `<span class="cp-item cp-mystery" title="Bleibt geheim, bis du es ziehst">?</span>`
+      : items.map(it => `
+        <span class="cp-item" style="--rc:${col}" title="${esc(itemName(it.kind, it.id))}">${itemVisual(it.kind, it.id)}</span>`).join('');
     return `
     <div class="cp-group">
       <div class="cp-head"><span style="color:${col}">${esc((gami?.rarity || {})[rar]?.label || rar)}</span><b>${String(odds[rar]).replace('.', ',')} %</b></div>
-      <div class="cp-items">${items.map(it => `
-        <span class="cp-item" style="--rc:${col}" title="${esc(itemName(it.kind, it.id))}">${itemVisual(it.kind, it.id)}</span>`).join('')}</div>
+      <div class="cp-items">${tiles}</div>
     </div>`;
   }).join('');
   $('#case-preview').classList.remove('hidden');
@@ -2154,6 +2163,36 @@ function casePool(type) {
     ...(kinds.includes('sticker') ? Object.entries(gami?.stickersAll || {}).filter(([, v]) => !v.legacy).map(([k, v]) => ({ kind: 'sticker', id: k, rarity: v.rarity })) : []),
     ...(kinds.includes('border') ? Object.entries(gami?.bordersAll || {}).map(([k, v]) => ({ kind: 'border', id: k, rarity: v.rarity })) : []),
   ].filter(x => stufen.has(x.rarity));
+}
+// Der Gewinn zeigt sich direkt im Einsatz: Emote als eigene Chat-Nachricht,
+// Paint am eigenen Namen, Rahmen am eigenen Profilbild, Sticker auf einer
+// Mini-Gutscheinkarte, Badge neben dem Namen
+function winPreviewHtml(kind, id) {
+  const name = state.userName || 'du';
+  if (kind === 'emote') {
+    return `<div class="win-ctx chat-demo"><span class="chat-user" style="color:${chatColor(name)}">${esc(name)}</span><span class="chat-text">${emoteHtml(id)}</span></div>`;
+  }
+  if (kind === 'sticker') {
+    const sid = (gami?.stickersAll || {})[id]?.id;
+    return `<div class="win-ctx"><div class="wallet-card ob-mini win-card-demo" style="--bc:#295BB0">
+      <div class="wallet-card-head"><span class="brand-chip" style="--bc:rgba(255,255,255,.22)">GS</span><span class="wallet-card-name">Gutschein</span><span class="wallet-card-balance">25,00 €</span></div>
+      <img class="v-sticker" style="left:72%; top:56%; transform:translate(-50%,-50%) rotate(-6deg)" src="https://cdn.7tv.app/emote/${sid}/2x.webp" alt="">
+    </div></div>`;
+  }
+  if (kind === 'paint') {
+    const ns = nameStyleOf(name, id);
+    return `<div class="win-ctx"><span class="win-big-name${ns.cls}" style="${ns.style}">${esc(name)}</span></div>`;
+  }
+  if (kind === 'border') {
+    return `<div class="win-ctx">${myProfile?.avatar
+      ? `<img class="avatar-big pfb-${esc(id)}" src="${myProfile.avatar}" alt="">`
+      : `<span class="avatar-big pfb-${esc(id)}" style="background:${chatColor(name)}">${esc(name[0].toUpperCase())}</span>`}</div>`;
+  }
+  if (kind === 'badge') {
+    const bd = (gami?.badgesAll || {})[id];
+    return `<div class="win-ctx chat-demo"><svg class="icon icon-sm chat-badge"><use href="#i-${bd?.icon || 'star'}"/></svg><span class="chat-user" style="color:${chatColor(name)}">${esc(name)}</span><span class="chat-text">Moin!</span></div>`;
+  }
+  return itemVisual(kind, id);
 }
 function caseItemHtml(it) {
   const col = (gami?.rarity || {})[it.rarity]?.color || '#888';
@@ -2215,7 +2254,7 @@ async function startCaseOpen() {
     const epicPlus = ['epic', 'legendary'].includes(r.win.rarity);
     $('#case-result').innerHTML = `
       <div class="case-win v2 ${r.win.shiny ? 'shiny' : ''} ${epicPlus ? 'epic-glow' : ''}" style="--rc:${col}">
-        <div class="case-win-visual">${itemVisual(r.win.kind, r.win.id)}</div>
+        <div class="case-win-visual win-ctx-wrap">${winPreviewHtml(r.win.kind, r.win.id)}</div>
         <b>${esc(r.win.name)}</b>
         <span class="inv-float">#${String(r.win.float).padStart(3, '0')}${r.win.shiny ? ' ✦ SHINY' : ''}</span>
         <span style="color:${col}; font-weight:800">${esc(label)} · Wert: ${funkeIcon(true)} ${fmtFunken(r.win.value)} Funken</span>
@@ -2266,10 +2305,16 @@ async function startCaseOpen() {
   const reelMs = Math.max(2600, Math.min(9500, (soundDur - 2.6) * 1000));
   const img = $('#case-img');
   img.classList.remove('case-idle');
-  img.classList.add('case-drop');
+  // Die Kiste gleitet weich in die Buehnenmitte; Schuetteln, Aufplatzen und
+  // Walze passieren dann dort
+  const stage = document.querySelector('#case-backdrop .case-modal').getBoundingClientRect();
+  const ib = img.getBoundingClientRect();
+  const dy = (stage.top + stage.height / 2) - (ib.top + ib.height / 2);
+  img.style.position = 'relative';
+  img.style.transition = 'top .55s cubic-bezier(.3, 1, .4, 1)';
+  img.style.top = dy + 'px';
   $('#case-skip').classList.remove('hidden');
   caseCtx.timers.push(setTimeout(() => {
-    img.classList.remove('case-drop');
     img.classList.add('case-shake');
     // Sound startet mit dem Schütteln, so sitzt das Finale auf dem Reveal
     caseCtx.snd = playSfx('case');
@@ -2284,9 +2329,19 @@ async function startCaseOpen() {
       // Jetzt die Walze: Gewinn liegt fest auf Index 60, alles andere ist Show
       caseCtx.timers.push(setTimeout(() => {
         img.classList.add('hidden');
-        const pool = casePool(box.type);
-        const items = Array.from({ length: 64 }, (_, i) => i === 60 ? { kind: r.win.kind, id: r.win.id, rarity: r.win.rarity } : pool[Math.floor(Math.random() * pool.length)]);
+        const stufen = Object.keys(gami?.containers?.[box.type]?.odds || {});
+        const topRar = stufen[stufen.length - 1];
+        // Fueller enthalten die Top-Stufe NIE: das goldene ? taucht nur auf,
+        // wenn es wirklich gewonnen wurde — oder ganz selten als Bait (2 %),
+        // der dann knapp vor dem Marker vorbeizieht
+        const pool = casePool(box.type).filter(x => x.rarity !== topRar);
+        const baitIdx = Math.random() < 0.02 ? 55 + Math.floor(Math.random() * 4) : -1;
+        const items = Array.from({ length: 64 }, (_, i) =>
+          i === 60 ? { kind: r.win.kind, id: r.win.id, rarity: r.win.rarity }
+            : i === baitIdx ? { mystery: true, rarity: topRar }
+            : pool[Math.floor(Math.random() * pool.length)]);
         $('#reel').innerHTML = items.map(it => {
+          if (it.mystery || it.rarity === topRar) return `<div class="reel-item reel-mystery">?</div>`;
           const c2 = (gami?.rarity || {})[it.rarity]?.color || '#888';
           return `<div class="reel-item" style="--rc:${c2}">${itemVisual(it.kind, it.id)}</div>`;
         }).join('');
@@ -2539,10 +2594,16 @@ function toggleTopMenu() {
   const rank = rankFor(renderWallet.lastTotal || 0);
   menu.innerHTML = `
     <div class="tm-head">
-      ${myProfile?.avatar ? `<img class="avatar-big" src="${myProfile.avatar}" alt="">`
-        : `<span class="avatar-big" style="background:${chatColor(state.userName || '?')}">${esc((state.userName || '?')[0].toUpperCase())}</span>`}
+      ${(() => {
+        const tb = gami?.activeBorder ? ' pfb-' + gami.activeBorder : '';
+        return myProfile?.avatar ? `<img class="avatar-big${tb}" src="${myProfile.avatar}" alt="">`
+          : `<span class="avatar-big${tb}" style="background:${chatColor(state.userName || '?')}">${esc((state.userName || '?')[0].toUpperCase())}</span>`;
+      })()}
       <div style="flex:1">
-        <div class="tm-name">${esc(state.userName)} ${state.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : ''}</div>
+        <div class="tm-name">${(() => {
+          const ns = nameStyleOf(state.userName || '?', gami?.activePaint || '');
+          return `<span class="${ns.cls.trim()}" style="${ns.style}">${esc(state.userName)}</span>`;
+        })()} ${state.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : ''}</div>
         <div class="tm-sub">
           ${gami?.rank ? `<img class="px-icon" src="${rankFile(gami.rank)}" alt="" style="vertical-align:-4px"> ${esc(gami.rank.name)}` : esc(rank.name)}
           · ${funkeIcon(true)} ${fmtFunken(gami?.coins ?? myProfile?.coins ?? 0)} Funken

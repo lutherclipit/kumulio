@@ -2732,3 +2732,32 @@ body:has(.sheet.open) {
 }
 #case-close .icon { width: 13px; height: 13px; stroke-width: 2.6; }
 #case-close:active { filter: brightness(.9); }
+
+/* ================= Runde 53 ================= */
+
+/* Das goldene Fragezeichen: die beste Stufe bleibt geheim (CS: Rare Special Item) */
+.reel-mystery, .cp-mystery {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.5rem; font-weight: 900;
+  color: #F5B301;
+  background: linear-gradient(150deg, #2A2008 0%, #4A3A10 55%, #2A2008 100%);
+  border-bottom-color: #F5B301 !important;
+  text-shadow: 0 0 12px #F5B30188;
+}
+.cp-mystery { width: 62px; }
+
+/* Reveal im Einsatz: Chat-Zeile, grosser Name, Avatar oder Mini-Karte */
+.win-ctx { display: flex; align-items: center; justify-content: center; padding: 8px 0; }
+.win-ctx .chat-user { font-weight: 800; margin-right: 8px; }
+.win-ctx.chat-demo {
+  background: var(--surface-2); border: 1px solid var(--stroke-light);
+  border-radius: 14px; padding: 10px 16px; max-width: 100%;
+}
+.win-ctx.chat-demo .emote { height: 32px; }
+.win-big-name { font-size: 1.7rem; font-weight: 900; letter-spacing: -.02em; }
+.win-ctx .avatar-big { width: 64px; height: 64px; font-size: 1.5rem; }
+.win-card-demo { width: 240px; position: relative; text-align: left; }
+.win-ctx-wrap { cursor: zoom-in; }
+
+/* Dropdown-Kopf: der Paint-Name erbt die Chat-Optik */
+.tm-name .paint { font-weight: 900; }
