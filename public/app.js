@@ -1418,11 +1418,12 @@ $('#g-daily').addEventListener('click', async () => {
   setBtnLoading($('#g-daily'), true);
   try {
     const r = await api('/api/daily', { method: 'POST', body: '{}' });
-    playSfx('kaching'); buzz(30); moneyFlash('green');
+    playSfx('coin'); buzz(30); moneyFlash('green');
     animateInt($('#g-coins'), r.coins - r.gained, r.coins);
     m.className = 'form-msg ok';
-    m.textContent = `+${r.gained} Coins! Serie: ${r.streak} Tag${r.streak > 1 ? 'e' : ''}.`;
+    m.textContent = `+${r.gained} Coins! Serie: ${r.streak} Tag${r.streak > 1 ? 'e' : ''}.${r.caseWon ? ' Und eine Kiste!' : ''}`;
     myProfile && (myProfile.coins = r.coins);
+    refreshGamiSystem();
   } catch (e) { m.className = 'form-msg error'; m.textContent = e.message; }
   finally { setBtnLoading($('#g-daily'), false); }
 });
@@ -1456,6 +1457,23 @@ function itemName(kind, id) {
   if (kind === 'badge') return (gami?.badgesAll || {})[id]?.name || id;
   return id;
 }
+// Item inspecten: groß anschauen, mit Float, Rarität und Shiny-Glitzer
+function openInspect(kind, id, float, rarity) {
+  const col = (gami?.rarity || {})[rarity]?.color || '#888';
+  const shiny = isShinyF(float);
+  const wrap = document.createElement('div');
+  wrap.className = 'overlay';
+  wrap.innerHTML = `
+    <div class="modal case-modal inspect ${shiny ? 'shiny' : ''}" style="--rc:${col}">
+      <div class="case-win-visual inspect-visual">${itemVisual(kind, id)}</div>
+      <b style="font-size:1.15rem">${esc(itemName(kind, id))}</b>
+      <span class="inv-float">#${String(float ?? 0).padStart(3, '0')}${shiny ? ' ✦ SHINY' : ''}</span>
+      <span style="color:${col}; font-weight:800">${esc((gami?.rarity || {})[rarity]?.label || rarity)}</span>
+    </div>`;
+  document.body.appendChild(wrap);
+  wrap.addEventListener('click', () => { wrap.classList.add('closing'); setTimeout(() => wrap.remove(), 280); });
+}
+
 function myItems() {
   if (!gami) return [];
   return [
@@ -1504,7 +1522,7 @@ async function refreshGamiSystem() {
     try {
       const r = await api('/api/quests/claim', { method: 'POST', body: JSON.stringify({ tag: b.dataset.qclaim }) });
       achvToast(`Quest geschafft: ${r.quest}`, `+${r.gained} Coins`);
-      playSfx('kaching'); buzz(25);
+      playSfx('coin'); buzz(25);
       refreshGamiSystem();
     } catch (e) { island(e.message); }
   });
@@ -1606,14 +1624,14 @@ function openInventory() {
     if (!await askConfirm(`${esc(itemName(kind, id))} wirklich verkaufen?`, { okLabel: 'Verkaufen' })) return;
     try {
       const r = await api('/api/item/sell', { method: 'POST', body: JSON.stringify({ kind, id }) });
-      playSfx('pay'); island(`Verkauft für ${r.value} Coins`);
+      playSfx('coin'); island(`Verkauft für ${r.value} Coins`);
       await refreshGamiSystem(); await refreshGami();
       openInventory();
     } catch (e) { island(e.message); }
   });
   openSheetShell();
 }
-$('#gm-inv-btn').addEventListener('click', () => switchView('inventory', 'enter-drop'));
+$('#gm-inv-btn')?.addEventListener('click', () => switchView('inventory', 'enter-drop'));
 
 // ---- Inventar als eigene Seite: Items UND Kisten, filterbar
 let invFilter = 'alle';
@@ -1653,6 +1671,16 @@ async function renderInventoryPage() {
     }).join('') || '<div class="status">Nichts in dieser Kategorie. Öffne Kisten!</div>'}</div>` : ''}`;
   host.querySelectorAll('[data-case-open]').forEach(b => b.onclick = () =>
     openCaseModal(gami.cases.find(c => c.id === b.dataset.caseOpen)));
+  // Antippen des Item-Bilds = groß inspecten
+  host.querySelectorAll('.inv-item').forEach(el => {
+    const vis = el.querySelector('.inv-visual');
+    if (!vis) return;
+    const sellBtn = el.querySelector('[data-inv-sell]');
+    if (!sellBtn) return;
+    const [kind, id] = sellBtn.dataset.invSell.split(':');
+    vis.style.cursor = 'zoom-in';
+    vis.onclick = () => openInspect(kind, id, (gami.floats || {})[`${kind}:${id}`] ?? 0, itemRarity(kind, id));
+  });
   host.querySelectorAll('[data-inv-equip]').forEach(b => b.onclick = async () => {
     const [kind, id] = b.dataset.invEquip.split(':');
     if (kind === 'paint') {
@@ -1681,7 +1709,7 @@ async function renderInventoryPage() {
     if (!await askConfirm(`${esc(itemName(kind, id))} wirklich verkaufen?`, { okLabel: 'Verkaufen' })) return;
     try {
       const r = await api('/api/item/sell', { method: 'POST', body: JSON.stringify({ kind, id }) });
-      playSfx('pay'); island(`Verkauft für ${r.value} Coins`);
+      playSfx('coin'); island(`Verkauft für ${r.value} Coins`);
       await refreshGamiSystem();
       renderInventoryPage(); refreshGami();
     } catch (e) { island(e.message); }
@@ -1743,7 +1771,8 @@ function rankUpFx(rank) {
 }
 
 // Sammlung: alles was es gibt, nach Seltenheit, plus Kisten-Übersicht
-$('#gm-catalog-btn').addEventListener('click', () => {
+async function openCatalogSheet() {
+  if (!gami) await refreshGamiSystem();
   state.sheetMode = 'gami-catalog';
   const all = [
     ...(gami?.paintsAll || []).map(x => ({ kind: 'paint', id: x.id, rarity: x.rarity })),
@@ -1774,10 +1803,10 @@ $('#gm-catalog-btn').addEventListener('click', () => {
       </div>`).join('')}</div>
     <p class="muted" style="font-size:.78rem">Bessere Kisten heben die Chancen auf seltene Items. Die genauen Prozente stehen beim Öffnen unter „Chancen anzeigen".</p>`;
   openSheetShell();
-});
+}
 
 // Kistenshop: Kauf ausschließlich mit erspielten Coins
-$('#gm-shop-btn').addEventListener('click', () => switchView('shop', 'enter-drop'));
+$('#gm-shop-btn')?.addEventListener('click', () => switchView('shop', 'enter-drop'));
 
 // ---- Kisten-Öffnung: Ergebnis kommt VOR der Animation vom Server, die Walze ist Show
 let caseCtx = null;
@@ -1854,12 +1883,15 @@ async function startCaseOpen() {
       }
     }
     buzz(r.win.shiny ? [30, 40, 60] : 18);
-    playSfx('kaching');
+    playSfx(r.dupe ? 'coin' : 'kaching');
     $('#cw-keep')?.addEventListener('click', () => { hideOverlay($('#case-backdrop')); island('Ab ins Inventar!'); });
+    // Item groß anschauen (inspecten)
+    $('#case-result').querySelector('.case-win-visual')?.addEventListener('click', () =>
+      openInspect(r.win.kind, r.win.id, r.win.float, r.win.rarity));
     $('#cw-sell')?.addEventListener('click', async () => {
       try {
         const sold = await api('/api/item/sell', { method: 'POST', body: JSON.stringify({ kind: r.win.kind, id: r.win.id }) });
-        playSfx('pay');
+        playSfx('coin');
         hideOverlay($('#case-backdrop'));
         island(`Verkauft für ${sold.value} Coins`);
         refreshGamiSystem();
@@ -1873,9 +1905,8 @@ async function startCaseOpen() {
   // Sound startet sofort, die Animation richtet sich nach seiner Länge:
   // Intro (fallen + schütteln + aufplatzen) ~1.8s, dann läuft die CS-Walze,
   // das Einrasten landet kurz vor dem Ende des Sounds.
-  caseCtx.snd = playSfx('case');
   const soundDur = sfxDuration('case') || 8;
-  const reelMs = Math.max(2600, Math.min(9500, (soundDur - 3.2) * 1000));
+  const reelMs = Math.max(2600, Math.min(9500, (soundDur - 2.6) * 1000));
   const img = $('#case-img');
   img.classList.remove('case-idle');
   img.classList.add('case-drop');
@@ -1883,6 +1914,8 @@ async function startCaseOpen() {
   caseCtx.timers.push(setTimeout(() => {
     img.classList.remove('case-drop');
     img.classList.add('case-shake');
+    // Sound startet mit dem Schütteln, so sitzt das Finale auf dem Reveal
+    caseCtx.snd = playSfx('case');
     caseCtx.timers.push(setTimeout(() => {
       img.classList.remove('case-shake');
       img.classList.add('case-burst');
@@ -2029,10 +2062,14 @@ function renderFavPickers() {
     const cur = favPick[key] ?? favs[key] ?? '';
     favPick[key] = cur;
     const isCustom = cur && !def.opts.includes(cur);
+    // Marken-Logos in den Auswahl-Chips, wo wir sie kennen
+    const optChip = o => BRAND_DOMAINS[o.toLowerCase()]
+      ? `<button type="button" class="chip fav-opt ${cur === o ? 'active' : ''}" data-favopt="${esc(o)}">${brandChipHtml(o)} ${esc(o)}</button>`
+      : `<button type="button" class="chip ${cur === o ? 'active' : ''}" data-favopt="${esc(o)}">${esc(o)}</button>`;
     return `
     <label class="f-label">${def.label}</label>
     <div class="fav-row" data-favkey="${key}">
-      ${def.opts.map(o => `<button type="button" class="chip ${cur === o ? 'active' : ''}" data-favopt="${esc(o)}">${esc(o)}</button>`).join('')}
+      ${def.opts.map(optChip).join('')}
       <button type="button" class="chip ${isCustom ? 'active' : ''}" data-favopt="__custom">Eigenes</button>
       <input class="input fav-custom ${isCustom ? '' : 'hidden'}" maxlength="30" placeholder="eigene Antwort" value="${esc(isCustom ? cur : '')}">
     </div>`;
@@ -2071,6 +2108,11 @@ $('#g-handle-save').addEventListener('click', async () => {
     refreshProfileTab();
   } catch (e) { island(e.message); }
 });
+
+// Overlays raus aus den Views auf Body-Ebene, sonst versteckt .view.hidden sie mit
+// (Kisten-Popup erschien z. B. erst nach dem Zurückgehen ins Profil)
+document.body.appendChild($('#case-backdrop'));
+document.body.appendChild($('#user-pop-backdrop'));
 
 // "Profil bearbeiten": eigene Seite, nach dem Speichern geht es automatisch zurück
 $('#editprofile-host').appendChild($('#bio-card'));
@@ -2140,7 +2182,10 @@ function toggleTopMenu() {
         : `<span class="avatar-big" style="background:${chatColor(state.userName || '?')}">${esc((state.userName || '?')[0].toUpperCase())}</span>`}
       <div style="flex:1">
         <div class="tm-name">${esc(state.userName)} ${state.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : ''}</div>
-        <div class="tm-sub">${esc(rank.name)} · <svg class="icon icon-sm" style="vertical-align:-3px"><use href="#i-coin"/></svg> ${gami?.coins ?? myProfile?.coins ?? 0}</div>
+        <div class="tm-sub">
+          ${gami?.rank ? `<img class="px-icon" src="${rankFile(gami.rank)}" alt="" style="vertical-align:-4px"> ${esc(gami.rank.name)}` : esc(rank.name)}
+          · <svg class="icon icon-sm" style="vertical-align:-3px"><use href="#i-coin"/></svg> ${gami?.coins ?? myProfile?.coins ?? 0}
+        </div>
       </div>
       <svg class="icon icon-sm" style="opacity:.5"><use href="#i-chevron"/></svg>
     </div>
@@ -2156,6 +2201,8 @@ function toggleTopMenu() {
     <button class="tm-item" id="tm-all-friends">${icon('user', 'icon icon-sm')} Alle Freunde</button>
     <button class="tm-item" id="tm-inv">${icon('gift', 'icon icon-sm')} Inventar</button>
     <button class="tm-item" id="tm-shop">${icon('banknote', 'icon icon-sm')} Kistenshop</button>
+    <button class="tm-item" id="tm-catalog">${icon('list', 'icon icon-sm')} Sammlung</button>
+    <button class="tm-item" id="tm-quests">${icon('trophy', 'icon icon-sm')} Quests ${(gami?.claimable || []).length ? `<span class="dm-unread-pill">${gami.claimable.length}</span>` : ''}</button>
     <button class="tm-item" id="tm-favs">${icon('star', 'icon icon-sm')} Favoriten</button>
     <button class="tm-item" id="tm-settings">${icon('sliders', 'icon icon-sm')} Einstellungen</button>
     <button class="tm-item" id="tm-logout">${icon('x', 'icon icon-sm')} Abmelden</button>`;
@@ -2166,6 +2213,15 @@ function toggleTopMenu() {
   menu.querySelector('.tm-head').onclick = () => { done(); switchView('profile'); };
   $('#tm-inv').onclick = () => { done(); switchView('inventory', 'enter-drop'); };
   $('#tm-shop').onclick = () => { done(); switchView('shop', 'enter-drop'); };
+  $('#tm-catalog').onclick = () => { done(); openCatalogSheet(); };
+  $('#tm-quests').onclick = () => {
+    done(); switchView('profile');
+    setTimeout(() => {
+      const f = $('#quests-fold');
+      f.open = true;
+      f.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 400);
+  };
   $('#tm-favs').onclick = () => {
     done();
     state.activeChip = 'saved';
@@ -2183,12 +2239,15 @@ function toggleTopMenu() {
     ].filter(x => (myProfile?.friends || []).includes(x.name)).slice(0, 3);
     $('#tm-friends').innerHTML = rows.length ? rows.map(f => `
       <div class="tm-req">
-        ${f.avatar ? `<img class="avatar-mini avatar-img" src="${f.avatar}" alt="">`
+        <span class="tm-friend-open" data-tm-user="${esc(f.name)}" style="display:flex; align-items:center; gap:8px; flex:1; cursor:pointer">
+          ${f.avatar ? `<img class="avatar-mini avatar-img" src="${f.avatar}" alt="">`
         : `<span class="avatar-mini" style="background:${chatColor(f.name)}">${esc(f.name[0].toUpperCase())}</span>`}
-        <span style="flex:1; font-weight:700">@${esc(f.name)}</span>
+          <span style="font-weight:700">@${esc(f.name)}</span>
+        </span>
         <button class="btn btn-small btn-ghost" data-tm-whisper="${esc(f.name)}">Schreiben</button>
       </div>`).join('')
       : '<div class="tm-sub" style="padding:4px 0">Noch keine Freunde.</div>';
+    menu.querySelectorAll('[data-tm-user]').forEach(b => b.onclick = () => { done(); openUserPop(b.dataset.tmUser); });
     menu.querySelectorAll('[data-tm-whisper]').forEach(b => b.onclick = () => {
       done();
       if (state.activeView !== 'chat') switchView('chat');
@@ -2616,7 +2675,7 @@ function euroFmt(n) { return n == null ? '' : n.toFixed(2).replace('.', ',') + '
 
 // ---- Spielgefühl: Sounds, Vibration, Aufleuchten, Geldscheine, Zähl-Animation ----
 
-const SFX = { kaching: '/sounds/kaching.mp3', pay: '/sounds/pay.mp3', case: '/sounds/case.mp3', plop: '/sounds/plop.mp3' };
+const SFX = { kaching: '/sounds/kaching.mp3', pay: '/sounds/pay.mp3', case: '/sounds/case.mp3', plop: '/sounds/plop.mp3', coin: '/sounds/coin.mp3' };
 function sfxDuration(name) { return sfxBuffers[name]?.audio?.duration || 0; }
 // WebAudio: Sounds vorgeladen und ohne Anlauf-Stille, spielen sofort beim Tipp
 let sfxCtx = null;
@@ -2893,6 +2952,11 @@ const BRAND_DOMAINS = {
   mediamarkt: 'mediamarkt.de', 'h&m': 'hm.com', douglas: 'douglas.de', nike: 'nike.com',
   payback: 'payback.de', wolt: 'wolt.com', lieferando: 'lieferando.de', spotify: 'spotify.com',
   deutschlandcard: 'deutschlandcard.de', 'lidl plus': 'lidl.de', 'ikea family': 'ikea.com',
+  aldi: 'aldi-sued.de', penny: 'penny.de', norma: 'norma-online.de', kaufland: 'kaufland.de',
+  globus: 'globus.de', tegut: 'tegut.com', otto: 'otto.de', ebay: 'ebay.de', temu: 'temu.com',
+  adidas: 'adidas.de', zara: 'zara.com', shein: 'shein.com', saturn: 'saturn.de',
+  mcdonalds: 'mcdonalds.com', 'burger king': 'burgerking.de', subway: 'subway.com',
+  netflix: 'netflix.com', disney: 'disneyplus.com', 'uber eats': 'ubereats.com',
 };
 function brandChipHtml(name) {
   const domain = BRAND_DOMAINS[String(name || '').toLowerCase()];
@@ -4046,15 +4110,77 @@ async function deleteOwnMsg(id) {
     }
   } catch (e) { island(e.message); }
 }
+// Im Chat: kompaktes Popup mit Schnellaktionen, "Zum Profil" führt zur Seite
+async function openUserSheet(user, msgId) {
+  if (user === state.userName) { switchView('profile'); return; }
+  const pop = $('#user-pop');
+  pop.innerHTML = '<div class="status">Lade …</div>';
+  $('#user-pop-backdrop').classList.remove('hidden');
+  let u = { user };
+  try { u = await api('/api/user?name=' + encodeURIComponent(user)); } catch { }
+  const isFriend = (myProfile?.friends || []).includes(user);
+  const mod = ['admin', 'mod'].includes(state.role);
+  pop.innerHTML = `
+    <div class="offer-head">
+      ${u.avatar ? `<img class="avatar-big" src="${u.avatar}" alt="">`
+      : `<span class="avatar-big" style="background:${chatColor(user)}">${esc(user[0].toUpperCase())}</span>`}
+      <div class="offer-brand">
+        <div class="offer-merchant">@${esc(user)} ${u.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : ''}</div>
+        <div class="offer-cat">${u.private ? 'Profil ist privat' : esc((u.bio || '').slice(0, 60) || 'Keine Bio')}</div>
+      </div>
+      <button class="fav-remove" id="us-close">${icon('x', 'icon icon-sm')}</button>
+    </div>
+    <div class="form-row" style="margin-top:14px; flex-wrap:wrap">
+      <button class="btn btn-small" id="us-profile">Zum Profil</button>
+      <button class="btn btn-small btn-ghost" id="us-whisper">Flüstern</button>
+      <button class="btn btn-small btn-ghost" id="us-friend">${isFriend ? 'Freund entfernen' : 'Anfragen'}</button>
+      <button class="btn btn-small btn-ghost" id="us-report">Melden</button>
+    </div>
+    ${mod ? `<div class="form-row" style="margin-top:8px; flex-wrap:wrap">
+      ${u.mutedUntil ? `<button class="btn btn-small btn-ghost" id="us-unban">Timeout aufheben</button>`
+      : u.banned ? `<button class="btn btn-small btn-ghost" id="us-unban">Entsperren</button>`
+      : `<button class="btn btn-small btn-ghost" id="us-timeout">Timeout 10 Min.</button>
+      <button class="btn btn-small btn-ghost" id="us-ban">Sperren</button>`}
+      ${msgId ? `<button class="btn btn-small btn-ghost" id="us-delmsg">Nachricht löschen</button>
+      <button class="btn btn-small btn-ghost" id="us-pin">Anpinnen</button>` : ''}
+    </div>` : ''}`;
+  const close = () => hideOverlay($('#user-pop-backdrop'));
+  $('#us-close').onclick = close;
+  $('#us-profile').onclick = () => { close(); openUserPop(user, msgId); };
+  $('#us-whisper').onclick = () => { close(); if (!state.token) { island('Zum Flüstern bitte anmelden'); return; } setChatMode('dm', user); };
+  $('#us-friend').onclick = async () => {
+    if (!state.token) { island('Bitte anmelden'); return; }
+    await api('/api/friend', { method: 'POST', body: JSON.stringify({ user, action: isFriend ? 'remove' : 'add' }) })
+      .then(r => {
+        if (myProfile) { myProfile.friends = r.friends; myProfile.friendRequests = r.friendRequests; }
+        island(isFriend ? 'Freund entfernt' : r.friends.includes(user) ? 'Ihr seid jetzt Freunde!' : 'Anfrage gesendet');
+      }).catch(e => island(e.message));
+    close();
+  };
+  $('#us-report').onclick = async () => {
+    await api('/api/chat/report', { method: 'POST', body: JSON.stringify({ user, id: msgId || '' }) })
+      .then(() => island('Gemeldet, danke!')).catch(e => island(e.message));
+    close();
+  };
+  const modAct = (action, extra) => api('/api/chat/mod', { method: 'POST', body: JSON.stringify({ action, user, id: msgId, ...extra }) })
+    .then(() => { island('Erledigt'); $('#chat-list').innerHTML = ''; chatLastTs = 0; pollChat(true); close(); })
+    .catch(e => island(e.message));
+  $('#us-timeout')?.addEventListener('click', () => modAct('timeout', { minutes: 10 }));
+  $('#us-ban')?.addEventListener('click', () => modAct('ban'));
+  $('#us-unban')?.addEventListener('click', () => modAct('unban'));
+  $('#us-delmsg')?.addEventListener('click', () => modAct('delete-msg'));
+  $('#us-pin')?.addEventListener('click', () => modAct('pin'));
+}
+
 $('#chat-list').addEventListener('click', e => {
   const del = e.target.closest('[data-msg-del]');
   if (del) { deleteOwnMsg(del.dataset.msgDel); return; }
   const mention = e.target.closest('.mention');
-  if (mention) { openUserPop(mention.dataset.user); return; }
+  if (mention) { openUserSheet(mention.dataset.user); return; }
   const nameEl = e.target.closest('.chat-user');
   if (!nameEl || chatMode === 'dm') return;
   const msgEl = e.target.closest('.chat-msg');
-  openUserPop(nameEl.textContent, msgEl?.dataset.mid);
+  openUserSheet(nameEl.textContent, msgEl?.dataset.mid);
 });
 // Handy: eigene Nachricht gedrückt halten zum Löschen
 let pressTimer = null;

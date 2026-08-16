@@ -2051,3 +2051,20 @@ body.chat-locked { overflow: hidden; height: 100dvh; }
   .rankup, .rankup-inner, .rankup-inner img { animation: none; }
   .rules-fold[open] > *:not(summary) { animation: none; }
 }
+
+/* ================= Runde 36: Inspect, Fav-Logos, Feinschliff ================= */
+.inspect { text-align: center; }
+.inspect-visual { padding: 34px 44px; cursor: zoom-out; }
+.inspect-visual .icon { width: 84px; height: 84px; }
+.inspect-visual .reel-paint { width: 140px; height: 62px; border-radius: 12px; }
+.inspect-visual .emote { height: 84px !important; }
+.inspect.shiny .inspect-visual { position: relative; overflow: hidden; }
+.inspect.shiny .inspect-visual::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,.5) 48%, transparent 62%);
+  background-size: 260% 100%;
+  animation: shinySweep 2.2s linear infinite;
+}
+.fav-opt { display: inline-flex; align-items: center; gap: 6px; }
+.fav-opt .brand-chip { width: 22px; height: 22px; font-size: .5rem; }
+.case-win-visual { cursor: zoom-in; }
