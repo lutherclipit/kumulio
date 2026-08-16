@@ -5697,8 +5697,8 @@ async function openUserPop(user, msgId) {
     : `<span class="pill">${esc(v)}</span>`;
   pop.innerHTML = `
     <div class="offer-head">
-      ${u.avatar ? `<img class="avatar-big" src="${u.avatar}" alt="">`
-        : `<span class="avatar-big" style="background:${chatColor(user)}">${esc(user[0].toUpperCase())}</span>`}
+      ${u.avatar ? `<img class="avatar-big${u.activeBorder ? ' pfb-' + esc(u.activeBorder) : ''}" src="${u.avatar}" alt="">`
+        : `<span class="avatar-big${u.activeBorder ? ' pfb-' + esc(u.activeBorder) : ''}" style="background:${chatColor(user)}">${esc(user[0].toUpperCase())}</span>`}
       <div class="offer-brand">
         <div class="offer-merchant"><span class="${nameStyleOf(user, u.activePaint).cls.trim()}" style="${nameStyleOf(user, u.activePaint).style}">${esc(user)}</span> ${u.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : u.role === 'mod' ? icon('check', 'icon icon-sm role-mod') : ''}</div>
         <div class="offer-cat">${u.private ? 'Profil ist privat' : esc(u.bio || 'Keine Bio')}</div>
