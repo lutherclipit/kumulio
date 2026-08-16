@@ -3421,7 +3421,7 @@ function openVoucherSheet(id, animFrom) {
         ${!t.reverted ? `<button class="btn btn-small btn-ghost" data-revert="${esc(t.id)}">Rückgängig</button>` : ''}
       </div>`).join('')}
     </div>` : ''}
-    ${v.added ? `<p class="added-line">Hinzugefügt am ${new Date(v.added).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })}</p>` : ''}
+    ${v.added ? `<p class="added-line">Hinzugefügt am ${new Date(v.added).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })} um ${new Date(v.added).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} Uhr</p>` : ''}
     ${(v.balance == null || v.balance <= 0)
       ? '<button class="btn btn-danger" id="wv-del" style="margin-top:14px">Gutschein löschen</button>' : ''}`;
 
@@ -3640,7 +3640,7 @@ function renderWallet() {
         ${v.end ? `<span class="pill">bis ${new Date(v.end).toLocaleDateString('de-DE')}</span>` : ''}
       </div>
       ${v.pin ? `<div class="wallet-card-pin">PIN ${esc(v.pin)}</div>` : ''}
-      ${v.added ? `<span class="wallet-card-date">${new Date(v.added).toLocaleDateString('de-DE')}</span>` : ''}
+      ${v.added ? `<span class="wallet-card-date">${new Date(v.added).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>` : ''}
     </div>`;
   };
 
@@ -4348,6 +4348,8 @@ async function sendChat() {
   const text = inp.value.trim();
   if (!text) return;
   renderCmdPalette(false);
+  // Emote-Fenster schließt beim Absenden, die Nachricht ist ja raus
+  if (!$('#chat-emotes').classList.contains('hidden')) toggleEmotes();
   // Client-Commands, die keinen Server brauchen
   if (text === '!hilfe') { inp.value = ''; renderCmdPalette(true); return; }
   if (text === '!stats') {
