@@ -166,7 +166,11 @@ async function api(path, opts) {
     headers: { ...(opts ? { 'Content-Type': 'application/json' } : {}), ...auth, ...((opts && opts.headers) || {}) },
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Fehler ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(data.error || `Fehler ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
   return data;
 }
 
@@ -2740,6 +2744,7 @@ let walletSyncTimer = null;
 // Solange etwas nicht beim Server angekommen ist, bleibt die Dirty-Marke stehen
 // und der Sync wird wiederholt; so kann "gespeichert" nie mehr heimlich verloren gehen
 let walletSyncError = '';
+let walletSyncFatal = false; // true = der Server hat abgelehnt (Retry zwecklos)
 async function syncWalletNow() {
   if (!state.token) return true;
   try {
@@ -2748,11 +2753,13 @@ async function syncWalletNow() {
     await api('/api/wallet', { method: 'POST', body: JSON.stringify(state.wallet), signal });
     localStorage.removeItem('ra.walletDirty');
     walletSyncError = '';
+    walletSyncFatal = false;
     return true;
   } catch (e) {
     walletSyncError = e.name === 'TimeoutError' || e.name === 'AbortError'
       ? 'Das Sichern dauert zu lange (Verbindung zu langsam?).'
       : (e.message || '');
+    walletSyncFatal = e.status >= 400 && e.status < 500;
     localStorage.setItem('ra.walletDirty', '1');
     return false;
   }
@@ -2952,6 +2959,9 @@ function dupeReject(text) {
     setTimeout(() => c.classList.remove('shake-once'), 420);
   }
 }
+
+// Speichern läuft gerade: blockt Doppelklicks auf den Speichern-Button
+let waSaving = false;
 
 // Bild aus der Zwischenablage (Strg+V) direkt ins offene Hinzufügen-Formular
 let waHandleImage = null;
@@ -3344,6 +3354,7 @@ function brandChipHtml(name) {
 
 function openWalletAdd(type, prefillName) {
   if (!state.token) { switchView('profile'); island('Für die Wallet bitte anmelden'); return; }
+  waSaving = false;
   addType = type || 'voucher';
   addPrefill = prefillName || '';
   state.sheetMode = 'wallet-add';
@@ -3625,14 +3636,25 @@ function openWalletAdd(type, prefillName) {
       save('wallet', state.wallet);
       renderWallet();
       if (state.token) {
+        m.className = 'form-msg';
+        m.textContent = 'Sichere am Konto …';
         const ok = await syncWalletNow();
-        if (!ok) {
+        if (!ok && walletSyncFatal) {
+          // Server hat aktiv abgelehnt: behalten wäre sinnlos
           state.wallet.vouchers = state.wallet.vouchers.filter(x => !fresh.includes(x));
           save('wallet', state.wallet);
           renderWallet();
           m.className = 'form-msg error';
-          m.textContent = 'NICHT gespeichert: ' + (walletSyncError || 'Server nicht erreichbar.') + ' Bitte nochmal versuchen.';
+          m.textContent = 'NICHT gespeichert: ' + (walletSyncError || 'Der Server hat abgelehnt.');
           return;
+        }
+        if (!ok) {
+          // Netzwackler: Gutscheine bleiben auf dem Gerät, Sicherung folgt automatisch
+          showToast({
+            title: 'Gespeichert, Sicherung folgt',
+            text: 'Der Server war gerade nicht erreichbar. Die Gutscheine bleiben auf dem Gerät und werden automatisch nachgesichert.',
+            iconName: 'warning',
+          }, 8000);
         }
       }
     }
@@ -3681,6 +3703,9 @@ function openWalletAdd(type, prefillName) {
 
   $('#wa-save').addEventListener('click', async () => {
     const msg = $('#wa-msg');
+    // Doppelklick-Schutz: solange gespeichert wird, ist der Button tabu, sonst
+    // meldet der zweite Klick den EIGENEN Gutschein als Duplikat
+    if (waSaving) return;
     // Ohne Netz kein "gespeichert"-Theater: der Gutschein wäre beim nächsten
     // App-Start weg (PWA-Speicher ist flüchtig), also ehrlich blocken
     if (state.token && !navigator.onLine) {
@@ -3733,18 +3758,36 @@ function openWalletAdd(type, prefillName) {
     }
     save('wallet', state.wallet);
     renderWallet();
-    // Erst wenn der Server es hat, gilt es als gespeichert; sonst ehrlich Bescheid sagen
+    // Erst wenn der Server es hat, gilt es als voll gesichert; unterwegs immer
+    // sichtbar machen, dass gerade gespeichert wird
     if (state.token) {
+      waSaving = true;
       setBtnLoading($('#wa-save'), true);
+      msg.className = 'form-msg';
+      msg.textContent = 'Speichere und sichere am Konto …';
       const ok = await syncWalletNow();
+      waSaving = false;
       setBtnLoading($('#wa-save'), false);
-      if (!ok) {
+      if (!ok && walletSyncFatal) {
+        // Der Server hat aktiv abgelehnt (z. B. zu groß): behalten wäre sinnlos
         const idx = savedList.indexOf(savedItem);
         if (idx >= 0) savedList.splice(idx, 1);
         save('wallet', state.wallet);
         renderWallet();
         msg.className = 'form-msg error';
-        msg.textContent = 'NICHT gespeichert: ' + (walletSyncError || 'Der Server war gerade nicht erreichbar.') + ' Bitte gleich nochmal versuchen.';
+        msg.textContent = 'NICHT gespeichert: ' + (walletSyncError || 'Der Server hat abgelehnt.');
+        return;
+      }
+      if (!ok) {
+        // Netzwackler/Timeout: Gutschein BLEIBT auf dem Gerät, der Hintergrund-Sync
+        // holt das Sichern nach — nichts wird still weggeworfen
+        closeSheet();
+        playSfx('kaching'); buzz(35);
+        showToast({
+          title: 'Gespeichert, Sicherung folgt',
+          text: 'Der Server war gerade nicht erreichbar. Der Gutschein bleibt auf dem Gerät und wird automatisch nachgesichert.',
+          iconName: 'warning',
+        }, 8000);
         return;
       }
     }
