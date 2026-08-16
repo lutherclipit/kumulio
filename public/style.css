@@ -2875,3 +2875,50 @@ body:has(.sheet.open) {
   .tour-spot { transition: none; }
   .tour-bubble.pop { animation: none; }
 }
+
+/* ================= Runde 56: Tour-Feinschliff ================= */
+
+/* Begruessung wischt nach oben weg, das Finale kommt von unten zurueck */
+#onboard.swipe { animation: obSwipeUp .64s cubic-bezier(.5, 0, .2, 1) forwards; }
+@keyframes obSwipeUp { to { transform: translateY(-102%); } }
+#onboard.finale { animation: obRiseIn .6s cubic-bezier(.3, 1, .4, 1); }
+@keyframes obRiseIn { from { transform: translateY(102%); } }
+
+/* Konto-Slider im Finale */
+.ob-slider {
+  display: flex; gap: 4px; background: rgba(127, 137, 150, .16);
+  border-radius: 999px; padding: 4px; margin-bottom: 14px;
+}
+.ob-slider-opt {
+  flex: 1; border: none; background: none; font: inherit; font-weight: 800;
+  font-size: .92rem; padding: 12px 22px; border-radius: 999px;
+  color: inherit; cursor: pointer; white-space: nowrap;
+}
+.ob-slider-opt.primary { background: var(--accent-strong, #12C77E); color: #fff; }
+.ob-slider-opt:active { transform: scale(.97); }
+
+/* Bubble: opak, kompakt, zoomt aus Richtung des Ziels heran */
+.tour-bubble {
+  background: #FFFFFF; color: #14171B;
+  width: auto; min-width: 250px; max-width: min(330px, 88vw);
+  padding: 16px 16px 12px 50px;
+}
+:root[data-theme="dark"] .tour-bubble { background: #1A212B; color: #EDF2F7; border-color: #2A323D; }
+.tour-bubble p { color: inherit; opacity: .72; }
+.tour-bubble.pop { animation: tourZoom .5s cubic-bezier(.3, 1.25, .4, 1); }
+@keyframes tourZoom { from { opacity: 0; transform: translateX(-50%) scale(.72); } }
+.tour-media { margin-top: 10px; }
+.tour-media:empty { display: none; }
+.tour-visual { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.tour-visual .wallet-card.ob-mini { width: 100%; max-width: 250px; }
+.tour-mini-note { font-size: .74rem; opacity: .65; text-align: center; }
+.tour-badges { flex-direction: column; align-items: stretch; gap: 6px; }
+.tv-badge {
+  font-size: .72rem; font-weight: 900; letter-spacing: .04em;
+  border-radius: 9px; padding: 7px 12px; text-align: center; color: #fff;
+}
+.tv-pf { background: linear-gradient(100deg, #D92D20, #B42318); }
+.tv-neu { background: linear-gradient(100deg, #3B82F6, #2563EB); }
+.tv-earn { background: linear-gradient(100deg, #12C77E, #0E9C64); }
+.tour-skip-inline { margin-top: 8px; opacity: .6; }
+.tour-btns .btn-big { width: 100%; }

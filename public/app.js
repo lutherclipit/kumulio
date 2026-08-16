@@ -3188,30 +3188,103 @@ function finishOnboarding(openRegister) {
 
 function maybeShowOnboarding() {
   if (localStorage.getItem('ra.tutorialDone')) return;
-  // Markenmoment (Logo faellt), dann uebernimmt die interaktive Tour ueber der ECHTEN App
+  // Markenmoment: Logo faellt, rutscht hoch, dann die Begruessung auf dem
+  // Splash-Hintergrund. "Jetzt loslegen" wischt alles nach oben weg zur Tour.
   $('#onboard').classList.remove('hidden');
   setTimeout(() => {
-    $('#onboard').classList.add('done');
-    setTimeout(() => { $('#onboard').classList.add('hidden'); startTour(); }, 520);
+    $('#onboard').classList.add('step');
+    $('#ob-step').innerHTML = `
+      <div class="ob-step">
+        <h2>Schön, dass du da bist.</h2>
+        <p>kumulio ist deine Spar-App: kuratierte Deals und Preisfehler, deine Gutschein-Wallet und deine Leute, alles an einem Ort.</p>
+      </div>`;
+    $('#ob-dots').innerHTML = '';
+    $('#ob-extra').innerHTML = '';
+    const next = $('#ob-next');
+    next.textContent = 'Jetzt loslegen';
+    next.onclick = () => {
+      const ob = $('#onboard');
+      ob.classList.add('swipe');
+      setTimeout(() => { ob.classList.add('hidden'); ob.classList.remove('swipe', 'step'); startTour(); }, 640);
+    };
+    $('#ob-content').classList.remove('hidden');
+    $('#ob-skip').classList.remove('hidden');
   }, 1600);
+}
+
+// Finale der Tour: der Start-Hintergrund kommt von unten zurueck, das Logo
+// blendet animiert ein, Konto erstellen / einloggen liegt auf einem Slider
+function showTourFinale() {
+  const ob = $('#onboard');
+  ob.classList.remove('hidden', 'done', 'swipe');
+  ob.classList.add('step', 'finale');
+  // Logo-Animation neu anstossen
+  const logo = ob.querySelector('.ob-logo');
+  logo.style.animation = 'none';
+  void logo.offsetWidth;
+  logo.style.animation = '';
+  $('#ob-step').innerHTML = `
+    <div class="ob-step">
+      <h2>Bereit?</h2>
+      <p>Mit Konto sind Wallet, Funken und Fortschritt sicher, auf jedem Gerät.</p>
+    </div>`;
+  $('#ob-dots').innerHTML = '';
+  const next = $('#ob-next');
+  next.classList.add('hidden');
+  $('#ob-extra').innerHTML = `
+    <div class="ob-slider">
+      <button class="ob-slider-opt primary" id="obf-register">Konto erstellen</button>
+      <button class="ob-slider-opt" id="obf-login">Einloggen</button>
+    </div>
+    <button class="ob-alt" id="obf-guest">Ohne Konto weiter</button>`;
+  const closeOb = () => {
+    localStorage.setItem('ra.tutorialDone', '1');
+    ob.classList.add('done');
+    setTimeout(() => { ob.classList.add('hidden'); ob.classList.remove('done', 'step', 'finale'); next.classList.remove('hidden'); }, 520);
+  };
+  $('#obf-register').onclick = () => { closeOb(); switchView('profile'); setTimeout(() => $('#btn-register-open')?.click(), 400); };
+  $('#obf-login').onclick = () => { closeOb(); switchView('profile'); };
+  $('#obf-guest').onclick = () => closeOb();
+  $('#ob-content').classList.remove('hidden');
+  $('#ob-skip').classList.add('hidden');
 }
 
 // ---- Interaktive Tour: Spotlight wandert ueber die echte App, Hinweise in
 // Kreis-Bubbles, alles andere ist abgedunkelt. Kein Karten-Gespamme mehr.
 function startTour() {
+  const walletDemo = `<div class="tour-visual">
+    <div class="wallet-card ob-mini" style="--bc:${brandColor('rewe')}">
+      <div class="wallet-card-head"><span class="brand-chip" style="--bc:rgba(255,255,255,.22)">RE</span><span class="wallet-card-name">REWE</span><span class="wallet-card-balance">25,00 €</span></div>
+      <div class="wallet-card-sub"><span>GUTSCHEIN-123</span><span class="pill">PIN</span><span class="pill">QR</span></div>
+    </div>
+    <span class="tour-mini-note">Auch Sparkarten wie Payback und Coupons wohnen hier.</span>
+  </div>`;
+  const feedDemo = `<div class="tour-visual tour-badges">
+    <span class="tv-badge tv-pf">PREISFEHLER −71 %</span>
+    <span class="tv-badge tv-neu">NUR NEUKUNDEN</span>
+    <span class="tv-badge tv-earn">+ VERDIENST</span>
+  </div>`;
+  const chatDemo = `<div class="tour-visual"><div class="win-ctx chat-demo" style="margin:0; padding:8px 14px">
+    <svg class="icon icon-sm chat-badge"><use href="#i-flame"/></svg>
+    <span class="chat-user paint pn-anim" style="--paint:linear-gradient(90deg,#8A5A00 0%,#E8A317 30%,#FFF3C4 50%,#E8A317 70%,#8A5A00 100%); color:#c28f00">Milena</span>
+    <span class="chat-text"><img class="emote" src="https://cdn.7tv.app/emote/01GAZ199Z8000FEWHS6AT5QZV0/2x.webp" alt=""></span>
+  </div></div>`;
+  const lookDemo = `<div class="tour-visual" style="flex-direction:row; gap:12px; align-items:center">
+    <span class="avatar-mini pfb-goldring" style="background:#3f51b5">M</span>
+    <span class="chat-user paint pn-anim" style="--paint:linear-gradient(90deg,#12C77E,#3B82F6,#8B5CF6,#EC4899,#F5B301,#12C77E); color:#7c6bd8; font-size:1.05rem">Milena</span>
+    <img class="emote" style="height:28px" src="https://cdn.7tv.app/emote/01FE3XY508000AA32JP519W2EW/2x.webp" alt="">
+  </div>`;
   const steps = [
-    { center: true, title: 'Schön, dass du da bist', text: 'kumulio ist deine Spar-App: kuratierte Deals, deine Gutschein-Wallet und deine Leute, alles an einem Ort. Kurze Tour?', cta: 'Zeig mir alles' },
-    { view: 'wallet', sel: '.tabbtn[data-view="wallet"]', title: 'Deine Wallet', text: 'Gutschein fotografieren, Guthaben abbuchen, PIN und Barcode griffbereit. Mit Konto überlebt alles jeden Handywechsel.' },
-    { view: 'feed', sel: '.tabbtn[data-view="feed"]', title: 'Deals und Preisfehler', text: 'Handverlesene Angebote ohne Spam. Preisfehler kommen auf Wunsch als Alarm aufs Handy, bevor sie weg sind.' },
-    { view: 'chat', sel: '.tabbtn[data-view="chat"]', title: 'Chat und Freunde', text: 'Global mitreden oder flüstern: Deals direkt an Freunde schicken, teilen und besprechen.' },
-    { view: 'feed', sel: '#btn-profile-top', title: 'Dein Look', text: 'Spar-Ränge, Container mit Emotes, Namens-Paints, Sticker und Profilrahmen. Alles nur erspielbar, nie für Geld.' },
+    { view: 'wallet', sel: '.tabbtn[data-view="wallet"]', title: 'Deine Wallet', text: 'Gutschein fotografieren, fertig: Guthaben, PIN und Barcode griffbereit, Restsummen immer im Blick.', visual: walletDemo },
+    { view: 'feed', sel: '.tabbtn[data-view="feed"]', title: 'Deals, die sich lohnen', text: 'Preisfehler als Alarm aufs Handy, Neukunden-Deals und Wege, nebenbei etwas zu verdienen.', visual: feedDemo },
+    { view: 'chat', sel: '.tabbtn[data-view="chat"]', title: 'Chat und Freunde', text: 'Global mitreden oder flüstern: Deals direkt an Freunde schicken und zusammen zuschlagen.', visual: chatDemo },
+    { center: true, title: 'Dein Look', text: 'Mit Spar-Aktivität erspielst du Container: Emotes, Namens-Paints, Sticker und Profilrahmen. Nie für Geld.', visual: lookDemo },
     ...(!isStandalone && (uaIOS || uaAndroid) ? [{
       center: true, title: 'Als App auf den Home-Bildschirm', text: uaIOS
         ? 'Tipp unten auf Teilen und wähle „Zum Home-Bildschirm“: Vollbild, schneller Start und der Preisfehler-Alarm funktioniert.'
         : 'Öffne das Browser-Menü und tippe auf „App installieren“: Vollbild und schneller Start.',
       cta: 'Mach ich gleich',
     }] : []),
-    { center: true, final: true, title: 'Bereit?', text: 'Mit Konto sind Wallet, Funken und Fortschritt sicher am Konto, auf jedem Gerät.' },
   ];
   let i = 0;
   const tour = document.createElement('div');
@@ -3221,38 +3294,35 @@ function startTour() {
     <div class="tour-bubble">
       <span class="tour-num">1</span>
       <h3></h3><p></p>
+      <div class="tour-media"></div>
       <div class="tour-btns"></div>
-    </div>
-    <button class="tour-skip">Überspringen</button>`;
+      <button class="tour-alt tour-skip-inline">Tour überspringen</button>
+    </div>`;
   document.body.appendChild(tour);
   const spot = tour.querySelector('.tour-spot');
   const bubble = tour.querySelector('.tour-bubble');
-  const end = openRegister => {
-    localStorage.setItem('ra.tutorialDone', '1');
+  const end = () => {
     tour.classList.add('closing');
     setTimeout(() => tour.remove(), 400);
-    if (openRegister) { switchView('profile'); setTimeout(() => $('#btn-register-open')?.click(), 350); }
   };
-  tour.querySelector('.tour-skip').onclick = () => end(false);
+  tour.querySelector('.tour-skip-inline').onclick = () => {
+    localStorage.setItem('ra.tutorialDone', '1');
+    end();
+  };
   const show = () => {
     const s = steps[i];
     if (s.view && state.activeView !== s.view) switchView(s.view);
     tour.querySelector('.tour-num').textContent = i + 1;
     tour.querySelector('h3').textContent = s.title;
     tour.querySelector('p').textContent = s.text;
+    tour.querySelector('.tour-media').innerHTML = s.visual || '';
     const btns = tour.querySelector('.tour-btns');
-    btns.innerHTML = s.final
-      ? `<button class="btn btn-big" data-t="register">Konto erstellen</button>
-         <button class="tour-alt" data-t="login">Schon angemeldet? Einloggen</button>
-         <button class="tour-alt" data-t="guest">Ohne Konto weiter</button>`
-      : `<button class="btn btn-big" data-t="next">${s.cta || 'Weiter'}</button>`;
-    btns.querySelectorAll('[data-t]').forEach(b => b.onclick = () => {
-      const t = b.dataset.t;
-      if (t === 'next') { i++; i < steps.length ? show() : end(false); return; }
-      if (t === 'register') { end(true); return; }
-      if (t === 'login') { end(false); switchView('profile'); return; }
-      end(false);
-    });
+    btns.innerHTML = `<button class="btn btn-big" data-t="next">${s.cta || 'Weiter'}</button>`;
+    btns.querySelector('[data-t]').onclick = () => {
+      i++;
+      if (i < steps.length) show();
+      else { end(); showTourFinale(); }
+    };
     requestAnimationFrame(() => {
       const el = s.sel && document.querySelector(s.sel);
       if (el && !s.center) {
@@ -3262,14 +3332,16 @@ function startTour() {
         spot.style.left = (cx - r) + 'px';
         spot.style.top = (cy - r) + 'px';
         spot.style.width = spot.style.height = (r * 2) + 'px';
-        // Bubble weicht dem Kreis aus: unten verankerte Ziele kriegen sie oben
+        // Bubble weicht dem Kreis aus und zoomt aus seiner Richtung heran
         const below = cy < innerHeight / 2;
-        bubble.style.top = below ? Math.min(innerHeight - 260, cy + r + 18) + 'px' : '';
+        bubble.style.top = below ? Math.min(innerHeight - 320, cy + r + 18) + 'px' : '';
         bubble.style.bottom = below ? '' : Math.min(innerHeight - 120, innerHeight - cy + r + 18) + 'px';
+        bubble.style.transformOrigin = below ? 'center top' : 'center bottom';
       } else {
-        spot.style.left = '50%'; spot.style.top = '46%';
+        spot.style.left = '50%'; spot.style.top = '42%';
         spot.style.width = spot.style.height = '0px';
-        bubble.style.top = ''; bubble.style.bottom = '';
+        bubble.style.top = '30%'; bubble.style.bottom = '';
+        bubble.style.transformOrigin = 'center center';
       }
       bubble.classList.remove('pop');
       void bubble.offsetWidth;
@@ -3279,10 +3351,7 @@ function startTour() {
   show();
 }
 
-$('#ob-next').addEventListener('click', () => {
-  if (obStep < OB_STEPS.length - 1) { obStep++; renderObStep(); }
-  else finishOnboarding(true);
-});
+// (Der Karten-Stepper ist Geschichte: Begrüßung + Tour übernehmen)
 $('#ob-skip').addEventListener('click', () => finishOnboarding(false));
 $('#btn-wallet-login').addEventListener('click', () => switchView('profile'));
 
