@@ -56,7 +56,7 @@ const fmtFunken = n => (Math.round(Number(n)) || 0).toLocaleString('de-DE');
 const funkeIcon = (small = false) =>
   `<img class="px-icon${small ? ' px-16' : ''}" src="${small ? '/gamification/currency-funke-16.svg' : CUR.icon}" alt="${CUR.name}">`;
 
-const VIEW_ORDER = ['wallet', 'feed', 'chat', 'search', 'profile', 'settings', 'friends', 'user', 'inventory', 'shop', 'editprofile'];
+const VIEW_ORDER = ['wallet', 'feed', 'chat', 'search', 'profile', 'settings', 'friends', 'user', 'inventory', 'shop', 'gifts', 'editprofile'];
 const FEED_LIMIT = 40;
 
 // Menüpunkte oben: Sparen / Verdienen / Neukunden / Coupons.
@@ -273,6 +273,7 @@ function switchView(next, animClass) {
   if (next === 'friends') renderFriendsView();
   if (next === 'inventory') renderInventoryPage();
   if (next === 'shop') renderShopPage();
+  if (next === 'gifts') renderGiftsPage();
   if (next !== 'wallet') $('#wallet-mini')?.classList.remove('show');
   document.body.classList.toggle('chat-locked', next === 'chat');
   if (next !== 'chat') document.body.style.transform = ''; // Tastatur-Versatz zurücksetzen
@@ -294,6 +295,7 @@ $('#btn-friends-back').addEventListener('click', () => switchView('profile', 'en
 $('#btn-user-back').addEventListener('click', () => switchView(userPageReturn, 'enter-drop'));
 $('#btn-inv-back').addEventListener('click', () => switchView('profile', 'enter-drop'));
 $('#btn-shop-back').addEventListener('click', () => switchView('profile', 'enter-drop'));
+$('#btn-gifts-back').addEventListener('click', () => switchView('profile', 'enter-drop'));
 $('#btn-edit-back').addEventListener('click', () => switchView('profile', 'enter-drop'));
 
 // ---- Freunde-Bereich: Liste mit Profilbild, Profil ansehen oder schreiben
@@ -1386,6 +1388,7 @@ function refreshProfileTab() {
     btn.className = 'iconbtn';
     btn.innerHTML = `<span class="avatar-mini">${esc(state.userName[0].toUpperCase())}</span>`;
     btn.setAttribute('aria-label', 'Profil: ' + state.userName);
+    updateGiftBadges(); // innerHTML-Tausch wirft den Geschenk-Punkt sonst raus
   } else {
     btn.className = 'btn-auth';
     btn.textContent = 'Anmelden';
@@ -1468,7 +1471,10 @@ async function refreshGami() {
   }).join('') : '';
   renderFavPickers();
   // Topbar-Avatar: Profilbild statt Initiale + roter Punkt bei Anfragen
-  if (myProfile.avatar && state.token) $('#btn-profile-top').innerHTML = `<img class="avatar-mini avatar-img" src="${myProfile.avatar}" alt="">`;
+  if (myProfile.avatar && state.token) {
+    $('#btn-profile-top').innerHTML = `<img class="avatar-mini avatar-img" src="${myProfile.avatar}" alt="">`;
+    updateGiftBadges(); // der Avatar-Tausch wirft den Geschenk-Punkt sonst raus
+  }
   updateReqDot();
   refreshGamiSystem();
 }
@@ -2376,6 +2382,7 @@ function toggleTopMenu() {
     <button class="tm-item" id="tm-shop">${icon('banknote', 'icon icon-sm')} Container-Shop</button>
     <button class="tm-item" id="tm-catalog">${icon('list', 'icon icon-sm')} Sammlung</button>
     <button class="tm-item" id="tm-quests">${icon('trophy', 'icon icon-sm')} Quests ${(gami?.claimable || []).length ? `<span class="dm-unread-pill">${gami.claimable.length}</span>` : ''}</button>
+    <button class="tm-item" id="tm-gifts">${icon('gift', 'icon icon-sm')} Geschenke ${pendingGifts.length ? `<span class="dm-unread-pill">${pendingGifts.length}</span>` : ''}</button>
     <button class="tm-item" id="tm-favs">${icon('star', 'icon icon-sm')} Favoriten</button>
     <button class="tm-item" id="tm-settings">${icon('sliders', 'icon icon-sm')} Einstellungen</button>`;
   menu.classList.remove('hidden');
@@ -2394,6 +2401,7 @@ function toggleTopMenu() {
       f.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 400);
   };
+  $('#tm-gifts').onclick = () => { done(); switchView('gifts', 'enter-drop'); };
   $('#tm-favs').onclick = () => {
     done();
     state.activeChip = 'saved';
@@ -2990,28 +2998,63 @@ async function pullWallet() {
     state.wallet.cards = mergeById(state.wallet.cards, remote.cards);
     ensureWalletDates(); // auch vom Konto gezogene Alt-Gutscheine kriegen ein Datum
     saveWallet(); // lokal sichern + Mergestand zurück zum Server
-    // Geschenke werden NICHT still eingebucht: sie warten in der Auspack-Schlange.
-    // Erst nach der Öffnungs-Zeremonie wandert der Gutschein in die Wallet und
-    // wird beim Server abgehakt — bricht man ab, bleibt er serverseitig liegen.
-    const neu = (remote.gifts || []).filter(g => !state.wallet.vouchers.some(v => v.id === g.id));
-    if (neu.length) queueGiftReveals(neu);
+    // Geschenke werden NICHT still eingebucht: sie warten auf der Geschenkseite,
+    // bis der Empfänger sie dort auspackt. Erst die Öffnungs-Zeremonie bucht den
+    // Gutschein ein und hakt ihn beim Server ab — bis dahin bleibt er serverseitig.
+    const serverGifts = (remote.gifts || []).filter(g => !state.wallet.vouchers.some(v => v.id === g.id));
+    const fresh = serverGifts.filter(g => !pendingGifts.some(p => p.id === g.id));
+    pendingGifts = serverGifts;
+    updateGiftBadges();
+    if (state.activeView === 'gifts') renderGiftsPage();
+    if (fresh.length) {
+      playSfx('plop'); buzz([30, 30]);
+      const g = fresh[0];
+      showToast({
+        title: fresh.length === 1 ? `Geschenk von @${g.giftFrom}!` : `${fresh.length} neue Geschenke!`,
+        text: 'Es wartet auf der Geschenkseite auf dich.',
+        iconName: 'gift', success: true,
+        actions: [{ label: 'Auspacken', fn: () => switchView('gifts', 'enter-drop') }],
+      }, 9000);
+    }
   } catch { }
 }
 
-// ---- Geschenk-Zeremonie: Box wackelt, Antippen packt aus, Ergebnis mit Nachricht.
-// Mehrere Geschenke nacheinander; claim erst NACH der Animation (Abbruch-sicher).
-let giftQueue = [];
-let giftRevealOpen = false;
-function queueGiftReveals(giftsList) {
-  const known = new Set(giftQueue.map(g => g.id));
-  giftsList.forEach(g => { if (!known.has(g.id)) giftQueue.push(g); });
-  if (!giftRevealOpen) nextGiftReveal();
+// ---- Geschenke warten auf einer eigenen Seite (Dropdown: "Geschenke"), bis man
+// sie auspackt. Zähler-Pill im Menü + Punkt am Profil-Knopf zeigen den Vorrat.
+let pendingGifts = [];
+function updateGiftBadges() {
+  const btn = $('#btn-profile-top');
+  if (!btn) return;
+  let dot = btn.querySelector('.gift-dot');
+  if (pendingGifts.length) {
+    if (!dot) {
+      dot = document.createElement('span');
+      dot.className = 'gift-dot';
+      btn.appendChild(dot);
+    }
+    dot.textContent = pendingGifts.length;
+  } else if (dot) dot.remove();
 }
-function nextGiftReveal() {
-  const gift = giftQueue.shift();
-  if (!gift) { giftRevealOpen = false; return; }
-  giftRevealOpen = true;
-  openGiftReveal(gift);
+function renderGiftsPage() {
+  const host = $('#gifts-page');
+  if (!host) return;
+  if (!pendingGifts.length) {
+    host.innerHTML = `<div class="status">Gerade wartet hier kein Geschenk. Schau später wieder vorbei!</div>`;
+    return;
+  }
+  host.innerHTML = pendingGifts.map(g => `
+    <button class="gift-row" data-gift-open="${esc(g.id)}">
+      <img class="px-icon gift-row-img" src="/gamification/gift.svg" alt="">
+      <span class="gift-row-info">
+        <b>Von @${esc(g.giftFrom)}</b>
+        <span class="muted">${g.giftTs ? new Date(g.giftTs).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' }) + ', ' + new Date(g.giftTs).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+      </span>
+      <span class="btn btn-small">Auspacken</span>
+    </button>`).join('');
+  host.querySelectorAll('[data-gift-open]').forEach(b => b.onclick = () => {
+    const gift = pendingGifts.find(g => g.id === b.dataset.giftOpen);
+    if (gift) openGiftReveal(gift);
+  });
 }
 function openGiftReveal(gift) {
   const wrap = document.createElement('div');
@@ -3033,13 +3076,10 @@ function openGiftReveal(gift) {
   document.body.appendChild(wrap);
   let opened = false;
   const abort = () => {
-    // Nach dem Auspacken ist das Geschenk schon eingebucht: einfach weiter
-    if (opened) { wrap.remove(); nextGiftReveal(); return; }
-    // Vor dem Auspacken abgebrochen: Geschenk bleibt serverseitig liegen und
-    // wird beim nächsten Start erneut angeboten
+    // Nach dem Auspacken ist das Geschenk schon eingebucht: einfach schließen.
+    // Vor dem Auspacken abgebrochen: es bleibt serverseitig und auf der
+    // Geschenkseite liegen und kann jederzeit wieder angetippt werden.
     wrap.remove();
-    giftQueue = [];
-    giftRevealOpen = false;
   };
   wrap.querySelector('#gr-close').onclick = abort;
   wrap.addEventListener('click', e => { if (e.target === wrap) abort(); });
@@ -3064,7 +3104,9 @@ function openGiftReveal(gift) {
       res.classList.remove('hidden');
       if (!reducedMotion()) res.classList.add('fade-up');
     }, reducedMotion() ? 0 : 430);
-    // Jetzt gilt es als geöffnet: in die Wallet, sichern, DANN claimen
+    // Jetzt gilt es als geöffnet: aus dem Vorrat, in die Wallet, sichern, DANN claimen
+    pendingGifts = pendingGifts.filter(g => g.id !== gift.id);
+    updateGiftBadges();
     state.wallet.vouchers.unshift({ ...gift, added: Date.now(), giftSeen: true });
     ensureWalletDates();
     saveWallet();
@@ -3075,7 +3117,7 @@ function openGiftReveal(gift) {
   wrap.addEventListener('click', e => {
     if (e.target.id === 'gr-done') {
       wrap.remove();
-      nextGiftReveal(); // das nächste Geschenk, falls noch eins wartet
+      if (state.activeView === 'gifts') renderGiftsPage(); // das nächste wartet in der Liste
     }
   });
 }

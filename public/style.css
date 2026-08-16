@@ -2511,3 +2511,26 @@ body:has(.sheet.open) {
 }
 .gift-stage { padding: 26px 20px 24px; }
 .gift-stage .fav-remove { position: absolute; top: 8px; right: 8px; z-index: 4; }
+
+/* Geschenkseite: wartende Geschenke als antippbare Zeilen */
+.gift-row {
+  display: flex; align-items: center; gap: 14px; width: 100%;
+  background: var(--surface); border: 1px solid var(--stroke-light);
+  border-radius: 18px; padding: 14px 16px; margin-bottom: 10px;
+  cursor: pointer; text-align: left; font: inherit; color: inherit;
+}
+.gift-row:active { transform: scale(.98); }
+.gift-row-img { width: 44px; height: 44px; }
+.gift-row-info { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.gift-row-info .muted { font-size: .76rem; }
+.gift-row .btn-small { pointer-events: none; }
+
+/* Zähler-Punkt am Profil-Knopf oben rechts: da wartet etwas */
+#btn-profile-top { position: relative; }
+.gift-dot {
+  position: absolute; top: -3px; right: -3px; min-width: 17px; height: 17px;
+  border-radius: 999px; background: #EC4899; color: #fff;
+  font-size: .64rem; font-weight: 800; line-height: 17px; text-align: center;
+  padding: 0 4px; pointer-events: none;
+  box-shadow: 0 0 0 2px var(--bg, #fff);
+}
