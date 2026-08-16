@@ -459,6 +459,9 @@ async function loadFeed() {
   try {
     const data = await api('/api/deals?channels=' + state.channels.map(c => c.slug).join(','));
     state.deals = data.deals;
+    let starsSynced = false;
+    state.deals.forEach(d => { if (d.myRating && state.stars[d.id] !== d.myRating) { state.stars[d.id] = d.myRating; starsSynced = true; } });
+    if (starsSynced) save('stars', state.stars);
     const errSlugs = Object.keys(data.errors || {});
     if (errSlugs.length) {
       island(`${errSlugs.map(s => channelBySlug(s)?.name || s).join(', ')} gerade nicht erreichbar`);
@@ -488,13 +491,14 @@ function quality(d) {
   return d.ratingCount ? (d.rating || 0) / 5 : null;
 }
 
-// Sterne-Anzeige: ★★★★☆ 4.2 (12)
+// Sterne-Anzeige: ★★★★☆ 4.2 (12) — die eigene Bewertung faerbt golden
 function renderStars(d) {
   const avg = d.rating || 0;
-  const full = Math.round(avg);
+  const mine = state.stars[d.id] || 0;
+  const full = mine || Math.round(avg);
   return `
-    <span class="stars">
-      ${[1, 2, 3, 4, 5].map(i => icon('star', 'icon' + (i <= full && d.ratingCount ? ' on' : ''))).join('')}
+    <span class="stars ${mine ? 'rated' : ''}" title="${mine ? 'Deine Bewertung: ' + mine + ' von 5' : ''}">
+      ${[1, 2, 3, 4, 5].map(i => icon('star', 'icon' + (i <= full && (mine || d.ratingCount) ? ' on' : ''))).join('')}
       ${d.ratingCount ? `<span class="stars-value">${avg.toFixed(1)}</span> <span class="stars-count">(${d.ratingCount})</span>` : ''}
     </span>`;
 }
@@ -807,6 +811,46 @@ function endDrag() {
 $('#feed').addEventListener('pointerup', endDrag);
 $('#feed').addEventListener('pointercancel', endDrag);
 
+// Deal als Fluesternachricht an einen Freund: kompakte Karte im Chat,
+// antippen oeffnet den Deal
+function sendDealToFriend(d) {
+  if (!state.token) { island('Zum Schicken bitte anmelden'); return; }
+  const friends = myProfile?.friends || [];
+  if (!friends.length) { island('Noch keine Freunde zum Schicken'); return; }
+  const wrap = document.createElement('div');
+  wrap.className = 'overlay';
+  wrap.innerHTML = `<div class="modal modal-left">
+    <h2 class="card-h">An wen schicken?</h2>
+    <div class="wallet-filters" style="margin-top:8px">${friends.map(f => `<button class="chip" data-send-to="${esc(f)}">@${esc(f)}</button>`).join('')}</div>
+  </div>`;
+  document.body.appendChild(wrap);
+  wrap.addEventListener('click', async e => {
+    const b = e.target.closest('[data-send-to]');
+    if (!b && e.target !== wrap) return;
+    if (b) {
+      try {
+        await api('/api/dm/send', { method: 'POST', body: JSON.stringify({ to: b.dataset.sendTo, text: `[deal:${d.id}] ${d.title.slice(0, 90)}` }) });
+        island(`An @${b.dataset.sendTo} geschickt`); playSfx('plop');
+      } catch (err) { island(err.message); }
+    }
+    wrap.remove();
+  });
+}
+// Nachrichtentext: der [deal:id]-Marker wird zur antippbaren Deal-Karte
+function chatBodyHtml(text) {
+  const dl = String(text).match(/^\[deal:([a-z0-9]+)\]\s*(.*)$/i);
+  if (dl) {
+    return `<button class="deal-chip" data-open-deal="${esc(dl[1])}">${icon('tag', 'icon icon-sm')} <span>${esc(dl[2] || 'Deal ansehen')}</span> ${icon('arrow-right', 'icon icon-sm')}</button>`;
+  }
+  return withEmotes(esc(text));
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-open-deal]');
+  if (!b) return;
+  const d = state.deals.find(x => x.id === b.dataset.openDeal);
+  if (d) openDealSheet(d);
+  else island('Dieser Deal ist nicht mehr im Feed');
+});
 async function shareDeal(d) {
   const shareUrl = d.dealUrl || d.sourceUrl || location.href;
   try {
@@ -1105,6 +1149,7 @@ function openDealSheet(deal) {
       ${c ? `<span class="pill">${icon(c.icon, 'icon icon-sm')} ${esc(c.name)}</span>` : ''}
       <span class="pill">${esc(timeAgo(d.ts))}</span>
       ${flags}
+      <button class="btn-share" id="btn-sheet-send" aria-label="An Freund schicken">${icon('send')}</button>
       <button class="btn-share" id="btn-sheet-share" aria-label="Teilen">${icon('share')}</button>
     </div>
     ${state.role === 'admin' && d.source === 'community' ? `
@@ -1164,6 +1209,7 @@ function openDealSheet(deal) {
     $('#desc-more').textContent = collapsed ? 'Mehr anzeigen' : 'Weniger anzeigen';
   });
   $('#btn-sheet-share')?.addEventListener('click', () => shareDeal(d));
+  $('#btn-sheet-send')?.addEventListener('click', () => sendDealToFriend(d));
   $('#btn-deal-edit')?.addEventListener('click', () => openAdminPost(d));
   $('#btn-sheet-fav').addEventListener('click', () => {
     toggleFav(d.id);
@@ -2977,6 +3023,12 @@ $('#btn-register').addEventListener('click', async () => {
     $('#reg-pass').value = '';
     authOk(r, { welcome: true });
     if (state.activeView !== 'profile') switchView('profile');
+    // Direkt nach dem Konto: Mitteilungen anbieten (Preisfehler-Alarm, Nachrichten)
+    setTimeout(async () => {
+      if (await askConfirm('Sollen Preisfehler-Alarm und Nachrichten von Freunden als Mitteilung aufs Handy kommen?', { okLabel: 'Mitteilungen erlauben' })) {
+        try { await enablePushNow(); island('Mitteilungen sind aktiv!'); } catch (e2) { island(e2.message); }
+      }
+    }, 700);
   } catch (e) {
     msg.className = 'form-msg error'; msg.textContent = e.message;
     renderTurnstile('reg');
@@ -3136,15 +3188,95 @@ function finishOnboarding(openRegister) {
 
 function maybeShowOnboarding() {
   if (localStorage.getItem('ra.tutorialDone')) return;
-  // Der Session-Splash entfällt, das Onboarding trägt den Markenmoment (kumulio-Punkt fällt)
-  obStep = 0;
+  // Markenmoment (Logo faellt), dann uebernimmt die interaktive Tour ueber der ECHTEN App
   $('#onboard').classList.remove('hidden');
-  // Logo-Animation ausspielen, dann nach oben rutschen und begrüßen
   setTimeout(() => {
-    $('#onboard').classList.add('step');
-    renderObStep();
-    $('#ob-content').classList.remove('hidden');
+    $('#onboard').classList.add('done');
+    setTimeout(() => { $('#onboard').classList.add('hidden'); startTour(); }, 520);
   }, 1600);
+}
+
+// ---- Interaktive Tour: Spotlight wandert ueber die echte App, Hinweise in
+// Kreis-Bubbles, alles andere ist abgedunkelt. Kein Karten-Gespamme mehr.
+function startTour() {
+  const steps = [
+    { center: true, title: 'Schön, dass du da bist', text: 'kumulio ist deine Spar-App: kuratierte Deals, deine Gutschein-Wallet und deine Leute, alles an einem Ort. Kurze Tour?', cta: 'Zeig mir alles' },
+    { view: 'wallet', sel: '.tabbtn[data-view="wallet"]', title: 'Deine Wallet', text: 'Gutschein fotografieren, Guthaben abbuchen, PIN und Barcode griffbereit. Mit Konto überlebt alles jeden Handywechsel.' },
+    { view: 'feed', sel: '.tabbtn[data-view="feed"]', title: 'Deals und Preisfehler', text: 'Handverlesene Angebote ohne Spam. Preisfehler kommen auf Wunsch als Alarm aufs Handy, bevor sie weg sind.' },
+    { view: 'chat', sel: '.tabbtn[data-view="chat"]', title: 'Chat und Freunde', text: 'Global mitreden oder flüstern: Deals direkt an Freunde schicken, teilen und besprechen.' },
+    { view: 'feed', sel: '#btn-profile-top', title: 'Dein Look', text: 'Spar-Ränge, Container mit Emotes, Namens-Paints, Sticker und Profilrahmen. Alles nur erspielbar, nie für Geld.' },
+    ...(!isStandalone && (uaIOS || uaAndroid) ? [{
+      center: true, title: 'Als App auf den Home-Bildschirm', text: uaIOS
+        ? 'Tipp unten auf Teilen und wähle „Zum Home-Bildschirm“: Vollbild, schneller Start und der Preisfehler-Alarm funktioniert.'
+        : 'Öffne das Browser-Menü und tippe auf „App installieren“: Vollbild und schneller Start.',
+      cta: 'Mach ich gleich',
+    }] : []),
+    { center: true, final: true, title: 'Bereit?', text: 'Mit Konto sind Wallet, Funken und Fortschritt sicher am Konto, auf jedem Gerät.' },
+  ];
+  let i = 0;
+  const tour = document.createElement('div');
+  tour.id = 'tour';
+  tour.innerHTML = `
+    <div class="tour-spot"></div>
+    <div class="tour-bubble">
+      <span class="tour-num">1</span>
+      <h3></h3><p></p>
+      <div class="tour-btns"></div>
+    </div>
+    <button class="tour-skip">Überspringen</button>`;
+  document.body.appendChild(tour);
+  const spot = tour.querySelector('.tour-spot');
+  const bubble = tour.querySelector('.tour-bubble');
+  const end = openRegister => {
+    localStorage.setItem('ra.tutorialDone', '1');
+    tour.classList.add('closing');
+    setTimeout(() => tour.remove(), 400);
+    if (openRegister) { switchView('profile'); setTimeout(() => $('#btn-register-open')?.click(), 350); }
+  };
+  tour.querySelector('.tour-skip').onclick = () => end(false);
+  const show = () => {
+    const s = steps[i];
+    if (s.view && state.activeView !== s.view) switchView(s.view);
+    tour.querySelector('.tour-num').textContent = i + 1;
+    tour.querySelector('h3').textContent = s.title;
+    tour.querySelector('p').textContent = s.text;
+    const btns = tour.querySelector('.tour-btns');
+    btns.innerHTML = s.final
+      ? `<button class="btn btn-big" data-t="register">Konto erstellen</button>
+         <button class="tour-alt" data-t="login">Schon angemeldet? Einloggen</button>
+         <button class="tour-alt" data-t="guest">Ohne Konto weiter</button>`
+      : `<button class="btn btn-big" data-t="next">${s.cta || 'Weiter'}</button>`;
+    btns.querySelectorAll('[data-t]').forEach(b => b.onclick = () => {
+      const t = b.dataset.t;
+      if (t === 'next') { i++; i < steps.length ? show() : end(false); return; }
+      if (t === 'register') { end(true); return; }
+      if (t === 'login') { end(false); switchView('profile'); return; }
+      end(false);
+    });
+    requestAnimationFrame(() => {
+      const el = s.sel && document.querySelector(s.sel);
+      if (el && !s.center) {
+        const rct = el.getBoundingClientRect();
+        const r = Math.max(rct.width, rct.height) / 2 + 16;
+        const cx = rct.left + rct.width / 2, cy = rct.top + rct.height / 2;
+        spot.style.left = (cx - r) + 'px';
+        spot.style.top = (cy - r) + 'px';
+        spot.style.width = spot.style.height = (r * 2) + 'px';
+        // Bubble weicht dem Kreis aus: unten verankerte Ziele kriegen sie oben
+        const below = cy < innerHeight / 2;
+        bubble.style.top = below ? Math.min(innerHeight - 260, cy + r + 18) + 'px' : '';
+        bubble.style.bottom = below ? '' : Math.min(innerHeight - 120, innerHeight - cy + r + 18) + 'px';
+      } else {
+        spot.style.left = '50%'; spot.style.top = '46%';
+        spot.style.width = spot.style.height = '0px';
+        bubble.style.top = ''; bubble.style.bottom = '';
+      }
+      bubble.classList.remove('pop');
+      void bubble.offsetWidth;
+      bubble.classList.add('pop');
+    });
+  };
+  show();
 }
 
 $('#ob-next').addEventListener('click', () => {
@@ -5442,9 +5574,9 @@ function chatMsgHtml(m) {
   // Maximal EIN Abzeichen neben dem Rang: das getragene Badge schlägt das Rollen-Icon
   const insignia = badge || role;
   chatSeenUsers.add(m.user);
-  // Emotes zuerst, dann @Erwähnungen klickbar machen
-  let body = withEmotes(esc(m.text));
-  body = body.replace(/@([A-Za-z0-9_.-]{3,24})/g, '<button class="mention" data-user="$1">@$1</button>');
+  // Emotes zuerst, dann @Erwähnungen klickbar machen; Deal-Marker wird zur Karte
+  let body = chatBodyHtml(m.text);
+  if (!body.startsWith('<button class="deal-chip')) body = body.replace(/@([A-Za-z0-9_.-]{3,24})/g, '<button class="mention" data-user="$1">@$1</button>');
   return `<div class="chat-msg ${m.user === state.userName ? 'own' : ''}" data-mid="${esc(m.id)}">
     ${rankImg}${insignia}<span class="chat-user${ns.cls}" style="${ns.style}">${esc(m.user)}</span>
     <span class="chat-text">${body}</span>
@@ -5524,7 +5656,7 @@ function dmMsgHtml(m) {
   const ns = nameStyleOf(m.from, m.paint);
   return `<div class="chat-msg dm-${own ? 'me' : 'them'} ${own ? 'own' : ''}" data-mid="${esc(m.id)}">
     ${rankImg}${badge || role}<span class="chat-user${ns.cls}" style="${ns.style}">${esc(m.from)}</span>
-    <span class="chat-text">${withEmotes(esc(m.text))}</span>
+    <span class="chat-text">${chatBodyHtml(m.text)}</span>
     ${msgMenuHtml(own, m.id)}
   </div>`;
 }
@@ -5818,7 +5950,11 @@ async function renderProfileRatings(user) {
   host.innerHTML = `
     <h3 class="gm-h up-center-h">Profil-Bewertungen ${r.count ? `<span class="stars-count">${String(r.avg).replace('.', ',')} von 5 · ${r.count}</span>` : ''}</h3>
     ${state.token ? `
-    <div class="up-rate-form">
+    <div class="up-rate-line">
+      ${r.mine ? `<span class="up-mine">${starRow(r.mine.stars, false)}</span>` : ''}
+      <button class="chip" id="up-rate-open">${r.mine ? 'Bewertung bearbeiten' : 'Bewertung schreiben'}</button>
+    </div>
+    <div class="up-rate-form collapsed" id="up-rate-form">
       ${starRow(pickedStars, true)}
       <div class="form-row" style="margin-top:8px">
         <input class="input" id="up-rate-text" maxlength="140" placeholder="Kurzer Kommentar (optional)" value="${esc(r.mine?.text || '')}">
@@ -5838,6 +5974,10 @@ async function renderProfileRatings(user) {
       </div>
     </div>`;
   }).join('') : '<div class="status">Noch keine Bewertungen. Sei die erste Stimme!</div>'}`;
+  $('#up-rate-open')?.addEventListener('click', () => {
+    $('#up-rate-form').classList.toggle('collapsed');
+    if (!$('#up-rate-form').classList.contains('collapsed')) $('#up-rate-text')?.focus();
+  });
   host.querySelectorAll('[data-star]').forEach(st => st.onclick = () => {
     pickedStars = Number(st.dataset.star);
     host.querySelectorAll('.star-pick .star').forEach((s, i) => s.classList.toggle('on', i < pickedStars));

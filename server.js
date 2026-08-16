@@ -1030,15 +1030,17 @@ const server = http.createServer(async (req, res) => {
       // Älter als 36 h fliegt raus; Preisfehler > 12 h bzw. Deals > 24 h gelten als "vermutlich vorbei".
       const now = Date.now();
       const H = 3600 * 1000;
+      const dealsViewer = authUser(req); // fuer die eigene Bewertung am Deal
       const withCounts = out
         .filter(d => d.source !== 'mydealz' || now - d.ts < 36 * H)
         .map(d => ({
           ...d,
           stale: (d.source === 'mydealz' && now - d.ts > (d.channel === 'preisfehler' ? 12 : 24) * H)
             || (d.endTs != null && d.endTs < now),
-          comments: (comments[d.id] || []).length,
+          comments: (comments[d.id] || []).filter(c => !c.deleted).length,
           rating: ratings[d.id]?.count ? ratings[d.id].sum / ratings[d.id].count : null,
           ratingCount: ratings[d.id]?.count || 0,
+          myRating: dealsViewer ? (ratings[d.id]?.by || {})[dealsViewer] || 0 : 0,
           clicks: ratings[d.id]?.clicks || 0,
         }));
       return send(res, 200, { deals: withCounts.slice(0, 120), errors });
@@ -2133,10 +2135,15 @@ const server = http.createServer(async (req, res) => {
       if (!stars) return send(res, 400, { error: 'stars (1–5) fehlt.' });
       const r = ratings[dealId] = ratings[dealId] || {};
       r.sum = (r.sum || 0); r.count = (r.count || 0);
-      if (prev && r.count > 0) { r.sum -= prev; r.count -= 1; }
-      r.sum += stars; r.count += 1;
       const rater = authUser(req);
-      if (rater && !prev) { bumpQuest(rater, 'rate'); saveJson('users.json', users); }
+      r.by = r.by || {};
+      // Angemeldet zaehlt die Konto-Historie, nicht der Client: eine zweite
+      // Bewertung ERSETZT die erste statt den Schnitt doppelt zu fuellen
+      const prevEff = rater ? (r.by[rater] || null) : prev;
+      if (rater) r.by[rater] = stars;
+      if (prevEff && r.count > 0) { r.sum -= prevEff; r.count -= 1; }
+      r.sum += stars; r.count += 1;
+      if (rater && !prevEff) { bumpQuest(rater, 'rate'); saveJson('users.json', users); }
       saveJson('ratings.json', ratings);
       return send(res, 200, { rating: r.sum / r.count, ratingCount: r.count });
     }

@@ -2810,3 +2810,68 @@ body:has(.sheet.open) {
 .inv-item.sel-mode.selected { outline: 2px solid var(--accent-strong, #12C77E); }
 .inv-item.sel-mode.selected .sel-check { background: var(--accent-strong, #12C77E); border-color: var(--accent-strong, #12C77E); color: #fff; }
 #inv-sort.active { outline: 2px solid var(--accent-strong, #12C77E); }
+
+/* ================= Runde 55 ================= */
+
+/* Eigene Deal-Bewertung: goldene Sterne signalisieren "schon bewertet" */
+.stars.rated .icon.on { color: #F5B301; fill: #F5B301; }
+.stars-combined .stars-input .icon.on { color: #F5B301; fill: #F5B301; }
+
+/* Deal-Karte im Chat: antippbare Empfehlung */
+.deal-chip {
+  display: inline-flex; align-items: center; gap: 8px; max-width: 100%;
+  background: var(--surface-2); border: 1px solid var(--stroke-light);
+  border-left: 3px solid var(--accent-strong, #12C77E);
+  border-radius: 12px; padding: 8px 12px; margin-top: 2px;
+  font: inherit; font-size: .88rem; font-weight: 650; color: inherit;
+  cursor: pointer; text-align: left;
+}
+.deal-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deal-chip:active { transform: scale(.98); }
+
+/* Profil-Bewertung: schlanke Zeile, Formular klappt weich auf */
+.up-rate-line { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 10px; }
+.up-rate-form {
+  overflow: hidden; max-height: 220px; opacity: 1;
+  transition: max-height .35s ease, opacity .3s ease, margin .35s ease, padding .35s ease;
+}
+.up-rate-form.collapsed { max-height: 0; opacity: 0; margin: 0; padding-top: 0; padding-bottom: 0; border-width: 0; }
+
+/* Interaktive Tour: Spotlight + Kreis-Bubble ueber der echten App */
+#tour { position: fixed; inset: 0; z-index: 600; }
+#tour.closing { opacity: 0; transition: opacity .4s ease; }
+.tour-spot {
+  position: absolute; left: 50%; top: 46%; width: 0; height: 0;
+  border-radius: 999px; pointer-events: none;
+  box-shadow: 0 0 0 200vmax rgba(6, 9, 13, .82), 0 0 24px rgba(18, 199, 126, .35) inset;
+  border: 2px solid rgba(18, 199, 126, .8);
+  transition: all .55s cubic-bezier(.3, 1, .4, 1);
+}
+.tour-bubble {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  top: 38%; width: min(340px, 88vw);
+  background: var(--surface, #fff); color: inherit;
+  border: 1px solid var(--stroke-light); border-radius: 20px;
+  padding: 18px 18px 16px 54px; box-shadow: 0 18px 50px rgba(0, 0, 0, .35);
+}
+.tour-bubble.pop { animation: tourPop .45s cubic-bezier(.3, 1.3, .4, 1); }
+@keyframes tourPop { from { opacity: 0; transform: translateX(-50%) scale(.92) translateY(8px); } }
+.tour-num {
+  position: absolute; left: 14px; top: 16px; width: 28px; height: 28px;
+  border-radius: 999px; background: var(--accent-strong, #12C77E); color: #fff;
+  display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: .85rem;
+}
+.tour-bubble h3 { font-size: 1.02rem; margin-bottom: 4px; }
+.tour-bubble p { font-size: .86rem; line-height: 1.5; color: var(--muted); }
+.tour-btns { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.tour-alt { background: none; border: none; font: inherit; font-size: .82rem; font-weight: 700; color: var(--muted); cursor: pointer; }
+.tour-skip {
+  position: absolute; top: calc(env(safe-area-inset-top, 0px) + 12px); right: 14px;
+  background: rgba(255, 255, 255, .12); color: #fff; border: none;
+  border-radius: 999px; padding: 7px 14px; font: inherit; font-size: .78rem; font-weight: 700;
+  cursor: pointer; backdrop-filter: blur(6px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .tour-spot { transition: none; }
+  .tour-bubble.pop { animation: none; }
+}
