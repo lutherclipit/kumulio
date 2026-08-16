@@ -2151,10 +2151,7 @@ html, body { overflow-x: clip; }
 /* Gesamtguthaben mit Kartenflip zur Statistik.
    Bewusst KEIN preserve-3d: echtes 3D + Milchglas-Karten rastert unscharf und
    die Rückseite scheint durch. Stattdessen: zur Kante drehen, Seite tauschen, zurückdrehen. */
-.balance-flip { margin-bottom: 18px; cursor: pointer; }
-.flip-inner { transition: transform .28s ease-in; }
-.flip-inner.flip-half { transform: perspective(900px) rotateY(88deg); }
-.flip-inner:not(.flip-half) { transition: transform .3s cubic-bezier(.2, .8, .3, 1); }
+.balance-flip { margin-bottom: 18px; cursor: pointer; overflow: visible; }
 .flip-front, .flip-back { margin-bottom: 0 !important; }
 .flip-back {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;

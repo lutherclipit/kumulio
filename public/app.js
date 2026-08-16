@@ -3801,16 +3801,31 @@ $('#balance-flip')?.addEventListener('click', () => {
     $('#balance-card').classList.toggle('hidden', balanceFlipped);
     $('#balance-back').classList.toggle('hidden', !balanceFlipped);
   };
-  if (reducedMotion()) { swap(); return; }
-  // Zur Kante drehen, Seite tauschen, zurückdrehen: kein Durchscheinen, kein Matsch
+  if (reducedMotion() || !$('#flip-inner').animate) { swap(); return; }
+  // Eine DURCHGEHENDE Drehung: bis 90° beschleunigen, Seite tauschen, von -90°
+  // in derselben Richtung weiterdrehen und weich ausrollen. Die Container-Höhe
+  // wird mitanimiert, damit beim Seitenwechsel nichts springt.
   flipBusy = true;
   const inner = $('#flip-inner');
-  inner.classList.add('flip-half');
-  setTimeout(() => {
+  const flip = $('#balance-flip');
+  flip.style.height = flip.offsetHeight + 'px';
+  const a1 = inner.animate(
+    [{ transform: 'perspective(900px) rotateY(0deg)' }, { transform: 'perspective(900px) rotateY(90deg)' }],
+    { duration: 230, easing: 'cubic-bezier(.55, 0, .8, .5)', fill: 'forwards' });
+  a1.onfinish = () => {
     swap();
-    inner.classList.remove('flip-half');
-    setTimeout(() => { flipBusy = false; }, 320);
-  }, 290);
+    const target = balanceFlipped ? $('#balance-back') : $('#balance-card');
+    flip.style.transition = 'height .32s cubic-bezier(.2, .8, .3, 1)';
+    flip.style.height = target.offsetHeight + 'px';
+    const a2 = inner.animate(
+      [{ transform: 'perspective(900px) rotateY(-90deg)' }, { transform: 'perspective(900px) rotateY(0deg)' }],
+      { duration: 340, easing: 'cubic-bezier(.16, .6, .3, 1)', fill: 'forwards' });
+    a2.onfinish = () => {
+      a1.cancel(); a2.cancel();
+      flip.style.transition = ''; flip.style.height = '';
+      flipBusy = false;
+    };
+  };
 });
 
 // ---- Mini-Guthaben: erscheint über dem Menü, sobald die große Karte aus dem Bild ist
