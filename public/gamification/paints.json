@@ -17,6 +17,30 @@
    "fallbackColor": "#6b7686"
   },
   {
+   "id": "schiefer",
+   "name": "Schiefer",
+   "rarity": "common",
+   "drop": 2,
+   "css": "linear-gradient(92deg,#2F3B47 0%,#5A6B7C 55%,#8B96A5 100%)",
+   "fallbackColor": "#5a6b7c"
+  },
+  {
+   "id": "rost",
+   "name": "Rost",
+   "rarity": "common",
+   "drop": 2,
+   "css": "linear-gradient(92deg,#7C2D12 0%,#C2410C 50%,#FDBA74 100%)",
+   "fallbackColor": "#c2410c"
+  },
+  {
+   "id": "sand",
+   "name": "Sand",
+   "rarity": "common",
+   "drop": 2,
+   "css": "linear-gradient(92deg,#A16207 0%,#D6B25E 50%,#F5E7C6 100%)",
+   "fallbackColor": "#a16207"
+  },
+  {
    "id": "mint",
    "name": "Mint",
    "rarity": "uncommon",
@@ -33,6 +57,30 @@
    "fallbackColor": "#3b6fd6"
   },
   {
+   "id": "koralle",
+   "name": "Koralle",
+   "rarity": "uncommon",
+   "drop": 5,
+   "css": "linear-gradient(92deg,#BE123C 0%,#FB7185 55%,#FECDD3 100%)",
+   "fallbackColor": "#e11d48"
+  },
+  {
+   "id": "flieder",
+   "name": "Flieder",
+   "rarity": "uncommon",
+   "drop": 5,
+   "css": "linear-gradient(92deg,#7E22CE 0%,#C084FC 55%,#F3E8FF 100%)",
+   "fallbackColor": "#9333ea"
+  },
+  {
+   "id": "moos",
+   "name": "Moos",
+   "rarity": "uncommon",
+   "drop": 5,
+   "css": "linear-gradient(92deg,#3F6212 0%,#84CC16 60%,#D9F99D 100%)",
+   "fallbackColor": "#65a30d"
+  },
+  {
    "id": "tresorstahl",
    "name": "Tresorstahl",
    "rarity": "rare",
@@ -47,6 +95,32 @@
    "drop": 8,
    "css": "linear-gradient(92deg,#4C1D95 0%,#8B5CF6 50%,#C4B5FD 100%)",
    "fallbackColor": "#8b5cf6"
+  },
+  {
+   "id": "ozean",
+   "name": "Ozean",
+   "rarity": "rare",
+   "drop": 8,
+   "anim": "shimmer",
+   "css": "linear-gradient(100deg,#0C4A6E 0%,#0EA5E9 35%,#67E8F9 50%,#0EA5E9 65%,#0C4A6E 100%)",
+   "fallbackColor": "#0ea5e9"
+  },
+  {
+   "id": "sonnenuntergang",
+   "name": "Sonnenuntergang",
+   "rarity": "rare",
+   "drop": 8,
+   "css": "linear-gradient(92deg,#7C3AED 0%,#EC4899 40%,#F97316 75%,#FDE047 100%)",
+   "fallbackColor": "#ec4899"
+  },
+  {
+   "id": "toxin",
+   "name": "Toxin",
+   "rarity": "rare",
+   "drop": 8,
+   "glow": "#84CC16",
+   "css": "linear-gradient(92deg,#1A2E05 0%,#4ADE80 50%,#BEF264 100%)",
+   "fallbackColor": "#4ade80"
   },
   {
    "id": "goldrausch",
@@ -67,6 +141,36 @@
    "fallbackColor": "#c026d3"
   },
   {
+   "id": "galaxie",
+   "name": "Galaxie",
+   "rarity": "epic",
+   "drop": 9,
+   "anim": "shimmer",
+   "glow": "#8B5CF6",
+   "css": "linear-gradient(100deg,#1E1B4B 0%,#6D28D9 30%,#EC4899 50%,#6D28D9 70%,#1E1B4B 100%)",
+   "fallbackColor": "#7c3aed"
+  },
+  {
+   "id": "magma",
+   "name": "Magma",
+   "rarity": "epic",
+   "drop": 9,
+   "anim": "shimmer",
+   "glow": "#F97316",
+   "css": "linear-gradient(100deg,#450A0A 0%,#DC2626 30%,#FDE047 50%,#DC2626 70%,#450A0A 100%)",
+   "fallbackColor": "#dc2626"
+  },
+  {
+   "id": "aurora",
+   "name": "Aurora",
+   "rarity": "epic",
+   "drop": 9,
+   "anim": "shimmer",
+   "glow": "#12C77E",
+   "css": "linear-gradient(100deg,#052E16 0%,#12C77E 28%,#67E8F9 50%,#8B5CF6 72%,#052E16 100%)",
+   "fallbackColor": "#12c77e"
+  },
+  {
    "id": "prisma",
    "name": "Prisma",
    "rarity": "legendary",
@@ -84,6 +188,16 @@
    "glow": "#F5B301",
    "css": "linear-gradient(100deg,#8A5A00 0%,#F5B301 25%,#FFFFFF 50%,#F5B301 75%,#8A5A00 100%)",
    "fallbackColor": "#c98a00"
+  },
+  {
+   "id": "hypernova",
+   "name": "Hypernova",
+   "rarity": "legendary",
+   "drop": 10,
+   "anim": "holo",
+   "glow": "#67E8F9",
+   "css": "linear-gradient(100deg,#FFFFFF 0%,#67E8F9 25%,#EC4899 50%,#8B5CF6 75%,#FFFFFF 100%)",
+   "fallbackColor": "#38bdf8"
   }
  ],
  "rarity": {

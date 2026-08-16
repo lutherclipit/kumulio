@@ -29,6 +29,7 @@
   <!-- Icon-Sprite (SF-Symbols-Stil, stroke = currentColor) -->
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
     <defs>
+      <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3M12 14v2.5"/></symbol>
       <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></symbol>
       <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2.5L4.5 13.5h6l-1.5 8L17.5 10.5h-6z"/></symbol>
       <symbol id="i-gift" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M12 10v10M4 14.5h16M8.5 10c-2 0-3-1.2-3-2.2C5.5 6.5 7 6 8.2 6.7 9.5 7.4 12 10 12 10s2.5-2.6 3.8-3.3C17 6 18.5 6.5 18.5 7.8c0 1-1 2.2-3 2.2"/></symbol>
@@ -165,6 +166,7 @@
         <div class="form-row" style="margin-top:10px; align-items:center">
           <span class="coin-chip"><img class="px-icon" src="/gamification/currency-funke.svg" alt="Funken"> <b id="g-coins">0</b>&nbsp;Funken</span>
           <button id="g-daily" class="btn btn-small">Daily abholen</button>
+          <button id="gm-inv-open" class="btn btn-small btn-ghost"><svg class="icon icon-sm"><use href="#i-gift"/></svg> Inventar</button>
           <button class="iconbtn info-btn" id="gm-rank-info" aria-label="Wie sammle ich Punkte?">
             <svg class="icon icon-sm"><use href="#i-bulb"/></svg>
           </button>
@@ -270,6 +272,7 @@
         <button class="chip" data-invf="badge">Badges</button>
         <button class="chip" data-invf="emote">Emotes</button>
         <button class="chip" data-invf="sticker">Sticker</button>
+        <button class="chip" data-invf="border">Rahmen</button>
       </div>
       <div id="inv-page" style="margin-top:12px"></div>
     </section>

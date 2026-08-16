@@ -204,7 +204,7 @@ function showToast({ title, text, iconName = 'star', actions = [], success = fal
   const successMark = success && window.KBrand ? window.KBrand.successMarkHTML() : '';
   t.innerHTML = `
     <div class="toast-head">${successMark || icon(iconName)} ${esc(title)}</div>
-    ${text ? `<div class="toast-text">${esc(text)}</div>` : ''}
+    ${text ? `<div class="toast-text">${withEmotes(esc(text))}</div>` : ''}
     ${actions.length ? `<div class="toast-actions">${actions.map((a, i) =>
       `<button class="btn ${a.ghost ? 'btn-ghost' : ''}" data-action="${i}">${esc(a.label)}</button>`).join('')}</div>` : ''}`;
   t.querySelectorAll('[data-action]').forEach(btn => {
@@ -1182,7 +1182,7 @@ function openDealSheet(deal) {
 // Ein Kommentar mit Badge, Reaktionen (Like/Hilfreich/Emote), Antworten und Löschen
 function commentHtml(c, replies) {
   if (c.deleted) {
-    return `<div class="comment"><div class="comment-text chat-deleted">Kommentar gelöscht</div>
+    return `<div class="comment comment-tomb"><div class="comment-text chat-deleted">${icon('x', 'icon icon-sm')} Kommentar entfernt</div>
       ${replies.map(r => commentHtml(r, [])).join('')}</div>`;
   }
   const badge = c.badge && chatBadges[c.badge]
@@ -1192,10 +1192,18 @@ function commentHtml(c, replies) {
   const mine = k => (rx[k] || []).includes(state.userName);
   const emoteRx = Object.keys(rx).filter(k => k !== 'like' && k !== 'helpful');
   const canDelete = state.userName === c.user || ['admin', 'mod'].includes(state.role);
+  // Jeder Kommentar traegt den Look seines Autors: Avatar mit Rahmen, Paint-Name,
+  // Badge — der Server liefert den jeweils AKTUELLEN Stand mit
+  const ns = nameStyleOf(c.user, c.paint);
+  const ava = c.avatar
+    ? `<img class="avatar-mini avatar-img c-ava pfb-${esc(c.border || 'none')}" src="${c.avatar}" alt="">`
+    : `<span class="avatar-mini c-ava pfb-${esc(c.border || 'none')}" style="background:${chatColor(c.user)}">${esc(c.user[0].toUpperCase())}</span>`;
   return `
     <div class="comment" data-cid="${esc(c.id)}">
       <div class="comment-head">
-        ${role}${badge}<span class="comment-user" style="color:${chatColor(c.user)}">@${esc(c.user)}</span>
+        ${ava}
+        <span class="comment-user${ns.cls}" style="${ns.style}">@${esc(c.user)}</span>
+        ${badge || role}
         <span class="comment-time">${esc(timeAgo(c.ts))}</span>
         ${(c.flags || []).map(f => `<span class="pill pill-warn">${icon('warning', 'icon icon-sm')} ${esc(f)}</span>`).join('')}
       </div>
@@ -1441,9 +1449,10 @@ async function refreshGami() {
   // Profil so zeigen, wie Besucher es sehen
   const rank = rankFor(renderWallet.lastTotal || 0);
   $('#g-rank-row').innerHTML = `<span class="rank-chip">${esc(rank.name)}</span>`;
+  const myBorder = gami?.activeBorder ? ` pfb-${gami.activeBorder}` : '';
   $('#me-avatar').innerHTML = myProfile.avatar
-    ? `<img class="avatar-big" src="${myProfile.avatar}" alt="">`
-    : `<span class="avatar-big" style="background:${chatColor(state.userName || '?')}">${esc((state.userName || '?')[0].toUpperCase())}</span>`;
+    ? `<img class="avatar-big${myBorder}" src="${myProfile.avatar}" alt="">`
+    : `<span class="avatar-big${myBorder}" style="background:${chatColor(state.userName || '?')}">${esc((state.userName || '?')[0].toUpperCase())}</span>`;
   $('#me-bio').textContent = myProfile.bio || 'Noch keine Bio. Erzähl kurz, wer du bist!';
   // Lieblings-Sachen als Marken-Logos, wo wir das Logo kennen
   const mf = myProfile.favs || {};
@@ -1492,6 +1501,7 @@ function animateInt(el, from, to, ms = 600) {
   requestAnimationFrame(tick);
 }
 $('#g-daily').addEventListener('click', async () => {
+  if ($('#g-daily').disabled) return;
   const m = $('#g-msg');
   setBtnLoading($('#g-daily'), true);
   try {
@@ -1501,16 +1511,42 @@ $('#g-daily').addEventListener('click', async () => {
     m.className = 'form-msg ok';
     m.textContent = `+${fmtFunken(r.gained)} Funken! Serie: ${r.streak} Tag${r.streak > 1 ? 'e' : ''}.${r.caseWon ? ' Und ein Container!' : ''}`;
     myProfile && (myProfile.coins = r.coins);
+    if (gami) gami.dailyNextTs = Date.now() + 24 * 3600e3;
     refreshGamiSystem();
   } catch (e) { m.className = 'form-msg error'; m.textContent = e.message; }
-  finally { setBtnLoading($('#g-daily'), false); }
+  finally { setBtnLoading($('#g-daily'), false); renderDailyTimer(); }
 });
+// Solange der naechste Tagesbonus in der Zukunft liegt, ist der Knopf gar nicht
+// erst antippbar und zeigt einen laufenden Countdown statt einer Fehlermeldung
+let dailyTimerInt = null;
+function renderDailyTimer() {
+  const btn = $('#g-daily');
+  if (!btn) return;
+  const next = gami?.dailyNextTs || 0;
+  const left = next - Date.now();
+  if (left <= 0) {
+    btn.disabled = false;
+    btn.classList.remove('daily-wait');
+    btn.textContent = 'Daily abholen';
+    clearInterval(dailyTimerInt); dailyTimerInt = null;
+    return;
+  }
+  btn.disabled = true;
+  btn.classList.add('daily-wait');
+  const h = Math.floor(left / 3600e3);
+  const mn = Math.floor(left % 3600e3 / 60e3);
+  const sc = Math.floor(left % 60e3 / 1e3);
+  btn.textContent = `${String(h).padStart(2, '0')}:${String(mn).padStart(2, '0')}:${String(sc).padStart(2, '0')}`;
+  if (!dailyTimerInt) dailyTimerInt = setInterval(renderDailyTimer, 1000);
+}
 // ---------------- Ränge, Kisten (nur erspielbar) und Paints ----------------
 
 let gami = null;
 const CONTAINER_IMGS = {
   'emote-capsule': 'container-emote-capsule',
   'sticker-capsule': 'container-sticker-capsule',
+  'paint-capsule': 'container-paint-capsule',
+  'border-capsule': 'container-border-capsule',
   'emote-case': 'container-emote-case',
   // Alt-Typen (falls ein alter Stand sie noch nennt): weich auf die neuen Icons
   standard: 'container-emote-capsule', silber: 'container-emote-capsule',
@@ -1519,6 +1555,16 @@ const CONTAINER_IMGS = {
 const containerName = type => gami?.containers?.[type]?.name || type;
 const rankFile = r => `/gamification/rank-${String(r.tier).padStart(2, '0')}-${r.id}.svg`;
 const paintById = id => (gami?.paintsAll || chatPaints || []).find(x => x.id === id);
+// Animierte Paints (shimmer/holo/sweep) + Glow: die Felder stehen seit jeher in
+// paints.json, wurden aber nie gerendert — diese zwei Helfer sind die einzige
+// Wahrheit dafuer und haengen an JEDER Paint-Darstellung
+function paintDecor(pnt) {
+  if (!pnt) return { cls: '', style: '' };
+  return {
+    cls: (pnt.anim ? ' pn-anim' : '') + (pnt.glow ? ' pn-glow' : ''),
+    style: (pnt.glow ? `--glow:${pnt.glow};` : ''),
+  };
+}
 
 // Item-Helfer: Anzeige, Float, Shiny, Wert
 const isShinyF = f => {
@@ -1528,20 +1574,24 @@ const isShinyF = f => {
 function itemVisual(kind, id) {
   if (kind === 'paint') {
     const pnt = paintById(id);
-    return `<span class="reel-paint" style="background-image:${pnt?.css || 'none'}"></span>`;
+    const dec = paintDecor(pnt);
+    return `<span class="reel-paint${dec.cls}" style="background-image:${pnt?.css || 'none'};${dec.style}"></span>`;
   }
   if (kind === 'badge') return `<svg class="icon"><use href="#i-${(gami?.badgesAll || {})[id]?.icon || 'star'}"/></svg>`;
   if (kind === 'sticker') return `<img class="emote" style="height:26px" src="https://cdn.7tv.app/emote/${(gami?.stickersAll || {})[id]?.id}/2x.webp" alt="">`;
+  if (kind === 'border') return `<span class="avatar-mini border-demo pfb-${esc(id)}">${esc((state.userName || 'du')[0].toUpperCase())}</span>`;
   return `<img class="emote" style="height:26px" src="https://cdn.7tv.app/emote/${(gami?.emotesAll || {})[id]?.id}/2x.webp" alt="">`;
 }
 function itemRarity(kind, id) {
   if (kind === 'paint') return paintById(id)?.rarity || 'common';
   if (kind === 'badge') return ({ 'häufig': 'common', 'selten': 'rare', 'episch': 'epic' })[(gami?.badgesAll || {})[id]?.rar] || 'common';
   if (kind === 'sticker') return (gami?.stickersAll || {})[id]?.rarity || 'common';
+  if (kind === 'border') return (gami?.bordersAll || {})[id]?.rarity || 'common';
   return (gami?.emotesAll || {})[id]?.rarity || 'common';
 }
 function itemName(kind, id) {
   if (kind === 'paint') return paintById(id)?.name || id;
+  if (kind === 'border') return (gami?.bordersAll || {})[id]?.name || id;
   if (kind === 'badge') return (gami?.badgesAll || {})[id]?.name || id;
   return id;
 }
@@ -1569,6 +1619,7 @@ function myItems() {
     ...(gami.badgesOwned || myProfile?.badges || []).map(id => ({ kind: 'badge', id })),
     ...(gami.emotes || []).map(id => ({ kind: 'emote', id })),
     ...(gami.stickers || []).map(id => ({ kind: 'sticker', id })),
+    ...(gami.borders || []).map(id => ({ kind: 'border', id })),
   ].map(it => ({ ...it, float: (gami.floats || {})[`${it.kind}:${it.id}`] ?? 0, rarity: itemRarity(it.kind, it.id) }));
 }
 
@@ -1578,6 +1629,8 @@ async function refreshGamiSystem() {
   try { gami = await api('/api/gami'); } catch { return; }
   if (firstLoad) renderWallet(); // Sticker auf den Karten brauchen den Sticker-Katalog
   animateInt($('#g-coins'), Number($('#g-coins').textContent.replace(/\./g, '')) || 0, gami.coins || 0);
+  renderDailyTimer();
+  applyMyBorder(); // der eigene Rahmen sitzt auf Profil-Avatar + Kopfzeilen-Knopf
   // Rank-Up feiern: einmalige Vollbild-Celebration
   const lastTier = Number(localStorage.getItem('ra.tier') || 0);
   if (lastTier && gami.rank.tier > lastTier) rankUpFx(gami.rank);
@@ -1643,7 +1696,7 @@ async function refreshGamiSystem() {
       const pnt = paintById(id);
       if (!pnt) return '';
       return `<button class="gm-paint ${gami.activePaint === id ? 'on' : ''}" data-paint="${esc(id)}">
-        <span class="paint" style="--paint:${pnt.css}; color:${pnt.fallbackColor}">${esc(pnt.name)}</span>
+        <span class="paint${paintDecor(pnt).cls}" style="--paint:${pnt.css}; color:${pnt.fallbackColor}; ${paintDecor(pnt).style}">${esc(pnt.name)}</span>
       </button>`;
     }).join('')
     : '<span class="form-msg">Paints kommen aus Containern und färben deinen Namen im Chat.</span>';
@@ -1673,7 +1726,7 @@ function openInventory() {
       const shiny = isShinyF(it.float);
       const val = (gami.sellValues || {})[it.rarity] * (shiny ? 5 : 1);
       const inShowcase = (gami.showcase || []).includes(`${it.kind}:${it.id}`);
-      const equipped = (it.kind === 'paint' && gami.activePaint === it.id) || (it.kind === 'badge' && myProfile?.activeBadge === it.id);
+      const equipped = (it.kind === 'paint' && gami.activePaint === it.id) || (it.kind === 'badge' && myProfile?.activeBadge === it.id) || (it.kind === 'border' && gami.activeBorder === it.id);
       return `
       <div class="inv-item ${shiny ? 'shiny' : ''}" style="--rc:${col}">
         <div class="inv-visual">${itemVisual(it.kind, it.id)}</div>
@@ -1747,7 +1800,7 @@ async function renderInventoryPage() {
       const shiny = isShinyF(it.float);
       const val = ((gami.sellValues || {})[it.rarity] || 20) * (shiny ? 5 : 1);
       const inShowcase = (gami.showcase || []).includes(`${it.kind}:${it.id}`);
-      const equipped = (it.kind === 'paint' && gami.activePaint === it.id) || (it.kind === 'badge' && myProfile?.activeBadge === it.id);
+      const equipped = (it.kind === 'paint' && gami.activePaint === it.id) || (it.kind === 'badge' && myProfile?.activeBadge === it.id) || (it.kind === 'border' && gami.activeBorder === it.id);
       return `
       <div class="inv-item ${shiny ? 'shiny' : ''}" style="--rc:${col}">
         <div class="inv-visual">${itemVisual(it.kind, it.id)}</div>
@@ -1777,6 +1830,14 @@ async function renderInventoryPage() {
   });
   host.querySelectorAll('[data-inv-equip]').forEach(b => b.onclick = async () => {
     const [kind, id] = b.dataset.invEquip.split(':');
+    if (kind === 'border') {
+      const next = gami.activeBorder === id ? '' : id;
+      await api('/api/border', { method: 'POST', body: JSON.stringify({ id: next }) }).catch(() => { });
+      gami.activeBorder = next;
+      renderInventoryPage();
+      refreshGamiSystem();
+      return;
+    }
     if (kind === 'paint') {
       const next = gami.activePaint === id ? '' : id;
       await api('/api/paint', { method: 'POST', body: JSON.stringify({ id: next }) }).catch(() => { });
@@ -1952,6 +2013,7 @@ async function openCatalogSheet() {
     ...Object.keys(gami?.badgesAll || {}).map(id => ({ kind: 'badge', id, rarity: itemRarity('badge', id) })),
     ...Object.entries(gami?.emotesAll || {}).map(([id, v]) => ({ kind: 'emote', id, rarity: v.rarity })),
     ...Object.entries(gami?.stickersAll || {}).map(([id, v]) => ({ kind: 'sticker', id, rarity: v.rarity })),
+    ...Object.entries(gami?.bordersAll || {}).map(([id, v]) => ({ kind: 'border', id, rarity: v.rarity })),
   ];
   const owned = new Set(myItems().map(it => `${it.kind}:${it.id}`));
   const order = ['legendary', 'epic', 'rare', 'uncommon', 'common'];
@@ -2007,7 +2069,7 @@ function caseItemHtml(it) {
   return `<div class="reel-item" style="--rc:${col}">
     ${it.kind === 'badge'
       ? `<svg class="icon"><use href="#i-${(myProfile?.badgesAll || {})[it.id]?.icon || 'star'}"/></svg>`
-      : `<span class="reel-paint" style="background-image:${paintById(it.id)?.css || 'none'}"></span>`}
+      : `<span class="reel-paint${paintDecor(paintById(it.id)).cls}" style="background-image:${paintById(it.id)?.css || 'none'};${paintDecor(paintById(it.id)).style}"></span>`}
   </div>`;
 }
 async function startCaseOpen() {
@@ -2143,7 +2205,7 @@ async function startCaseOpenLegacy() {
       <div class="case-win" style="--rc:${col}">
         ${r.win.kind === 'badge'
         ? `<svg class="icon" style="width:44px;height:44px"><use href="#i-${(myProfile?.badgesAll || {})[r.win.id]?.icon || 'star'}"/></svg>`
-        : `<span class="reel-paint big" style="background-image:${paintById(r.win.id)?.css || 'none'}"></span>`}
+        : `<span class="reel-paint big${paintDecor(paintById(r.win.id)).cls}" style="background-image:${paintById(r.win.id)?.css || 'none'};${paintDecor(paintById(r.win.id)).style}"></span>`}
         <b>${esc(r.win.name)}</b>
         <span style="color:${col}">${esc(label)}${r.dupe ? ' · schon vorhanden, +40 Funken' : ''}</span>
       </div>`;
@@ -2375,9 +2437,8 @@ function toggleTopMenu() {
       <button class="btn btn-small" data-freq-ok="${esc(u)}">Annehmen</button>
       <button class="btn btn-small btn-ghost" data-freq-no="${esc(u)}">Ablehnen</button>
     </div>`).join('')}` : ''}
-    <div class="tm-section">Freunde</div>
+    <div class="tm-section tm-section-row">Freunde <button class="tm-mini-link" id="tm-all-friends">alle ansehen</button></div>
     <div id="tm-friends"><div class="tm-sub" style="padding:4px 0">Lade …</div></div>
-    <button class="tm-item" id="tm-all-friends">${icon('user', 'icon icon-sm')} Alle Freunde</button>
     <button class="tm-item" id="tm-inv">${icon('gift', 'icon icon-sm')} Inventar</button>
     <button class="tm-item" id="tm-shop">${icon('banknote', 'icon icon-sm')} Container-Shop</button>
     <button class="tm-item" id="tm-catalog">${icon('list', 'icon icon-sm')} Sammlung</button>
@@ -2391,6 +2452,7 @@ function toggleTopMenu() {
   menu.querySelector('.tm-head').style.cursor = 'pointer';
   menu.querySelector('.tm-head').onclick = () => { done(); switchView('profile'); };
   $('#tm-inv').onclick = () => { done(); switchView('inventory', 'enter-drop'); };
+  $('#gm-inv-open') && ($('#gm-inv-open').onclick = () => switchView('inventory', 'enter-drop'));
   $('#tm-shop').onclick = () => { done(); switchView('shop', 'enter-drop'); };
   $('#tm-catalog').onclick = () => { done(); openCatalogSheet(); };
   $('#tm-quests').onclick = () => {
@@ -2749,6 +2811,25 @@ const OB_STEPS = [
       + `<span class="ob-star">${icon('star')}</span>`,
   },
   {
+    title: 'Töne & Mitteilungen', text: 'Schalte gleich alles scharf: Soundeffekte beim Öffnen von Containern und Geschenken, und Push-Nachrichten für Preisfehler und Freunde.', cta: 'Weiter',
+    visual: () => `
+      <div class="ob-toggles">
+        <label class="ob-toggle"><input type="checkbox" id="ob-sound" ${soundOn() ? 'checked' : ''}><span class="switch-slider"></span> Soundeffekte</label>
+        <label class="ob-toggle"><input type="checkbox" id="ob-push"><span class="switch-slider"></span> Mitteilungen aufs Handy</label>
+      </div>`,
+    wire: () => {
+      $('#ob-sound')?.addEventListener('change', e => {
+        localStorage.setItem('ra.sound', e.target.checked ? '1' : '0');
+        const sw = $('#sw-sound'); if (sw) sw.checked = e.target.checked;
+        if (e.target.checked) { initSfx(); playSfx('plop'); }
+      });
+      $('#ob-push')?.addEventListener('change', async e => {
+        if (!e.target.checked) return;
+        try { await enablePushNow(); } catch (err) { e.target.checked = false; island(err.message); }
+      });
+    },
+  },
+  {
     title: 'Bleib verbunden.', text: 'Mit deinem Profil sicherst du Wallet und Bewertungen. Den Newsletter kannst du optional dazunehmen, damit du keinen Top-Deal verpasst.', cta: 'Konto erstellen', final: true,
     visual: () => `
       <span class="avatar-mini" style="width:34px;height:34px;font-size:1rem">du</span>
@@ -2803,6 +2884,7 @@ function renderObStep() {
     <p class="legal-line">Mit dem Konto akzeptierst du die
       <a href="/agb.html" target="_blank" rel="noopener">AGB</a> und die
       <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutzerklärung</a>.</p>` : '';
+  s.wire?.();
   $('#ob-continue')?.addEventListener('click', () => finishOnboarding(false));
   $('#ob-login')?.addEventListener('click', () => { finishOnboarding(false); switchView('profile'); });
   $('#ob-skip').classList.toggle('hidden', !!s.final);
@@ -2901,6 +2983,16 @@ let walletSyncInFlight = null; // Single-Flight: parallele Syncs teilen sich EIN
 // sonst belebt das Zweitgerät (altes Handy) den Gutschein beim nächsten Sync wieder
 function tombstone(id) {
   state.wallet.deleted = [...(state.wallet.deleted || []), { id, ts: Date.now() }].slice(-500);
+}
+// Der eigene Profilbild-Rahmen: eine Stelle, die ihn überall nachträgt —
+// die Avatar-Renderer laufen teils, bevor gami geladen ist
+function applyMyBorder() {
+  const id = gami?.activeBorder || '';
+  for (const el of [document.querySelector('#me-avatar .avatar-big'), document.querySelector('#btn-profile-top .avatar-mini')]) {
+    if (!el) continue;
+    el.className = el.className.replace(/\s*pfb-[\w-]+/g, '');
+    if (id) el.classList.add('pfb-' + id);
+  }
 }
 // Änderungs-Zeitstempel je Eintrag: bei Konflikten zwischen zwei Geräten gewinnt,
 // wer zuletzt WIRKLICH etwas geändert hat — nicht, wer zufällig zuletzt syncte.
@@ -3125,7 +3217,7 @@ function openGiftReveal(gift) {
         <div class="offer-cat">Geschenk von @${esc(gift.giftFrom)}</div>
         <div class="balance-big">${gift.amount != null ? euroFmt(gift.amount) : esc(gift.vendor)}</div>
         <div class="offer-cat">${esc(gift.vendor)}-Gutschein</div>
-        ${gift.giftMsg ? `<div class="gift-bubble">${esc(gift.giftMsg)}<span class="gift-by">— @${esc(gift.giftFrom)}</span></div>` : ''}
+        ${gift.giftMsg ? `<div class="gift-bubble">${withEmotes(esc(gift.giftMsg))}<span class="gift-by">— @${esc(gift.giftFrom)}</span></div>` : ''}
         <button class="btn btn-big" id="gr-done" style="margin-top:14px">In die Wallet</button>
       </div>
     </div>`;
@@ -3144,7 +3236,7 @@ function openGiftReveal(gift) {
   box.addEventListener('click', () => {
     if (opened) return;
     opened = true;
-    playSfx('wowShort');
+    playSfx('wow', 0.3); // der volle WOW-Moment, aber gedaempft
     buzz(30);
     if (!reducedMotion()) {
       box.classList.remove('wiggling');
@@ -3203,7 +3295,7 @@ function initSfx() {
   });
 }
 document.addEventListener('pointerdown', initSfx, { once: true, capture: true });
-function playSfx(name) {
+function playSfx(name, vol) {
   if (!soundOn()) return { stop() { } };
   const b = sfxBuffers[name];
   if (sfxCtx && b) {
@@ -3212,14 +3304,14 @@ function playSfx(name) {
       const src = sfxCtx.createBufferSource();
       src.buffer = b.audio;
       const gain = sfxCtx.createGain();
-      gain.gain.value = 0.6;
+      gain.gain.value = vol ?? 0.6;
       src.connect(gain); gain.connect(sfxCtx.destination);
       src.start(0, b.offset);
       return { stop() { try { src.stop(); } catch { } } };
     } catch { }
   }
   try {
-    const a = new Audio(SFX[name]); a.volume = 0.55; a.play().catch(() => { });
+    const a = new Audio(SFX[name]); a.volume = Math.min(1, vol ?? 0.55); a.play().catch(() => { });
     return { stop() { try { a.pause(); } catch { } } };
   } catch { }
   return { stop() { } };
@@ -4950,6 +5042,18 @@ async function refreshPushBtn() {
     sw.checked = !!(await reg.pushManager.getSubscription());
   } catch { }
 }
+async function enablePushNow() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    throw new Error('Dieser Browser kann keine Push-Nachrichten. iPhone: kumulio erst zum Home-Bildschirm hinzufügen und dort öffnen.');
+  }
+  const reg = await navigator.serviceWorker.ready;
+  if (await reg.pushManager.getSubscription()) return;
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') throw new Error('Benachrichtigungen wurden nicht erlaubt.');
+  const { key } = await api('/api/push/key');
+  const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8(key) });
+  await api('/api/push/subscribe', { method: 'POST', body: JSON.stringify(sub) });
+}
 $('#sw-push')?.addEventListener('change', async () => {
   const sw = $('#sw-push');
   const m = $('#push-msg');
@@ -5020,17 +5124,31 @@ function chatColor(name) {
 // Namens-Paint überall gleich: liefert Klasse+Style für einen gemalten Namen,
 // Fallback ist die stabile Chat-Farbe
 function nameStyleOf(name, paintId) {
-  const pnt = paintId ? chatPaints.find(x => x.id === paintId) : null;
-  return pnt
-    ? { cls: ' paint', style: `--paint:${pnt.css}; color:${pnt.fallbackColor}` }
-    : { cls: '', style: `color:${chatColor(name)}` };
+  const pnt = paintId ? (paintById(paintId) || chatPaints.find(x => x.id === paintId)) : null;
+  if (!pnt) return { cls: '', style: `color:${chatColor(name)}` };
+  const dec = paintDecor(pnt);
+  return { cls: ' paint' + dec.cls, style: `--paint:${pnt.css}; color:${pnt.fallbackColor}; ${dec.style}` };
+}
+// Alle bekannten Emote-Quellen in einer Map: Chat-Basisset + ziehbare Emotes
+// + Sticker (Sticker SIND Emotes und im Chat nutzbar, wenn gezogen)
+function allEmoteIds() {
+  const map = { ...chatEmotes };
+  for (const [n, v] of Object.entries(gami?.emotesAll || {})) map[n] = v.id;
+  for (const [n, v] of Object.entries(gami?.stickersAll || {})) map[n] = v.id;
+  return map;
+}
+function emoteOwned(name) {
+  const drawable = (gami?.emotesAll || {})[name] || (gami?.stickersAll || {})[name];
+  if (!drawable) return true; // Basisset ohne Ziehung
+  return (gami?.emotes || []).includes(name) || (gami?.stickers || []).includes(name);
 }
 function emoteHtml(name) {
-  return `<img class="emote" src="https://cdn.7tv.app/emote/${chatEmotes[name]}/2x.webp" alt="${esc(name)}" title="${esc(name)}" loading="lazy">`;
+  const id = allEmoteIds()[name] || chatEmotes[name];
+  return `<img class="emote" src="https://cdn.7tv.app/emote/${id}/2x.webp" alt="${esc(name)}" title="${esc(name)}" loading="lazy">`;
 }
 function withEmotes(escapedText) {
   let t = escapedText;
-  for (const name of Object.keys(chatEmotes)) {
+  for (const name of Object.keys(allEmoteIds())) {
     t = t.replace(new RegExp(`\\b${name}\\b`, 'g'), emoteHtml(name));
   }
   return t;
@@ -5056,8 +5174,7 @@ function chatMsgHtml(m) {
   const rankImg = rk && rk.tier > 1
     ? `<img class="px-icon rank-badge" src="/gamification/rank-${String(rk.tier).padStart(2, '0')}-${rk.id}.svg" alt="" title="${esc(rk.name)}">`
     : '';
-  const pnt = m.paint ? chatPaints.find(x => x.id === m.paint) : null;
-  const nameStyle = pnt ? `--paint:${pnt.css}; color:${pnt.fallbackColor}` : `color:${chatColor(m.user)}`;
+  const ns = nameStyleOf(m.user, m.paint);
   // Maximal EIN Abzeichen neben dem Rang: das getragene Badge schlägt das Rollen-Icon
   const insignia = badge || role;
   chatSeenUsers.add(m.user);
@@ -5065,7 +5182,7 @@ function chatMsgHtml(m) {
   let body = withEmotes(esc(m.text));
   body = body.replace(/@([A-Za-z0-9_.-]{3,24})/g, '<button class="mention" data-user="$1">@$1</button>');
   return `<div class="chat-msg ${m.user === state.userName ? 'own' : ''}" data-mid="${esc(m.id)}">
-    ${rankImg}${insignia}<span class="chat-user ${pnt ? 'paint' : ''}" style="${nameStyle}">${esc(m.user)}</span>
+    ${rankImg}${insignia}<span class="chat-user${ns.cls}" style="${ns.style}">${esc(m.user)}</span>
     <span class="chat-text">${body}</span>
     ${msgMenuHtml(m.user === state.userName, m.id)}
   </div>`;
@@ -5091,7 +5208,9 @@ function setChatMode(mode, partner) {
     // Profilbild + Namens-Paint der Person im Chat-Kopf
     $('#dm-partner-ava').innerHTML = `<span class="avatar-mini" style="background:${chatColor(dmPartner)}">${esc(dmPartner[0].toUpperCase())}</span>`;
     api('/api/user?name=' + encodeURIComponent(dmPartner)).then(u => {
-      if (u.avatar) $('#dm-partner-ava').innerHTML = `<img class="avatar-mini avatar-img" src="${u.avatar}" alt="">`;
+      const pb = u.activeBorder ? ` pfb-${u.activeBorder}` : '';
+      if (u.avatar) $('#dm-partner-ava').innerHTML = `<img class="avatar-mini avatar-img${pb}" src="${u.avatar}" alt="">`;
+      else if (pb) $('#dm-partner-ava').querySelector('.avatar-mini')?.classList.add('pfb-' + u.activeBorder);
       const ns = nameStyleOf(dmPartner, u.activePaint);
       const el = $('#dm-partner-name');
       el.className = ns.cls.trim();
@@ -5446,8 +5565,8 @@ async function openUserSheet(user, msgId) {
   pop.innerHTML = `
     <button class="fav-remove us-close" id="us-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
     <div class="us-head">
-      ${u.avatar ? `<img class="avatar-big us-ava" src="${u.avatar}" alt="">`
-      : `<span class="avatar-big us-ava" style="background:${chatColor(user)}">${esc(user[0].toUpperCase())}</span>`}
+      ${u.avatar ? `<img class="avatar-big us-ava${u.activeBorder ? ' pfb-' + esc(u.activeBorder) : ''}" src="${u.avatar}" alt="">`
+      : `<span class="avatar-big us-ava${u.activeBorder ? ' pfb-' + esc(u.activeBorder) : ''}" style="background:${chatColor(user)}">${esc(user[0].toUpperCase())}</span>`}
       <div class="us-name"><span class="${nameStyleOf(user, u.activePaint).cls.trim()}" style="${nameStyleOf(user, u.activePaint).style}">@${esc(user)}</span> ${u.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : u.role === 'mod' ? icon('check', 'icon icon-sm role-mod') : ''}</div>
       <div class="us-bio">${u.private ? 'Profil ist privat' : esc((u.bio || '').slice(0, 80) || 'Keine Bio')}</div>
     </div>
@@ -5535,16 +5654,30 @@ function toggleEmotes() {
   const opening = el.classList.contains('hidden');
   $('#view-chat').classList.toggle('emotes-open', opening);
   if (opening) {
-    // Freigeschaltete Emotes nur zeigen, wenn man sie besitzt
-    const locked = new Set(Object.keys(gami?.emotesAll || {}).filter(n => !(gami?.emotes || []).includes(n)));
-    const usable = Object.keys(chatEmotes).filter(n => !locked.has(n));
-    el.innerHTML = usable.length
-      ? usable.map(n => `<button class="emote-pick" data-emote="${esc(n)}">${emoteHtml(n)}</button>`).join('')
+    // ALLE Emotes zeigen: Gezogene normal, der Rest grau mit Schloss.
+    // Antippen eines gesperrten Emotes gibt eine kleine Fehler-Animation.
+    const names = Object.keys(allEmoteIds());
+    const sorted = [...names.filter(n => emoteOwned(n)), ...names.filter(n => !emoteOwned(n))];
+    el.innerHTML = sorted.length
+      ? sorted.map(n => {
+        const owned = emoteOwned(n);
+        return `<button class="emote-pick ${owned ? '' : 'emote-locked'}" data-emote="${esc(n)}" data-owned="${owned ? 1 : 0}" aria-label="${esc(n)}${owned ? '' : ' (noch nicht gezogen)'}">
+          ${emoteHtml(n)}${owned ? '' : `<span class="emote-lock">${icon('lock', 'icon')}</span>`}
+        </button>`;
+      }).join('')
       : '<span class="form-msg">Emotes laden …</span>';
     el.classList.remove('hidden');
     // Nachrichten nachziehen: die letzten bleiben beim Schreiben sichtbar
     setTimeout(() => { const box = $('#chat-box'); box.scrollTop = box.scrollHeight; }, 320);
     el.querySelectorAll('[data-emote]').forEach(b => b.onclick = () => {
+      if (b.dataset.owned !== '1') {
+        b.classList.remove('shake');
+        void b.offsetWidth; // Animation neu anstossen
+        b.classList.add('shake');
+        buzz([25, 30, 25]);
+        island('Du hast dieses Emote noch nicht');
+        return;
+      }
       const i = $('#chat-input');
       i.value = (i.value + ' ' + b.dataset.emote + ' ').replace(/\s{2,}/g, ' ').trimStart();
       i.focus();

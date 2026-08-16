@@ -194,6 +194,8 @@ function profileOf(user) {
   prof.dailyCount = prof.dailyCount || 0;
   prof.goalsDone = prof.goalsDone || [];
   prof.rankTier = prof.rankTier || 1;
+  prof.borders = prof.borders || [];
+  prof.activeBorder = prof.activeBorder || '';
   return prof;
 }
 
@@ -218,7 +220,35 @@ const CaseSource = Object.freeze({
   SHOP: 'SHOP',
 });
 // Freischaltbare Chat-Emotes (7TV, verifizierte IDs) als Kisten-Items
+// Ziehbarer Emote-Pool: 21 Emotes aus dem offiziellen 7TV-Global-Set (Stand
+// 08/2026), so gross wie eine CS-Sticker-Kapsel. Bekanntheit = Stufe: die
+// Twitch-Ikonen (EZ, Clap) sind episch. Der Sticker-Pool nutzt die ANDEREN 21.
 const UNLOCK_EMOTES = {
+  EZ: { id: '01GB4CK01800090V9B3D8CGEEX', rarity: 'epic' },
+  Clap: { id: '01GAM8EFQ00004MXFXAJYKA859', rarity: 'epic' },
+  FeelsDankMan: { id: '01GB9W8JN80004CKF2H1TWA99H', rarity: 'rare' },
+  WAYTOODANK: { id: '01G98W833R0000BRQD106P0ZNT', rarity: 'rare' },
+  gachiBASS: { id: '01GB4P2HX0000BJ5HR8F6XV9Q0', rarity: 'rare' },
+  PepePls: { id: '01GAFTZ9K80003DHH026MC7JW0', rarity: 'rare' },
+  peepoHappy: { id: '01GAZ199Z8000FEWHS6AT5QZV0', rarity: 'uncommon' },
+  peepoSad: { id: '01GAZ4SBX80007YCE2RXBT44B2', rarity: 'uncommon' },
+  FeelsOkayMan: { id: '01GB46137R000BJ5HR8F6XV8J1', rarity: 'uncommon' },
+  FeelsStrongMan: { id: '01GB4EV0Q800090V9B3D8CGEHV', rarity: 'uncommon' },
+  ApuApustaja: { id: '01GGCQPCGR000C7MT8JZGP6E89', rarity: 'uncommon' },
+  BillyApprove: { id: '01GB2S7H7000018VJGJ4A9BMFS', rarity: 'uncommon' },
+  forsenPls: { id: '01GB8EQNJ8000497KFBZWNSDFZ', rarity: 'uncommon' },
+  Clap2: { id: '01GB2TN09G000AZXHZ8HNEZX6G', rarity: 'common' },
+  ppL: { id: '01GGD5PJA8000FH13S498E9D8X', rarity: 'common' },
+  Stare: { id: '01GG3YGWK8000DWE419062SG28', rarity: 'common' },
+  aceStare: { id: '01JY2MX5BE5BVWWFV153ANMMHZ', rarity: 'common' },
+  xdx: { id: '01FZBTBQDG000DX0N9GHCRXYPH', rarity: 'common' },
+  FeelsWeirdMan: { id: '01GB4FWTR8000DGEZ8VYY59RBN', rarity: 'common' },
+  reckH: { id: '01F014S6KG0007E4VV006YKSM3', rarity: 'common' },
+  Gayge: { id: '01G4GQC5H0000D3DGNAYJJP8EB', rarity: 'common' },
+};
+// Frueher gezogene Emotes bleiben anzeig-, nutz- und verkaufbar, aber der Pool
+// zieht NUR noch aus UNLOCK_EMOTES
+const LEGACY_EMOTES = {
   LOL: { id: '01M02624P6ENNGSVJHAMTMGZX1', rarity: 'uncommon' },
   LO: { id: '01JEB26JCY13R8BPZP6YMGAB1A', rarity: 'uncommon' },
   GIGACHAD: { id: '01KYE940CV1QMK2KVMZHRJAZ8W', rarity: 'legendary' },
@@ -230,6 +260,16 @@ const UNLOCK_EMOTES = {
   ong: { id: '01FWS83HG0000ASC1GQNZR38QV', rarity: 'rare' },
   AINTNOWAY: { id: '01KXR0GEPAF1ZWH9ESQ3NYGRJ9', rarity: 'epic' },
 };
+const EMOTES_ALL = { ...LEGACY_EMOTES, ...UNLOCK_EMOTES };
+// Steht im Text ein ziehbares Emote, das der Nutzer nicht besitzt?
+// Sticker zaehlen mit: sie sind ebenfalls Emotes und im Chat nutzbar.
+function lockedEmoteIn(text, prof) {
+  const ownedE = new Set([...(prof.emotes || []), ...(prof.stickers || [])]);
+  for (const name of new Set([...Object.keys(EMOTES_ALL), ...Object.keys(STICKERS_ALL)])) {
+    if (!ownedE.has(name) && new RegExp(`(^|\\s)${name}($|\\s)`).test(text)) return name;
+  }
+  return '';
+}
 // Float 0-999 wie bei CS: Schnapszahlen (111, 222 …) und Straßen (123, 456 …)
 // sind "shiny" und wertvoller
 function rollFloat() { return Math.floor(Math.random() * 1000); }
@@ -258,6 +298,17 @@ function bumpQuest(user, key, n = 1) {
   prof.quests = prof.quests || {};
   prof.quests[key] = (prof.quests[key] || 0) + n;
 }
+// Wann ist der naechste Tagesbonus faellig? 24h nach der letzten Oeffnung.
+// Bestandskonten ohne Zeitstempel: aus dem alten Kalendertag-Feld abgeleitet
+function dailyNextTs(prof) {
+  if (prof.lastDailyTs) return prof.lastDailyTs + 24 * 3600e3;
+  if (prof.lastDailyDay) {
+    const t = Date.parse(prof.lastDailyDay);
+    if (!isNaN(t)) return t + 24 * 3600e3;
+  }
+  return 0;
+}
+
 // Lebenszeit-Zähler: was einmal geleistet wurde, bleibt gezählt — Rang und
 // Quests sinken NIE, wenn der Nutzer alte Gutscheine aus der Wallet aufräumt.
 // Erkennung über gesehene IDs (Gutschein) bzw. id:ts-Schlüssel (Abbuchung).
@@ -331,6 +382,8 @@ const ODDS_CAPSULE = { common: 80.0, uncommon: 16.0, rare: 3.2, epic: 0.8 };
 const CONTAINERS = {
   'emote-capsule': { name: 'Emote-Kapsel', odds: ODDS_CAPSULE, kinds: ['emote'], price: 150, img: 'container-emote-capsule' },
   'sticker-capsule': { name: 'Sticker-Kapsel', odds: ODDS_CAPSULE, kinds: ['sticker'], price: 150, img: 'container-sticker-capsule' },
+  'paint-capsule': { name: 'Paint-Kapsel', odds: ODDS_CAPSULE, kinds: ['paint'], price: 200, img: 'container-paint-capsule' },
+  'border-capsule': { name: 'Rahmen-Kapsel', odds: ODDS_CAPSULE, kinds: ['border'], price: 200, img: 'container-border-capsule' },
   'emote-case': { name: 'Emote-Case', odds: ODDS_CASE, kinds: ['emote', 'paint', 'badge'], price: 400, img: 'container-emote-case' },
 };
 // Alte Kisten der Bestandsnutzer bleiben öffenbar: Typ-Mapping statt Verfall
@@ -338,18 +391,54 @@ const LEGACY_CONTAINER = { standard: 'emote-capsule', silber: 'emote-capsule', g
 // Sticker: kuratierter, austauschbarer Pool (7TV-Global-Set, IDs verifiziert).
 // Sticker klebt man auf Gutscheine in der Wallet — Position frei, max 4 pro Karte.
 const STICKERS = {
-  PETPET: { id: '01FE3XY508000AA32JP519W2EW', rarity: 'common' },
+  AYAYA: { id: '01GB32XE6R00018VJGJ4A9BNCV', rarity: 'epic' },
+  PETPET: { id: '01FE3XY508000AA32JP519W2EW', rarity: 'epic' },
+  PartyParrot: { id: '01FKSDK14G0008TM5NY9QEG0QV', rarity: 'rare' },
+  AlienDance: { id: '01GB2ZJFBG000DTBJYANG8XYFP', rarity: 'rare' },
+  glorp: { id: '01H16FA16G0005EZED5J0EY7KN', rarity: 'rare' },
+  gachiGASM: { id: '01F9EM2ETG000E7SC8F953GXCX', rarity: 'rare' },
+  peepoPls: { id: '01HM524VE80004SKSHMCZWXH1T', rarity: 'uncommon' },
+  RareParrot: { id: '01GB4XE3ZR000DKFRGM9Q1M7VS', rarity: 'uncommon' },
+  nanaAYAYA: { id: '01FTEZEE900001E12995B12GR4', rarity: 'uncommon' },
+  BibleThump: { id: '01J8NMZ2HG0005G1FWF2H9Y615', rarity: 'uncommon' },
+  RebeccaBlack: { id: '01GB5VC57000003DZTMZQNY944', rarity: 'uncommon' },
+  BasedGod: { id: '01GB9W2CDG000BFSD141G0MGSA', rarity: 'uncommon' },
+  RoxyPotato: { id: '01GB54CZTG0004ZBZEDT30HE2M', rarity: 'uncommon' },
+  RainTime: { id: '01FCY771D800007PQ2DF3GDTN6', rarity: 'common' },
+  TeaTime: { id: '01HM4P26CR000449DZBT4FVMA5', rarity: 'common' },
+  WineTime: { id: '01HM4PGHC80007635TAZG67FT5', rarity: 'common' },
+  PianoTime: { id: '01G98V81Q80000BRQD106P0ZEK', rarity: 'common' },
+  GuitarTime: { id: '01G98V5RFG0001CD052SPS435F', rarity: 'common' },
+  CrayonTime: { id: '01G98TT6BR000A39K5ZSQFTPWR', rarity: 'common' },
+  nymnCorn: { id: '01HM6NJ2X000035ZKVAPWBNW26', rarity: 'common' },
+  SteerR: { id: '01HM2F7Q1R00022X3E2804NBNQ', rarity: 'common' },
+};
+// Alt-Sticker bleiben anzeigbar (einige wanderten in den Emote-Pool)
+const LEGACY_STICKERS = {
   peepoHappy: { id: '01GAZ199Z8000FEWHS6AT5QZV0', rarity: 'common' },
   peepoSad: { id: '01GAZ4SBX80007YCE2RXBT44B2', rarity: 'common' },
   EZ: { id: '01GB4CK01800090V9B3D8CGEEX', rarity: 'common' },
-  PartyParrot: { id: '01FKSDK14G0008TM5NY9QEG0QV', rarity: 'uncommon' },
   ApuApustaja: { id: '01GGCQPCGR000C7MT8JZGP6E89', rarity: 'uncommon' },
   BillyApprove: { id: '01GB2S7H7000018VJGJ4A9BMFS', rarity: 'uncommon' },
   PepePls: { id: '01GAFTZ9K80003DHH026MC7JW0', rarity: 'uncommon' },
-  AYAYA: { id: '01GB32XE6R00018VJGJ4A9BNCV', rarity: 'rare' },
   WAYTOODANK: { id: '01G98W833R0000BRQD106P0ZNT', rarity: 'rare' },
-  AlienDance: { id: '01GB2ZJFBG000DTBJYANG8XYFP', rarity: 'epic' },
-  glorp: { id: '01H16FA16G0005EZED5J0EY7KN', rarity: 'epic' },
+};
+const STICKERS_ALL = { ...LEGACY_STICKERS, ...STICKERS };
+// Profilbild-Rahmen (Border-Kapsel): reine CSS-Looks im Discord/Steam-Stil,
+// der Client kennt zu jeder ID eine .pfb-<id>-Klasse
+const BORDERS = {
+  bronzering: { name: 'Bronzering', rarity: 'common' },
+  stahlring: { name: 'Stahlring', rarity: 'common' },
+  kohle: { name: 'Kohle', rarity: 'common' },
+  jeans: { name: 'Jeans', rarity: 'common' },
+  smaragd: { name: 'Smaragd', rarity: 'uncommon' },
+  rose: { name: 'Rosé', rarity: 'uncommon' },
+  tiefsee: { name: 'Tiefsee', rarity: 'uncommon' },
+  goldring: { name: 'Goldring', rarity: 'rare' },
+  neonpink: { name: 'Neonpink', rarity: 'rare' },
+  eisring: { name: 'Eisring', rarity: 'rare' },
+  regenbogen: { name: 'Regenbogen', rarity: 'epic' },
+  plasma: { name: 'Plasma', rarity: 'epic' },
 };
 // Ziehung aus einer Odds-Tabelle — dieselbe Funktion füttert auch die Simulation
 function rollRarity(odds) {
@@ -1041,19 +1130,17 @@ const server = http.createServer(async (req, res) => {
       chatBurst[user].push(Date.now());
       chatLast[user] = { ts: Date.now(), text };
       const profC = profileOf(user);
-      // Freigeschaltete Emotes darf nur benutzen, wer sie besitzt
-      let cleanText = text;
-      for (const name of Object.keys(UNLOCK_EMOTES)) {
-        if (!(profC.emotes || []).includes(name)) {
-          cleanText = cleanText.replace(new RegExp(`\\b${name}\\b`, 'g'), '').replace(/\s{2,}/g, ' ').trim();
-        }
-      }
-      if (!cleanText) return send(res, 400, { error: 'Dieses Emote hast du noch nicht freigeschaltet.' });
+      // Emotes darf nur benutzen, wer sie gezogen hat (gilt fuer den ganzen
+      // ziehbaren Katalog; der Picker zeigt Gesperrte grau mit Schloss)
+      const lockedName = lockedEmoteIn(text, profC);
+      if (lockedName) return send(res, 400, { error: `Du hast ${lockedName} noch nicht gezogen.` });
+      const cleanText = text;
       bumpQuest(user, 'chat');
       const msg = {
         id: crypto.randomBytes(6).toString('hex'), user,
         badge: profC.activeBadge || '', role: roleOf(user),
         rank: profC.rankTier || 1, paint: profC.activePaint || '',
+        border: profC.activeBorder || '',
         text: censor(cleanText), ts: Date.now(),
       };
       chat.messages.push(msg);
@@ -1205,12 +1292,15 @@ const server = http.createServer(async (req, res) => {
       chatLast['dm:' + me] = { ts: Date.now(), text };
       const key = dmKey(me, to);
       dms[key] = dms[key] || { msgs: [], reads: {} };
-      // Paint, Badge und Rang laufen auch im Privatchat mit
+      // Paint, Badge, Rang und Rahmen laufen auch im Privatchat mit
       const dmProf = profileOf(me);
+      const lockedDm = lockedEmoteIn(text, dmProf);
+      if (lockedDm) return send(res, 400, { error: `Du hast ${lockedDm} noch nicht gezogen.` });
       const msg = {
         id: crypto.randomBytes(5).toString('hex'), from: me, text: censor(text), ts: Date.now(),
         badge: dmProf.activeBadge || '', role: roleOf(me),
         rank: dmProf.rankTier || 1, paint: dmProf.activePaint || '',
+        border: dmProf.activeBorder || '',
       };
       dms[key].msgs.push(msg);
       if (dms[key].msgs.length > 200) dms[key].msgs = dms[key].msgs.slice(-200);
@@ -1273,7 +1363,8 @@ const server = http.createServer(async (req, res) => {
         user: name, role: roleOf(name), bio: prof.bio || '', avatar: prof.avatar || '',
         badges: prof.badges || [], activeBadge: prof.activeBadge || '', favs: prof.favs || {},
         badgesAll: BADGES, showcase: prof.showcase || [], floats: prof.floats || {},
-        rankTier: prof.rankTier || 1, activePaint: prof.activePaint || '', ...modInfo,
+        rankTier: prof.rankTier || 1, activePaint: prof.activePaint || '',
+        activeBorder: prof.activeBorder || '', ...modInfo,
       });
     }
 
@@ -1440,13 +1531,17 @@ const server = http.createServer(async (req, res) => {
       const user = authUser(req);
       if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
       const prof = profileOf(user);
-      const today = new Date().toDateString();
-      if (prof.lastDailyDay === today) return send(res, 409, { error: 'Heute schon abgeholt, morgen gibt es wieder Funken.' });
-      const yesterday = new Date(Date.now() - 864e5).toDateString();
-      prof.streak = prof.lastDailyDay === yesterday ? (prof.streak || 0) + 1 : 1;
+      // 24 Stunden ab der letzten Oeffnung (nicht Kalendertag): der Client
+      // zeigt bis dahin einen Countdown und laesst den Knopf gar nicht erst zu
+      const nextTs = dailyNextTs(prof);
+      if (Date.now() < nextTs) return send(res, 409, { error: 'Noch nicht so weit.', nextTs });
+      // Serie haelt, solange man innerhalb von 48h nach der letzten Oeffnung kommt
+      const lastTs = prof.lastDailyTs || 0;
+      prof.streak = lastTs && Date.now() - lastTs < 48 * 3600e3 ? (prof.streak || 0) + 1 : 1;
       const gained = 25 + Math.min(25, (prof.streak - 1) * 5);
       prof.coins = (prof.coins || 0) + gained;
-      prof.lastDailyDay = today;
+      prof.lastDailyDay = new Date().toDateString();
+      prof.lastDailyTs = Date.now();
       prof.dailyCount = (prof.dailyCount || 0) + 1;
       // Jede volle 7er-Serie bringt eine erspielte Kiste (nie kaufbar, siehe oben)
       let caseWon = null;
@@ -1469,11 +1564,13 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, {
         points, rank, next, ranks: RANKS10, rarity: RARITY,
         cases: prof.cases, paints: prof.paints, activePaint: prof.activePaint,
-        paintsAll: PAINTS.paints, emotes: prof.emotes || [], emotesAll: UNLOCK_EMOTES,
+        paintsAll: PAINTS.paints, emotes: prof.emotes || [], emotesAll: EMOTES_ALL,
         floats: prof.floats || {}, showcase: prof.showcase || [],
         coins: prof.coins || 0, streak: prof.streak || 0,
         containers: CONTAINERS, badgesAll: BADGES, sellValues: SELL_VALUES,
-        stickers: prof.stickers || [], stickersAll: STICKERS,
+        stickers: prof.stickers || [], stickersAll: STICKERS_ALL,
+        borders: prof.borders || [], activeBorder: prof.activeBorder || '', bordersAll: BORDERS,
+        dailyNextTs: dailyNextTs(prof),
         quests: QUESTS.map(x => ({ ...x, progress: q.live[x.key] || 0, awarded: (prof.questsAwarded || []).filter(t => t.startsWith(x.key + ':')) })),
         claimable: q.claimable,
       });
@@ -1512,6 +1609,7 @@ const server = http.createServer(async (req, res) => {
         ...(container.kinds.includes('badge') ? Object.entries(BADGES).filter(([, v]) => badgeRar[v.rar] === rar).map(([k, v]) => ({ kind: 'badge', id: k, name: v.name })) : []),
         ...(container.kinds.includes('emote') ? Object.entries(UNLOCK_EMOTES).filter(([, v]) => v.rarity === rar).map(([k]) => ({ kind: 'emote', id: k, name: k })) : []),
         ...(container.kinds.includes('sticker') ? Object.entries(STICKERS).filter(([, v]) => v.rarity === rar).map(([k]) => ({ kind: 'sticker', id: k, name: k })) : []),
+        ...(container.kinds.includes('border') ? Object.entries(BORDERS).filter(([, v]) => v.rarity === rar).map(([k, v]) => ({ kind: 'border', id: k, name: v.name })) : []),
       ];
       const ladder = Object.keys(container.odds);
       let pool = poolFor(rarity);
@@ -1525,8 +1623,9 @@ const server = http.createServer(async (req, res) => {
       prof.emotes = prof.emotes || [];
       prof.stickers = prof.stickers || [];
       prof.floats = prof.floats || {};
+      prof.borders = prof.borders || [];
       const list = win.kind === 'paint' ? prof.paints : win.kind === 'badge' ? prof.badges
-        : win.kind === 'sticker' ? prof.stickers : prof.emotes;
+        : win.kind === 'sticker' ? prof.stickers : win.kind === 'border' ? prof.borders : prof.emotes;
       let dupe = false;
       let float = rollFloat();
       if (list.includes(win.id)) {
@@ -1552,19 +1651,21 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req);
       const prof = profileOf(user);
       const kind = String(b.kind || ''), id = String(b.id || '');
-      const lists = { paint: prof.paints, badge: prof.badges, emote: prof.emotes = prof.emotes || [], sticker: prof.stickers = prof.stickers || [] };
+      const lists = { paint: prof.paints, badge: prof.badges, emote: prof.emotes = prof.emotes || [], sticker: prof.stickers = prof.stickers || [], border: prof.borders = prof.borders || [] };
       const list = lists[kind];
       if (!list || !list.includes(id)) return send(res, 404, { error: 'Item nicht gefunden.' });
       const rarity = kind === 'paint' ? (PAINTS.paints.find(x => x.id === id) || {}).rarity
         : kind === 'badge' ? ({ 'häufig': 'common', 'selten': 'rare', 'episch': 'epic' })[(BADGES[id] || {}).rar]
-        : kind === 'sticker' ? (STICKERS[id] || {}).rarity
-        : (UNLOCK_EMOTES[id] || {}).rarity;
+        : kind === 'sticker' ? (STICKERS_ALL[id] || {}).rarity
+        : kind === 'border' ? (BORDERS[id] || {}).rarity
+        : (EMOTES_ALL[id] || {}).rarity;
       const float = (prof.floats || {})[`${kind}:${id}`] ?? 0;
       const value = itemValue(rarity || 'common', float);
       lists[kind].splice(list.indexOf(id), 1);
       delete prof.floats[`${kind}:${id}`];
-      if (prof.activeBadge === id) prof.activeBadge = '';
-      if (prof.activePaint === id) prof.activePaint = '';
+      if (kind === 'badge' && prof.activeBadge === id) prof.activeBadge = '';
+      if (kind === 'paint' && prof.activePaint === id) prof.activePaint = '';
+      if (kind === 'border' && prof.activeBorder === id) prof.activeBorder = '';
       prof.showcase = (prof.showcase || []).filter(s => s !== `${kind}:${id}`);
       prof.coins = (prof.coins || 0) + value;
       saveJson('users.json', users);
@@ -1601,6 +1702,17 @@ const server = http.createServer(async (req, res) => {
       grantCase(user, type, CaseSource.SHOP);
       saveJson('users.json', users);
       return send(res, 200, { ok: true, coins: prof.coins, cases: prof.cases });
+    }
+    // Profilbild-Rahmen anlegen/ablegen
+    if (p === '/api/border' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      const prof = profileOf(user);
+      const id = String(b.id || '');
+      prof.activeBorder = (id === '' || (prof.borders || []).includes(id)) ? id : prof.activeBorder;
+      saveJson('users.json', users);
+      return send(res, 200, { ok: true, activeBorder: prof.activeBorder });
     }
     // Paint anlegen/ablegen
     if (p === '/api/paint' && req.method === 'POST') {
@@ -1921,7 +2033,21 @@ const server = http.createServer(async (req, res) => {
 
     if (p === '/api/comments' && req.method === 'GET') {
       const dealId = url.searchParams.get('dealId') || '';
-      return send(res, 200, comments[dealId] || []);
+      // Jeder Kommentar traegt den AKTUELLEN Look seines Autors (Avatar, Paint,
+      // Rahmen, Badge, Rang): so gestaltet jeder selbst, wie seine Kommentare
+      // aussehen, und Aenderungen wirken rueckwirkend
+      // Alt-Platzhalter ohne lebende Antworten fliegen gleich mit raus
+      const all = comments[dealId] || [];
+      const list = all.filter(c => !c.deleted || all.some(x => x.parent === c.id && !x.deleted)).map(c => {
+        if (c.deleted || !users[c.user]) return c;
+        const cp = profileOf(c.user);
+        return {
+          ...c, avatar: cp.avatar || '', paint: cp.activePaint || '',
+          border: cp.activeBorder || '', badge: cp.activeBadge || '',
+          rank: cp.rankTier || 1,
+        };
+      });
+      return send(res, 200, list);
     }
 
     if (p === '/api/comments' && req.method === 'POST') {
@@ -1973,12 +2099,15 @@ const server = http.createServer(async (req, res) => {
       if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
       const b = await readBody(req);
       const dealId = String(b.dealId || '');
-      const list = comments[dealId] || [];
+      const list = comments[dealId] || []; // Rohliste: delete darf auch Platzhalter-Eltern sehen
       const c = list.find(x => x.id === String(b.id || ''));
       if (!c) return send(res, 404, { error: 'Kommentar nicht gefunden.' });
       if (c.user !== user && !isModUser(user)) return send(res, 403, { error: 'Nur eigene Kommentare.' });
-      // Antworten darauf bleiben stehen, der Kommentar selbst wird zum Platzhalter
-      c.deleted = true; c.text = ''; c.reactions = {};
+      // Ohne Antworten verschwindet der Kommentar komplett; nur wenn Antworten
+      // dranhaengen, bleibt ein Platzhalter (sonst haengen die Antworten in der Luft)
+      const hasReplies = list.some(x => x.parent === c.id && !x.deleted);
+      if (hasReplies) { c.deleted = true; c.text = ''; c.reactions = {}; }
+      else comments[dealId] = list.filter(x => x.id !== c.id);
       saveJson('comments.json', comments);
       return send(res, 200, { ok: true });
     }
