@@ -3216,9 +3216,11 @@ function maybeShowOnboarding() {
 // blendet animiert ein, Konto erstellen / einloggen liegt auf einem Slider
 function showTourFinale() {
   const ob = $('#onboard');
-  ob.classList.remove('hidden', 'done', 'swipe');
-  ob.classList.add('step', 'finale');
-  // Logo-Animation neu anstossen
+  // Wie beim Start: Logo erst GROSS in der Mitte, dann gleitet es hoch,
+  // erst danach faedeln sich Text und Konto-Slider animiert ein
+  ob.classList.remove('hidden', 'done', 'swipe', 'step');
+  ob.classList.add('finale');
+  $('#ob-content').classList.add('hidden');
   const logo = ob.querySelector('.ob-logo');
   logo.style.animation = 'none';
   void logo.offsetWidth;
@@ -3245,8 +3247,12 @@ function showTourFinale() {
   $('#obf-register').onclick = () => { closeOb(); switchView('profile'); setTimeout(() => $('#btn-register-open')?.click(), 400); };
   $('#obf-login').onclick = () => { closeOb(); switchView('profile'); };
   $('#obf-guest').onclick = () => closeOb();
-  $('#ob-content').classList.remove('hidden');
   $('#ob-skip').classList.add('hidden');
+  // Der Logo-Moment darf atmen, dann rutscht es hoch und der Inhalt kommt
+  setTimeout(() => {
+    ob.classList.add('step');
+    setTimeout(() => $('#ob-content').classList.remove('hidden'), 380);
+  }, 950);
 }
 
 // ---- Interaktive Tour: Spotlight wandert ueber die echte App, Hinweise in
