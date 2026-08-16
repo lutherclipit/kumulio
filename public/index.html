@@ -22,6 +22,9 @@
 </head>
 <body>
 
+  <!-- Deckel über der App bis Splash/Onboarding übernimmt: kein Feed-Durchblitzen beim Start -->
+  <div id="boot-cover" aria-hidden="true"></div>
+
   <!-- Öffnungs-Animation: Ordner + Geldscheine -->
   <!-- Icon-Sprite (SF-Symbols-Stil, stroke = currentColor) -->
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -90,6 +93,12 @@
 
   <!-- Freundschaftsanfrage-Popup: schiebt sich unten aus dem Menü hoch -->
   <div id="req-toast" class="hidden"></div>
+
+  <!-- Mini-Gesamtguthaben: taucht über dem Menü auf, wenn die große Karte aus dem Bild scrollt -->
+  <button id="wallet-mini" aria-label="Gesamtguthaben, nach oben springen">
+    <svg class="icon icon-sm"><use href="#i-banknote"/></svg>
+    <b id="wallet-mini-total">0,00 €</b>
+  </button>
 
   <!-- Boden-Blur: unterer Bildschirmrand verschwimmt sanft unter der Tabbar -->
   <div id="bottom-fade" aria-hidden="true"></div>
@@ -218,13 +227,14 @@
           <span id="g-bio-msg" class="form-msg"></span>
         </div>
       </div>
-      <button id="btn-logout" class="btn btn-danger hidden" style="margin-top:20px">Abmelden</button>
     </section>
 
     <!-- ================= FREUNDE (eigener Bereich, über das Menü) ================= -->
     <section id="view-friends" class="view hidden">
       <div class="search-head">
-        <button class="btn btn-small btn-ghost" id="btn-friends-back">← Zurück</button>
+        <button class="iconbtn back-btn" id="btn-friends-back" aria-label="Zurück">
+          <svg class="icon"><use href="#i-arrow-back"/></svg>
+        </button>
         <h1 style="margin:0">Freunde</h1>
       </div>
       <div class="form-row" style="margin-bottom:12px">
@@ -237,7 +247,9 @@
     <!-- ================= NUTZER-PROFIL (öffentliche Seite) ================= -->
     <section id="view-user" class="view hidden">
       <div class="search-head">
-        <button class="btn btn-small btn-ghost" id="btn-user-back">← Zurück</button>
+        <button class="iconbtn back-btn" id="btn-user-back" aria-label="Zurück">
+          <svg class="icon"><use href="#i-arrow-back"/></svg>
+        </button>
         <h1 style="margin:0" id="user-page-title">Profil</h1>
       </div>
       <div id="user-page"></div>
@@ -246,7 +258,9 @@
     <!-- ================= INVENTAR (eigene Seite) ================= -->
     <section id="view-inventory" class="view hidden">
       <div class="search-head">
-        <button class="btn btn-small btn-ghost" id="btn-inv-back">← Zurück</button>
+        <button class="iconbtn back-btn" id="btn-inv-back" aria-label="Zurück">
+          <svg class="icon"><use href="#i-arrow-back"/></svg>
+        </button>
         <h1 style="margin:0">Inventar</h1>
       </div>
       <div class="wallet-filters" id="inv-filters">
@@ -262,7 +276,9 @@
     <!-- ================= KISTENSHOP (eigene Seite) ================= -->
     <section id="view-shop" class="view hidden">
       <div class="search-head">
-        <button class="btn btn-small btn-ghost" id="btn-shop-back">← Zurück</button>
+        <button class="iconbtn back-btn" id="btn-shop-back" aria-label="Zurück">
+          <svg class="icon"><use href="#i-arrow-back"/></svg>
+        </button>
         <h1 style="margin:0">Kistenshop</h1>
       </div>
       <p class="muted" style="font-size:.82rem">Coins gibt es nur fürs Mitmachen, niemals für Echtgeld.
@@ -273,7 +289,9 @@
     <!-- ================= PROFIL BEARBEITEN (eigene Seite) ================= -->
     <section id="view-editprofile" class="view hidden">
       <div class="search-head">
-        <button class="btn btn-small btn-ghost" id="btn-edit-back">← Zurück</button>
+        <button class="iconbtn back-btn" id="btn-edit-back" aria-label="Zurück">
+          <svg class="icon"><use href="#i-arrow-back"/></svg>
+        </button>
         <h1 style="margin:0">Profil bearbeiten</h1>
       </div>
       <div id="editprofile-host"></div>
@@ -282,30 +300,63 @@
     <!-- ================= EINSTELLUNGEN (eigener Bereich, über das Menü) ================= -->
     <section id="view-settings" class="view hidden">
       <div class="search-head">
-        <button class="btn btn-small btn-ghost" id="btn-settings-back">← Zurück</button>
+        <button class="iconbtn back-btn" id="btn-settings-back" aria-label="Zurück">
+          <svg class="icon"><use href="#i-arrow-back"/></svg>
+        </button>
         <h1 style="margin:0">Einstellungen</h1>
       </div>
       <div class="card" id="settings-app-card">
+        <h2 class="card-h">App</h2>
         <div class="settings-row">
           <div class="settings-label">
-            <b>Darstellung</b>
-            <span>Hell oder dunkel, wie du magst</span>
+            <b>Dark Mode</b>
+            <span>Dunkle Darstellung der App</span>
           </div>
-          <button id="btn-theme" class="btn btn-small btn-ghost">
-            <svg class="icon icon-sm"><use href="#i-moon"/></svg>&nbsp;Wechseln
-          </button>
+          <button id="btn-theme" class="hidden" aria-hidden="true"></button>
+          <label class="switch"><input type="checkbox" id="sw-theme"><span class="switch-slider"></span></label>
         </div>
+      </div>
+      <div class="card" id="settings-notif-card">
+        <h2 class="card-h">Mitteilungen</h2>
         <div class="settings-row">
           <div class="settings-label">
             <b>Preisfehler-Alarm</b>
-            <span>Benachrichtigung, sobald die Redaktion einen Preisfehler postet</span>
+            <span>Push aufs Handy, sobald die Redaktion einen Preisfehler postet</span>
           </div>
-          <button id="push-enable" class="btn btn-small">Aktivieren</button>
+          <label class="switch"><input type="checkbox" id="sw-push"><span class="switch-slider"></span></label>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <b>Nachrichten</b>
+            <span>Flüsternachrichten als Banner und Push</span>
+          </div>
+          <label class="switch"><input type="checkbox" id="sw-n-msgs"><span class="switch-slider"></span></label>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <b>Erwähnungen</b>
+            <span>Wenn dich jemand im Chat mit @Name nennt</span>
+          </div>
+          <label class="switch"><input type="checkbox" id="sw-n-mention"><span class="switch-slider"></span></label>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <b>Erinnerungen</b>
+            <span>Reminder zu gemerkten Deals</span>
+          </div>
+          <label class="switch"><input type="checkbox" id="sw-n-reminder"><span class="switch-slider"></span></label>
         </div>
         <div id="push-msg" class="form-msg"></div>
       </div>
       <div class="card hidden" id="danger-card">
         <h2 class="card-h">Konto</h2>
+        <div class="settings-row">
+          <div class="settings-label">
+            <b>Abmelden</b>
+            <span>Du bleibst gespeichert und kannst dich jederzeit wieder anmelden</span>
+          </div>
+          <button id="btn-logout" class="btn btn-small btn-danger" style="width:auto">Abmelden</button>
+        </div>
         <div class="settings-row">
           <div class="settings-label">
             <b>Konto löschen</b>
@@ -324,7 +375,7 @@
     <!-- ================= FEED ================= -->
     <section id="view-feed" class="view">
       <!-- Nur für Admins sichtbar: Deal direkt aus der App posten -->
-      <button id="btn-admin-post" class="btn btn-small hidden" style="margin-bottom:10px">
+      <button id="btn-admin-post" class="btn btn-small hidden">
         <svg class="icon icon-sm"><use href="#i-plus"/></svg>&nbsp;Deal posten
       </button>
       <div class="chipbar" id="chipbar"></div>
@@ -342,10 +393,11 @@
     <!-- ================= WALLET ================= -->
     <section id="view-wallet" class="view hidden">
       <h1 style="text-align:center">Wallet</h1>
-      <!-- Wallet und Coupons wohnen zusammen, umschalten oben -->
+      <!-- Ein Oberbegriff, drei Bereiche: Gutscheine, Sparkarten, Coupons -->
       <div id="wallet-modes">
-        <button class="chip active" data-wmode="wallet">Wallet</button>
-        <button class="chip" data-wmode="coupons">Coupons</button>
+        <button class="chip active" data-wtab="gutscheine">Gutscheine</button>
+        <button class="chip" data-wtab="karten">Sparkarten</button>
+        <button class="chip" data-wtab="coupons">Coupons</button>
       </div>
       <!-- Ohne Profil gesperrt -->
       <div id="wallet-gate" class="card teaser-card hidden">
@@ -357,21 +409,34 @@
         <button class="btn btn-big" id="btn-wallet-login">Anmelden / Registrieren</button>
       </div>
       <div id="wallet-content">
-        <div class="card balance-card" id="balance-card">
-          <div class="offer-cat">Gesamtguthaben</div>
-          <div class="balance-big" id="wallet-total">0,00 €</div>
-          <div class="offer-cat" id="wallet-total-sub"></div>
-          <div class="rank-row">
-            <span class="rank-chip" id="wallet-rank"></span>
-            <div class="rank-progress"><div class="rank-progress-fill" id="wallet-rank-fill"></div></div>
-            <span class="rank-next" id="wallet-rank-next"></span>
+        <!-- Gesamtguthaben: antippen dreht die Karte zur Statistik um -->
+        <div class="balance-flip" id="balance-flip">
+          <div class="flip-inner" id="flip-inner">
+            <div class="card balance-card flip-front" id="balance-card">
+              <div class="offer-cat">Gesamtguthaben</div>
+              <div class="balance-big" id="wallet-total">0,00 €</div>
+              <div class="offer-cat" id="wallet-total-sub"></div>
+              <div class="rank-row">
+                <span class="rank-chip" id="wallet-rank"></span>
+                <div class="rank-progress"><div class="rank-progress-fill" id="wallet-rank-fill"></div></div>
+                <span class="rank-next" id="wallet-rank-next"></span>
+              </div>
+              <div class="flip-hint"><svg class="icon icon-sm"><use href="#i-chart"/></svg> Antippen für die Statistik</div>
+            </div>
+            <div class="card balance-card flip-back" id="balance-back"></div>
           </div>
         </div>
+        <!-- Hinzufügen ganz oben, kein Scrollen nötig -->
+        <button class="wallet-card wallet-card-add" id="wallet-add-top">
+          <span class="wallet-add-plus"><svg class="icon"><use href="#i-plus"/></svg></span>
+          <span class="wallet-add-label">Gutschein hinzufügen</span>
+        </button>
         <div class="wallet-tools">
           <input id="wallet-search" class="input" type="search" placeholder="Shop; z.B. REWE, Amazon; PIN, Notiz …">
           <div class="wallet-filters" id="wallet-vendor-filters"></div>
         </div>
-        <h3 class="wallet-h" style="display:flex; align-items:center">Gutscheine
+        <h3 class="wallet-h wallet-h-row">Gutscheine
+          <span id="wallet-val-chips"></span>
           <button class="iconbtn info-btn" id="wallet-sort-btn" style="margin-left:auto" aria-label="Sortieren">
             <svg class="icon icon-sm"><use href="#i-sliders"/></svg>
           </button>
@@ -384,8 +449,12 @@
             <svg class="icon icon-sm chev"><use href="#i-chevron"/></svg></summary>
           <div id="voucher-used" class="wallet-list" style="padding:0 14px 14px"></div>
         </details>
-        <h3 class="wallet-h" style="margin-top:20px">Sparkarten</h3>
-        <div id="cardw-list" class="wallet-list"></div>
+      </div>
+      <!-- Sparkarten: App-Raster mit Logos, suchbar, per Ziehen sortierbar -->
+      <div id="cards-content" class="hidden">
+        <input id="cardw-search" class="input" type="search" placeholder="Sparkarte suchen …">
+        <p class="muted grid-hint">Gedrückt halten und ziehen, um die Reihenfolge zu ändern.</p>
+        <div id="cardw-list" class="app-grid"></div>
       </div>
       <!-- Coupons: offizielle Quellen, jetzt hier zu Hause -->
       <div id="coupons-content" class="hidden"></div>
@@ -398,9 +467,13 @@
         <button class="chip" data-cmode="dmlist">Freunde <span id="dm-unread" class="pill hidden"></span></button>
       </div>
       <div id="dm-head" class="hidden">
-        <button class="btn btn-small btn-ghost" id="dm-back">← Zurück</button>
-        <span id="dm-partner-ava"></span>
-        <span id="dm-partner-name"></span>
+        <button class="iconbtn back-btn" id="dm-back" aria-label="Zurück">
+          <svg class="icon"><use href="#i-arrow-back"/></svg>
+        </button>
+        <button id="dm-partner-open" aria-label="Profil ansehen">
+          <span id="dm-partner-ava"></span>
+          <span id="dm-partner-name"></span>
+        </button>
       </div>
       <div id="chat-pinbar" class="hidden"></div>
       <div id="chat-box-wrap">
@@ -418,7 +491,9 @@
           <svg class="icon"><use href="#i-smile"/></svg>
         </button>
         <input id="chat-input" class="input" maxlength="220" placeholder="Nachricht …" autocomplete="off">
-        <button id="chat-send" class="btn btn-small">Senden</button>
+        <button id="chat-send" class="send-btn" aria-label="Senden">
+          <svg class="icon"><use href="#i-send"/></svg>
+        </button>
       </div>
 
       <!-- Nutzer-Popup: Profil, Flüstern, Freund, Melden (+ Moderation für Mods) -->
@@ -430,7 +505,9 @@
     <!-- ================= SUCHE (öffnet über das Lupen-Icon oben links) ================= -->
     <section id="view-search" class="view hidden">
       <div class="search-head">
-        <button class="btn btn-small btn-ghost" id="btn-search-back">← Zurück</button>
+        <button class="iconbtn back-btn" id="btn-search-back" aria-label="Zurück">
+          <svg class="icon"><use href="#i-arrow-back"/></svg>
+        </button>
         <h1 style="margin:0">Suche</h1>
       </div>
       <input id="search" class="input search-big" type="search"

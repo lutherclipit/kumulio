@@ -367,6 +367,24 @@ async function pushToAll(dataObj) {
     saveJson('push-subs.json', pushSubs);
   }
 }
+// Gezielter Push an einen Nutzer (DMs, Erwähnungen): nur Abos mit user-Bindung
+function pushToUser(name, dataObj) {
+  const mine = pushSubs.filter(s => s.user === name);
+  if (!mine.length) return;
+  (async () => {
+    const dead = [];
+    for (const sub of mine) {
+      try {
+        const st = await sendPush(sub, dataObj);
+        if (st === 404 || st === 410) dead.push(sub.endpoint);
+      } catch { }
+    }
+    if (dead.length) {
+      pushSubs = pushSubs.filter(s => !dead.includes(s.endpoint));
+      saveJson('push-subs.json', pushSubs);
+    }
+  })();
+}
 
 function allChannels() {
   // Eigene Kanäle bekommen immer das Standard-Icon und die Community-Regeln
@@ -918,6 +936,13 @@ const server = http.createServer(async (req, res) => {
       if (chat.messages.length > 150) chat.messages = chat.messages.slice(-150);
       saveJson('chat.json', chat);
       saveJson('users.json', users); // Quest-Zähler mitschreiben
+      // @Erwähnungen: die Genannten kriegen einen Push (auch außerhalb der App)
+      for (const m of msg.text.matchAll(/@([A-Za-z0-9_.-]{3,24})/g)) {
+        const name = m[1];
+        if (users[name] && name !== user) {
+          pushToUser(name, { title: `@${user} hat dich erwähnt`, body: msg.text.slice(0, 120), url: '/?chat=global', tag: 'mention-' + user, kind: 'mention', from: user });
+        }
+      }
       return send(res, 201, { ok: true, message: msg });
     }
     // Moderation direkt aus der App (Rolle mod/admin), Timeout, Bann, Löschen, Anpinnen
@@ -1056,6 +1081,8 @@ const server = http.createServer(async (req, res) => {
       if (dms[key].msgs.length > 200) dms[key].msgs = dms[key].msgs.slice(-200);
       dms[key].reads[me] = Date.now();
       saveJson('dms.json', dms);
+      // Aufs Handy, auch wenn die App zu ist; der Client blendet es im offenen Chat selbst aus
+      pushToUser(to, { title: `@${me}`, body: msg.text.slice(0, 120), url: '/?chat=dm&user=' + encodeURIComponent(me), tag: 'dm-' + me, kind: 'dm', from: me });
       return send(res, 201, { ok: true, message: msg });
     }
     // Freunde: Anfrage senden, annehmen, ablehnen, entfernen (beidseitig)
@@ -1197,8 +1224,12 @@ const server = http.createServer(async (req, res) => {
       if (!b.endpoint || !b.keys?.p256dh || !b.keys?.auth) return send(res, 400, { error: 'Ungültiges Abo.' });
       const subUser = authUser(req);
       if (subUser) { profileOf(subUser).pushOn = true; saveJson('users.json', users); }
-      if (!pushSubs.some(s => s.endpoint === b.endpoint)) {
-        pushSubs.push({ endpoint: b.endpoint, keys: { p256dh: b.keys.p256dh, auth: b.keys.auth } });
+      const existing = pushSubs.find(s => s.endpoint === b.endpoint);
+      if (existing) {
+        // Abo an den (jetzt) angemeldeten Nutzer binden, damit DMs/Erwähnungen ankommen
+        if (subUser && existing.user !== subUser) { existing.user = subUser; saveJson('push-subs.json', pushSubs); }
+      } else {
+        pushSubs.push({ endpoint: b.endpoint, keys: { p256dh: b.keys.p256dh, auth: b.keys.auth }, user: subUser || '' });
         if (pushSubs.length > 5000) pushSubs = pushSubs.slice(-5000);
         saveJson('push-subs.json', pushSubs);
       }

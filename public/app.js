@@ -24,6 +24,7 @@ const state = {
   userName: localStorage.getItem('ra.user') || '',
   token: localStorage.getItem('ra.token') || '',
   featured: [],
+  notif: JSON.parse(localStorage.getItem('ra.notif') || '{"msgs":true,"mention":true,"reminder":true}'),
 };
 
 // ---------------- Dark Mode ----------------
@@ -41,8 +42,8 @@ function applyTheme(t, animate = false) {
   }
   root.dataset.theme = t;
   localStorage.setItem('ra.theme', t);
-  const use = document.querySelector('#btn-theme use');
-  if (use) use.setAttribute('href', t === 'dark' ? '#i-sun' : '#i-moon');
+  const sw = document.getElementById('sw-theme');
+  if (sw) sw.checked = t === 'dark';
 }
 applyTheme(localStorage.getItem('ra.theme')
   || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
@@ -251,11 +252,18 @@ function switchView(next, animClass) {
   newView.classList.add(animClass || (dir === 1 ? 'enter-right' : 'enter-left'));
   // Login-Captcha erst rendern, wenn die Profil-Seite sichtbar ist
   if (next === 'profile' && !state.token) renderTurnstile('login');
-  if (next === 'chat') { updateChatGate(); pollChat(true); }
+  if (next === 'chat') {
+    updateChatGate();
+    pollChat(true);
+    // Immer unten einsteigen: die neueste Nachricht ist das Wichtigste
+    requestAnimationFrame(() => { const b = $('#chat-box'); b.scrollTop = b.scrollHeight; });
+  }
   if (next === 'friends') renderFriendsView();
   if (next === 'inventory') renderInventoryPage();
   if (next === 'shop') renderShopPage();
+  if (next !== 'wallet') $('#wallet-mini')?.classList.remove('show');
   document.body.classList.toggle('chat-locked', next === 'chat');
+  refreshAdminUi();
   viewCleanupTimer = setTimeout(settleViews, 520);
 }
 
@@ -595,39 +603,55 @@ function computeOrder() {
 
 // Coupons (im Wallet): Verzeichnis der offiziellen Coupon-Quellen + GzG + Payback
 function renderCoupons(host) {
-  let animIdx = 0;
-  const row = it => `
-    <a class="channel-row coupon-row anim-item" style="animation-delay:${Math.min(animIdx++, 10) * 45}ms"
-       href="${esc(it.url)}" target="_blank" rel="noopener noreferrer">
-      <span class="brand-chip" style="--bc:${brandColor(it.name)}">${esc(brandInitials(it.name))}</span>
-      <div class="channel-info">
-        <div class="channel-name">${esc(it.name)}</div>
-        <div class="channel-desc">${esc(it.desc)}</div>
-      </div>
-      ${icon('arrow-out', 'icon icon-sm')}
-    </a>`;
-
+  host = host || $('#coupons-content');
   const hasPayback = state.wallet.cards.some(c => /payback/i.test(c.name));
   const gzg = state.deals.filter(d => /geld.?zur(ü|ue)ck|gzg\b/i.test(d.title + ' ' + (d.excerpt || '')));
 
-  (host || $('#coupons-content')).innerHTML = `
-    <p class="muted" style="font-size:.85rem; margin-bottom:14px; line-height:1.5">
-      Die Coupons liegen in den Apps und Portalen der Anbieter, hier springst du direkt hin.
-      Eingelöste Gutscheine verwaltest du in der Wallet.</p>
-    ${hasPayback ? `
-    <h3 class="wallet-h">Deine Payback-Coupons</h3>
-    ${row({ name: 'Payback', url: 'https://www.payback.de/coupons', desc: 'Coupon-Center: eCoupons für deine verbundene Karte aktivieren' })}
-    <p class="muted" style="font-size:.74rem; margin:6px 0 16px">Direkt-Sync in die App braucht die Payback-Partner-API (nicht öffentlich), bis dahin geht es hier zum offiziellen Coupon-Center.</p>`
-    : `
-    <h3 class="wallet-h">Payback</h3>
-    ${row({ name: 'Payback', url: 'https://www.payback.de/coupons', desc: 'Karte in der Wallet verbinden, dann findest du hier dein Coupon-Center' })}`}
-    ${COUPON_SOURCES.map(sec => `
-      <h3 class="wallet-h" style="margin-top:18px">${esc(sec.cat)}</h3>
-      ${sec.items.map(row).join('')}`).join('')}
+  // Alle Quellen als App-Kacheln, Reihenfolge merkt sich die App (Ziehen zum Sortieren)
+  const all = [{
+    name: 'Payback', url: 'https://www.payback.de/coupons', cat: 'Punkte',
+    desc: hasPayback ? 'Coupon-Center: eCoupons für deine verbundene Karte aktivieren'
+      : 'Karte in der Wallet verbinden, dann findest du hier dein Coupon-Center',
+  }];
+  COUPON_SOURCES.forEach(sec => sec.items.forEach(it => all.push({ ...it, cat: sec.cat })));
+  const order = JSON.parse(localStorage.getItem('ra.couponOrder') || '[]');
+  const pos = n => { const i = order.indexOf(n); return i < 0 ? 999 : i; };
+  all.sort((a, b) => pos(a.name) - pos(b.name));
+  const q = (state.couponQuery || '').trim().toLowerCase();
+  const shown = all.filter(it => !q || it.name.toLowerCase().includes(q)
+    || it.cat.toLowerCase().includes(q) || (it.desc || '').toLowerCase().includes(q));
+
+  host.innerHTML = `
+    <input id="coupon-search" class="input" type="search" placeholder="Coupons suchen; z.B. Lidl, Drogerie …" value="${esc(state.couponQuery || '')}">
+    <p class="muted grid-hint">Antippen öffnet die offizielle Coupon-Seite. Gedrückt halten und ziehen zum Sortieren.</p>
+    <div class="app-grid" id="coupon-grid">
+      ${shown.map(it => `
+      <a class="app-tile" data-cpn="${esc(it.name)}" title="${esc(it.desc || '')}"
+         href="${esc(it.url)}" target="_blank" rel="noopener noreferrer" style="--bc:${brandColor(it.name)}">
+        ${brandChipHtml(it.name)}
+        <span class="app-tile-name">${esc(it.name)}</span>
+        <span class="app-tile-desc">${esc(it.cat)}</span>
+      </a>`).join('')
+      || '<div class="status">Nichts gefunden.</div>'}
+    </div>
     <h3 class="wallet-h" style="margin-top:18px">Geld-zurück-Garantien (GzG)</h3>
     ${gzg.length
       ? gzg.map((d, i) => renderOfferCard(d, i, false)).join('')
       : '<div class="status">Aktuelle GzG-Aktionen postet die Redaktion über das Admin-Panel, sie erscheinen dann hier.</div>'}`;
+
+  const cs = host.querySelector('#coupon-search');
+  cs.addEventListener('input', () => {
+    state.couponQuery = cs.value;
+    const at = cs.selectionStart;
+    renderCoupons(host);
+    const again = host.querySelector('#coupon-search');
+    again.focus();
+    again.setSelectionRange(at, at);
+  });
+  makeGridSortable(host.querySelector('#coupon-grid'), '[data-cpn]', newOrder => {
+    if ((state.couponQuery || '').trim()) return;
+    localStorage.setItem('ra.couponOrder', JSON.stringify(newOrder));
+  }, el => el.dataset.cpn);
 }
 
 function renderFeed(reorder = false) {
@@ -828,6 +852,7 @@ function setReminder(dealId, minutesOrMorning) {
 }
 
 function checkReminders() {
+  if (state.notif.reminder === false) return;
   const now = Date.now();
   for (const [id, fav] of Object.entries(state.favs)) {
     if (fav.remindAt && !fav.notified && fav.remindAt <= now) {
@@ -2170,10 +2195,18 @@ $('#btn-profile-top').addEventListener('click', () => {
   toggleTopMenu();
 });
 
+// Menü-Backdrop blendet weich ein und aus (Blur + Abdunklung über Klasse)
+function hideTopBackdrop() {
+  const bd = $('#top-menu-backdrop');
+  bd.classList.remove('show');
+  setTimeout(() => bd.classList.add('hidden'), 380);
+}
 function toggleTopMenu() {
   const menu = $('#top-menu');
-  if (!menu.classList.contains('hidden')) { menu.classList.add('hidden'); $('#top-menu-backdrop').classList.add('hidden'); return; }
-  $('#top-menu-backdrop').classList.remove('hidden');
+  if (!menu.classList.contains('hidden')) { menu.classList.add('hidden'); hideTopBackdrop(); return; }
+  const bd = $('#top-menu-backdrop');
+  bd.classList.remove('hidden');
+  requestAnimationFrame(() => bd.classList.add('show'));
   const reqs = myProfile?.friendRequests || [];
   const rank = rankFor(renderWallet.lastTotal || 0);
   menu.innerHTML = `
@@ -2204,10 +2237,9 @@ function toggleTopMenu() {
     <button class="tm-item" id="tm-catalog">${icon('list', 'icon icon-sm')} Sammlung</button>
     <button class="tm-item" id="tm-quests">${icon('trophy', 'icon icon-sm')} Quests ${(gami?.claimable || []).length ? `<span class="dm-unread-pill">${gami.claimable.length}</span>` : ''}</button>
     <button class="tm-item" id="tm-favs">${icon('star', 'icon icon-sm')} Favoriten</button>
-    <button class="tm-item" id="tm-settings">${icon('sliders', 'icon icon-sm')} Einstellungen</button>
-    <button class="tm-item" id="tm-logout">${icon('x', 'icon icon-sm')} Abmelden</button>`;
+    <button class="tm-item" id="tm-settings">${icon('sliders', 'icon icon-sm')} Einstellungen</button>`;
   menu.classList.remove('hidden');
-  const done = () => { menu.classList.add('hidden'); $('#top-menu-backdrop').classList.add('hidden'); };
+  const done = () => { menu.classList.add('hidden'); hideTopBackdrop(); };
   // Der Profil-Banner selbst führt zum Profil
   menu.querySelector('.tm-head').style.cursor = 'pointer';
   menu.querySelector('.tm-head').onclick = () => { done(); switchView('profile'); };
@@ -2230,7 +2262,6 @@ function toggleTopMenu() {
   };
   $('#tm-settings').onclick = () => { done(); switchView('settings', 'enter-drop'); };
   $('#tm-all-friends').onclick = () => { done(); switchView('friends', 'enter-drop'); };
-  $('#tm-logout').onclick = () => { done(); $('#btn-logout').click(); };
   // Die letzten 3 Freunde (nach letzter Interaktion), mit Profilbild
   api('/api/dm/list').then(r => {
     const rows = [
@@ -2274,7 +2305,7 @@ document.addEventListener('click', e => {
   const menu = $('#top-menu');
   if (!menu.classList.contains('hidden') && !e.target.closest('#top-menu') && !e.target.closest('#btn-profile-top')) {
     menu.classList.add('hidden');
-    $('#top-menu-backdrop').classList.add('hidden');
+    hideTopBackdrop();
   }
 });
 
@@ -2512,8 +2543,18 @@ $('#btn-logout').addEventListener('click', async () => {
   island('Abgemeldet');
 });
 
-$('#btn-theme').addEventListener('click', () => {
-  applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark', true);
+// Dark Mode als On/Off-Schalter in den Einstellungen
+const swTheme = $('#sw-theme');
+if (swTheme) {
+  swTheme.checked = document.documentElement.dataset.theme === 'dark';
+  swTheme.addEventListener('change', () => applyTheme(swTheme.checked ? 'dark' : 'light', true));
+}
+// Mitteilungs-Schalter: Banner/Sounds pro Kategorie an- und abschaltbar
+[['msgs', '#sw-n-msgs'], ['mention', '#sw-n-mention'], ['reminder', '#sw-n-reminder']].forEach(([key, sel]) => {
+  const el = $(sel);
+  if (!el) return;
+  el.checked = state.notif[key] !== false;
+  el.addEventListener('change', () => { state.notif[key] = el.checked; save('notif', state.notif); });
 });
 
 // ---------------- Fullscreen-Onboarding beim ersten Start ----------------
@@ -2648,16 +2689,31 @@ state.wallet.cards = state.wallet.cards.map(c => ({ img: '', codeImg: '', ...c }
 // Wallet: lokal speichern + (angemeldet) ans Konto syncen, Gutscheine überleben
 // so App-Neuinstallation und Gerätewechsel
 let walletSyncTimer = null;
+// Solange etwas nicht beim Server angekommen ist, bleibt die Dirty-Marke stehen
+// und der Sync wird wiederholt; so kann "gespeichert" nie mehr heimlich verloren gehen
+async function syncWalletNow() {
+  if (!state.token) return true;
+  try {
+    await api('/api/wallet', { method: 'POST', body: JSON.stringify(state.wallet) });
+    localStorage.removeItem('ra.walletDirty');
+    return true;
+  } catch {
+    localStorage.setItem('ra.walletDirty', '1');
+    return false;
+  }
+}
 function saveWallet() {
   save('wallet', state.wallet);
   renderWallet();
   if (state.token) {
+    localStorage.setItem('ra.walletDirty', '1');
     clearTimeout(walletSyncTimer);
-    walletSyncTimer = setTimeout(() => {
-      api('/api/wallet', { method: 'POST', body: JSON.stringify(state.wallet) }).catch(() => { });
-    }, 800);
+    walletSyncTimer = setTimeout(syncWalletNow, 800);
   }
 }
+// Nachzügler-Sync: sobald wieder Netz da ist oder regelmäßig im Hintergrund
+window.addEventListener('online', () => { if (localStorage.getItem('ra.walletDirty')) syncWalletNow(); });
+setInterval(() => { if (state.token && localStorage.getItem('ra.walletDirty')) syncWalletNow(); }, 30000);
 async function pullWallet() {
   if (!state.token) return;
   try {
@@ -2826,14 +2882,23 @@ const VENDOR_QUICK = ['REWE', 'Amazon', 'Wunschgutschein', 'Zalando', 'IKEA', 'R
 // hochskaliert, den hält man an der Kasse hin, perfekt lesbar
 function cropCode(img, bb) {
   if (!bb || bb.width < 20 || bb.height < 10) return '';
-  const padX = bb.width * 0.14, padY = Math.max(bb.height * 0.35, 20);
+  const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+  // Großzügig Rand lassen: lieber etwas mehr Bild als ein angeschnittener Code
+  const padX = Math.max(bb.width * 0.3, 36), padY = Math.max(bb.height * 0.5, 36);
   const x = Math.max(0, bb.x - padX), y = Math.max(0, bb.y - padY);
-  const w = Math.min(img.naturalWidth - x, bb.width + padX * 2);
-  const h = Math.min(img.naturalHeight - y, bb.height + padY * 2);
+  const w = Math.min(iw - x, bb.width + padX * 2);
+  const h = Math.min(ih - y, bb.height + padY * 2);
+  // Immer 1:1: der Code sitzt mittig auf einem weißen Quadrat, an der Kasse perfekt scannbar
+  const side = Math.max(w, h);
+  const out = Math.min(900, Math.max(480, Math.round(side)));
   const c = document.createElement('canvas');
-  const scale = Math.min(2, 900 / w);
-  c.width = Math.round(w * scale); c.height = Math.round(h * scale);
-  c.getContext('2d').drawImage(img, x, y, w, h, 0, 0, c.width, c.height);
+  c.width = out; c.height = out;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, out, out);
+  const scale = (out * 0.9) / side;
+  const dw = w * scale, dh = h * scale;
+  ctx.drawImage(img, x, y, w, h, (out - dw) / 2, (out - dh) / 2, dw, dh);
   return c.toDataURL('image/png');
 }
 
@@ -2849,7 +2914,7 @@ async function zxingDetect(img) {
   }
   if (!window.ZXing) return null;
   const c = document.createElement('canvas');
-  c.width = img.naturalWidth; c.height = img.naturalHeight;
+  c.width = img.naturalWidth || img.width; c.height = img.naturalHeight || img.height;
   c.getContext('2d').drawImage(img, 0, 0);
   try {
     const source = new ZXing.HTMLCanvasElementLuminanceSource(c);
@@ -2904,22 +2969,35 @@ async function analyzeWalletImage(dataUrl, statusCb) {
   const out = { barcode: '', codeImg: '', text: '', supported: { barcode: true, text: true } };
   const img = new Image();
   await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = dataUrl; });
-  if ('BarcodeDetector' in window) {
-    try {
-      const codes = await new BarcodeDetector().detect(img);
-      if (codes.length) {
-        out.barcode = codes[0].rawValue || '';
-        out.codeImg = cropCode(img, codes[0].boundingBox);
-      }
-    } catch { }
-  }
-  if (!out.barcode) {
-    // Kein eingebauter Detector (iPhone) oder nichts gefunden → ZXing versucht es
-    const r = await zxingDetect(img);
-    if (r) {
-      out.barcode = r.text || '';
-      out.codeImg = out.codeImg || cropCode(img, r.box);
+  const tryDetect = async source => {
+    if ('BarcodeDetector' in window) {
+      try {
+        const codes = await new BarcodeDetector().detect(source);
+        if (codes.length) return { text: codes[0].rawValue || '', box: codes[0].boundingBox };
+      } catch { }
     }
+    // Kein eingebauter Detector (iPhone) oder nichts gefunden → ZXing versucht es
+    return zxingDetect(source);
+  };
+  let hit = await tryDetect(img);
+  if (!hit || !hit.text) {
+    // Kleine Codes (z. B. der Mini-Code auf REWE-Karten) brauchen mehr Pixel:
+    // hochskaliert nochmal versuchen, die Box danach zurückrechnen
+    const up = document.createElement('canvas');
+    up.width = (img.naturalWidth || 0) * 2; up.height = (img.naturalHeight || 0) * 2;
+    if (up.width && up.width <= 6000) {
+      const ctx = up.getContext('2d');
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(img, 0, 0, up.width, up.height);
+      const r2 = await tryDetect(up);
+      if (r2 && r2.text) {
+        hit = { text: r2.text, box: r2.box ? { x: r2.box.x / 2, y: r2.box.y / 2, width: r2.box.width / 2, height: r2.box.height / 2 } : null };
+      }
+    }
+  }
+  if (hit && hit.text) {
+    out.barcode = hit.text;
+    out.codeImg = cropCode(img, hit.box);
   }
   // Text lesen: erst der schnelle native Weg (falls vorhanden), sonst Tesseract
   if ('TextDetector' in window) {
@@ -2983,7 +3061,15 @@ function openWalletAdd(type, prefillName) {
         ${icon('plus', 'icon')}
         <span>Screenshot / Foto hierher ziehen<br>oder unten auswählen</span>
       </div>
-      <img id="wa-preview" class="wallet-img hidden" alt="">
+      <div class="scan-frame" id="wa-scan-frame">
+        <img id="wa-preview" class="wallet-img hidden" alt="">
+        <div class="scan-line hidden" id="wa-scanline"></div>
+      </div>
+      <div class="scan-progress hidden" id="wa-progress">
+        <div class="scan-progress-track"><div class="scan-progress-fill" id="wa-progress-fill"></div></div>
+        <span id="wa-progress-txt">0 %</span>
+      </div>
+      <div id="wa-result" class="hidden"></div>
       <div class="form-row" style="justify-content:center">
         <label class="btn btn-small btn-ghost" style="cursor:pointer">Bild hochladen
           <input id="wa-img" type="file" accept="image/*" style="display:none"></label>
@@ -3071,6 +3157,11 @@ function openWalletAdd(type, prefillName) {
   }));
   const currentCard = () => pickedCard || $('#wa-cname')?.value.trim() || '';
 
+  // Scan-Fortschritt: erst der Code-Scan (bis 20 %), dann die Text-Erkennung
+  const scanProgress = p => {
+    $('#wa-progress-fill').style.width = p + '%';
+    $('#wa-progress-txt').textContent = Math.round(p) + ' %';
+  };
   const handleImageFile = async f => {
     const m = $('#wa-ai-msg');
     if (!f) return;
@@ -3079,12 +3170,20 @@ function openWalletAdd(type, prefillName) {
       $('#wa-preview').src = addImg;
       $('#wa-preview').classList.remove('hidden');
       $('#wa-drop-empty').classList.add('hidden');
+      $('#wa-result').classList.add('hidden');
+      // Scan-Optik: Laserlinie über dem Bild + cleaner Prozent-Balken
+      $('#wa-scanline').classList.remove('hidden');
+      $('#wa-progress').classList.remove('hidden');
+      $('#wa-progress').classList.remove('done');
+      scanProgress(4);
       m.className = 'form-msg';
-      m.textContent = 'Lese das Bild aus …';
+      m.textContent = 'Scanne das Bild …';
       // Analyse auf hochauflösender Fassung: kleine Schrift bleibt für die OCR lesbar
       const hiRes = await readImageFile(f, 2200, 0.9);
+      scanProgress(12);
       const r = await analyzeWalletImage(hiRes, p => {
-        m.textContent = `Lese den Text im Bild … ${p} % (kann beim ersten Mal etwas dauern)`;
+        scanProgress(20 + p * 0.78);
+        m.textContent = 'Lese den Text im Bild … (kann beim ersten Mal etwas dauern)';
       });
       if (r.codeImg) { addCodeImg = r.codeImg; $('#wa-preview').src = r.codeImg; }
       const filled = [];
@@ -3122,14 +3221,33 @@ function openWalletAdd(type, prefillName) {
         }
       }
       if (r.codeImg) filled.push('Kassen-Code ausgeschnitten');
+      // Scan fertig: Balken voll, Laserlinie aus, Ergebnis ordentlich untereinander
+      scanProgress(100);
+      $('#wa-progress').classList.add('done');
+      $('#wa-scanline').classList.add('hidden');
+      setTimeout(() => $('#wa-progress')?.classList.add('hidden'), 1400);
+      const resRow = (label, val) => val
+        ? `<div class="scan-row"><span>${label}</span><b>${esc(val)}</b></div>` : '';
+      const resCode = addType === 'voucher' ? $('#wa-code').value : $('#wa-cnumber').value;
+      const resRows = addType === 'voucher'
+        ? resRow('Code', r.barcode && r.barcode !== resCode ? r.barcode : '')
+          + resRow('Kartennummer', resCode)
+          + resRow('PIN', $('#wa-pin').value)
+        : resRow('Kartennummer', resCode);
+      if (addCodeImg || resRows) {
+        $('#wa-result').classList.remove('hidden');
+        $('#wa-result').innerHTML = resRows;
+      }
       if (filled.length) {
         m.className = 'form-msg ok';
-        m.textContent = `Automatisch ausgefüllt: ${filled.join(', ')}, bitte prüfen.`;
+        m.textContent = `Gescannt und ausgefüllt: ${filled.join(', ')}, bitte kurz prüfen.`;
       } else {
         m.className = 'form-msg';
         m.textContent = 'Bild gespeichert, nichts sicher erkannt, bitte Felder ausfüllen.';
       }
     } catch {
+      $('#wa-scanline')?.classList.add('hidden');
+      $('#wa-progress')?.classList.add('hidden');
       m.className = 'form-msg error';
       m.textContent = 'Bild konnte nicht gelesen werden.';
     }
@@ -3142,8 +3260,16 @@ function openWalletAdd(type, prefillName) {
   ['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('drag'); }));
   drop.addEventListener('drop', e => handleImageFile(e.dataTransfer.files[0]));
 
-  $('#wa-save').addEventListener('click', () => {
+  $('#wa-save').addEventListener('click', async () => {
     const msg = $('#wa-msg');
+    // Ohne Netz kein "gespeichert"-Theater: der Gutschein wäre beim nächsten
+    // App-Start weg (PWA-Speicher ist flüchtig), also ehrlich blocken
+    if (state.token && !navigator.onLine) {
+      msg.className = 'form-msg error';
+      msg.textContent = 'Keine Internetverbindung. Bitte mit Netz speichern, damit nichts verloren geht.';
+      return;
+    }
+    let savedItem = null, savedList = null;
     if (addType === 'voucher') {
       const amount = parseFloat($('#wa-amount').value.replace(',', '.'));
       const v = {
@@ -3154,7 +3280,7 @@ function openWalletAdd(type, prefillName) {
         end: $('#wa-end').value || '',
         amount: isNaN(amount) ? null : amount,
         balance: isNaN(amount) ? null : amount,
-        img: addImg, codeImg: addCodeImg, tx: [],
+        img: addImg, codeImg: addCodeImg, tx: [], added: Date.now(),
       };
       // Pflicht: Shop, Wert, PIN (Code ist optional, fehlende Felder leuchten rot)
       $('#wa-amount').classList.toggle('err', v.amount == null);
@@ -3174,19 +3300,37 @@ function openWalletAdd(type, prefillName) {
         return;
       }
       state.wallet.vouchers.unshift(v);
+      savedItem = v; savedList = state.wallet.vouchers;
     } else {
       const c = {
         id: Math.random().toString(36).slice(2, 9),
         name: currentCard().slice(0, 30),
         number: $('#wa-cnumber').value.trim().slice(0, 30),
-        img: addImg, codeImg: addCodeImg,
+        img: addImg, codeImg: addCodeImg, added: Date.now(),
       };
       $('#wa-cnumber').classList.toggle('err', !c.number);
       $('#wa-card-grid')?.classList.toggle('err', !c.name);
       if (!c.name || !c.number) { msg.className = 'form-msg error'; msg.textContent = !c.name ? 'Bitte eine Karte auswählen.' : 'Bitte die Kartennummer eintragen.'; return; }
       state.wallet.cards.unshift(c);
+      savedItem = c; savedList = state.wallet.cards;
     }
-    saveWallet();
+    save('wallet', state.wallet);
+    renderWallet();
+    // Erst wenn der Server es hat, gilt es als gespeichert; sonst ehrlich Bescheid sagen
+    if (state.token) {
+      setBtnLoading($('#wa-save'), true);
+      const ok = await syncWalletNow();
+      setBtnLoading($('#wa-save'), false);
+      if (!ok) {
+        const idx = savedList.indexOf(savedItem);
+        if (idx >= 0) savedList.splice(idx, 1);
+        save('wallet', state.wallet);
+        renderWallet();
+        msg.className = 'form-msg error';
+        msg.textContent = 'Der Server war gerade nicht erreichbar, es wurde NICHT gespeichert. Bitte gleich nochmal versuchen.';
+        return;
+      }
+    }
     closeSheet();
     // Ka-ching! Neues Guthaben in der Wallet
     playSfx('kaching');
@@ -3235,8 +3379,8 @@ function openVoucherSheet(id, animFrom) {
         <input id="wv-note" class="input" maxlength="60" placeholder="Wofür? (Notiz)">
       </div>
       <div class="form-row">
-        <button id="wv-sub" class="btn">− Abbuchen</button>
-        <button id="wv-addamt" class="btn btn-ghost">+ Aufladen</button>
+        <button id="wv-sub" class="btn btn-book-sub">− Abbuchen</button>
+        <button id="wv-addamt" class="btn btn-book-add">+ Aufladen</button>
         <span id="wv-msg" class="form-msg"></span>
       </div>
     </div>` : ''}
@@ -3251,16 +3395,15 @@ function openVoucherSheet(id, animFrom) {
         ${!t.reverted ? `<button class="btn btn-small btn-ghost" data-revert="${esc(t.id)}">Rückgängig</button>` : ''}
       </div>`).join('')}
     </div>` : ''}
-    <button class="btn btn-danger" id="wv-del" style="margin-top:18px">Gutschein löschen</button>`;
+    ${v.added ? `<p class="added-line">Hinzugefügt am ${new Date(v.added).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })}</p>` : ''}
+    ${(v.balance == null || v.balance <= 0)
+      ? '<button class="btn btn-danger" id="wv-del" style="margin-top:14px">Gutschein löschen</button>' : ''}`;
 
   $('#sheet-content').querySelectorAll('[data-copy-txt]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copyTxt)));
   $('#wv-close').addEventListener('click', closeSheet);
-  // Löschen nur bei aufgebrauchten Gutscheinen und immer mit Rückfrage
+  // Löschen gibt es nur bei aufgebrauchten Gutscheinen, immer mit Rückfrage
   $('#wv-del')?.addEventListener('click', async () => {
-    if (v.balance != null && v.balance > 0) {
-      askConfirm(`Dieser Gutschein hat noch ${euroFmt(v.balance)} Guthaben und kann nicht gelöscht werden. Buch erst das Restguthaben ab.`, { alertOnly: true });
-      return;
-    }
+    if (v.balance != null && v.balance > 0) return;
     if (!await askConfirm(`Bist du sicher, dass du den ${esc(v.vendor)}-Gutschein löschen willst?`)) return;
     state.wallet.vouchers = state.wallet.vouchers.filter(x => x.id !== id);
     saveWallet(); closeSheet(); island('Gutschein gelöscht');
@@ -3353,12 +3496,29 @@ function openCardSheet(id) {
   openSheetShell();
 }
 
-function renderWallet() {
-  // Wallet nur mit Profil: Gast sieht die Anmelde-Sperre
-  const gated = !state.token;
+// Drei Wallet-Bereiche: Gutscheine, Sparkarten (App-Raster), Coupons
+let walletTab = 'gutscheine';
+function updateWalletTab(anim) {
+  const coupons = walletTab === 'coupons';
+  const cards = walletTab === 'karten';
+  const gated = !state.token && !coupons;
   $('#wallet-gate').classList.toggle('hidden', !gated);
-  $('#wallet-content').classList.toggle('hidden', gated);
-  if (gated) return;
+  $('#wallet-content').classList.toggle('hidden', gated || coupons || cards);
+  $('#cards-content').classList.toggle('hidden', gated || !cards);
+  $('#coupons-content').classList.toggle('hidden', !coupons);
+  if (coupons) renderCoupons($('#coupons-content'));
+  if (!walletTab.startsWith('gutscheine')) $('#wallet-mini')?.classList.remove('show');
+  if (anim) {
+    const host = coupons ? $('#coupons-content') : cards ? $('#cards-content') : $('#wallet-content');
+    host.classList.add('enter-drop');
+    setTimeout(() => host.classList.remove('enter-drop'), 500);
+  }
+}
+
+function renderWallet() {
+  // Wallet nur mit Profil: Gast sieht die Anmelde-Sperre (Coupons bleiben offen)
+  updateWalletTab(false);
+  if (!state.token) return;
 
   const allActive = state.wallet.vouchers.filter(v => v.balance == null || v.balance > 0);
   const used = state.wallet.vouchers.filter(v => v.balance != null && v.balance <= 0);
@@ -3381,6 +3541,23 @@ function renderWallet() {
   if (ws === 'bis10') active = active.filter(v => (v.balance || 0) <= 10);
   if (ws === 'ab25') active = active.filter(v => (v.balance || 0) >= 25);
   if (ws === 'ab50') active = active.filter(v => (v.balance || 0) >= 50);
+  // Wert-Chips (10/25/50/100) neben dem Untertitel: erscheinen bei aktivem Markt-Filter
+  const marketOn = state.walletFilter && state.walletFilter !== 'alle';
+  const valHost = $('#wallet-val-chips');
+  if (valHost) {
+    valHost.innerHTML = marketOn
+      ? [10, 25, 50, 100].map(n =>
+        `<button class="chip val-chip ${state.walletVal === n ? 'active' : ''}" data-wval="${n}">${n}</button>`).join('')
+      : '';
+    valHost.querySelectorAll('[data-wval]').forEach(b => b.onclick = () => {
+      const n = Number(b.dataset.wval);
+      state.walletVal = state.walletVal === n ? 0 : n;
+      renderWallet();
+    });
+  }
+  if (marketOn && state.walletVal) {
+    active = active.filter(v => (v.amount ?? v.balance ?? 0) === state.walletVal);
+  }
   // Vendor-Chips neu aufbauen
   const vendors = [...new Set(allActive.map(v => v.vendor))];
   const vf = $('#wallet-vendor-filters');
@@ -3389,6 +3566,7 @@ function renderWallet() {
       ...vendors.map(vn => `<button class="chip ${state.walletFilter === vn ? 'active' : ''}" data-wvf="${esc(vn)}">${brandChipHtml(vn)} ${esc(vn)}</button>`)].join('');
     vf.querySelectorAll('[data-wvf]').forEach(b => b.onclick = () => {
       state.walletFilter = b.dataset.wvf === 'alle' ? '' : b.dataset.wvf;
+      state.walletVal = 0;
       renderWallet();
     });
   }
@@ -3416,8 +3594,12 @@ function renderWallet() {
       $('#wallet-rank-next').textContent = 'Höchste Stufe erreicht';
     }
   }
-  const vCard = v => `
-    <div class="wallet-card" data-wv="${esc(v.id)}" style="--bc:${brandColor(v.vendor)}">
+  // Gutschein-Karte: der Hintergrund füllt sich nach Restguthaben (rechts wird
+  // durchsichtig, was schon ausgegeben ist), PIN steht unter der Kartennummer
+  const vCard = v => {
+    const pct = v.amount ? Math.max(0, Math.min(100, Math.round(((v.balance || 0) / v.amount) * 100))) : 100;
+    return `
+    <div class="wallet-card has-fill" data-wv="${esc(v.id)}" style="--bc:${brandColor(v.vendor)}; --fill:${pct}%">
       <div class="wallet-card-head">
         ${brandChipHtml(v.vendor)}
         <span class="wallet-card-name">${esc(v.vendor)}</span>
@@ -3425,48 +3607,55 @@ function renderWallet() {
       </div>
       <div class="wallet-card-sub">
         <span>${esc(v.code || 'Ohne Code')}</span>
-        ${v.pin ? '<span class="pill">PIN</span>' : ''}
-        ${v.img ? '<span class="pill">QR/Barcode</span>' : ''}
         ${v.end ? `<span class="pill">bis ${new Date(v.end).toLocaleDateString('de-DE')}</span>` : ''}
       </div>
+      ${v.pin ? `<div class="wallet-card-pin">PIN ${esc(v.pin)}</div>` : ''}
+      ${v.added ? `<span class="wallet-card-date">${new Date(v.added).toLocaleDateString('de-DE')}</span>` : ''}
     </div>`;
-  // Hinzufügen als Banner direkt in der Liste, fettes Plus statt Logo
-  const addBanner = (type, label) => `
-    <button class="wallet-card wallet-card-add" data-wadd="${type}">
-      <span class="wallet-add-plus">${icon('plus')}</span>
-      <span class="wallet-add-label">${label}</span>
-    </button>`;
+  };
 
   $('#voucher-list').innerHTML =
-    (active.length || !(q || state.walletFilter && state.walletFilter !== 'alle')
-      ? active.map(vCard).join('')
-      : '<div class="status">Kein Gutschein passt zu Suche/Filter.</div>')
-    + addBanner('voucher', 'Gutschein hinzufügen');
+    active.length ? active.map(vCard).join('')
+      : `<div class="status">${q || marketOn || state.walletVal
+        ? 'Kein Gutschein passt zu Suche/Filter.'
+        : 'Noch keine Gutscheine, leg oben den ersten an.'}</div>`;
   $('#voucher-used').innerHTML = used.map(vCard).join('') || '<div class="status">Nichts aufgebraucht.</div>';
   $('#used-count').textContent = used.length ? `(${used.length})` : '';
 
+  // Sparkarten als App-Raster mit Logos, eigene Suche, per Ziehen sortierbar
   const hasPayback = state.wallet.cards.some(c => /payback/i.test(c.name));
-  const cardsShown = state.wallet.cards.filter(c => !q
-    || c.name.toLowerCase().includes(q) || c.number.toLowerCase().includes(q));
+  const cq = (state.cardQuery || '').trim().toLowerCase();
+  const cardsShown = state.wallet.cards.filter(c => !cq
+    || c.name.toLowerCase().includes(cq) || c.number.toLowerCase().includes(cq));
   $('#cardw-list').innerHTML = cardsShown.map(c => `
-    <div class="wallet-card" data-wc="${esc(c.id)}" style="--bc:${brandColor(c.name)}">
-      <div class="wallet-card-head">
-        ${brandChipHtml(c.name)}
-        <span class="wallet-card-name">${esc(c.name)}</span>
-        ${c.img ? '<span class="pill">QR/Barcode</span>' : ''}
-      </div>
-      <div class="wallet-card-sub"><span>${esc(c.number)}</span></div>
-    </div>`).join('')
-    + addBanner('card', 'Sparkarte hinzufügen')
+    <button class="app-tile" data-wc="${esc(c.id)}" style="--bc:${brandColor(c.name)}">
+      ${brandChipHtml(c.name)}
+      <span class="app-tile-name">${esc(c.name)}</span>
+    </button>`).join('')
+    + `<button class="app-tile app-tile-add" data-wadd="card">
+      <span class="app-add-plus">${icon('plus')}</span>
+      <span class="app-tile-name">Hinzufügen</span>
+    </button>`
     + (!hasPayback ? `
-    <button class="wallet-card wallet-card-add wallet-card-suggest" data-wadd-prefill="Payback" style="--bc:${brandColor('payback')}">
-      <span class="brand-chip" style="--bc:${brandColor('payback')}">PB</span>
-      <span class="wallet-add-label">Payback-Karte verbinden</span>
-      <span class="wallet-add-plus small">${icon('plus', 'icon icon-sm')}</span>
+    <button class="app-tile app-tile-add" data-wadd-prefill="Payback" style="--bc:${brandColor('payback')}">
+      ${brandChipHtml('Payback')}
+      <span class="app-tile-name">Payback verbinden</span>
     </button>` : '');
+  makeGridSortable($('#cardw-list'), '[data-wc]', order => {
+    // Nur ungefiltert umsortieren, sonst würde die Reihenfolge lügen
+    if ((state.cardQuery || '').trim()) return;
+    const pos = id => { const i = order.indexOf(id); return i < 0 ? 999 : i; };
+    state.wallet.cards.sort((a, b) => pos(a.id) - pos(b.id));
+    save('wallet', state.wallet);
+    if (state.token) syncWalletNow();
+  }, el => el.dataset.wc);
+
+  // Mini-Guthaben unten aktualisieren
+  const mini = $('#wallet-mini-total');
+  if (mini) mini.textContent = euroFmt(total) || '0,00 €';
 
   // Suchergebnisse gleiten gestaffelt herein
-  document.querySelectorAll('#voucher-list .wallet-card, #cardw-list .wallet-card').forEach((el, i) => {
+  document.querySelectorAll('#voucher-list .wallet-card').forEach((el, i) => {
     el.classList.add('anim-item');
     el.style.animationDelay = Math.min(i * 45, 300) + 'ms';
   });
@@ -3476,24 +3665,119 @@ function renderWallet() {
   $('#view-wallet').querySelectorAll('[data-wadd-prefill]').forEach(el => el.onclick = () => openWalletAdd('card', el.dataset.waddPrefill));
 }
 
-// Wallet-Suche + Umschalter Wallet/Coupons + Sortier-Menü
+// App-Raster per Gedrückthalten sortieren (Maus + Touch über Pointer Events)
+function makeGridSortable(grid, tileSel, onReorder, idOf) {
+  if (!grid || grid.dataset.sortable) return;
+  grid.dataset.sortable = '1';
+  let lifted = null, holdTimer = null, startX = 0, startY = 0;
+  grid.addEventListener('pointerdown', e => {
+    const tile = e.target.closest(tileSel);
+    if (!tile) return;
+    startX = e.clientX; startY = e.clientY;
+    holdTimer = setTimeout(() => {
+      lifted = tile;
+      tile.classList.add('lifting');
+      buzz(15);
+      try { tile.setPointerCapture(e.pointerId); } catch { }
+    }, 320);
+  });
+  grid.addEventListener('pointermove', e => {
+    if (!lifted) {
+      // Wackeln vor dem Anheben bricht den Timer ab (Scrollen bleibt möglich)
+      if (Math.hypot(e.clientX - startX, e.clientY - startY) > 12) clearTimeout(holdTimer);
+      return;
+    }
+    e.preventDefault();
+    const under = document.elementFromPoint(e.clientX, e.clientY)?.closest(tileSel);
+    if (under && under !== lifted && under.parentElement === grid) {
+      const kids = [...grid.children];
+      grid.insertBefore(lifted, kids.indexOf(under) > kids.indexOf(lifted) ? under.nextSibling : under);
+    }
+  });
+  const drop = () => {
+    clearTimeout(holdTimer);
+    if (!lifted) return;
+    lifted.classList.remove('lifting');
+    lifted = null;
+    onReorder([...grid.querySelectorAll(tileSel)].map(idOf));
+  };
+  grid.addEventListener('pointerup', drop);
+  grid.addEventListener('pointercancel', drop);
+}
+
+// Wallet-Suche + Untertabs Gutscheine/Sparkarten/Coupons + Sortier-Menü
 $('#wallet-search')?.addEventListener('input', e => {
   state.walletQuery = e.target.value;
   renderWallet();
 });
-document.querySelectorAll('[data-wmode]').forEach(b => b.addEventListener('click', () => {
-  const mode = b.dataset.wmode;
-  document.querySelectorAll('[data-wmode]').forEach(x => x.classList.toggle('active', x === b));
-  const coupons = mode === 'coupons';
-  $('#coupons-content').classList.toggle('hidden', !coupons);
-  $('#wallet-gate').classList.toggle('hidden', coupons || !!state.token);
-  $('#wallet-content').classList.toggle('hidden', coupons || !state.token);
-  if (coupons) {
-    renderCoupons($('#coupons-content'));
-    $('#coupons-content').classList.add('enter-drop');
-    setTimeout(() => $('#coupons-content').classList.remove('enter-drop'), 500);
-  }
+$('#cardw-search')?.addEventListener('input', e => {
+  state.cardQuery = e.target.value;
+  renderWallet();
+});
+document.querySelectorAll('[data-wtab]').forEach(b => b.addEventListener('click', () => {
+  walletTab = b.dataset.wtab;
+  document.querySelectorAll('[data-wtab]').forEach(x => x.classList.toggle('active', x === b));
+  updateWalletTab(true);
 }));
+// Hinzufügen ganz oben, ohne Scrollen
+$('#wallet-add-top')?.addEventListener('click', () => openWalletAdd('voucher'));
+
+// ---- Gesamtguthaben-Karte: antippen dreht zur Statistik (Monat/Jahr/Gesamt)
+let statsRange = 'monat';
+function walletStats(range) {
+  const now = new Date();
+  const inRange = ts => {
+    if (!ts) return range === 'gesamt';
+    const d = new Date(ts);
+    if (range === 'monat') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    if (range === 'jahr') return d.getFullYear() === now.getFullYear();
+    return true;
+  };
+  let added = 0, spent = 0;
+  state.wallet.vouchers.forEach(v => {
+    if (v.amount != null && inRange(v.added)) added += v.amount;
+    (v.tx || []).forEach(t => {
+      if (t.reverted || !inRange(t.ts)) return;
+      if (t.amt > 0) added += t.amt; else spent += -t.amt;
+    });
+  });
+  return { added: Math.round(added * 100) / 100, spent: Math.round(spent * 100) / 100 };
+}
+function renderWalletStats(range) {
+  statsRange = range;
+  const s = walletStats(range);
+  $('#balance-back').innerHTML = `
+    <div class="offer-cat">Statistik</div>
+    <div class="stat-ranges">
+      ${[['monat', 'Monat'], ['jahr', 'Jahr'], ['gesamt', 'Gesamt']].map(([r, l]) =>
+        `<button class="chip ${r === range ? 'active' : ''}" data-strange="${r}">${l}</button>`).join('')}
+    </div>
+    <div class="stat-row"><span>Guthaben hinzugefügt</span><b class="tx-amt plus">+${euroFmt(s.added) || '0,00 €'}</b></div>
+    <div class="stat-row"><span>Ausgegeben</span><b class="tx-amt minus">−${euroFmt(s.spent) || '0,00 €'}</b></div>
+    <div class="flip-hint">${icon('arrow-back', 'icon icon-sm')} Antippen zum Zurückdrehen</div>`;
+  $('#balance-back').querySelectorAll('[data-strange]').forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    renderWalletStats(b.dataset.strange);
+  });
+}
+let balanceFlipped = false;
+$('#balance-flip')?.addEventListener('click', () => {
+  balanceFlipped = !balanceFlipped;
+  if (balanceFlipped) renderWalletStats(statsRange);
+  $('#flip-inner').classList.toggle('flipped', balanceFlipped);
+  buzz(15);
+});
+
+// ---- Mini-Guthaben: erscheint über dem Menü, sobald die große Karte aus dem Bild ist
+if ('IntersectionObserver' in window && $('#balance-flip')) {
+  // Zählt schon als "aus dem Bild", wenn nur noch ein Rest der Karte zu sehen ist
+  new IntersectionObserver(([e]) => {
+    const show = state.activeView === 'wallet' && walletTab === 'gutscheine'
+      && !!state.token && e.intersectionRatio < 0.25;
+    $('#wallet-mini').classList.toggle('show', show);
+  }, { threshold: [0, 0.25, 0.5] }).observe($('#balance-flip'));
+}
+$('#wallet-mini')?.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
 $('#wallet-sort-btn')?.addEventListener('click', () => {
   const menu = $('#wallet-sort-menu');
   if (!menu.classList.contains('hidden')) { menu.classList.add('hidden'); return; }
@@ -3522,7 +3806,14 @@ $('#btn-home').addEventListener('click', () => {
 // ---------------- Admin direkt in der App: Deals posten ----------------
 
 function refreshAdminUi() {
-  $('#btn-admin-post').classList.toggle('hidden', state.role !== 'admin');
+  // Deal posten schwebt unten mittig über dem Menü (nur im Feed, nur Admin)
+  const b = $('#btn-admin-post');
+  if (!b) return;
+  if (b.parentElement !== document.body) {
+    b.classList.add('admin-fab');
+    document.body.appendChild(b);
+  }
+  b.classList.toggle('hidden', state.role !== 'admin' || state.activeView !== 'feed');
 }
 function openAdminPost(edit) {
   state.sheetMode = 'admin-post';
@@ -3655,44 +3946,64 @@ function urlB64ToUint8(s) {
   const raw = atob((s + pad).replace(/-/g, '+').replace(/_/g, '/'));
   return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
 }
+// Push als On/Off-Schalter in den Einstellungen (Preisfehler + Nachrichten aufs Handy)
 async function refreshPushBtn() {
-  const btn = $('#push-enable');
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  const sw = $('#sw-push');
+  if (!sw || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
   try {
     const reg = await navigator.serviceWorker.ready;
-    const sub = await reg.pushManager.getSubscription();
-    if (sub) { btn.textContent = 'Alarm ausschalten'; btn.dataset.on = '1'; }
-    else { btn.textContent = 'Alarm aktivieren'; delete btn.dataset.on; }
+    sw.checked = !!(await reg.pushManager.getSubscription());
   } catch { }
 }
-$('#push-enable').addEventListener('click', async () => {
+$('#sw-push')?.addEventListener('change', async () => {
+  const sw = $('#sw-push');
   const m = $('#push-msg');
   m.className = 'form-msg'; m.textContent = '';
-  setBtnLoading($('#push-enable'), true);
+  sw.disabled = true;
   try {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
       throw new Error('Dieser Browser kann keine Push-Nachrichten. iPhone: kumulio erst zum Home-Bildschirm hinzufügen und dort öffnen.');
     }
     const reg = await navigator.serviceWorker.ready;
     const existing = await reg.pushManager.getSubscription();
-    if (existing) {
+    if (!sw.checked && existing) {
       await api('/api/push/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint: existing.endpoint }) }).catch(() => { });
       await existing.unsubscribe();
-      m.className = 'form-msg ok'; m.textContent = 'Alarm deaktiviert.';
-    } else {
+      m.className = 'form-msg ok'; m.textContent = 'Push ist aus.';
+    } else if (sw.checked && !existing) {
       const perm = await Notification.requestPermission();
       if (perm !== 'granted') throw new Error('Benachrichtigungen wurden nicht erlaubt.');
       const { key } = await api('/api/push/key');
       const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8(key) });
       await api('/api/push/subscribe', { method: 'POST', body: JSON.stringify(sub) });
-      m.className = 'form-msg ok'; m.textContent = 'Alarm aktiv! Du bekommst Preisfehler ab jetzt sofort aufs Handy.';
-      window.KBrand?.playSuccess?.($('#push-card'));
+      m.className = 'form-msg ok'; m.textContent = 'Push aktiv! Preisfehler und Nachrichten kommen jetzt aufs Handy.';
     }
+  } catch (e) {
+    m.className = 'form-msg error'; m.textContent = e.message;
+  } finally {
+    sw.disabled = false;
     refreshPushBtn();
-  } catch (e) { m.className = 'form-msg error'; m.textContent = e.message; }
-  finally { setBtnLoading($('#push-enable'), false); }
+  }
 });
 refreshPushBtn();
+
+// Der Service Worker meldet sich, wenn eine Notification angetippt wurde
+navigator.serviceWorker?.addEventListener('message', e => {
+  const d = e.data || {};
+  if (d.type === 'open' && d.url) handleOpenParams(d.url.split('?')[1] || '');
+  // 'push' bei sichtbarer App: die In-App-Banner (Polling) übernehmen, nichts doppelt zeigen
+});
+// Direkt in den richtigen Chat springen (Notification-Klick oder Start-URL)
+function handleOpenParams(qs) {
+  const p = new URLSearchParams(qs);
+  if (p.get('chat') === 'dm' && p.get('user')) {
+    if (state.activeView !== 'chat') switchView('chat');
+    setChatMode('dm', p.get('user'));
+  } else if (p.get('chat') === 'global') {
+    if (state.activeView !== 'chat') switchView('chat');
+    setChatMode('global');
+  }
+}
 
 // ---------------- Global-Chat (Twitch-artig) ----------------
 
@@ -3841,7 +4152,7 @@ async function pollChat(force) {
           list.insertAdjacentHTML('beforeend', chatMsgHtml(m));
           chatLastTs = Math.max(chatLastTs, m.ts);
           batchMax = Math.max(batchMax, m.ts);
-          if (state.userName && m.user !== state.userName && !m.deleted && m.ts > mentionSeen
+          if (state.notif.mention !== false && state.userName && m.user !== state.userName && !m.deleted && m.ts > mentionSeen
             && new RegExp(`(^|\\W)@?${state.userName}(\\W|$)`, 'i').test(m.text)) {
             playSfx('plop'); buzz(25);
             if (state.activeView !== 'chat') {
@@ -3906,8 +4217,8 @@ async function refreshDmBadge() {
     const pill = $('#dm-unread');
     pill.textContent = unread;
     pill.classList.toggle('hidden', !unread);
-    // Neue Flüsternachricht: Plop + Banner (außer man liest den Chat gerade)
-    if (dmUnreadKnown !== null && unread > dmUnreadKnown) {
+    // Neue Flüsternachricht: Plop + Banner (außer man liest den Chat gerade oder hat es abgeschaltet)
+    if (dmUnreadKnown !== null && unread > dmUnreadKnown && state.notif.msgs !== false) {
       const conv = r.list.find(c => c.unread > 0);
       if (conv && !(chatMode === 'dm' && dmPartner === conv.partner && state.activeView === 'chat')) {
         playSfx('plop'); buzz(25);
@@ -4025,7 +4336,6 @@ async function openUserPop(user, msgId) {
   let u = { user };
   try { u = await api('/api/user?name=' + encodeURIComponent(user)); } catch { }
   const isFriend = (myProfile?.friends || []).includes(user);
-  const mod = ['admin', 'mod'].includes(state.role);
   const favLogo = v => BRAND_DOMAINS[String(v || '').toLowerCase()]
     ? `<span class="fav-logo">${brandChipHtml(v)}<small>${esc(v)}</small></span>`
     : `<span class="pill">${esc(v)}</span>`;
@@ -4056,15 +4366,9 @@ async function openUserPop(user, msgId) {
       <button class="btn btn-small" id="up-whisper">Flüstern</button>
       <button class="btn btn-small btn-ghost" id="up-friend">${isFriend ? 'Freund entfernen' : 'Freundschaftsanfrage'}</button>
       <button class="btn btn-small btn-ghost" id="up-report">Melden</button>
-    </div>
-    ${mod ? `<div class="form-row" style="margin-top:8px; flex-wrap:wrap">
-      ${u.mutedUntil ? `<button class="btn btn-small btn-ghost" id="up-unban">Timeout aufheben (noch ${Math.ceil((u.mutedUntil - Date.now()) / 60000)} Min.)</button>`
-        : u.banned ? `<button class="btn btn-small btn-ghost" id="up-unban">Entsperren</button>`
-        : `<button class="btn btn-small btn-ghost" id="up-timeout">Timeout 10 Min.</button>
-      <button class="btn btn-small btn-ghost" id="up-ban">Sperren</button>`}
-      ${msgId ? `<button class="btn btn-small btn-ghost" id="up-delmsg">Nachricht löschen</button>
-      <button class="btn btn-small btn-ghost" id="up-pin">Anpinnen</button>` : ''}
-    </div>` : ''}`;
+    </div>`;
+  // Bewusst KEINE Mod-Buttons hier: die Profilseite zeigt das Profil, wie es der
+  // Nutzer gestaltet hat; Moderation läuft über das Chat-Popup
   const close = () => switchView(userPageReturn, 'enter-drop');
   $('#up-whisper').onclick = () => {
     if (!state.token) { island('Zum Flüstern bitte anmelden'); return; }
@@ -4086,14 +4390,6 @@ async function openUserPop(user, msgId) {
       .then(() => island('Gemeldet, danke!')).catch(e => island(e.message));
     close();
   };
-  const modAct = (action, extra) => api('/api/chat/mod', { method: 'POST', body: JSON.stringify({ action, user, id: msgId, ...extra }) })
-    .then(() => { island('Erledigt'); $('#chat-list').innerHTML = ''; chatLastTs = 0; pollChat(true); close(); })
-    .catch(e => island(e.message));
-  $('#up-timeout')?.addEventListener('click', () => modAct('timeout', { minutes: 10 }));
-  $('#up-ban')?.addEventListener('click', () => modAct('ban'));
-  $('#up-unban')?.addEventListener('click', () => modAct('unban'));
-  $('#up-delmsg')?.addEventListener('click', () => modAct('delete-msg'));
-  $('#up-pin')?.addEventListener('click', () => modAct('pin'));
 }
 $('#user-pop-backdrop').addEventListener('click', e => { if (e.target.id === 'user-pop-backdrop') hideOverlay($('#user-pop-backdrop')); });
 // Eigene Nachricht löschen (Global + Flüstern), wird zum Platzhalter
@@ -4121,28 +4417,29 @@ async function openUserSheet(user, msgId) {
   const isFriend = (myProfile?.friends || []).includes(user);
   const mod = ['admin', 'mod'].includes(state.role);
   pop.innerHTML = `
-    <div class="offer-head">
-      ${u.avatar ? `<img class="avatar-big" src="${u.avatar}" alt="">`
-      : `<span class="avatar-big" style="background:${chatColor(user)}">${esc(user[0].toUpperCase())}</span>`}
-      <div class="offer-brand">
-        <div class="offer-merchant">@${esc(user)} ${u.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : ''}</div>
-        <div class="offer-cat">${u.private ? 'Profil ist privat' : esc((u.bio || '').slice(0, 60) || 'Keine Bio')}</div>
-      </div>
-      <button class="fav-remove" id="us-close">${icon('x', 'icon icon-sm')}</button>
+    <button class="fav-remove us-close" id="us-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
+    <div class="us-head">
+      ${u.avatar ? `<img class="avatar-big us-ava" src="${u.avatar}" alt="">`
+      : `<span class="avatar-big us-ava" style="background:${chatColor(user)}">${esc(user[0].toUpperCase())}</span>`}
+      <div class="us-name">@${esc(user)} ${u.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : u.role === 'mod' ? icon('check', 'icon icon-sm role-mod') : ''}</div>
+      <div class="us-bio">${u.private ? 'Profil ist privat' : esc((u.bio || '').slice(0, 80) || 'Keine Bio')}</div>
     </div>
-    <div class="form-row" style="margin-top:14px; flex-wrap:wrap">
-      <button class="btn btn-small" id="us-profile">Zum Profil</button>
-      <button class="btn btn-small btn-ghost" id="us-whisper">Flüstern</button>
+    <button class="btn btn-block" id="us-profile">${icon('user', 'icon icon-sm')}&nbsp;Zum Profil</button>
+    <div class="us-actions">
+      <button class="btn btn-small btn-ghost" id="us-whisper">${icon('message', 'icon icon-sm')}&nbsp;Flüstern</button>
       <button class="btn btn-small btn-ghost" id="us-friend">${isFriend ? 'Freund entfernen' : 'Anfragen'}</button>
       <button class="btn btn-small btn-ghost" id="us-report">Melden</button>
     </div>
-    ${mod ? `<div class="form-row" style="margin-top:8px; flex-wrap:wrap">
-      ${u.mutedUntil ? `<button class="btn btn-small btn-ghost" id="us-unban">Timeout aufheben</button>`
+    ${mod ? `<div class="us-modbox">
+      <span class="tm-section" style="margin:0 0 6px">Moderation</span>
+      <div class="us-actions">
+        ${u.mutedUntil ? `<button class="btn btn-small btn-ghost" id="us-unban">Timeout aufheben</button>`
       : u.banned ? `<button class="btn btn-small btn-ghost" id="us-unban">Entsperren</button>`
       : `<button class="btn btn-small btn-ghost" id="us-timeout">Timeout 10 Min.</button>
-      <button class="btn btn-small btn-ghost" id="us-ban">Sperren</button>`}
-      ${msgId ? `<button class="btn btn-small btn-ghost" id="us-delmsg">Nachricht löschen</button>
-      <button class="btn btn-small btn-ghost" id="us-pin">Anpinnen</button>` : ''}
+        <button class="btn btn-small btn-ghost" id="us-ban">Sperren</button>`}
+        ${msgId ? `<button class="btn btn-small btn-ghost" id="us-delmsg">Nachricht löschen</button>
+        <button class="btn btn-small btn-ghost" id="us-pin">Anpinnen</button>` : ''}
+      </div>
     </div>` : ''}`;
   const close = () => hideOverlay($('#user-pop-backdrop'));
   $('#us-close').onclick = close;
@@ -4193,6 +4490,8 @@ $('#chat-list').addEventListener('touchstart', e => {
   $('#chat-list').addEventListener(t, () => clearTimeout(pressTimer), { passive: true }));
 document.querySelectorAll('[data-cmode]').forEach(b => b.addEventListener('click', () => setChatMode(b.dataset.cmode)));
 $('#dm-back').addEventListener('click', () => setChatMode('dmlist'));
+// Im Privat-Chat: Name/Avatar oben antippen öffnet das Profil
+$('#dm-partner-open')?.addEventListener('click', () => { if (dmPartner) openUserPop(dmPartner); });
 
 // Gäste: Chat nur verschwommen, Eingabe zu, klarer Anmelden-Weg
 function updateChatGate() {
@@ -4246,7 +4545,31 @@ if (window.visualViewport) {
 ['gesturestart', 'gesturechange', 'gestureend'].forEach(t =>
   document.addEventListener(t, e => e.preventDefault(), { passive: false }));
 
+// Verbindungs-Screen: springt ein, wenn kumulio nicht laden kann oder es lange dauert.
+// Nur der i-Punkt hüpft (Markenregel), Text sagt ehrlich, was los ist.
+function showConnScreen(kind) {
+  let el = $('#conn-screen');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'conn-screen';
+    document.body.appendChild(el);
+  }
+  el.innerHTML = `
+    <div class="conn-mark">${window.KBrand?.wordmarkHTML ? window.KBrand.wordmarkHTML({ height: 36 }) : '<b>kumulio</b>'}</div>
+    <p>${kind === 'slow'
+      ? 'Dauert gerade etwas länger, langsame Verbindung …'
+      : 'Keine Verbindung. kumulio braucht kurz Internet, damit nichts verloren geht.'}</p>
+    ${kind === 'slow' ? '' : '<button class="btn" id="conn-retry">Erneut versuchen</button>'}`;
+  el.querySelector('.k-dot')?.classList.add('k-jump');
+  $('#conn-retry')?.addEventListener('click', () => location.reload());
+}
+function hideConnScreen() { $('#conn-screen')?.remove(); }
+window.addEventListener('online', () => { if ($('#conn-screen')) location.reload(); });
+
 (async function init() {
+  // Fallback: sollte das Brand-Modul je nicht laden, darf der Boot-Deckel
+  // die App trotzdem nicht dauerhaft verdecken
+  setTimeout(() => document.getElementById('boot-cover')?.remove(), 3200);
   refreshProfileTab();
   renderWallet();
   initTurnstile();
@@ -4257,16 +4580,33 @@ if (window.visualViewport) {
   }).catch(() => { });
   if (state.token) {
     api('/api/me').then(r => { state.userName = r.user; state.role = r.role || ''; refreshProfileTab(); pullWallet(); refreshAdminUi(); })
-      .catch(() => { state.token = ''; localStorage.removeItem('ra.token'); refreshProfileTab(); });
+      .catch(e => {
+        // Nur bei ECHTEM 401 abmelden; ist der Server kurz weg, bleibt der Login stehen
+        if (/401|anmelden/i.test(String(e.message))) {
+          state.token = ''; localStorage.removeItem('ra.token'); refreshProfileTab();
+        }
+      });
   }
   moveTabPill();
   setTimeout(moveTabPill, 300); // nach Font-Laden nachjustieren
   renderSearch();
   maybeShowOnboarding();
-  state.channels = await api('/api/channels');
+  // Kanäle sind das Rückgrat: bei Hängern ehrlich einen Lade-/Offline-Screen zeigen
+  const slowTimer = setTimeout(() => showConnScreen('slow'), 4000);
+  let channels = null;
+  try { channels = await api('/api/channels'); } catch { }
+  clearTimeout(slowTimer);
+  if (!channels) {
+    window.KBrandReady?.then(K => K.appReady());
+    showConnScreen('offline');
+    return;
+  }
+  hideConnScreen();
+  state.channels = channels;
   renderChipbar();
   loadFeed();
   checkReminders();
+  handleOpenParams(location.search);
   // App ist bereit → der kumulio-Splash darf weg, sobald seine Animation durch ist
   window.KBrandReady?.then(K => K.appReady());
 })();

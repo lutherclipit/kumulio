@@ -18,7 +18,15 @@ if (obLogo) {
   }
 }
 
-// Splash nur, wenn kein Onboarding ansteht (das Onboarding hat den Markenmoment)
+// Splash nur, wenn kein Onboarding ansteht (das Onboarding hat den Markenmoment).
+// Der Boot-Deckel (index.html) verhindert, dass der Feed vor dem Splash durchblitzt –
+// er fällt erst, wenn Splash bzw. Onboarding übernommen haben.
+const bootCover = document.getElementById('boot-cover');
+const dropCover = () => bootCover?.remove();
 if (localStorage.getItem('ra.tutorialDone')) {
   KBrand.runSplash();
+  requestAnimationFrame(dropCover);
+} else {
+  dropCover();
 }
+setTimeout(dropCover, 2600); // Sicherheitsnetz, falls oben etwas schiefgeht
