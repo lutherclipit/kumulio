@@ -2425,3 +2425,89 @@ body:has(.sheet.open) {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   min-width: 0; margin-left: 6px;
 }
+
+/* ================= Runde 45: Funken, Container, Sticker, Geschenk-Zeremonie ================= */
+.px-16 { width: 16px; height: 16px; }
+.coin-chip .px-icon { vertical-align: -4px; }
+
+/* Aufgeklebte Sticker auf Gutschein-Karten (Position in % der Kartenfläche) */
+.wallet-card.has-fill > .v-sticker, .v-sticker {
+  position: absolute; width: 36px; height: 36px; object-fit: contain;
+  pointer-events: none; z-index: 2;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .35));
+}
+.sa-card { cursor: crosshair; margin-top: 6px; overflow: hidden; }
+.sa-card .v-sticker { pointer-events: none; }
+.sticker-apply .sa-targets { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* Geschenk-Zeremonie: Box wackelt (620ms-Salve alle 3s, Start nach 260ms),
+   Antippen packt aus (Blitz + Ergebnis mit Sprechblase) */
+.gift-stage { position: relative; overflow: hidden; text-align: center; }
+.gift-box { display: inline-block; margin-top: 10px; }
+.gift-box.wiggling { animation: giftWiggle 3s linear 260ms infinite; transform-origin: 50% 85%; }
+@keyframes giftWiggle {
+  0% { transform: rotate(0) translateY(0); }
+  3.5% { transform: rotate(-7deg) translateY(-5px); }
+  7% { transform: rotate(6deg) translateY(-3px); }
+  10.5% { transform: rotate(-5deg) translateY(-5px); }
+  14% { transform: rotate(4deg) translateY(-3px); }
+  17.5% { transform: rotate(-2deg) translateY(0); }
+  20.7%, 100% { transform: rotate(0) translateY(0); }
+}
+.gift-box.opening { animation: giftOpen 500ms var(--k-ease-settle, cubic-bezier(.3, 1.2, .4, 1)) forwards; }
+@keyframes giftOpen {
+  0% { transform: scale(1); opacity: 1; }
+  45% { transform: scale(.9); opacity: 1; }
+  80% { transform: scale(1.06); opacity: .5; }
+  100% { transform: scale(1.06); opacity: 0; }
+}
+.gift-flash {
+  position: absolute; left: 50%; top: 84px; width: 10px; height: 10px;
+  margin-left: -5px; border-radius: 999px; pointer-events: none; opacity: 0;
+  background: radial-gradient(circle, #fff, rgba(236, 72, 153, .8) 55%, transparent 75%);
+}
+.gift-flash.go { animation: giftFlash 550ms ease-out forwards; }
+@keyframes giftFlash { 0% { transform: scale(1); opacity: 1; } 100% { transform: scale(34); opacity: 0; } }
+.gift-hint { font-size: .88rem; margin-top: 12px; }
+.gift-result.fade-up { animation: giftResultIn 420ms ease-out backwards; }
+@keyframes giftResultIn { from { opacity: 0; transform: translateY(14px); } }
+.gift-bubble {
+  position: relative; display: inline-block; max-width: 300px;
+  background: var(--surface-2); border: 1px solid var(--stroke-light);
+  border-radius: 16px; padding: 12px 16px; margin-top: 14px;
+  font-size: .92rem; line-height: 1.5; text-align: left;
+}
+.gift-bubble::before {
+  content: ""; position: absolute; top: -7px; left: 26px;
+  width: 12px; height: 12px; transform: rotate(45deg);
+  background: var(--surface-2);
+  border-left: 1px solid var(--stroke-light); border-top: 1px solid var(--stroke-light);
+}
+.gift-by { display: block; margin-top: 6px; font-size: .78rem; opacity: .6; font-weight: 700; }
+
+/* Geschenk-Ecke auf der Wallet-Karte: dauerhafte Herkunftsinfo oben rechts */
+.wallet-card.has-fill > .gift-corner, .gift-corner {
+  position: absolute; top: 0; right: 0; z-index: 3;
+  width: 0; height: 0; border-style: solid;
+  border-width: 0 54px 54px 0;
+  border-color: transparent #EC4899 transparent transparent;
+  pointer-events: none;
+}
+.gift-corner img {
+  position: absolute; top: 7px; right: -48px;
+  width: 22px; height: 22px;
+}
+/* Nur solange ungeoeffnet: das Icon zappelt kurz alle 3,2s */
+.gift-corner.unopened img { animation: giftTagWiggle 3.2s linear infinite; transform-origin: center; }
+@keyframes giftTagWiggle {
+  0%, 88%, 100% { transform: rotate(0); }
+  91% { transform: rotate(-9deg); }
+  94% { transform: rotate(7deg); }
+  97% { transform: rotate(-4deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gift-box.wiggling, .gift-box.opening, .gift-flash.go, .gift-result.fade-up,
+  .gift-corner.unopened img { animation: none; }
+}
+.gift-stage { padding: 26px 20px 24px; }
+.gift-stage .fav-remove { position: absolute; top: 8px; right: 8px; z-index: 4; }

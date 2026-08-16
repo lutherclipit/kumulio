@@ -87,7 +87,7 @@
     </div>
   </header>
 
-  <!-- Dropdown-Menü (Avatar oben rechts): Freunde, Anfragen, Coins, Profil -->
+  <!-- Dropdown-Menü (Avatar oben rechts): Freunde, Anfragen, Funken, Profil -->
   <div id="top-menu-backdrop" class="hidden"></div>
   <div id="top-menu" class="hidden"></div>
 
@@ -159,11 +159,11 @@
         </div>
       </div>
 
-      <!-- Gamification: Ränge über Spar-Aktivität, Kisten nur erspielbar, Paints -->
+      <!-- Gamification: Ränge über Spar-Aktivität, Container nur erspielbar, Paints -->
       <div class="card modal-left hidden" id="gami-card">
         <div id="gm-rank-head"></div>
         <div class="form-row" style="margin-top:10px; align-items:center">
-          <span class="coin-chip"><svg class="icon icon-sm"><use href="#i-coin"/></svg> <b id="g-coins">0</b></span>
+          <span class="coin-chip"><img class="px-icon" src="/gamification/currency-funke.svg" alt="Funken"> <b id="g-coins">0</b>&nbsp;Funken</span>
           <button id="g-daily" class="btn btn-small">Daily abholen</button>
           <button class="iconbtn info-btn" id="gm-rank-info" aria-label="Wie sammle ich Punkte?">
             <svg class="icon icon-sm"><use href="#i-bulb"/></svg>
@@ -265,10 +265,11 @@
       </div>
       <div class="wallet-filters" id="inv-filters">
         <button class="chip active" data-invf="alle">Alle</button>
-        <button class="chip" data-invf="case">Kisten</button>
+        <button class="chip" data-invf="case">Container</button>
         <button class="chip" data-invf="paint">Paints</button>
         <button class="chip" data-invf="badge">Badges</button>
         <button class="chip" data-invf="emote">Emotes</button>
+        <button class="chip" data-invf="sticker">Sticker</button>
       </div>
       <div id="inv-page" style="margin-top:12px"></div>
     </section>
@@ -279,10 +280,10 @@
         <button class="iconbtn back-btn" id="btn-shop-back" aria-label="Zurück">
           <svg class="icon"><use href="#i-arrow-back"/></svg>
         </button>
-        <h1 style="margin:0">Kistenshop</h1>
+        <h1 style="margin:0">Container-Shop</h1>
       </div>
-      <p class="muted" style="font-size:.82rem">Coins gibt es nur fürs Mitmachen, niemals für Echtgeld.
-        Du hast <span class="coin-chip"><svg class="icon icon-sm"><use href="#i-coin"/></svg> <b id="shop-coins">0</b></span></p>
+      <p class="muted" style="font-size:.82rem">Funken gibt es nur fürs Mitmachen, niemals für Echtgeld.
+        Du hast <span class="coin-chip"><img class="px-icon" src="/gamification/currency-funke.svg" alt="Funken"> <b id="shop-coins">0</b>&nbsp;Funken</span></p>
       <div id="shop-page" class="gm-cases" style="margin-top:10px"></div>
     </section>
 
@@ -314,6 +315,13 @@
           </div>
           <button id="btn-theme" class="hidden" aria-hidden="true"></button>
           <label class="switch"><input type="checkbox" id="sw-theme"><span class="switch-slider"></span></label>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <b>Soundeffekte</b>
+            <span>Töne beim Öffnen, Verkaufen und bei Geschenken</span>
+          </div>
+          <label class="switch"><input type="checkbox" id="sw-sound"><span class="switch-slider"></span></label>
         </div>
       </div>
       <div class="card" id="settings-notif-card">

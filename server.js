@@ -201,13 +201,13 @@ function profileOf(user) {
 //
 // KISTEN SIND AUSSCHLIESSLICH ERSPIELBAR.
 // Sie sind niemals kaufbar, niemals handelbar, niemals gegen Echtgeld oder
-// eine In-App-Währung (Coins) erhältlich, und ihr Inhalt hat keinen Marktwert.
+// eine In-App-Währung (Funken; Feld heißt intern coins) erhältlich, und ihr Inhalt hat keinen Marktwert.
 // Diese Grenze trennt das Feature von einer Lootbox; in einer Finanz-App für
 // junge Erwachsene wäre alles andere glücksspiel- und verbraucherschutz-
 // rechtlich ein ernstes Problem. Deshalb: CaseSource enthält bewusst KEINEN
 // PURCHASE-Eintrag, und grantCase() wirft bei jeder unbekannten Quelle.
 // scripts/test-cases.js sichert genau das ab.
-// SHOP = Kauf mit ERSPIELTEN Coins. Coins selbst sind nirgends gegen Echtgeld
+// SHOP = Kauf mit ERSPIELTEN Funken. Funken selbst sind nirgends gegen Echtgeld
 // erhältlich (kein Payment-Endpoint, kein Store-Produkt), damit bleibt die
 // Echtgeld-Grenze aus dem Gamification-Brief intakt.
 const CaseSource = Object.freeze({
@@ -241,8 +241,7 @@ function isShiny(f) {
 }
 const SELL_VALUES = { common: 20, uncommon: 40, rare: 90, epic: 200, legendary: 500 };
 function itemValue(rarity, float) { return (SELL_VALUES[rarity] || 20) * (isShiny(float) ? 5 : 1); }
-const SHOP_CASES = { standard: 150, silber: 400, gold: 900, prisma: 2000 };
-// Quests: Coins für echte Mitmach-Meilensteine (alles ohne Echtgeld)
+// Quests: Funken für echte Mitmach-Meilensteine (alles ohne Echtgeld)
 const QUESTS = [
   { key: 'comment', name: 'Kommentare schreiben', milestones: [[1, 30], [5, 60], [20, 150]] },
   { key: 'rate', name: 'Deals bewerten', milestones: [[1, 20], [10, 80], [50, 250]] },
@@ -275,7 +274,7 @@ function questProgress(user) {
     push: prof.pushOn ? 1 : 0,
   };
   // Erreichte Meilensteine werden NICHT automatisch gutgeschrieben,
-  // die Coins holt man sich per /api/quests/claim ab
+  // die Funken holt man sich per /api/quests/claim ab
   const claimable = [];
   for (const q of QUESTS) {
     for (const [n, coins] of q.milestones) {
@@ -287,13 +286,50 @@ function questProgress(user) {
   }
   return { live, claimable };
 }
+// Nur noch Farbe + Label: die Zieh-Gewichte leben AUSSCHLIESSLICH in den
+// Container-Tabellen unten, sonst driftet die angezeigte Chance von der echten weg
 const RARITY = {
-  common: { color: '#8B96A5', label: 'Gewöhnlich', weight: 70 },
-  uncommon: { color: '#12C77E', label: 'Ungewöhnlich', weight: 20 },
-  rare: { color: '#3B82F6', label: 'Selten', weight: 7.5 },
-  epic: { color: '#8B5CF6', label: 'Episch', weight: 2 },
-  legendary: { color: '#F5B301', label: 'Legendär', weight: 0.5 },
+  common: { color: '#8B96A5', label: 'Gewöhnlich' },
+  uncommon: { color: '#12C77E', label: 'Ungewöhnlich' },
+  rare: { color: '#3B82F6', label: 'Selten' },
+  epic: { color: '#8B5CF6', label: 'Episch' },
+  legendary: { color: '#F5B301', label: 'Legendär' },
 };
+// Droprates: die von Valve offengelegten CS-Werte (Prozentwerte sind nicht
+// schutzfähig; Stufennamen/Farben bleiben unsere eigenen). Summe je exakt 100.
+const ODDS_CASE = { common: 79.92, uncommon: 15.98, rare: 3.20, epic: 0.64, legendary: 0.26 };
+const ODDS_CAPSULE = { common: 80.0, uncommon: 16.0, rare: 3.2, epic: 0.8 };
+// Drei Container-Typen: EINE Tabelle für Inhalt, Chancen, Preis und Icon.
+// Nur mit erspielten Funken kaufbar, niemals gegen Echtgeld.
+const CONTAINERS = {
+  'emote-capsule': { name: 'Emote-Kapsel', odds: ODDS_CAPSULE, kinds: ['emote'], price: 150, img: 'container-emote-capsule' },
+  'sticker-capsule': { name: 'Sticker-Kapsel', odds: ODDS_CAPSULE, kinds: ['sticker'], price: 150, img: 'container-sticker-capsule' },
+  'emote-case': { name: 'Emote-Case', odds: ODDS_CASE, kinds: ['emote', 'paint', 'badge'], price: 400, img: 'container-emote-case' },
+};
+// Alte Kisten der Bestandsnutzer bleiben öffenbar: Typ-Mapping statt Verfall
+const LEGACY_CONTAINER = { standard: 'emote-capsule', silber: 'emote-capsule', gold: 'emote-case', prisma: 'emote-case' };
+// Sticker: kuratierter, austauschbarer Pool (7TV-Global-Set, IDs verifiziert).
+// Sticker klebt man auf Gutscheine in der Wallet — Position frei, max 4 pro Karte.
+const STICKERS = {
+  PETPET: { id: '01FE3XY508000AA32JP519W2EW', rarity: 'common' },
+  peepoHappy: { id: '01GAZ199Z8000FEWHS6AT5QZV0', rarity: 'common' },
+  peepoSad: { id: '01GAZ4SBX80007YCE2RXBT44B2', rarity: 'common' },
+  EZ: { id: '01GB4CK01800090V9B3D8CGEEX', rarity: 'common' },
+  PartyParrot: { id: '01FKSDK14G0008TM5NY9QEG0QV', rarity: 'uncommon' },
+  ApuApustaja: { id: '01GGCQPCGR000C7MT8JZGP6E89', rarity: 'uncommon' },
+  BillyApprove: { id: '01GB2S7H7000018VJGJ4A9BMFS', rarity: 'uncommon' },
+  PepePls: { id: '01GAFTZ9K80003DHH026MC7JW0', rarity: 'uncommon' },
+  AYAYA: { id: '01GB32XE6R00018VJGJ4A9BNCV', rarity: 'rare' },
+  WAYTOODANK: { id: '01G98W833R0000BRQD106P0ZNT', rarity: 'rare' },
+  AlienDance: { id: '01GB2ZJFBG000DTBJYANG8XYFP', rarity: 'epic' },
+  glorp: { id: '01H16FA16G0005EZED5J0EY7KN', rarity: 'epic' },
+};
+// Ziehung aus einer Odds-Tabelle — dieselbe Funktion füttert auch die Simulation
+function rollRarity(odds) {
+  let roll = Math.random() * 100;
+  for (const [k, w] of Object.entries(odds)) { roll -= w; if (roll <= 0) return k; }
+  return Object.keys(odds)[0];
+}
 // Zehn Ränge, Aufstieg über Spar-AKTIVITÄT (Buchungen, Gutscheine, aktive Tage,
 // aufgebrauchte Gutscheine = erreichte Ziele), nie über die Betragshöhe.
 const RANKS10 = [
@@ -334,10 +370,12 @@ function grantCase(user, type, source) {
 // Rang-Aufstiege prüfen und belohnen (je neuer Stufe eine Kiste)
 function ensureProgress(user) {
   const prof = profileOf(user);
+  // Alt-Kisten (standard/silber/gold/prisma) auf die neuen Container mappen
+  (prof.cases || []).forEach(c => { if (LEGACY_CONTAINER[c.type]) c.type = LEGACY_CONTAINER[c.type]; });
   const rank = rankOf(activityPoints(user));
   while (prof.rankTier < rank.tier) {
     prof.rankTier++;
-    grantCase(user, prof.rankTier >= 7 ? 'gold' : 'silber', CaseSource.RANK_UP);
+    grantCase(user, prof.rankTier >= 7 ? 'emote-case' : 'emote-capsule', CaseSource.RANK_UP);
   }
 }
 
@@ -1333,7 +1371,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true });
     }
 
-    // ---- Profil & Gamification: Coins, Kisten, Badges, alles OHNE Echtgeld
+    // ---- Profil & Gamification: Funken, Container, Badges, alles OHNE Echtgeld
     if (p === '/api/profile' && req.method === 'GET') {
       const user = authUser(req);
       if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
@@ -1376,7 +1414,7 @@ const server = http.createServer(async (req, res) => {
       if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
       const prof = profileOf(user);
       const today = new Date().toDateString();
-      if (prof.lastDailyDay === today) return send(res, 409, { error: 'Heute schon abgeholt, morgen gibt es wieder Coins.' });
+      if (prof.lastDailyDay === today) return send(res, 409, { error: 'Heute schon abgeholt, morgen gibt es wieder Funken.' });
       const yesterday = new Date(Date.now() - 864e5).toDateString();
       prof.streak = prof.lastDailyDay === yesterday ? (prof.streak || 0) + 1 : 1;
       const gained = 25 + Math.min(25, (prof.streak - 1) * 5);
@@ -1385,7 +1423,7 @@ const server = http.createServer(async (req, res) => {
       prof.dailyCount = (prof.dailyCount || 0) + 1;
       // Jede volle 7er-Serie bringt eine erspielte Kiste (nie kaufbar, siehe oben)
       let caseWon = null;
-      if (prof.streak % 7 === 0) { grantCase(user, 'standard', CaseSource.SAVINGS_STREAK); caseWon = 'standard'; }
+      if (prof.streak % 7 === 0) { grantCase(user, 'emote-capsule', CaseSource.SAVINGS_STREAK); caseWon = 'emote-capsule'; }
       ensureProgress(user);
       saveJson('users.json', users);
       return send(res, 200, { ok: true, gained, coins: prof.coins, streak: prof.streak, caseWon });
@@ -1407,7 +1445,8 @@ const server = http.createServer(async (req, res) => {
         paintsAll: PAINTS.paints, emotes: prof.emotes || [], emotesAll: UNLOCK_EMOTES,
         floats: prof.floats || {}, showcase: prof.showcase || [],
         coins: prof.coins || 0, streak: prof.streak || 0,
-        shop: SHOP_CASES, badgesAll: BADGES, sellValues: SELL_VALUES,
+        containers: CONTAINERS, badgesAll: BADGES, sellValues: SELL_VALUES,
+        stickers: prof.stickers || [], stickersAll: STICKERS,
         quests: QUESTS.map(x => ({ ...x, progress: q.live[x.key] || 0, awarded: (prof.questsAwarded || []).filter(t => t.startsWith(x.key + ':')) })),
         claimable: q.claimable,
       });
@@ -1435,32 +1474,36 @@ const server = http.createServer(async (req, res) => {
       const idx = prof.cases.findIndex(c => c.id === String(b.id || ''));
       if (idx < 0) return send(res, 404, { error: 'Diese Kiste hast du nicht.' });
       const box = prof.cases[idx];
-      // Seltenheits-Gewichte je Kistenart: bessere Kisten heben den Boden an
-      const weights = Object.fromEntries(Object.entries(RARITY).map(([k, v]) => [k, v.weight]));
-      if (box.type === 'silber') weights.common = 42;
-      if (box.type === 'gold') { weights.common = 18; weights.uncommon = 38; weights.rare = 12; }
-      if (box.type === 'prisma') { weights.common = 0; weights.uncommon = 40; weights.rare = 30; weights.epic = 6; weights.legendary = 1.5; }
-      const total = Object.values(weights).reduce((s, w) => s + w, 0);
-      let roll = Math.random() * total;
-      let rarity = 'common';
-      for (const [k, w] of Object.entries(weights)) { roll -= w; if (roll <= 0) { rarity = k; break; } }
-      // Pool: Paints + Badges (häufig=common, selten=rare, episch=epic) + Emotes
+      // Container-Tabelle ist die einzige Wahrheit: Odds + erlaubte Inhalte je Typ
+      const ctype = LEGACY_CONTAINER[box.type] || box.type;
+      const container = CONTAINERS[ctype] || CONTAINERS['emote-capsule'];
+      let rarity = rollRarity(container.odds);
+      // Pool nach Container-Inhalt; ist eine Stufe (noch) leer, eine Stufe runter
       const badgeRar = { 'häufig': 'common', 'selten': 'rare', 'episch': 'epic' };
-      const pool = [
-        ...PAINTS.paints.filter(x => x.rarity === rarity).map(x => ({ kind: 'paint', id: x.id, name: x.name })),
-        ...Object.entries(BADGES).filter(([, v]) => badgeRar[v.rar] === rarity).map(([k, v]) => ({ kind: 'badge', id: k, name: v.name })),
-        ...Object.entries(UNLOCK_EMOTES).filter(([, v]) => v.rarity === rarity).map(([k]) => ({ kind: 'emote', id: k, name: k })),
+      const poolFor = rar => [
+        ...(container.kinds.includes('paint') ? PAINTS.paints.filter(x => x.rarity === rar).map(x => ({ kind: 'paint', id: x.id, name: x.name })) : []),
+        ...(container.kinds.includes('badge') ? Object.entries(BADGES).filter(([, v]) => badgeRar[v.rar] === rar).map(([k, v]) => ({ kind: 'badge', id: k, name: v.name })) : []),
+        ...(container.kinds.includes('emote') ? Object.entries(UNLOCK_EMOTES).filter(([, v]) => v.rarity === rar).map(([k]) => ({ kind: 'emote', id: k, name: k })) : []),
+        ...(container.kinds.includes('sticker') ? Object.entries(STICKERS).filter(([, v]) => v.rarity === rar).map(([k]) => ({ kind: 'sticker', id: k, name: k })) : []),
       ];
+      const ladder = Object.keys(container.odds);
+      let pool = poolFor(rarity);
+      while (!pool.length && ladder.indexOf(rarity) > 0) {
+        rarity = ladder[ladder.indexOf(rarity) - 1];
+        pool = poolFor(rarity);
+      }
       const win = pool.length ? pool[Math.floor(Math.random() * pool.length)]
-        : { kind: 'paint', id: PAINTS.paints[0] && PAINTS.paints[0].id, name: 'Kupfer' };
+        : { kind: 'emote', id: Object.keys(UNLOCK_EMOTES)[0], name: Object.keys(UNLOCK_EMOTES)[0] };
       prof.cases.splice(idx, 1);
       prof.emotes = prof.emotes || [];
+      prof.stickers = prof.stickers || [];
       prof.floats = prof.floats || {};
-      const list = win.kind === 'paint' ? prof.paints : win.kind === 'badge' ? prof.badges : prof.emotes;
+      const list = win.kind === 'paint' ? prof.paints : win.kind === 'badge' ? prof.badges
+        : win.kind === 'sticker' ? prof.stickers : prof.emotes;
       let dupe = false;
       let float = rollFloat();
       if (list.includes(win.id)) {
-        // Duplikat: Coins im Wert des Items (bei besserem Float wird getauscht)
+        // Duplikat: Funken im Wert des Items (bei besserem Float wird getauscht)
         const oldF = prof.floats[`${win.kind}:${win.id}`] ?? 0;
         if (isShiny(float) && !isShiny(oldF)) prof.floats[`${win.kind}:${win.id}`] = float;
         else float = oldF;
@@ -1482,11 +1525,12 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req);
       const prof = profileOf(user);
       const kind = String(b.kind || ''), id = String(b.id || '');
-      const lists = { paint: prof.paints, badge: prof.badges, emote: prof.emotes = prof.emotes || [] };
+      const lists = { paint: prof.paints, badge: prof.badges, emote: prof.emotes = prof.emotes || [], sticker: prof.stickers = prof.stickers || [] };
       const list = lists[kind];
       if (!list || !list.includes(id)) return send(res, 404, { error: 'Item nicht gefunden.' });
       const rarity = kind === 'paint' ? (PAINTS.paints.find(x => x.id === id) || {}).rarity
         : kind === 'badge' ? ({ 'häufig': 'common', 'selten': 'rare', 'episch': 'epic' })[(BADGES[id] || {}).rar]
+        : kind === 'sticker' ? (STICKERS[id] || {}).rarity
         : (UNLOCK_EMOTES[id] || {}).rarity;
       const float = (prof.floats || {})[`${kind}:${id}`] ?? 0;
       const value = itemValue(rarity || 'common', float);
@@ -1499,16 +1543,33 @@ const server = http.createServer(async (req, res) => {
       saveJson('users.json', users);
       return send(res, 200, { ok: true, value, coins: prof.coins });
     }
-    // Kistenshop: Kauf NUR mit erspielten Coins (Coins sind nie gegen Echtgeld erhältlich)
+    // Sticker aufkleben: verbraucht das Inventar-Item (die Klebe-Position selbst
+    // lebt am Gutschein in der Wallet und wird vom Client gesynct)
+    if (p === '/api/sticker/use' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      const id = String(b.id || '');
+      const prof = profileOf(user);
+      prof.stickers = prof.stickers || [];
+      const i = prof.stickers.indexOf(id);
+      if (i < 0) return send(res, 404, { error: 'Diesen Sticker hast du nicht.' });
+      prof.stickers.splice(i, 1);
+      delete (prof.floats || {})[`sticker:${id}`];
+      prof.showcase = (prof.showcase || []).filter(x => x !== `sticker:${id}`);
+      saveJson('users.json', users);
+      return send(res, 200, { ok: true, stickers: prof.stickers });
+    }
+    // Container-Shop: Kauf NUR mit erspielten Funken (Funken sind nie gegen Echtgeld erhältlich)
     if (p === '/api/shop/buy' && req.method === 'POST') {
       const user = authUser(req);
       if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
       const b = await readBody(req);
       const type = String(b.type || '');
-      const price = SHOP_CASES[type];
-      if (!price) return send(res, 400, { error: 'Diese Kiste gibt es nicht.' });
+      const price = (CONTAINERS[type] || {}).price;
+      if (!price) return send(res, 400, { error: 'Diesen Container gibt es nicht.' });
       const prof = profileOf(user);
-      if ((prof.coins || 0) < price) return send(res, 402, { error: `Dafür brauchst du ${price} Coins, du hast ${prof.coins || 0}.` });
+      if ((prof.coins || 0) < price) return send(res, 402, { error: `Dafür brauchst du ${price.toLocaleString('de-DE')} Funken, du hast ${(prof.coins || 0).toLocaleString('de-DE')}.` });
       prof.coins -= price;
       grantCase(user, type, CaseSource.SHOP);
       saveJson('users.json', users);
@@ -1545,14 +1606,24 @@ const server = http.createServer(async (req, res) => {
       if (to === me) return send(res, 400, { error: 'An dich selbst? Das hast du schon.' });
       // Nur an Freunde: verhindert Geschenk-Spam an Fremde
       if (!(profileOf(me).friends || []).includes(to)) return send(res, 403, { error: 'Verschenken geht nur an Freunde.' });
+      // Tageslimit: 10 Geschenke pro Absender — Freitext ohne Limit wäre ein
+      // Belästigungs- und Betrugsanbahnungs-Vektor
+      const profMe = profileOf(me);
+      const today = new Date().toISOString().slice(0, 10);
+      if (!profMe.giftDay || profMe.giftDay.day !== today) profMe.giftDay = { day: today, count: 0 };
+      if (profMe.giftDay.count >= 10) return send(res, 429, { error: 'Für heute reicht es: maximal 10 Geschenke pro Tag.' });
       const w = wallets[me];
       const idx = (w?.vouchers || []).findIndex(v => v.id === String(b.id || ''));
       if (idx < 0) return send(res, 404, { error: 'Gutschein nicht gefunden. Kurz warten, bis die Wallet gesichert ist, und nochmal versuchen.' });
       const [v] = w.vouchers.splice(idx, 1);
+      // Optionale Nachricht: max 140 Zeichen, wird beim Rendern IMMER escaped
+      const giftMsg = String(b.msg || '').trim().slice(0, 140);
+      profMe.giftDay.count++;
       gifts[to] = gifts[to] || [];
-      gifts[to].push({ ...v, giftFrom: me, giftTs: Date.now() });
+      gifts[to].push({ ...v, giftFrom: me, giftTs: Date.now(), giftMsg });
       saveJson('wallets.json', wallets);
       saveJson('gifts.json', gifts);
+      saveJson('users.json', users); // Tageszähler
       ssePush('gift', to);
       pushToUser(to, {
         title: `Geschenk von @${me}!`,
@@ -1595,7 +1666,7 @@ const server = http.createServer(async (req, res) => {
       for (const v of wallets[user].vouchers) {
         if (v.amount > 0 && v.balance != null && v.balance <= 0 && !prof.goalsDone.includes(v.id)) {
           prof.goalsDone.push(v.id);
-          grantCase(user, 'standard', CaseSource.GOAL_REACHED);
+          grantCase(user, 'emote-capsule', CaseSource.GOAL_REACHED);
         }
       }
       ensureProgress(user);
@@ -1961,7 +2032,7 @@ process.on('SIGINT', () => { flushPendingSaves(); process.exit(0); });
 
 // RA_TEST: für scripts/test-cases.js, damit der Test importieren kann ohne den Server zu starten
 if (process.env.RA_TEST) {
-  module.exports = { CaseSource, grantCase, profileOf, users };
+  module.exports = { CaseSource, grantCase, profileOf, users, rollRarity, ODDS_CASE, ODDS_CAPSULE, CONTAINERS, RARITY, STICKERS };
 } else {
   server.listen(PORT, () => {
     console.log(`kumulio läuft auf http://localhost:${PORT}`);
