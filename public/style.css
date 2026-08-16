@@ -2945,3 +2945,32 @@ body:has(.sheet.open) {
 }
 .tour-bubble.pop { animation: tourZoom .55s cubic-bezier(.3, 1.35, .45, 1); }
 #tour { animation: fadeIn .35s ease; }
+
+
+/* ================= Runde 59: Tastatur-Spacing + Mobile-Tempo ================= */
+
+/* Tastatur offen: der Chat-Puffer schrumpft, kein Riesen-Loch mehr zwischen
+   Eingabezeile und Tastatur (Header + Tabs + Eingabe = ~148px) */
+body.kb-open #view-chat { --chatpad: 188px; }
+body.kb-open #view-chat:has(#dm-head:not(.hidden)) { --chatpad: 244px; }
+body.kb-open #view-chat.emotes-open { --chatpad: 336px; }
+body.kb-open #view-chat.emotes-open:has(#dm-head:not(.hidden)) { --chatpad: 392px; }
+
+/* Off-Screen kostet nichts: unsichtbare Nachrichten und Feed-Karten werden
+   weder gelayoutet noch gemalt — animierte Paints und Emotes rechnen dann
+   nur noch fuer das, was wirklich zu sehen ist */
+#chat-list .chat-msg { content-visibility: auto; contain-intrinsic-size: auto 30px; }
+#feed .deal-wrap { content-visibility: auto; contain-intrinsic-size: auto 190px; }
+
+/* Milchglas auf Touch-Geraeten guenstiger: halber Blur sieht praktisch gleich
+   aus, spart aber massiv GPU-Zeit (vor allem das 30px-Sheet) */
+@media (hover: none) and (pointer: coarse) {
+  .sheet {
+    backdrop-filter: blur(14px) saturate(1.6);
+    -webkit-backdrop-filter: blur(14px) saturate(1.6);
+  }
+  .overlay, .backdrop {
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+  }
+}

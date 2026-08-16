@@ -6305,9 +6305,14 @@ connectStream();
 // Tastatur auf dem Handy: die sichtbare Höhe als CSS-Variable, damit der Chat
 // kompakt bleibt und nichts unkontrolliert hochgeschoben wird
 if (window.visualViewport) {
+  let vvBaseH = 0;
   const applyVV = () => {
     const vv = window.visualViewport;
     document.documentElement.style.setProperty('--vvh', vv.height + 'px');
+    // Tastatur offen? Referenz ist die groesste je gesehene Hoehe — dann darf
+    // der Chat-Puffer schrumpfen (die Tabbar-Zone liegt eh unter der Tastatur)
+    vvBaseH = Math.max(vvBaseH, vv.height);
+    document.body.classList.toggle('kb-open', vv.height < vvBaseH - 120);
     // iOS schiebt beim Öffnen der Tastatur den sichtbaren Ausschnitt nach unten
     // (offsetTop) und der Chat "verschwindet" oben. Der Trick: den Body um genau
     // diesen Versatz mitschieben, dann bleibt alles lesbar an Ort und Stelle
