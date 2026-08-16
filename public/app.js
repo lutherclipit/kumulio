@@ -2994,11 +2994,12 @@ function cropCode(img, bb, pad = 1) {
   return c.toDataURL('image/jpeg', 0.88);
 }
 
-// Fallback ohne erkennbaren Barcode: den hellen Kartennummer-Kasten im Foto finden
-// (heller, farbarmer Querstreifen) und den als Kassen-Zuschnitt nehmen
-function findLightPanel(img) {
+// Helle, farbarme Kästen im Foto finden (Kartennummer-Kasten, PIN-Kasten):
+// helles Zeilen-Band suchen, darin getrennte Kästen über Lücken im
+// Spalten-Histogramm auseinanderhalten; Ergebnis von links nach rechts
+function findLightPanels(img) {
   const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
-  if (!iw || !ih) return null;
+  if (!iw || !ih) return [];
   const W = 160;
   const H = Math.max(40, Math.round(ih / iw * W));
   const c = document.createElement('canvas');
@@ -3006,7 +3007,7 @@ function findLightPanel(img) {
   const ctx = c.getContext('2d');
   ctx.drawImage(img, 0, 0, W, H);
   let d;
-  try { d = ctx.getImageData(0, 0, W, H).data; } catch { return null; }
+  try { d = ctx.getImageData(0, 0, W, H).data; } catch { return []; }
   const light = (x, y) => {
     const i = (y * W + x) * 4;
     const mx = Math.max(d[i], d[i + 1], d[i + 2]);
@@ -3019,22 +3020,40 @@ function findLightPanel(img) {
     for (let x = 0; x < W; x++) if (light(x, y)) n++;
     rowFrac.push(n / W);
   }
-  // Größtes zusammenhängendes helles Zeilen-Band suchen
+  // Größtes zusammenhängendes helles Zeilen-Band suchen (>20% helle Pixel je Zeile:
+  // auch wenn nur der schmale PIN-Kasten in der Zeile liegt, zählt sie mit)
   let best = null, run = null;
   for (let y = 0; y <= H; y++) {
-    if (y < H && rowFrac[y] > 0.35) { run = run || { y0: y }; run.y1 = y; }
+    if (y < H && rowFrac[y] > 0.2) { run = run || { y0: y }; run.y1 = y; }
     else if (run) { if (!best || run.y1 - run.y0 > best.y1 - best.y0) best = run; run = null; }
   }
-  if (!best || best.y1 - best.y0 < H * 0.08) return null;
-  let x0 = W, x1 = 0;
+  if (!best || best.y1 - best.y0 < H * 0.08) return [];
+  const bandH = best.y1 - best.y0 + 1;
+  const colOn = [];
   for (let x = 0; x < W; x++) {
     let n = 0;
     for (let y = best.y0; y <= best.y1; y++) if (light(x, y)) n++;
-    if (n / (best.y1 - best.y0 + 1) > 0.5) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); }
+    colOn.push(n / bandH > 0.5);
   }
-  if (x1 - x0 < W * 0.25) return null;
+  // Getrennte Kästen: Lücken von mindestens 4 Spalten teilen
+  const segs = [];
+  let s = null, gap = 0;
+  for (let x = 0; x <= W; x++) {
+    if (x < W && colOn[x]) {
+      if (!s) s = { x0: x };
+      s.x1 = x; gap = 0;
+    } else if (s && ++gap >= 4) { segs.push(s); s = null; }
+  }
+  if (s) segs.push(s);
   const sx = iw / W, sy = ih / H;
-  return { x: x0 * sx, y: best.y0 * sy, width: (x1 - x0 + 1) * sx, height: (best.y1 - best.y0 + 1) * sy };
+  return segs
+    .filter(seg => seg.x1 - seg.x0 >= W * 0.06)
+    .map(seg => ({ x: seg.x0 * sx, y: best.y0 * sy, width: (seg.x1 - seg.x0 + 1) * sx, height: bandH * sy }));
+}
+// Für den Kassen-Zuschnitt: der größte Kasten (= Kartennummer-Kasten)
+function findLightPanel(img) {
+  const panels = findLightPanels(img);
+  return panels.sort((a, b) => b.width * b.height - a.width * a.height)[0] || null;
 }
 
 // iPhone-Fallback: Safari hat keinen BarcodeDetector, ZXing (lokal in
@@ -3204,6 +3223,15 @@ async function analyzeWalletImage(dataUrl, statusCb) {
     const bw = await ocrBW(img);
     if (!out.amount) out.amount = amtFrom(bw.text);
     if (!out.pin) out.pin = pinFrom(bw.text) || await pinNearWord(bw.source, bw.words, pinFrom);
+  }
+  if (!out.pin) {
+    // Der PIN wohnt im RECHTEN hellen Kasten: den gezielt ausschneiden und lesen
+    const panels = findLightPanels(img);
+    if (panels.length > 1) {
+      const p = panels[panels.length - 1];
+      const t = await ocrRegion(img, Math.max(0, p.x - p.width * 0.05), Math.max(0, p.y - p.height * 0.15), p.width * 1.15, p.height * 1.35);
+      out.pin = pinFrom(t) || (t.match(/\b(\d{3,8})\b/) || [])[1] || '';
+    }
   }
   if (!out.pin) {
     const iw = img.naturalWidth, ih = img.naturalHeight;
