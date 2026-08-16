@@ -4759,7 +4759,9 @@ async function pollChat(force) {
         const mentionSeen = Number(localStorage.getItem('ra.mentionSeen') || 0);
         let batchMax = mentionSeen;
         r.messages.forEach(m => {
-          list.insertAdjacentHTML('beforeend', chatMsgHtml(m));
+          // Nie doppelt: die eigene Nachricht steht durch das Sende-Echo evtl. schon
+          // da, während der Echtzeit-Ping parallel denselben Poll anstößt
+          if (!list.querySelector(`[data-mid="${m.id}"]`)) list.insertAdjacentHTML('beforeend', chatMsgHtml(m));
           chatLastTs = Math.max(chatLastTs, m.ts);
           batchMax = Math.max(batchMax, m.ts);
           if (state.notif.mention !== false && state.userName && m.user !== state.userName && !m.deleted && m.ts > mentionSeen
@@ -4808,7 +4810,10 @@ async function pollChat(force) {
       });
       if (r.messages.length) {
         const box = $('#chat-box'), list = $('#chat-list');
-        r.messages.forEach(m => { list.insertAdjacentHTML('beforeend', dmMsgHtml(m)); dmLastTs = Math.max(dmLastTs, m.ts); });
+        r.messages.forEach(m => {
+          if (!list.querySelector(`[data-mid="${m.id}"]`)) list.insertAdjacentHTML('beforeend', dmMsgHtml(m));
+          dmLastTs = Math.max(dmLastTs, m.ts);
+        });
         box.scrollTop = box.scrollHeight;
       }
     }
@@ -4912,7 +4917,7 @@ async function sendChat() {
     if (chatMode === 'dm') {
       const r = await api('/api/dm/send', { method: 'POST', body: JSON.stringify({ to: dmPartner, text }) });
       inp.value = '';
-      $('#chat-list').insertAdjacentHTML('beforeend', dmMsgHtml(r.message));
+      if (!$('#chat-list').querySelector(`[data-mid="${r.message.id}"]`)) $('#chat-list').insertAdjacentHTML('beforeend', dmMsgHtml(r.message));
       dmLastTs = Math.max(dmLastTs, r.message.ts);
       $('#chat-box').scrollTop = $('#chat-box').scrollHeight;
       return;
@@ -4930,7 +4935,7 @@ async function sendChat() {
       island('Deine Nachrichten sind gelöscht');
       return;
     }
-    $('#chat-list').insertAdjacentHTML('beforeend', chatMsgHtml(r.message));
+    if (!$('#chat-list').querySelector(`[data-mid="${r.message.id}"]`)) $('#chat-list').insertAdjacentHTML('beforeend', chatMsgHtml(r.message));
     chatLastTs = Math.max(chatLastTs, r.message.ts);
     $('#chat-box').scrollTop = $('#chat-box').scrollHeight;
   } catch (e) { island(e.message); }
