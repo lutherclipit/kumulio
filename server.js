@@ -1731,12 +1731,15 @@ const server = http.createServer(async (req, res) => {
       const type = String(b.type || '');
       const price = (CONTAINERS[type] || {}).price;
       if (!price) return send(res, 400, { error: 'Diesen Container gibt es nicht.' });
+      // Mehrere auf einmal: Gesamtpreis atomar pruefen und abbuchen
+      const count = Math.max(1, Math.min(25, Math.floor(Number(b.count) || 1)));
+      const total = price * count;
       const prof = profileOf(user);
-      if ((prof.coins || 0) < price) return send(res, 402, { error: `Dafür brauchst du ${price.toLocaleString('de-DE')} Funken, du hast ${(prof.coins || 0).toLocaleString('de-DE')}.` });
-      prof.coins -= price;
-      grantCase(user, type, CaseSource.SHOP);
+      if ((prof.coins || 0) < total) return send(res, 402, { error: `Dafür brauchst du ${total.toLocaleString('de-DE')} Funken, du hast ${(prof.coins || 0).toLocaleString('de-DE')}.` });
+      prof.coins -= total;
+      for (let i = 0; i < count; i++) grantCase(user, type, CaseSource.SHOP);
       saveJson('users.json', users);
-      return send(res, 200, { ok: true, coins: prof.coins, cases: prof.cases });
+      return send(res, 200, { ok: true, coins: prof.coins, cases: prof.cases, count });
     }
     // Profilbild-Rahmen anlegen/ablegen
     if (p === '/api/border' && req.method === 'POST') {

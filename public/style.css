@@ -2680,3 +2680,14 @@ body:has(.sheet.open) {
 .shop-card-desc { font-size: .7rem; color: var(--muted); line-height: 1.35; min-height: 2.7em; }
 .shop-card-meta { font-size: .66rem; color: var(--muted); opacity: .8; }
 .shop-card .shop-price { font-weight: 800; color: var(--accent-strong, #12C77E); margin-top: 2px; }
+
+/* Mengenwahl im Shop-Fenster: - 1 + mit live mitlaufendem Preis */
+.case-qty { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 12px; }
+.qty-btn {
+  width: 38px; height: 38px; border-radius: 999px; border: 1px solid var(--stroke-light);
+  background: var(--surface); font-size: 1.3rem; font-weight: 800; line-height: 1;
+  cursor: pointer; color: inherit;
+}
+.qty-btn:active { transform: scale(.9); }
+.qty-n { min-width: 34px; text-align: center; font-weight: 900; font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+#case-buy-price { font-variant-numeric: tabular-nums; }

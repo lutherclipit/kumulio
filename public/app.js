@@ -1410,17 +1410,7 @@ function refreshProfileTab() {
   $('#danger-card').classList.toggle('hidden', !state.token);
   if (!state.token) $('#bio-card').classList.add('hidden'); // öffnet nur über "Profil bearbeiten"
   if (state.token) {
-    // Eigener Name mit dem angelegten Paint, auch auf dem eigenen Profil
-    const me = $('#me-name');
-    me.textContent = state.userName;
-    if (myProfile?.activePaint) {
-      const ns = nameStyleOf(state.userName, myProfile.activePaint);
-      me.className = ns.cls.trim();
-      me.setAttribute('style', ns.style);
-    } else {
-      me.className = '';
-      me.removeAttribute('style');
-    }
+    renderMyName();
     refreshGami();
   }
   renderWallet(); // Wallet-Sperre folgt dem Login-Status
@@ -1435,9 +1425,14 @@ function badgeChip(id, def, active) {
     <svg class="icon icon-sm"><use href="#i-${def.icon}"/></svg><span>${esc(def.name)}</span>
   </button>`;
 }
+let profSeq = 0;
 async function refreshGami() {
   if (!state.token) return;
-  try { myProfile = await api('/api/profile'); } catch { return; }
+  const pseq = ++profSeq;
+  let freshProf;
+  try { freshProf = await api('/api/profile'); } catch { return; }
+  if (pseq !== profSeq) return; // veraltet: eine lokale Änderung kam dazwischen
+  myProfile = freshProf;
   const oldCoins = Number($('#g-coins').textContent.replace(/\./g, '')) || 0;
   animateInt($('#g-coins'), oldCoins, myProfile.coins || 0);
   $('#g-bio').value = myProfile.bio || '';
@@ -1631,14 +1626,20 @@ function myItems() {
   });
 }
 
+let gamiSeq = 0;
 async function refreshGamiSystem() {
   if (!state.token) return;
+  const seq = ++gamiSeq;
   const firstLoad = !gami;
-  try { gami = await api('/api/gami'); } catch { return; }
+  let freshGami;
+  try { freshGami = await api('/api/gami'); } catch { return; }
+  if (seq !== gamiSeq) return; // veraltet: eine lokale Änderung kam dazwischen
+  gami = freshGami;
   if (firstLoad) renderWallet(); // Sticker auf den Karten brauchen den Sticker-Katalog
   animateInt($('#g-coins'), Number($('#g-coins').textContent.replace(/\./g, '')) || 0, gami.coins || 0);
   renderDailyTimer();
   applyMyBorder(); // der eigene Rahmen sitzt auf Profil-Avatar + Kopfzeilen-Knopf
+  renderMyName();
   // Rank-Up feiern: einmalige Vollbild-Celebration
   const lastTier = Number(localStorage.getItem('ra.tier') || 0);
   if (lastTier && gami.rank.tier > lastTier) rankUpFx(gami.rank);
@@ -1713,6 +1714,9 @@ async function refreshGamiSystem() {
     const next = gami.activePaint === b.dataset.paint ? '' : b.dataset.paint;
     // Optimistisch: sofort markieren und melden, der Server folgt im Hintergrund
     gami.activePaint = next;
+    gamiSeq++; profSeq++; // laufende Ladevorgänge dürfen das nicht zurückrollen
+    if (myProfile) myProfile.activePaint = next;
+    renderMyName();
     $('#gm-paints').querySelectorAll('[data-paint]').forEach(x => x.classList.toggle('on', x.dataset.paint === next));
     island(next ? 'Paint angelegt' : 'Paint abgelegt');
     chatLastTs = 0; // der Chat holt alle Nachrichten neu und zeigt den neuen Look
@@ -1846,6 +1850,7 @@ async function renderInventoryPage() {
     const [kind, id] = b.dataset.invEquip.split(':');
     // Optimistisch: lokal sofort umschalten und rendern, Server im Hintergrund
     let call;
+    gamiSeq++; profSeq++; // laufende Ladevorgänge dürfen das nicht zurückrollen
     if (kind === 'border') {
       const next = gami.activeBorder === id ? '' : id;
       gami.activeBorder = next;
@@ -1853,6 +1858,7 @@ async function renderInventoryPage() {
     } else if (kind === 'paint') {
       const next = gami.activePaint === id ? '' : id;
       gami.activePaint = next;
+      if (myProfile) myProfile.activePaint = next;
       chatLastTs = 0; // der Chat holt alle Nachrichten neu und zeigt den neuen Look
       call = api('/api/paint', { method: 'POST', body: JSON.stringify({ id: next }) });
     } else {
@@ -1862,6 +1868,7 @@ async function renderInventoryPage() {
     }
     renderInventoryPage();
     applyMyBorder();
+    renderMyName();
     call.then(() => { refreshGami(); refreshGamiSystem(); })
       .catch(e => { island(e.message); refreshGami(); refreshGamiSystem(); });
   });
@@ -2090,9 +2097,25 @@ function openCaseModal(box) {
   $('#reel-wrap').classList.add('hidden');
   $('#case-result').classList.add('hidden');
   $('#case-open-btn').classList.remove('hidden');
-  $('#case-open-btn').textContent = box.shop
-    ? `Kaufen für ${fmtFunken(gami?.containers?.[box.type]?.price || 0)} Funken`
-    : 'Öffnen';
+  caseCtx.qty = 1;
+  const unitPrice = gami?.containers?.[box.type]?.price || 0;
+  if (box.shop) {
+    $('#case-open-btn').innerHTML = `Kaufen für <b id="case-buy-price">${fmtFunken(unitPrice)}</b>&nbsp;Funken`;
+    $('#case-qty').classList.remove('hidden');
+    $('#qty-n').textContent = '1';
+    const setQty = d => {
+      const alt = caseCtx.qty * unitPrice;
+      caseCtx.qty = Math.max(1, Math.min(25, caseCtx.qty + d));
+      $('#qty-n').textContent = caseCtx.qty;
+      animateInt($('#case-buy-price'), alt, caseCtx.qty * unitPrice);
+      buzz(12);
+    };
+    $('#qty-minus').onclick = () => setQty(-1);
+    $('#qty-plus').onclick = () => setQty(1);
+  } else {
+    $('#case-open-btn').textContent = 'Öffnen';
+    $('#case-qty').classList.add('hidden');
+  }
   $('#case-skip').classList.add('hidden');
   $('#case-backdrop').classList.remove('case-dark');
   // Chancen kommen 1:1 aus der Server-Tabelle des Container-Typs — die Anzeige
@@ -2145,17 +2168,19 @@ async function startCaseOpen() {
   if (box.shop) {
     // Shop-Modus: dieses Fenster ist die Detail-Ansicht, der Knopf kauft
     try {
-      const rb = await api('/api/shop/buy', { method: 'POST', body: JSON.stringify({ type: box.type }) });
+      const n = caseCtx.qty || 1;
+      const rb = await api('/api/shop/buy', { method: 'POST', body: JSON.stringify({ type: box.type, count: n }) });
       playSfx('kaching'); buzz(30);
       gami.coins = rb.coins; gami.cases = rb.cases;
       $('#case-open-btn').classList.add('hidden');
+      $('#case-qty').classList.add('hidden');
       $('#case-preview').classList.add('hidden');
       $('#case-odds-panel').classList.add('hidden');
       $('#case-result').classList.remove('hidden');
       $('#case-result').innerHTML = `
         <div class="case-win" style="--rc:#12C77E">
           <b>Gekauft!</b>
-          <span>Die ${esc(containerName(box.type))} liegt in deinem Inventar.</span>
+          <span>${n === 1 ? `Die ${esc(containerName(box.type))} liegt` : `${n}× ${esc(containerName(box.type))} liegen`} in deinem Inventar.</span>
           <div class="form-row" style="justify-content:center; margin-top:12px">
             <button class="btn btn-small" id="cbuy-inv">Zum Inventar</button>
             <button class="btn btn-small btn-ghost" id="cbuy-more">Weiter stöbern</button>
@@ -2176,6 +2201,7 @@ async function startCaseOpen() {
   $('#case-preview').classList.add('hidden');
   $('#case-odds-panel').classList.add('hidden');
   $('#case-backdrop').classList.add('case-dark'); // Buehne frei: weich abdunkeln
+  $('#case-qty').classList.add('hidden');
   const col = (gami?.rarity || {})[r.win.rarity]?.color || '#888';
   const label = (gami?.rarity || {})[r.win.rarity]?.label || r.win.rarity;
   const bigReveal = () => {
@@ -3078,6 +3104,22 @@ let walletSyncInFlight = null; // Single-Flight: parallele Syncs teilen sich EIN
 // sonst belebt das Zweitgerät (altes Handy) den Gutschein beim nächsten Sync wieder
 function tombstone(id) {
   state.wallet.deleted = [...(state.wallet.deleted || []), { id, ts: Date.now() }].slice(-500);
+}
+// Der eigene Name mit Paint im Profil-Kopf: gami (bei Equips sofort aktuell)
+// schlägt myProfile — dadurch wirkt Anlegen/Ablegen ohne Reload
+function renderMyName() {
+  const me = $('#me-name');
+  if (!me || !state.userName) return;
+  me.textContent = state.userName;
+  const paintId = gami ? (gami.activePaint || '') : (myProfile?.activePaint || '');
+  if (paintId) {
+    const ns = nameStyleOf(state.userName, paintId);
+    me.className = ns.cls.trim();
+    me.setAttribute('style', ns.style);
+  } else {
+    me.className = '';
+    me.removeAttribute('style');
+  }
 }
 // Der eigene Profilbild-Rahmen: eine Stelle, die ihn überall nachträgt —
 // die Avatar-Renderer laufen teils, bevor gami geladen ist
