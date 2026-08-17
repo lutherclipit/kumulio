@@ -110,23 +110,29 @@ const CARD_APPS = {
   // Netto und Burger King: der Code in der App wechselt staendig, hier bringt
   // "Coupons aktivieren" nichts — nur der Sprung in die App hilft
   netto: {
-    url: 'https://www.netto-online.de/', android: 'com.valuephone.vpnetto',
-    iosId: '379404334', rotierend: true,
+    url: 'https://www.netto-online.de/',
+    // www.netto-online.de laesst die AASA gar nicht erst abrufen, app.netto-online.de
+    // gibt dagegen die ganze Domain fuer die Netto-App frei
+    iosUrl: 'https://app.netto-online.de/',
+    android: 'com.valuephone.vpnetto', iosId: '379404334',
+    rotierend: true, ohneKarte: true,
   },
   'netto marken-discount': {
-    url: 'https://www.netto-online.de/', android: 'com.valuephone.vpnetto',
-    iosId: '379404334', rotierend: true,
+    url: 'https://www.netto-online.de/',
+    iosUrl: 'https://app.netto-online.de/',
+    android: 'com.valuephone.vpnetto', iosId: '379404334',
+    rotierend: true, ohneKarte: true,
   },
   'burger king': {
     url: 'https://www.burgerking.de/', android: 'de.burgerking.kingfinder',
-    iosId: '471268068', rotierend: true,                              // AASA deckt die ganze Domain
+    iosId: '471268068', rotierend: true, ohneKarte: true,             // AASA deckt die ganze Domain
   },
   mcdonalds: {
     url: 'https://www.mcdonalds.com/de/de-de.html',
     // Die AASA von mcdonalds.com nennt nur die US-App (com.mcdonalds.gma) und
     // nur /deals* und /full-menu* — die deutsche App steht dort nicht drin.
     // Ein Universal Link ist damit unmoeglich, deshalb gleich ein eigener Tab.
-    keinUniLink: true,
+    keinUniLink: true, ohneKarte: true,
     android: 'de.mcdonalds.mcdonaldsinfoapp', iosId: '524943492',
     alt: { url: 'https://mccheap.tech/', name: 'McCheap.tech' },
   },
@@ -135,29 +141,32 @@ const CARD_APPS = {
     // Die AASA von mcdonalds.com nennt nur die US-App (com.mcdonalds.gma) und
     // nur /deals* und /full-menu* — die deutsche App steht dort nicht drin.
     // Ein Universal Link ist damit unmoeglich, deshalb gleich ein eigener Tab.
-    keinUniLink: true,
+    keinUniLink: true, ohneKarte: true,
     android: 'de.mcdonalds.mcdonaldsinfoapp', iosId: '524943492',
     alt: { url: 'https://mccheap.tech/', name: 'McCheap.tech' },
   },
   subway: { url: 'https://www.subway.com/de-DE', android: 'com.subway.mobile.emea.germany', iosId: '6479694657' },
   'müller': { url: 'https://www.mueller.de/', android: 'at.helloagain.muellerde', iosId: '1516484066', keinUniLink: true },   // leeres applinks
   mueller: { url: 'https://www.mueller.de/', android: 'at.helloagain.muellerde', iosId: '1516484066', keinUniLink: true },
-  // app.lidlplus.com deckt /* ab. /home statt des ?link=-Umwegs: das ist die
-  // Firebase-Weiterleitung, die auf dem Handy kurz als Zwischenseite aufblitzt.
-  // Ohne App landet /home direkt auf der Lidl-Plus-Seite.
+  // app.lidlplus.com ist Lidls alte Firebase-Domain — die Weiterleitung landet
+  // inzwischen auf einer Web-Seite mit "zur App"-Knopf statt in der App.
+  // lidl.de selbst listet /c/*/s10068374 (der aktuelle Prospekt) in seiner AASA.
   lidl: {
     url: 'https://www.lidl.de/c/lidl-plus/s10007306',
-    iosUrl: 'https://app.lidlplus.com/home',
+    iosUrl: 'https://www.lidl.de/c/lidl-plus/s10068374',
     android: 'com.lidl.eci.lidlplus', iosId: '1238611143',
   },
   'lidl plus': {
     url: 'https://www.lidl.de/c/lidl-plus/s10007306',
-    iosUrl: 'https://app.lidlplus.com/home',
+    iosUrl: 'https://www.lidl.de/c/lidl-plus/s10068374',
     android: 'com.lidl.eci.lidlplus', iosId: '1238611143',
   },
   ikea: {
     url: 'https://www.ikea.com/de/de/ikea-family/',
-    iosUrl: 'https://www.ikea.com/de/de/cat/products-products/',      // in der AASA gelistet
+    // IKEAs AASA listet 27 Laender, "de" ist NICHT dabei — ueber ikea.com kann
+    // die App in Deutschland keinen Universal Link faengen. ikea.de leitet nur
+    // um und hat keine eigene AASA. Also gleich sauber im eigenen Tab.
+    keinUniLink: true,
     android: 'com.ingka.ikea.app', iosId: '1452164827',
     woche: 'Einmal pro Woche in der IKEA-App einloggen bringt Punkte für Gutscheine.',
   },
@@ -5901,10 +5910,12 @@ function cardAppBlockHtml(name) {
       target="_blank" rel="noopener noreferrer">App noch nicht drauf? Hier laden</a>` : ''}
     ${a.hinweis ? `<p class="cc-note">${icon('bulb', 'icon icon-sm')} ${esc(a.hinweis)}</p>` : ''}
     ${a.woche ? `
-      <button class="quest-row ${rest ? 'done' : ''}" data-quest="${esc(name)}">
-        <span class="quest-check">${icon(rest ? 'check' : 'clock', 'icon icon-sm')}</span>
-        <span class="quest-txt"><b>Wöchentlich einloggen</b><small>${rest ? restText(rest) : esc(a.woche)}</small></span>
-      </button>` : ''}`;
+      <a class="app-quest ${rest ? 'done' : ''}" data-quest="${esc(name)}" ${appLinkAttrs(name)}>
+        <span class="app-quest-check">${icon(rest ? 'check' : 'clock', 'icon icon-sm')}</span>
+        <span class="app-quest-txt"><b>Wöchentlich einloggen</b>
+          <small>${rest ? restText(rest) : 'Antippen öffnet die App — wir erinnern dich in 7 Tagen wieder.'}</small></span>
+        ${icon('arrow-right', 'icon icon-sm')}
+      </a>` : ''}`;
 }
 
 // Ein Blatt je Marke: oben die Sparkarte (Nummer und Barcode fuer die Kasse),
@@ -5932,8 +5943,12 @@ function openBrandSheet(key) {
       ${c.codeImg ? `<img class="wallet-code-img" src="${c.codeImg}" alt="Code für die Kasse">`
         : c.img ? `<img class="wallet-img" src="${c.img}" alt="QR/Barcode">`
         : '<p class="muted" style="margin-top:10px; font-size:.82rem">Tipp: Screenshot vom Karten-Barcode anhängen (beim Anlegen), dann kannst du ihn an der Kasse scannen lassen.</p>'}`
-    : cardApp(b.name)?.rotierend ? ''
-    : `<button class="btn btn-block btn-ghost" id="wc-addcard" style="margin-top:12px">
+    : cardApp(b.name)?.ohneKarte ? ''
+    : `<div class="karte-fehlt">
+        ${icon('bulb', 'icon icon-sm')}
+        <span>Du hast noch keine ${esc(b.name)}-Sparkarte hinterlegt. Mit Karte hast du sie an der Kasse immer dabei.</span>
+      </div>
+      <button class="btn btn-block btn-ghost" id="wc-addcard" style="margin-top:8px">
         ${icon('plus', 'icon icon-sm')} ${esc(b.name)}-Karte hinzufügen</button>`}
     <div id="wc-app-slot">${cardAppBlockHtml(b.name)}</div>
     ${/mcdonald/i.test(b.name) ? `<div id="mcd-slot">${mccheapBlockHtml()}</div>` : ''}
@@ -5946,14 +5961,20 @@ function openBrandSheet(key) {
   $('#wc-addcard')?.addEventListener('click', () => openWalletAdd('card', b.name));
 
   // Wochen-Erinnerung abhaken (IKEA & Co.): danach laeuft der 7-Tage-Timer
+  // Antippen oeffnet die App (der Link laeuft normal weiter) und hakt nebenbei ab
   const wireQuest = () => $('#wc-app-slot').querySelectorAll('[data-quest]').forEach(q => q.onclick = () => {
     if (questRest(q.dataset.quest)) return;
     questErledigt(q.dataset.quest);
     playSfx('coin'); buzz(18);
-    island('Erledigt — in 7 Tagen erinnern wir dich wieder');
-    $('#wc-app-slot').innerHTML = cardAppBlockHtml(b.name);
-    $('#wc-app-slot').querySelector('.quest-row')?.classList.add('quest-pop');
-    wireQuest();
+    island('In 7 Tagen erinnern wir dich wieder');
+    // Erst nach dem Sprung neu zeichnen, damit der Link nicht unter dem Finger verschwindet
+    setTimeout(() => {
+      const slot = $('#wc-app-slot');
+      if (!slot || state.sheetMode !== 'brand') return;
+      slot.innerHTML = cardAppBlockHtml(b.name);
+      slot.querySelector('.app-quest')?.classList.add('app-quest-pop');
+      wireQuest();
+    }, 600);
   });
   wireQuest();
 

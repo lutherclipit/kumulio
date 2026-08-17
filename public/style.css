@@ -3332,28 +3332,28 @@ body.kb-open #view-chat.emotes-open:has(#dm-head:not(.hidden)) { --chatpad: 392p
 .app-jump-txt b { font-size: .92rem; }
 .app-jump-txt small { font-size: .75rem; color: var(--muted); line-height: 1.35; }
 
-/* --- Wochen-Erinnerung („Quest") --- */
-.quest-row {
+/* --- Woechentliche App-Erinnerung (nicht die Tagesquests im Profil!) --- */
+.app-quest {
   display: flex; align-items: center; gap: 12px; width: 100%; margin-top: 10px;
   background: var(--surface); border: 1px dashed var(--stroke-light);
   border-radius: 14px; padding: 11px 13px; font: inherit; color: inherit;
   text-align: left; cursor: pointer;
   transition: transform .25s var(--spring), border-color .3s ease, background .3s ease;
 }
-.quest-row:active { transform: scale(.985); }
-.quest-row.done {
+.app-quest:active { transform: scale(.985); }
+.app-quest.done {
   border-style: solid; border-color: rgba(18, 199, 126, .5);
   background: rgba(18, 199, 126, .08); cursor: default;
 }
-.quest-check { flex: none; display: flex; color: var(--muted); }
-.quest-row.done .quest-check { color: var(--accent-strong, #12C77E); }
-.quest-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.quest-txt b { font-size: .9rem; }
-.quest-txt small { font-size: .75rem; color: var(--muted); line-height: 1.35; }
-@keyframes questPop {
+.app-quest-check { flex: none; display: flex; color: var(--muted); }
+.app-quest.done .app-quest-check { color: var(--accent-strong, #12C77E); }
+.app-quest-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.app-quest-txt b { font-size: .9rem; }
+.app-quest-txt small { font-size: .75rem; color: var(--muted); line-height: 1.35; }
+@keyframes appQuestPop {
   0% { transform: scale(.96); } 55% { transform: scale(1.03); } 100% { transform: none; }
 }
-.quest-row.quest-pop { animation: questPop .4s cubic-bezier(.3, 1.4, .5, 1) both; }
+.app-quest.app-quest-pop { animation: appQuestPop .4s cubic-bezier(.3, 1.4, .5, 1) both; }
 
 /* --- McDonald's-Auswahl --- */
 .mcd-pick { max-width: 420px; }
@@ -3395,7 +3395,7 @@ body.kb-open #chat-box { min-height: 120px; }
 
 @media (prefers-reduced-motion: reduce) {
   #wallet-content.tab-in, #cards-content.tab-in, #coupons-content.tab-in,
-  .deck.deck-pop, .quest-row.quest-pop, .chat-msg.msg-sent, #cc-body.cc-fade,
+  .deck.deck-pop, .app-quest.app-quest-pop, .chat-msg.msg-sent, #cc-body.cc-fade,
   .cc-skel, .cc-row-skel { animation: none; }
 }
 .mcd-hit small { display: block; margin-top: 2px; font-size: .7rem; color: var(--muted); }
@@ -3451,3 +3451,15 @@ body.kb-open #chat-box { min-height: 120px; }
   font-size: .64rem; font-weight: 800; letter-spacing: .02em;
   border-radius: 999px; padding: 3px 8px;
 }
+
+/* Hinweis, wenn zu einer Marke noch keine Sparkarte hinterlegt ist */
+.karte-fehlt {
+  display: flex; align-items: flex-start; gap: 9px; margin-top: 12px;
+  background: var(--surface); border: 1px dashed var(--stroke-light);
+  border-radius: 14px; padding: 11px 13px;
+  font-size: .8rem; line-height: 1.45; color: var(--muted);
+}
+.karte-fehlt .icon { flex: none; margin-top: 2px; }
+/* Die Quest-Zeile ist jetzt ein Link */
+a.app-quest { text-decoration: none; }
+a.app-quest .app-quest-txt { flex: 1; min-width: 0; }
