@@ -271,6 +271,8 @@ function switchView(next, animClass) {
     // Immer unten einsteigen: die neueste Nachricht ist das Wichtigste
     requestAnimationFrame(() => { const b = $('#chat-box'); b.scrollTop = b.scrollHeight; });
   }
+  // Wallet immer aufgeräumt betreten: alle Stapel wieder zusammengelegt
+  if (next === 'wallet') { restack(); renderWallet(); }
   if (next === 'friends') renderFriendsView();
   if (next === 'inventory') renderInventoryPage();
   if (next === 'shop') renderShopPage();
@@ -666,13 +668,19 @@ function renderCoupons(host) {
     <input id="coupon-search" class="input" type="search" placeholder="Coupons suchen; z.B. Rossmann, Drogerie …" value="${esc(state.couponQuery || '')}">
     <p class="muted grid-hint">Diese Kacheln öffnen die Seite des Anbieters. Gedrückt halten und ziehen zum Sortieren.</p>
     <div class="app-grid" id="coupon-grid">
-      ${shown.map(it => `
+      ${shown.map(it => {
+        const mcd = /mcdonald/i.test(it.name);
+        const gratis = mcd && (mccheapDaten?.items || []).some(x => x.gratis);
+        return `
       <a class="app-tile" data-cpn="${esc(it.name)}" title="${esc(it.desc || '')}"
-         href="${esc(it.url)}" target="_blank" rel="noopener noreferrer" style="--bc:${brandColor(it.name)}">
+         ${mcd ? 'data-mcd="1" href="#"' : `href="${esc(it.url)}" target="_blank" rel="noopener noreferrer"`}
+         style="--bc:${brandColor(it.name)}">
         ${brandChipHtml(it.name)}
         <span class="app-tile-name">${esc(it.name)}</span>
-        <span class="app-tile-desc">${esc(it.cat)}</span>
-      </a>`).join('')
+        <span class="app-tile-desc">${mcd ? 'App oder McCheap' : esc(it.cat)}</span>
+        ${gratis ? '<span class="tile-flag">gratis!</span>' : ''}
+      </a>`;
+      }).join('')
       || '<div class="status">Nichts gefunden.</div>'}
     </div>
     <h3 class="wallet-h" style="margin-top:18px">Geld-zurück-Garantien (GzG)</h3>
@@ -681,6 +689,11 @@ function renderCoupons(host) {
       : '<div class="status">Aktuelle GzG-Aktionen postet die Redaktion über das Admin-Panel, sie erscheinen dann hier.</div>'}`;
 
   renderCardCouponBox(host.querySelector('#card-coupon-box'));
+  host.querySelectorAll('[data-mcd]').forEach(a => a.onclick = e => { e.preventDefault(); openMcdWahl(); });
+  // Einmal nachsehen, ob McCheap gerade etwas Gratis hat — danach steht es im Speicher
+  if (!mccheapDaten) ladeMccheap().then(d => {
+    if ((d.items || []).some(x => x.gratis) && walletTab === 'coupons') renderCoupons(host);
+  });
   const cs = host.querySelector('#coupon-search');
   cs.addEventListener('input', () => {
     state.couponQuery = cs.value;
@@ -694,6 +707,52 @@ function renderCoupons(host) {
     if ((state.couponQuery || '').trim()) return;
     localStorage.setItem('ra.couponOrder', JSON.stringify(newOrder));
   }, el => el.dataset.cpn);
+}
+
+// McDonald's hat zwei Wege: die eigene App und McCheap.tech, wo Leute die
+// Coupon-Codes sammeln. Dort tauchen ab und zu Gratis-Sachen auf — die holt
+// der Server einmal pro Stunde, damit man es nicht verpasst.
+let mccheapDaten = null;
+async function ladeMccheap() {
+  if (mccheapDaten) return mccheapDaten;
+  try { mccheapDaten = await api('/api/mccheap'); } catch { mccheapDaten = { items: [] }; }
+  return mccheapDaten;
+}
+function openMcdWahl() {
+  const wrap = document.createElement('div');
+  wrap.className = 'overlay';
+  const treffer = (mccheapDaten?.items || []);
+  wrap.innerHTML = `<div class="modal mcd-pick">
+    <button class="fav-remove" id="mcd-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
+    <h3 class="modal-title">McDonald&rsquo;s Coupons</h3>
+    <p class="muted" style="font-size:.82rem">Wo willst du hin?</p>
+    <a class="app-jump" href="https://www.mcdonalds.com/de/de-de/mcdonalds-app.html" target="_blank" rel="noopener noreferrer" style="--bc:${brandColor('mcdonalds')}">
+      ${brandChipHtml('McDonalds')}
+      <span class="app-jump-txt"><b>McDonald&rsquo;s App</b><small>Offizielle Coupons, direkt einlösbar</small></span>
+      ${icon('arrow-right', 'icon icon-sm')}
+    </a>
+    <a class="app-jump" href="https://mccheap.tech/" target="_blank" rel="noopener noreferrer" style="--bc:#12C77E">
+      <span class="brand-chip" style="--bc:#12C77E">MC</span>
+      <span class="app-jump-txt"><b>McCheap.tech</b><small>Gesammelte Codes, oft günstiger als die App</small></span>
+      ${icon('arrow-right', 'icon icon-sm')}
+    </a>
+    ${treffer.length ? `
+      <h4 class="gm-h" style="margin-top:14px">${icon('bolt', 'icon icon-sm')} Gerade auffällig günstig</h4>
+      <div class="mcd-hits">${treffer.map(t => `
+        <div class="mcd-hit ${t.gratis ? 'gratis' : ''}">
+          ${t.gratis ? '<b>GRATIS</b> ' : ''}${esc(t.text)}
+          ${t.bis ? `<small>${esc(t.bis)}</small>` : ''}
+        </div>`).join('')}</div>
+      <p class="muted" style="font-size:.72rem; margin-top:8px">Automatisch von McCheap.tech gelesen — ohne Gewähr, prüf den Preis im Laden.</p>`
+      : '<p class="muted" style="font-size:.76rem; margin-top:12px">Aktuell nichts Auffälliges bei McCheap gefunden.</p>'}
+  </div>`;
+  document.body.appendChild(wrap);
+  wrap.addEventListener('click', e => {
+    if (e.target === wrap || e.target.closest('#mcd-close')) {
+      wrap.classList.add('closing');
+      setTimeout(() => wrap.remove(), 280);
+    }
+  });
 }
 
 function renderFeed(reorder = false) {
@@ -1055,6 +1114,12 @@ function openSheetShell() {
 }
 
 function closeSheet() {
+  // Die Wisch- und Klick-Handler der Coupon-Liste gelten nur fuer dieses Blatt
+  if (state.sheetMode === 'card-coupons') {
+    const sh = $('#sheet-content');
+    sh.onpointerdown = sh.onpointermove = sh.onpointerup = sh.onpointercancel = sh.onclick = null;
+    ccCtx = null;
+  }
   $('#sheet').classList.remove('open');
   $('#sheet-backdrop').classList.remove('show');
   setTimeout(() => $('#sheet-backdrop').classList.add('hidden'), 300);
@@ -5140,28 +5205,59 @@ function openVoucherSheet(id, animFrom) {
 
 // ---- Coupons zu Sparkarten: gepflegt von der Redaktion, sichtbar nur mit
 // passender Karte in der Wallet. Geladen wird erst beim Öffnen (nie auf Vorrat).
-let cardCouponList = null;
+// Die Marken-Reihe ist sofort da: sie kommt aus dem Speicher des Geraets und
+// wird pro Sitzung genau einmal beim Server nachgezogen. "Besitze ich die Karte?"
+// rechnet die App selbst aus der Wallet aus — das braucht keinen Server.
+let cardCouponList = JSON.parse(localStorage.getItem('ra.ccList') || 'null');
+let ccListGeladen = false;
+const ccBesitzt = c => !!c.open
+  || state.wallet.cards.some(x => String(x.name || '').trim().toLowerCase() === c.key);
+
+function ccRailHtml(list) {
+  return `
+    <h3 class="wallet-h" style="margin-top:0">Coupons in der App</h3>
+    <div class="cc-rail">${list.map(c => {
+      const owned = ccBesitzt(c);
+      return `
+      <button class="cc-tile ${owned ? '' : 'locked'}" data-cc="${esc(c.key)}" style="--bc:${brandColor(c.brand)}">
+        ${brandChipHtml(c.brand)}
+        <b>${esc(c.brand)}</b>
+        <small>${owned ? `${c.count} Coupons` : 'Karte nötig'}</small>
+        ${c.validUntil && owned ? `<span class="cc-tile-date">bis ${dateShort(c.validUntil)}</span>` : ''}
+        ${owned ? '' : `<span class="cc-tile-lock">${icon('lock', 'icon icon-sm')}</span>`}
+      </button>`;
+    }).join('')}</div>`;
+}
+
 async function renderCardCouponBox(host) {
   if (!host) return;
   if (!state.token) { host.innerHTML = ''; return; }
-  try { cardCouponList = (await api('/api/cardcoupons/list')).list || []; }
-  catch { host.innerHTML = ''; return; }
-  if (!cardCouponList.length) { host.innerHTML = ''; return; }
-  host.innerHTML = `
+  const zeichne = () => {
+    if (!cardCouponList || !cardCouponList.length) { host.innerHTML = ''; return; }
+    host.innerHTML = ccRailHtml(cardCouponList);
+    host.querySelectorAll('[data-cc]').forEach(b => b.onclick = () => {
+      const c = cardCouponList.find(x => x.key === b.dataset.cc);
+      if (!ccBesitzt(c)) { openWalletAdd('card', c.brand); return; }
+      openCardCoupons(c.key, c.brand);
+    });
+  };
+  if (cardCouponList) zeichne();
+  else host.innerHTML = `
     <h3 class="wallet-h" style="margin-top:0">Coupons in der App</h3>
-    <div class="cc-rail">${cardCouponList.map(c => `
-      <button class="cc-tile ${c.owned ? '' : 'locked'}" data-cc="${esc(c.key)}" style="--bc:${brandColor(c.brand)}">
-        ${brandChipHtml(c.brand)}
-        <b>${esc(c.brand)}</b>
-        <small>${c.owned ? `${c.count} Coupons` : 'Karte nötig'}</small>
-        ${c.validUntil && c.owned ? `<span class="cc-tile-date">bis ${dateShort(c.validUntil)}</span>` : ''}
-        ${c.owned ? '' : `<span class="cc-tile-lock">${icon('lock', 'icon icon-sm')}</span>`}
-      </button>`).join('')}</div>`;
-  host.querySelectorAll('[data-cc]').forEach(b => b.onclick = () => {
-    const c = cardCouponList.find(x => x.key === b.dataset.cc);
-    if (!c.owned) { openWalletAdd('card', c.brand); return; }
-    openCardCoupons(c.key, c.brand);
-  });
+    <div class="cc-rail">${[0, 1, 2].map(() => '<div class="cc-tile cc-skel"></div>').join('')}</div>`;
+  if (ccListGeladen) return;
+  ccListGeladen = true;
+  try {
+    const list = (await api('/api/cardcoupons/list')).list || [];
+    // Nur neu zeichnen, wenn sich wirklich etwas geaendert hat — sonst flackert es
+    const alt = JSON.stringify(cardCouponList);
+    cardCouponList = list;
+    localStorage.setItem('ra.ccList', JSON.stringify(list));
+    if (JSON.stringify(list) !== alt) zeichne();
+  } catch {
+    ccListGeladen = false;                       // beim naechsten Mal neu versuchen
+    if (!cardCouponList) host.innerHTML = '';
+  }
 }
 function dateShort(iso) {
   const d = new Date(iso);
@@ -5182,59 +5278,34 @@ function ccPreis(p) {
   const m = String(p || '').replace(',', '.').match(/\d+(\.\d+)?/);
   return m && /[\d.,]/.test(String(p).trim()[0]) ? parseFloat(m[0]) : NaN;
 }
+// Einmal geladene Coupon-Saetze bleiben im Speicher des Geraets: beim naechsten
+// Oeffnen steht die Liste sofort, der Server wird nur noch still nachgefragt.
+const ccCache = JSON.parse(localStorage.getItem('ra.ccData') || '{}');
 async function openCardCoupons(key, brand) {
   state.sheetMode = 'card-coupons';
-  $('#sheet-content').innerHTML = `<div class="sheet-title">${esc(brand)}</div><div class="status">Lade Coupons …</div>`;
+  const gecacht = ccCache[key];
+  if (gecacht) renderCardCoupons(key, brand, gecacht);
+  else $('#sheet-content').innerHTML = `
+    <div class="sheet-title">${esc(brand)}</div>
+    <div class="cc-list">${[0, 1, 2, 3, 4].map(() => '<div class="cc-row-skel"></div>').join('')}</div>`;
   openSheetShell();
   let d;
   try { d = await api('/api/cardcoupons?card=' + encodeURIComponent(key)); }
-  catch (e) { $('#sheet-content').innerHTML = `<div class="sheet-title">${esc(brand)}</div><div class="status">${esc(e.message)}</div>`; return; }
-  renderCardCoupons(key, brand, d);
-}
-function renderCardCoupons(key, brand, d) {
-  const abgelaufen = d.validUntil && new Date(d.validUntil) < new Date(new Date().toDateString());
-  const flat = (d.groups || []).flatMap(g => g.items.map(it => ({ ...it, gruppe: g.title })));
-  const favs = flat.filter(it => ccIsFav(key, it.code));
-  const zeile = it => `
-    <div class="cc-wrap" data-cc-wrap="${esc(it.code)}">
-    <span class="fav-hint">${icon(ccIsFav(key, it.code) ? 'star' : 'star', 'icon')}</span>
-    <div class="cc-item ${ccIsFav(key, it.code) ? 'fav' : ''}" data-cc-item="${esc(it.code)}">
-      <span class="cc-media">
-        ${d.img ? `<img class="cc-img" src="${esc(d.img)}/${esc(it.code)}.jpg" alt="" loading="lazy" onerror="this.closest('.cc-media')?.classList.add('no-img')">` : ''}
-        <span class="cc-code">${esc(it.code)}</span>
-      </span>
-      <span class="cc-text">
-        <b>${esc(it.name)}</b>
-        ${it.extra ? `<small>${esc(it.extra)}</small>` : ''}
-        ${it.plu ? `<small class="cc-plu">PLU ${esc(it.plu)}</small>` : ''}
-      </span>
-      <span class="cc-right">
-        <span class="cc-price">${esc(it.price)}${/^[\d.,]+$/.test(it.price) ? ' €' : ''}</span>
-        <button class="cc-fav ${ccIsFav(key, it.code) ? 'on' : ''}" data-cc-fav="${esc(it.code)}"
-          aria-label="${ccIsFav(key, it.code) ? 'Aus Favoriten entfernen' : 'Zu Favoriten'}">${icon('star', 'icon icon-sm')}</button>
-      </span>
-    </div>
-    </div>`;
-  // Nach Preis: eine flache Liste, sonst die Gruppen des Flyers
-  let body;
-  if (ccSort === 'preisAuf' || ccSort === 'preisAb') {
-    const sorted = [...flat].sort((a, b) => {
-      const pa = ccPreis(a.price), pb = ccPreis(b.price);
-      if (isNaN(pa) && isNaN(pb)) return 0;
-      if (isNaN(pa)) return 1;
-      if (isNaN(pb)) return -1;
-      return ccSort === 'preisAuf' ? pa - pb : pb - pa;
-    });
-    body = `<div class="cc-list">${sorted.map(zeile).join('')}</div>`;
-  } else if (ccSort === 'favs') {
-    body = favs.length
-      ? `<div class="cc-list">${favs.map(zeile).join('')}</div>`
-      : '<div class="status">Noch keine Favoriten. Tippe bei einem Coupon auf den Stern.</div>';
-  } else {
-    body = (d.groups || []).map(g => `
-      <h3 class="gm-h">${esc(g.title)}</h3>
-      <div class="cc-list">${g.items.map(zeile).join('')}</div>`).join('');
+  catch (e) {
+    if (!gecacht) $('#sheet-content').innerHTML = `<div class="sheet-title">${esc(brand)}</div><div class="status">${esc(e.message)}</div>`;
+    return;
   }
+  ccCache[key] = d;
+  try { localStorage.setItem('ra.ccData', JSON.stringify(ccCache)); } catch { /* Speicher voll */ }
+  // Nur neu aufbauen, wenn sich etwas geaendert hat — sonst bleibt die Liste ruhig
+  if (!gecacht || JSON.stringify(gecacht) !== JSON.stringify(d)) renderCardCoupons(key, brand, d);
+}
+// Der gerade offene Coupon-Satz. Favorisieren aendert nur die betroffenen
+// Zeilen, nie die ganze Liste — sonst reisst es einem den Wisch unter der Hand weg.
+let ccCtx = null;
+function renderCardCoupons(key, brand, d) {
+  ccCtx = { key, brand, d, flat: (d.groups || []).flatMap(g => g.items.map(it => ({ ...it, gruppe: g.title }))) };
+  const abgelaufen = d.validUntil && new Date(d.validUntil) < new Date(new Date().toDateString());
   $('#sheet-content').innerHTML = `
     <div class="offer-head">
       ${brandChipHtml(d.brand || brand)}
@@ -5246,91 +5317,212 @@ function renderCardCoupons(key, brand, d) {
     </div>
     ${d.validUntil ? `<div class="cc-valid ${abgelaufen ? 'over' : ''}">${icon('clock', 'icon icon-sm')}
       ${abgelaufen ? 'Abgelaufen seit' : 'Gültig bis'} ${dateShort(d.validUntil)}</div>` : ''}
-    <div class="wallet-filters cc-filters">
-      <button class="chip ${ccSort === 'gruppen' ? 'active' : ''}" data-ccsort="gruppen">Flyer-Reihenfolge</button>
-      <button class="chip ${ccSort === 'preisAuf' ? 'active' : ''}" data-ccsort="preisAuf">Preis aufsteigend</button>
-      <button class="chip ${ccSort === 'preisAb' ? 'active' : ''}" data-ccsort="preisAb">Preis absteigend</button>
-      <button class="chip ${ccSort === 'favs' ? 'active' : ''}" data-ccsort="favs">${icon('star', 'icon icon-sm')} Favoriten${favs.length ? ` (${favs.length})` : ''}</button>
-    </div>
-    ${ccSort !== 'favs' && favs.length ? `
-      <h3 class="gm-h">${icon('star', 'icon icon-sm')} Deine Favoriten</h3>
-      <div class="cc-list">${favs.map(zeile).join('')}</div>` : ''}
-    ${body}
+    <div class="wallet-filters cc-filters" id="cc-filters"></div>
+    <div id="cc-favbox"></div>
+    <div id="cc-body"></div>
     ${d.note ? `<p class="cc-note">${icon('bulb', 'icon icon-sm')} ${esc(d.note)}</p>` : ''}
     ${state.role === 'admin' ? `<button class="btn btn-small btn-ghost" id="cc-edit" style="margin-top:14px">Coupons pflegen</button>` : ''}`;
   $('#cc-close').onclick = closeSheet;
   $('#cc-edit') && ($('#cc-edit').onclick = () => openCardCouponEditor(key, d));
-  $('#sheet-content').querySelectorAll('[data-ccsort]').forEach(b => b.onclick = () => {
-    ccSort = b.dataset.ccsort;
-    localStorage.setItem('ra.couponSort', ccSort);
-    renderCardCoupons(key, brand, d);
-  });
-  // Stern schaltet den Favoriten um, ohne die große Ansicht zu öffnen
-  $('#sheet-content').querySelectorAll('[data-cc-fav]').forEach(b => b.onclick = e => {
-    e.stopPropagation();
-    ccToggleFav(key, b.dataset.ccFav);
-    buzz(12);
-    renderCardCoupons(key, brand, d);
-  });
-  // Antippen zeigt die Nummer groß — an der Kasse muss man sie nur vorzeigen
-  $('#sheet-content').querySelectorAll('[data-cc-item]').forEach(b => b.onclick = () => {
-    if (Date.now() < ccSwipeSperre) return;
-    const it = flat.find(x => x.code === b.dataset.ccItem);
-    if (it) showCouponBig({ ...it, imgBase: d.img || '' }, d.brand || brand, d.validUntil);
-  });
-  wireCcSwipe(key, brand, d);
+  ccFilterChips();
+  ccBody();
+  ccFavBox();
+  ccWireSheet();
 }
 
-// Nach links ziehen = favorisieren, genau wie bei den Deal-Karten
-let ccSwipeSperre = 0;
-function wireCcSwipe(key, brand, d) {
-  $('#sheet-content').querySelectorAll('.cc-wrap').forEach(wrap => {
-    const card = wrap.querySelector('.cc-item');
-    let sx = 0, sy = 0, dx = 0, aktiv = false, unten = false;
-    wrap.addEventListener('pointerdown', e => {
-      if (e.target.closest('.cc-fav')) return;
-      sx = e.clientX; sy = e.clientY; dx = 0; aktiv = false; unten = true;
+function ccZeile(it) {
+  const { key, d } = ccCtx;
+  const fav = ccIsFav(key, it.code);
+  const bild = it.barcode
+    ? `<img class="cc-img cc-img-code" src="${esc(it.barcode)}" alt="" loading="lazy" decoding="async">`
+    : d.img ? `<img class="cc-img" src="${esc(d.img)}/${esc(it.code)}.jpg" alt="" loading="lazy" decoding="async"
+        onerror="this.closest('.cc-media')?.classList.add('no-img')">` : '';
+  return `
+    <div class="cc-wrap" data-cc-wrap="${esc(it.code)}">
+      <span class="fav-hint">${icon('star', 'icon')}</span>
+      <div class="cc-item ${fav ? 'fav' : ''}" data-cc-item="${esc(it.code)}">
+        <span class="cc-media">
+          ${bild}
+          <span class="cc-code">${esc(it.barcode ? 'Barcode zeigen' : it.code)}</span>
+        </span>
+        <span class="cc-text">
+          <b>${esc(it.name)}</b>
+          ${it.extra ? `<small>${esc(it.extra)}</small>` : ''}
+          ${it.plu ? `<small class="cc-plu">PLU ${esc(it.plu)}</small>` : ''}
+        </span>
+        <span class="cc-right">
+          <span class="cc-price">${esc(it.price)}${/^[\d.,]+$/.test(it.price) ? ' €' : ''}</span>
+          <button class="cc-fav ${fav ? 'on' : ''}" data-cc-fav="${esc(it.code)}"
+            aria-label="${fav ? 'Aus Favoriten entfernen' : 'Zu Favoriten'}">${icon('star', 'icon icon-sm')}</button>
+        </span>
+      </div>
+    </div>`;
+}
+
+function ccFavListe() {
+  return ccCtx.flat.filter(it => ccIsFav(ccCtx.key, it.code));
+}
+
+function ccFilterChips() {
+  const n = ccFavListe().length;
+  $('#cc-filters').innerHTML = [
+    ['gruppen', 'Flyer-Reihenfolge'],
+    ['preisAuf', 'Preis aufsteigend'],
+    ['preisAb', 'Preis absteigend'],
+    ['favs', `${icon('star', 'icon icon-sm')} Favoriten${n ? ` (${n})` : ''}`],
+  ].map(([k, label]) =>
+    `<button class="chip ${ccSort === k ? 'active' : ''}" data-ccsort="${k}">${label}</button>`).join('');
+}
+
+function ccBody() {
+  const { d } = ccCtx;
+  const host = $('#cc-body');
+  if (ccSort === 'preisAuf' || ccSort === 'preisAb') {
+    const sorted = [...ccCtx.flat].sort((a, b) => {
+      const pa = ccPreis(a.price), pb = ccPreis(b.price);
+      if (isNaN(pa) && isNaN(pb)) return 0;
+      if (isNaN(pa)) return 1;
+      if (isNaN(pb)) return -1;
+      return ccSort === 'preisAuf' ? pa - pb : pb - pa;
     });
-    wrap.addEventListener('pointermove', e => {
-      if (!unten) return;
-      const x = e.clientX - sx, y = e.clientY - sy;
-      if (!aktiv) {
-        if (Math.abs(x) < 10 || Math.abs(x) < Math.abs(y)) return;
-        aktiv = true;
-        wrap.classList.add('dragging');
-        document.body.classList.add('no-select');
-        try { wrap.setPointerCapture(e.pointerId); } catch { /* synthetische Pointer */ }
-      }
-      dx = Math.min(0, x);
-      card.style.transform = `translateX(${dx}px)`;
-    });
-    const ende = () => {
-      if (!unten) return;
-      unten = false;
-      if (!aktiv) return;
-      aktiv = false;
-      card.style.transform = '';
-      wrap.classList.remove('dragging');
-      document.body.classList.remove('no-select');
-      if (dx < -80) {
-        ccSwipeSperre = Date.now() + 350;
-        ccToggleFav(key, wrap.dataset.ccWrap);
-        buzz(14);
-        renderCardCoupons(key, brand, d);
-      }
-    };
-    wrap.addEventListener('pointerup', ende);
-    wrap.addEventListener('pointercancel', ende);
+    host.innerHTML = `<div class="cc-list">${sorted.map(ccZeile).join('')}</div>`;
+  } else if (ccSort === 'favs') {
+    const favs = ccFavListe();
+    host.innerHTML = favs.length
+      ? `<div class="cc-list">${favs.map(ccZeile).join('')}</div>`
+      : '<div class="status">Noch keine Favoriten. Tippe auf den Stern oder wisch die Zeile nach links.</div>';
+  } else {
+    host.innerHTML = (d.groups || []).map(g => `
+      <h3 class="gm-h">${esc(g.title)}</h3>
+      <div class="cc-list">${g.items.map(ccZeile).join('')}</div>`).join('');
+  }
+}
+
+// Favoriten-Block oben: wird einzeln nachgezogen, der Rest der Liste bleibt stehen
+function ccFavBox() {
+  const host = $('#cc-favbox');
+  if (!host) return;
+  const favs = ccSort === 'favs' ? [] : ccFavListe();
+  host.innerHTML = favs.length ? `
+    <h3 class="gm-h">${icon('star', 'icon icon-sm')} Deine Favoriten</h3>
+    <div class="cc-list">${favs.map(ccZeile).join('')}</div>` : '';
+}
+
+// Ein einzelner Favorit wechselt: nur Sterne umfaerben, Zaehler und Block nachziehen.
+// Der Favoriten-Block oben waechst dabei — ohne Ausgleich wuerde einem die Liste
+// unter dem Finger wegrutschen, deshalb wird der Scroll um genau diesen Betrag
+// nachgezogen.
+function ccFavGeaendert(code) {
+  const an = ccIsFav(ccCtx.key, code);
+  const blatt = $('#sheet-content');
+  // Als Anker dient eine Zeile aus der Hauptliste — die wird nicht neu gebaut,
+  // also verrät ihre Bildschirmposition exakt, wie weit alles gerutscht ist.
+  const anker = $('#cc-body .cc-wrap');
+  const ankerVorher = anker?.getBoundingClientRect().top ?? 0;
+  document.querySelectorAll(`#sheet-content [data-cc-wrap="${CSS.escape(code)}"]`).forEach(w => {
+    w.querySelector('.cc-item')?.classList.toggle('fav', an);
+    const b = w.querySelector('.cc-fav');
+    if (b) {
+      b.classList.toggle('on', an);
+      b.setAttribute('aria-label', an ? 'Aus Favoriten entfernen' : 'Zu Favoriten');
+    }
   });
+  ccFilterChips();
+  if (ccSort === 'favs') { ccBody(); return; }
+  ccFavBox();
+  if (blatt && anker && blatt.scrollTop > 0) {
+    const rutsch = anker.getBoundingClientRect().top - ankerVorher;
+    if (rutsch) blatt.scrollTop += rutsch;
+  }
+}
+
+// Ein einziger Satz Handler fuer das ganze Blatt — ueberlebt jedes Nachzeichnen,
+// deshalb kann ein Wisch nicht mehr mittendrin haengen bleiben.
+let ccSwipeSperre = 0;
+function ccWireSheet() {
+  const sheet = $('#sheet-content');
+  let wrap = null, card = null, sx = 0, sy = 0, dx = 0, aktiv = false;
+
+  const aufraeumen = () => {
+    if (card) card.style.transform = '';
+    wrap?.classList.remove('dragging');
+    document.body.classList.remove('no-select');
+    wrap = card = null; aktiv = false; dx = 0;
+  };
+
+  sheet.onpointerdown = e => {
+    if (e.target.closest('[data-ccsort]') || e.target.closest('.cc-fav')) return;
+    const w = e.target.closest('.cc-wrap');
+    if (!w) return;
+    wrap = w; card = w.querySelector('.cc-item');
+    sx = e.clientX; sy = e.clientY; dx = 0; aktiv = false;
+  };
+  sheet.onpointermove = e => {
+    if (!wrap) return;
+    const x = e.clientX - sx, y = e.clientY - sy;
+    if (!aktiv) {
+      if (Math.abs(y) > 12) { aufraeumen(); return; }   // das war Scrollen
+      if (x > -10) return;
+      aktiv = true;
+      wrap.classList.add('dragging');
+      document.body.classList.add('no-select');
+      try { sheet.setPointerCapture(e.pointerId); } catch { /* synthetische Pointer */ }
+    }
+    // Ueber 110 px wird es zaeh — man spuert, dass die Grenze erreicht ist
+    const roh = Math.min(0, x);
+    dx = roh < -110 ? -110 + (roh + 110) * 0.35 : roh;
+    card.style.transform = `translate3d(${dx}px,0,0)`;
+  };
+  const ende = () => {
+    if (!wrap || !aktiv) { aufraeumen(); return; }
+    const code = wrap.dataset.ccWrap;
+    const ausgeloest = dx < -80;
+    aufraeumen();
+    if (!ausgeloest) return;
+    ccSwipeSperre = Date.now() + 350;
+    ccToggleFav(ccCtx.key, code);
+    buzz(14);
+    ccFavGeaendert(code);
+  };
+  sheet.onpointerup = ende;
+  sheet.onpointercancel = ende;
+
+  sheet.onclick = e => {
+    const chip = e.target.closest('[data-ccsort]');
+    if (chip) {
+      ccSort = chip.dataset.ccsort;
+      localStorage.setItem('ra.couponSort', ccSort);
+      ccFilterChips(); ccBody(); ccFavBox();
+      $('#cc-body')?.classList.remove('cc-fade');
+      void $('#cc-body')?.offsetWidth;
+      $('#cc-body')?.classList.add('cc-fade');
+      return;
+    }
+    const stern = e.target.closest('.cc-fav');
+    if (stern) {
+      ccToggleFav(ccCtx.key, stern.dataset.ccFav);
+      buzz(12);
+      ccFavGeaendert(stern.dataset.ccFav);
+      return;
+    }
+    const zeile = e.target.closest('[data-cc-item]');
+    if (zeile) {
+      if (Date.now() < ccSwipeSperre) return;
+      const it = ccCtx.flat.find(x => x.code === zeile.dataset.ccItem);
+      if (it) showCouponBig({ ...it, imgBase: ccCtx.d.img || '' }, ccCtx.d.brand || ccCtx.brand, ccCtx.d.validUntil);
+    }
+  };
 }
 function showCouponBig(it, brand, validUntil) {
   const wrap = document.createElement('div');
   wrap.className = 'overlay';
-  wrap.innerHTML = `<div class="modal cc-big">
+  wrap.innerHTML = `<div class="modal cc-big ${it.barcode ? 'cc-big-bc' : ''}">
     <button class="fav-remove" id="ccb-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
     <div class="cc-big-brand">${esc(brand)}</div>
-    ${it.imgBase ? `<img class="cc-big-img" src="${esc(it.imgBase)}/${esc(it.code)}.jpg" alt="" onerror="this.remove()">` : ''}
-    <div class="cc-big-code">${esc(it.code)}</div>
+    ${it.barcode
+      ? `<img class="cc-big-barcode" src="${esc(it.barcode)}" alt="Barcode ${esc(it.code)}">`
+      : it.imgBase ? `<img class="cc-big-img" src="${esc(it.imgBase)}/${esc(it.code)}.jpg" alt="" onerror="this.remove()">` : ''}
+    <div class="cc-big-code ${it.barcode ? 'small' : ''}">${esc(it.code)}</div>
     <div class="cc-big-name">${esc(it.name)}</div>
     ${it.extra ? `<div class="cc-big-extra">${esc(it.extra)}</div>` : ''}
     <div class="cc-big-price">${esc(it.price)}${/^[\d.,]+$/.test(it.price) ? ' €' : ''}</div>
@@ -5349,7 +5541,8 @@ function showCouponBig(it, brand, validUntil) {
 // Redaktions-Editor: Zeilenformat statt Formular-Wüste, monatlich schnell gepflegt
 function openCardCouponEditor(key, data) {
   const txt = (data.groups || []).map(g =>
-    `# ${g.title}\n` + g.items.map(it => [it.code, it.name, it.extra, it.price, it.plu].join(' | ')).join('\n')
+    `# ${g.title}\n` + g.items.map(it =>
+      [it.code, it.name, it.extra, it.price, it.plu, it.barcode].join(' | ').replace(/(\s*\|)+$/, '')).join('\n')
   ).join('\n\n');
   const wrap = document.createElement('div');
   wrap.className = 'overlay';
@@ -5369,7 +5562,8 @@ function openCardCouponEditor(key, data) {
     </label>
     <label class="f-label">Coupons</label>
     <p class="muted" style="font-size:.76rem">Eine Zeile je Coupon:
-      <b>Nummer | Name | Zusatz | Preis | PLU</b>. Zeilen mit <b>#</b> sind Überschriften.</p>
+      <b>Nummer | Name | Zusatz | Preis | PLU | Barcodebild</b>. Zeilen mit <b>#</b> sind Überschriften.
+      Das Barcodebild ist optional (Pfad wie <code>/coupons/rossmann/10prozent.png</code>) und ersetzt die Nummer.</p>
     <textarea class="input cc-area" id="cce-text" rows="14">${esc(txt)}</textarea>
     <div class="form-row" style="margin-top:10px">
       <button class="btn btn-small" id="cce-save">Speichern</button>
@@ -5390,8 +5584,8 @@ function openCardCouponEditor(key, data) {
         cur = { title: l.replace(/^#+\s*/, '').slice(0, 60), items: [] };
         return;
       }
-      const [code, name, extra, price, plu] = l.split('|').map(x => (x || '').trim());
-      if (name) cur.items.push({ code, name, extra, price, plu });
+      const [code, name, extra, price, plu, barcode] = l.split('|').map(x => (x || '').trim());
+      if (name) cur.items.push({ code, name, extra, price, plu, barcode });
     });
     if (cur.items.length) groups.push(cur);
     try {
@@ -5411,6 +5605,79 @@ function openCardCouponEditor(key, data) {
     }
   };
 }
+// Wohin fuehrt die Karte? Alles https — auf dem Handy uebernimmt die installierte
+// App den Link von selbst, am Rechner oeffnet die Webseite.
+// rotierend = der Code wechselt staendig (dann bringt "aktivieren" nichts),
+// woche = woechentliche Belohnung in der App, an die wir erinnern.
+const CARD_APPS = {
+  rossmann: { url: 'https://www.rossmann.de/de/coupons', hinweis: 'Der App-Coupon (10 %) ist dreimal im Monat verfügbar.' },
+  payback: { url: 'https://www.payback.de/coupons' },
+  dm: { url: 'https://www.dm.de/services/dm-app' },
+  rewe: { url: 'https://www.rewe.de/angebote/' },
+  edeka: { url: 'https://www.edeka.de/' },
+  penny: { url: 'https://www.penny.de/' },
+  kaufland: { url: 'https://www.kaufland.de/kaufland-card/' },
+  netto: { url: 'https://www.netto-online.de/', rotierend: true },
+  'netto marken-discount': { url: 'https://www.netto-online.de/', rotierend: true },
+  'burger king': { url: 'https://www.burgerking.de/', rotierend: true },
+  mcdonalds: { url: 'https://www.mcdonalds.com/de/de-de/mcdonalds-app.html', alt: { url: 'https://mccheap.tech/', name: 'McCheap.tech' } },
+  "mcdonald's": { url: 'https://www.mcdonalds.com/de/de-de/mcdonalds-app.html', alt: { url: 'https://mccheap.tech/', name: 'McCheap.tech' } },
+  subway: { url: 'https://www.subway.com/de-DE' },
+  'müller': { url: 'https://www.mueller.de/' },
+  mueller: { url: 'https://www.mueller.de/' },
+  lidl: { url: 'https://www.lidl.de/c/lidl-plus/s10007306' },
+  'lidl plus': { url: 'https://www.lidl.de/c/lidl-plus/s10007306' },
+  ikea: {
+    url: 'https://www.ikea.com/de/de/ikea-family/',
+    woche: 'Einmal pro Woche in der IKEA-App einloggen bringt Punkte für Gutscheine.',
+  },
+};
+const cardApp = name => CARD_APPS[String(name || '').trim().toLowerCase()];
+
+// Wochen-Erinnerungen ("Quests") liegen nur auf dem Gerät — es geht ja nur darum,
+// dass man das Antippen in der fremden App nicht vergisst.
+const appQuests = JSON.parse(localStorage.getItem('ra.appQuests') || '{}');
+const WOCHE = 7 * 24 * 3600 * 1000;
+function questRest(key) {
+  const t = appQuests[String(key).toLowerCase()];
+  return t ? Math.max(0, t + WOCHE - Date.now()) : 0;
+}
+function questErledigt(key) {
+  appQuests[String(key).toLowerCase()] = Date.now();
+  localStorage.setItem('ra.appQuests', JSON.stringify(appQuests));
+}
+function restText(ms) {
+  const tage = Math.ceil(ms / (24 * 3600 * 1000));
+  if (tage >= 1) return `wieder in ${tage} Tag${tage > 1 ? 'en' : ''}`;
+  const std = Math.max(1, Math.round(ms / 3600000));
+  return `wieder in ${std} Std.`;
+}
+
+// Der Knopf-Block, der im Sparkarten-Blatt unter dem Barcode sitzt
+function cardAppBlockHtml(name) {
+  const a = cardApp(name);
+  if (!a) return '';
+  const label = a.rotierend
+    ? `${esc(name)}-App öffnen`
+    : `Coupons in der ${esc(name)}-App aktivieren`;
+  const rest = a.woche ? questRest(name) : 0;
+  return `
+    <a class="app-jump" href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" style="--bc:${brandColor(name)}">
+      ${brandChipHtml(name)}
+      <span class="app-jump-txt"><b>${label}</b>
+        <small>${a.rotierend
+          ? 'Der Code wechselt ständig — hol ihn dir direkt in der App.'
+          : 'Coupons einmal antippen, dann gelten sie an der Kasse.'}</small></span>
+      ${icon('arrow-right', 'icon icon-sm')}
+    </a>
+    ${a.hinweis ? `<p class="cc-note">${icon('bulb', 'icon icon-sm')} ${esc(a.hinweis)}</p>` : ''}
+    ${a.woche ? `
+      <button class="quest-row ${rest ? 'done' : ''}" data-quest="${esc(name)}">
+        <span class="quest-check">${icon(rest ? 'check' : 'clock', 'icon icon-sm')}</span>
+        <span class="quest-txt"><b>Wöchentlich einloggen</b><small>${rest ? restText(rest) : esc(a.woche)}</small></span>
+      </button>` : ''}`;
+}
+
 function openCardSheet(id) {
   const c = state.wallet.cards.find(x => x.id === id);
   if (!c) return;
@@ -5429,21 +5696,30 @@ function openCardSheet(id) {
       : c.img ? `<img class="wallet-img" src="${c.img}" alt="QR/Barcode">`
       : '<p class="muted" style="margin-top:10px; font-size:.82rem">Tipp: Screenshot vom Karten-Barcode anhängen (beim Anlegen), dann kannst du ihn an der Kasse scannen lassen.</p>'}
     <div id="wc-coupon-slot"></div>
+    <div id="wc-app-slot">${cardAppBlockHtml(c.name)}</div>
     <button class="btn btn-danger" id="wc-del" style="margin-top:18px">Karte löschen</button>`;
+  // Wochen-Erinnerung abhaken (IKEA & Co.): danach laeuft der 7-Tage-Timer
+  const wireQuest = () => $('#wc-app-slot').querySelectorAll('[data-quest]').forEach(b => b.onclick = () => {
+    if (questRest(b.dataset.quest)) return;
+    questErledigt(b.dataset.quest);
+    playSfx('coin'); buzz(18);
+    island('Erledigt — in 7 Tagen erinnern wir dich wieder');
+    $('#wc-app-slot').innerHTML = cardAppBlockHtml(c.name);
+    $('#wc-app-slot').querySelector('.quest-row')?.classList.add('quest-pop');
+    wireQuest();
+  });
+  wireQuest();
   // Coupons dieser Karte: nur ein Knopf, die Liste kommt erst beim Antippen
-  (async () => {
+  // Coupons dieser Karte: die Übersicht liegt schon im Speicher, kein Warten
+  {
     const slot = $('#wc-coupon-slot');
-    if (!slot || !state.token) return;
-    try {
-      const { list } = await api('/api/cardcoupons/list');
-      const hit = (list || []).find(x => x.key === c.name.trim().toLowerCase());
-      if (hit && hit.open) { /* offen für alle, Knopf trotzdem praktisch */ }
-      if (!hit) return;
+    const hit = (cardCouponList || []).find(x => x.key === c.name.trim().toLowerCase());
+    if (slot && state.token && hit) {
       slot.innerHTML = `<button class="btn btn-block cc-open-btn" id="wc-coupons">
         ${icon('tag', 'icon icon-sm')} ${hit.count} Coupons ansehen${hit.validUntil ? ` · bis ${dateShort(hit.validUntil)}` : ''}</button>`;
       $('#wc-coupons').onclick = () => openCardCoupons(hit.key, hit.brand);
-    } catch { }
-  })();
+    }
+  }
   $('#sheet-content').querySelectorAll('[data-copy-txt]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copyTxt)));
   $('#wc-close').addEventListener('click', closeSheet);
   $('#wc-del').addEventListener('click', async () => {
@@ -5469,14 +5745,24 @@ function updateWalletTab(anim) {
   if (!walletTab.startsWith('gutscheine')) $('#wallet-mini')?.classList.remove('show');
   if (anim) {
     const host = coupons ? $('#coupons-content') : cards ? $('#cards-content') : $('#wallet-content');
-    host.classList.add('enter-drop');
-    setTimeout(() => host.classList.remove('enter-drop'), 500);
+    host.classList.remove('tab-in');
+    void host.offsetWidth;                       // Animation neu starten
+    host.classList.add('tab-in');
+    // will-change wieder abgeben, sonst hält das Handy die Ebene unnötig vor
+    host.addEventListener('animationend', () => host.classList.remove('tab-in'), { once: true });
   }
 }
 
 const walletDeckOpen = new Set();
 const walletDeckShown = {};
 let walletFlatShown = 12;
+// Alles wieder einklappen — beim Betreten der Wallet, bei Filter- und Sortierwechsel.
+// So sieht man immer erst die aufgeraeumten Stapel, nie eine Wand aus Karten.
+function restack() {
+  walletDeckOpen.clear();
+  Object.keys(walletDeckShown).forEach(k => delete walletDeckShown[k]);
+  walletFlatShown = 12;
+}
 function renderWallet() {
   // Wallet nur mit Profil: Gast sieht die Anmelde-Sperre (Coupons bleiben offen)
   updateWalletTab(false);
@@ -5518,6 +5804,7 @@ function renderWallet() {
     valHost.querySelectorAll('[data-wval]').forEach(b => b.onclick = () => {
       const n = Number(b.dataset.wval);
       state.walletVal = state.walletVal === n ? 0 : n;
+      restack();
       renderWallet();
     });
   }
@@ -5533,6 +5820,7 @@ function renderWallet() {
     vf.querySelectorAll('[data-wvf]').forEach(b => b.onclick = () => {
       state.walletFilter = b.dataset.wvf === 'alle' ? '' : b.dataset.wvf;
       state.walletVal = 0;
+      restack();          // anderer Filter = frischer Blick, alles wieder gestapelt
       renderWallet();
     });
   }
@@ -5589,42 +5877,49 @@ function renderWallet() {
   // leicht, egal wie viele REWE-Gutscheine man hortet.
   const DECK_MIN = 3, DECK_CHUNK = 6;
   const moreBtn = (key, n) => `<button class="deck-more" data-deck-more="${esc(key)}">${n} weitere anzeigen</button>`;
-  const flatMode = !!(q || marketOn || state.walletVal || (state.walletSort || ''));
+  // Nur die Volltextsuche zeigt eine flache Liste — da sucht man ja gezielt.
+  // Filter und Sortierung behalten Stapel, nur die Gruppierung wechselt:
+  // ohne Markenfilter nach Händler, sonst nach Wert (REWE 25 €, REWE 50 € …).
+  const nachWert = marketOn || ['hoch', 'niedrig'].includes(state.walletSort || '');
+  const wertVon = v => Math.round((v.amount ?? v.balance ?? 0) * 100) / 100;
   let voucherHtml = '';
   if (!active.length) {
     voucherHtml = `<div class="status">${q || marketOn || state.walletVal
       ? 'Kein Gutschein passt zu Suche/Filter.'
       : 'Noch keine Gutscheine, leg oben den ersten an.'}</div>`;
-  } else if (flatMode) {
+  } else if (q) {
     const lim = walletFlatShown;
     voucherHtml = active.slice(0, lim).map(vCard).join('')
       + (active.length > lim ? moreBtn('__flat', active.length - lim) : '');
   } else {
     const order = [];
-    const byVendor = new Map();
+    const gruppen = new Map();
     active.forEach(v => {
-      if (!byVendor.has(v.vendor)) { byVendor.set(v.vendor, []); order.push(v.vendor); }
-      byVendor.get(v.vendor).push(v);
+      const key = nachWert ? `${v.vendor}|${wertVon(v)}` : v.vendor;
+      if (!gruppen.has(key)) { gruppen.set(key, []); order.push(key); }
+      gruppen.get(key).push(v);
     });
-    voucherHtml = order.map(vn => {
-      const list = byVendor.get(vn);
+    voucherHtml = order.map(key => {
+      const list = gruppen.get(key);
+      const vn = list[0].vendor;
+      const titel = nachWert ? `${vn} · ${euroFmt(wertVon(list[0]))}` : vn;
       if (list.length < DECK_MIN) return list.map(vCard).join('');
-      if (!walletDeckOpen.has(vn)) {
+      if (!walletDeckOpen.has(key)) {
         const sum = Math.round(list.reduce((acc, v) => acc + (v.balance || 0), 0) * 100) / 100;
         return `
-        <div class="deck" data-deck="${esc(vn)}" style="--bc:${brandColor(vn)}" role="button" aria-label="${esc(vn)}-Stapel öffnen">
+        <div class="deck" data-deck="${esc(key)}" style="--bc:${brandColor(vn)}" role="button" aria-label="${esc(titel)}-Stapel öffnen">
           ${vCard(list[0]).replace('data-wv=', 'data-deck-top=')}
           <span class="deck-count">${list.length} Gutscheine · ${euroFmt(sum)}</span>
         </div>`;
       }
-      const shown = walletDeckShown[vn] || DECK_CHUNK;
+      const shown = walletDeckShown[key] || DECK_CHUNK;
       return `
         <div class="deck-head">
-          <span class="deck-head-name">${brandChipHtml(vn)} <b>${esc(vn)}</b> <small>(${list.length})</small></span>
-          <button class="chip" data-deck-close="${esc(vn)}">Stapeln</button>
+          <span class="deck-head-name">${brandChipHtml(vn)} <b>${esc(titel)}</b> <small>(${list.length})</small></span>
+          <button class="chip" data-deck-close="${esc(key)}">Stapeln</button>
         </div>
         ${list.slice(0, shown).map(vCard).join('')}
-        ${list.length > shown ? moreBtn(vn, list.length - shown) : ''}`;
+        ${list.length > shown ? moreBtn(key, list.length - shown) : ''}`;
     }).join('');
   }
   $('#voucher-list').innerHTML = voucherHtml;
@@ -5678,7 +5973,8 @@ function renderWallet() {
   $('#view-wallet').querySelectorAll('[data-deck]').forEach(el => el.onclick = () => {
     walletDeckOpen.add(el.dataset.deck);
     buzz(12);
-    renderWallet();
+    el.classList.add('deck-pop');   // Stapel federt kurz auf, dann kommt die Liste
+    setTimeout(renderWallet, 110);
   });
   $('#view-wallet').querySelectorAll('[data-deck-close]').forEach(el => el.onclick = e => {
     e.stopPropagation();
@@ -5757,6 +6053,7 @@ $('#cardw-search')?.addEventListener('input', e => {
 });
 document.querySelectorAll('[data-wtab]').forEach(b => b.addEventListener('click', () => {
   walletTab = b.dataset.wtab;
+  restack();
   document.querySelectorAll('[data-wtab]').forEach(x => x.classList.toggle('active', x === b));
   updateWalletTab(true);
 }));
@@ -6373,9 +6670,12 @@ async function refreshDmBadge() {
     pill.textContent = unread;
     pill.classList.toggle('hidden', !unread);
     // Neue Flüsternachricht: Plop + Banner (außer man liest den Chat gerade oder hat es abgeschaltet)
-    if (dmUnreadKnown !== null && unread > dmUnreadKnown && state.notif.msgs !== false) {
+    // Wer gerade im Chat ist, sieht die Nachricht ohnehin — dann kein Banner,
+    // kein Plop. Nur die Zahl am Flüster-Tab zählt still weiter hoch.
+    if (dmUnreadKnown !== null && unread > dmUnreadKnown
+        && state.notif.msgs !== false && state.activeView !== 'chat') {
       const conv = r.list.find(c => c.unread > 0);
-      if (conv && !(chatMode === 'dm' && dmPartner === conv.partner && state.activeView === 'chat')) {
+      if (conv) {
         playSfx('plop'); buzz(25);
         showNoteBanner(`<b>@${esc(conv.partner)}</b>: ${esc(conv.lastText)}`, () => {
           if (state.activeView !== 'chat') switchView('chat');
@@ -6437,6 +6737,19 @@ $('#chat-input').addEventListener('input', e => {
   renderCmdPalette(chatMode !== 'dm' && v.startsWith('!'));
 });
 
+// Ans Ende scrollen. Die Tastatur schiebt in mehreren Schueben, deshalb ein
+// paar Nachzuegler — sonst steht man nach dem Antippen mitten im Verlauf.
+function chatToBottom(weich) {
+  const box = $('#chat-box');
+  if (!box) return;
+  const ziel = () => { box.scrollTop = box.scrollHeight; };
+  if (weich && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
+  } else ziel();
+  [60, 180, 360].forEach(ms => setTimeout(ziel, ms));
+}
+$('#chat-input').addEventListener('focus', () => chatToBottom(false));
+
 async function sendChat() {
   const inp = $('#chat-input');
   const text = inp.value.trim();
@@ -6457,9 +6770,12 @@ async function sendChat() {
     if (chatMode === 'dm') {
       const r = await api('/api/dm/send', { method: 'POST', body: JSON.stringify({ to: dmPartner, text }) });
       inp.value = '';
-      if (!$('#chat-list').querySelector(`[data-mid="${r.message.id}"]`)) $('#chat-list').insertAdjacentHTML('beforeend', dmMsgHtml(r.message));
+      if (!$('#chat-list').querySelector(`[data-mid="${r.message.id}"]`)) {
+        $('#chat-list').insertAdjacentHTML('beforeend', dmMsgHtml(r.message));
+        $('#chat-list').lastElementChild?.classList.add('msg-sent');
+      }
       dmLastTs = Math.max(dmLastTs, r.message.ts);
-      $('#chat-box').scrollTop = $('#chat-box').scrollHeight;
+      chatToBottom(true);
       return;
     }
     const r = await api('/api/chat', { method: 'POST', body: JSON.stringify({ text }) });
@@ -6476,9 +6792,12 @@ async function sendChat() {
       island('Deine Nachrichten sind gelöscht');
       return;
     }
-    if (!$('#chat-list').querySelector(`[data-mid="${r.message.id}"]`)) $('#chat-list').insertAdjacentHTML('beforeend', chatMsgHtml(r.message));
+    if (!$('#chat-list').querySelector(`[data-mid="${r.message.id}"]`)) {
+      $('#chat-list').insertAdjacentHTML('beforeend', chatMsgHtml(r.message));
+      $('#chat-list').lastElementChild?.classList.add('msg-sent');
+    }
     chatLastTs = Math.max(chatLastTs, r.message.ts);
-    $('#chat-box').scrollTop = $('#chat-box').scrollHeight;
+    chatToBottom(true);
   } catch (e) { island(e.message); }
 }
 

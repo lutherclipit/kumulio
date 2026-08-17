@@ -3274,3 +3274,128 @@ body.kb-open #view-chat.emotes-open:has(#dm-head:not(.hidden)) { --chatpad: 392p
 .cc-wrap.dragging .cc-item { transition: none; }
 /* Favorisierte Coupons tragen einen goldenen Streifen */
 .cc-item.fav { border-color: rgba(245, 179, 1, .55); box-shadow: inset 3px 0 0 #F5B301; }
+
+/* ================= Runde 66: ruhiger, weicher, weniger Arbeit fürs Handy ====== */
+
+/* --- Wallet-Tabs: der Inhalt federt herein statt hart umzuschalten --- */
+@keyframes tabSwap {
+  0%   { opacity: 0; transform: translate3d(0, 16px, 0) scale(.985); }
+  55%  { opacity: 1; transform: translate3d(0, -3px, 0) scale(1.004); }
+  100% { opacity: 1; transform: none; }
+}
+#wallet-content.tab-in, #cards-content.tab-in, #coupons-content.tab-in {
+  animation: tabSwap .46s cubic-bezier(.22, 1.1, .32, 1) both;
+}
+/* Nur solange es läuft: danach darf der Browser die Ebene wieder abgeben */
+.tab-in { will-change: transform, opacity; }
+
+/* --- Kartenstapel: federt kurz auf, bevor er sich auffächert --- */
+@keyframes deckPop {
+  0%   { transform: none; }
+  45%  { transform: translate3d(0, -5px, 0) scale(1.018); }
+  100% { transform: translate3d(0, 2px, 0) scale(.995); }
+}
+.deck.deck-pop { animation: deckPop .22s cubic-bezier(.3, 1.4, .5, 1) both; }
+
+/* --- Coupon-Liste: Platzhalter, damit nichts springt --- */
+.cc-skel, .cc-row-skel {
+  background: linear-gradient(100deg, var(--surface) 30%, rgba(127, 137, 147, .13) 50%, var(--surface) 70%);
+  background-size: 220% 100%;
+  animation: skelSweep 1.25s linear infinite;
+  border-radius: 14px;
+}
+.cc-skel { flex: none; width: 116px; height: 104px; }
+.cc-row-skel { height: 96px; margin-bottom: 8px; }
+@keyframes skelSweep { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+
+/* Lange Listen: der Browser überspringt, was gerade niemand sieht */
+.cc-wrap { contain: layout paint style; }
+#cc-body .cc-wrap { content-visibility: auto; contain-intrinsic-size: auto 118px; }
+@keyframes ccFade { from { opacity: 0; transform: translate3d(0, 8px, 0); } to { opacity: 1; transform: none; } }
+#cc-body.cc-fade { animation: ccFade .3s var(--spring) both; }
+
+/* Wischen: nur transform, damit es auf dem Handy in einem Rutsch läuft */
+.cc-item { transition: transform .42s cubic-bezier(.22, 1.1, .32, 1); }
+.cc-wrap.dragging .cc-item { transition: none; }
+.cc-item.fav .cc-fav .icon { fill: #F5B301; }
+
+/* --- Sprung in die Händler-App --- */
+.app-jump {
+  display: flex; align-items: center; gap: 12px; margin-top: 12px;
+  background: var(--surface); border: 1px solid var(--stroke-light);
+  border-left: 3px solid var(--bc, var(--accent-strong, #12C77E));
+  border-radius: 14px; padding: 12px 13px; color: inherit; text-decoration: none;
+  transition: transform .25s var(--spring), box-shadow .25s ease;
+}
+.app-jump:active { transform: scale(.985); }
+.app-jump-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.app-jump-txt b { font-size: .92rem; }
+.app-jump-txt small { font-size: .75rem; color: var(--muted); line-height: 1.35; }
+
+/* --- Wochen-Erinnerung („Quest") --- */
+.quest-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; margin-top: 10px;
+  background: var(--surface); border: 1px dashed var(--stroke-light);
+  border-radius: 14px; padding: 11px 13px; font: inherit; color: inherit;
+  text-align: left; cursor: pointer;
+  transition: transform .25s var(--spring), border-color .3s ease, background .3s ease;
+}
+.quest-row:active { transform: scale(.985); }
+.quest-row.done {
+  border-style: solid; border-color: rgba(18, 199, 126, .5);
+  background: rgba(18, 199, 126, .08); cursor: default;
+}
+.quest-check { flex: none; display: flex; color: var(--muted); }
+.quest-row.done .quest-check { color: var(--accent-strong, #12C77E); }
+.quest-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.quest-txt b { font-size: .9rem; }
+.quest-txt small { font-size: .75rem; color: var(--muted); line-height: 1.35; }
+@keyframes questPop {
+  0% { transform: scale(.96); } 55% { transform: scale(1.03); } 100% { transform: none; }
+}
+.quest-row.quest-pop { animation: questPop .4s cubic-bezier(.3, 1.4, .5, 1) both; }
+
+/* --- McDonald's-Auswahl --- */
+.mcd-pick { max-width: 420px; }
+.mcd-hits { display: flex; flex-direction: column; gap: 6px; }
+.mcd-hit {
+  background: var(--surface); border: 1px solid var(--stroke-light);
+  border-radius: 10px; padding: 8px 10px; font-size: .8rem; line-height: 1.35;
+}
+.mcd-hit.gratis { border-color: rgba(18, 199, 126, .55); background: rgba(18, 199, 126, .08); }
+.mcd-hit.gratis b { color: var(--accent-strong, #12C77E); }
+.tile-flag {
+  position: absolute; top: 6px; right: 6px;
+  background: var(--accent-strong, #12C77E); color: #fff;
+  font-size: .62rem; font-weight: 800; letter-spacing: .02em;
+  border-radius: 999px; padding: 2px 7px;
+}
+.app-tile { position: relative; }
+
+/* --- Barcode-Coupons (Rossmann-Papiercoupon) --- */
+.cc-img-code { background: #fff; padding: 4px; }
+.cc-big-barcode { width: 100%; max-width: 340px; border-radius: 12px; background: #fff; padding: 10px; }
+.cc-big-code.small { font-size: 1rem; letter-spacing: .06em; opacity: .75; }
+
+/* --- Chat: gesendete Nachricht gleitet herein --- */
+@keyframes msgSent {
+  from { opacity: 0; transform: translate3d(0, 10px, 0) scale(.985); }
+  to   { opacity: 1; transform: none; }
+}
+.chat-msg.msg-sent { animation: msgSent .28s var(--spring) both; }
+/* Tastatur offen: der Abstand über der Eingabe darf schmal werden */
+body.kb-open #chat-input-row { margin-top: 6px; }
+body.kb-open #chat-cmds { display: none !important; }
+/* Tastatur offen: noch dichter ran. Kopfzeile, Tabs und Eingabe zusammen
+   brauchen ~150px — der Rest gehört dem Verlauf. */
+body.kb-open #view-chat { --chatpad: 158px; }
+body.kb-open #view-chat:has(#dm-head:not(.hidden)) { --chatpad: 210px; }
+body.kb-open #view-chat .chat-tabs { margin-bottom: 4px; }
+body.kb-open #chat-box { min-height: 120px; }
+
+@media (prefers-reduced-motion: reduce) {
+  #wallet-content.tab-in, #cards-content.tab-in, #coupons-content.tab-in,
+  .deck.deck-pop, .quest-row.quest-pop, .chat-msg.msg-sent, #cc-body.cc-fade,
+  .cc-skel, .cc-row-skel { animation: none; }
+}
+.mcd-hit small { display: block; margin-top: 2px; font-size: .7rem; color: var(--muted); }

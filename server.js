@@ -575,18 +575,89 @@ const CARD_COUPONS_DEFAULT = {
       },
     ],
   },
+  // Der Papier-Coupon aus dem Prospekt: gilt bis zum Ablaufdatum immer wieder,
+  // anders als der App-Coupon (den gibt es nur dreimal im Monat). Nur mit
+  // verbundener Rossmann-Karte, sonst wuerde der Barcode frei im Netz landen.
+  rossmann: {
+    brand: 'Rossmann',
+    validUntil: '2026-10-31',
+    note: 'Barcode an der Kasse zeigen. Gilt nicht auf Bücher, Tabak, Pfand, Gutscheine und bereits reduzierte Ware. Der 10-%-Coupon in der App ist davon unabhängig und dreimal im Monat verfügbar.',
+    groups: [
+      {
+        title: 'Dauerhaft gültig',
+        items: [
+          {
+            code: '9823219040107',
+            name: '10 % auf deinen Einkauf',
+            extra: 'gültig vom 30.07. bis 31.10.2026, beliebig oft einlösbar',
+            price: '10 % sparen',
+            barcode: '/coupons/rossmann/10prozent.png',
+          },
+        ],
+      },
+    ],
+  },
 };
 let cardCoupons = loadJson('cardcoupons.json', null);
 if (!cardCoupons) { cardCoupons = CARD_COUPONS_DEFAULT; saveJson('cardcoupons.json', cardCoupons); }
-// Bestandsdaten nachziehen: Burger King ist offen für alle und hat Produktfotos
+// Bestandsdaten nachziehen: Burger King ist offen für alle und hat Produktfotos,
+// und der Rossmann-Papiercoupon kommt bei alten Installationen dazu
 {
+  let dirty = false;
   const bk = cardCoupons['burger king'];
   if (bk && (bk.open !== true || !bk.img)) {
     bk.open = true;
     bk.img = bk.img || '/coupons/burger-king';
-    saveJson('cardcoupons.json', cardCoupons);
+    dirty = true;
+  }
+  if (!cardCoupons.rossmann) { cardCoupons.rossmann = CARD_COUPONS_DEFAULT.rossmann; dirty = true; }
+  if (dirty) saveJson('cardcoupons.json', cardCoupons);
+}
+// ---------------------------------------------------------------- McCheap-Beobachter
+// mccheap.tech sammelt McDonald's-Coupons. Uns interessieren nur die Ausreisser:
+// gratis oder unter 1,50 €. Einmal pro Stunde, Fehler sind egal — dann gibt es
+// eben keinen Hinweis, statt dass die App haengt.
+let mccheap = { checked: 0, items: [], ok: false };
+async function scanMccheap() {
+  if (Date.now() - mccheap.checked < 55 * 60 * 1000) return;
+  mccheap.checked = Date.now();
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 8000);
+    const res = await fetch('https://mccheap.tech/', {
+      headers: { 'user-agent': 'kumulio/1.0 (+https://kumulio.de)' },
+      signal: ctrl.signal,
+    }).finally(() => clearTimeout(t));
+    if (!res.ok) return;
+    const body = (await res.text()).slice(0, 400000);
+    // Die Seite listet jeden Coupon als name/price/validTo — genau die lesen wir,
+    // statt im Fließtext nach Preisen zu raten (das fischt nur Werbetexte).
+    const roh = /<span class\s*=\s*"name">([\s\S]*?)<\/span>\s*<span class\s*=\s*"price">([\s\S]*?)<\/span>(?:\s*<span class\s*=\s*"validTo">([\s\S]*?)<\/span>)?/gi;
+    const sauber = t => String(t || '').replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&euro;/g, '€')
+      .replace(/\s+/g, ' ').trim();
+    const treffer = [];
+    let m;
+    while ((m = roh.exec(body))) {
+      const name = sauber(m[1]);
+      const preis = sauber(m[2]);
+      if (!name || !preis) continue;
+      const gratis = /gratis|kostenlos|geschenkt|0,00/i.test(preis);
+      const zahl = preis.match(/(\d{1,2})[,.](\d{2})/);
+      const guenstig = zahl && parseFloat(zahl[1] + '.' + zahl[2]) <= 1.5;
+      if (!gratis && !guenstig) continue;
+      const text = `${name} · ${preis}`.slice(0, 90);
+      if (!treffer.some(x => x.text === text)) treffer.push({ text, gratis, bis: sauber(m[3]) });
+    }
+    mccheap = { checked: Date.now(), items: treffer.slice(0, 6), ok: true };
+  } catch {
+    // Seite nicht erreichbar oder umgebaut — dann gibt es eben keinen Hinweis
+    mccheap.checked = Date.now();
   }
 }
+scanMccheap();
+setInterval(scanMccheap, 60 * 60 * 1000).unref?.();
+
 // Hat jemand diese Sparkarte in der Wallet? Nur dann gibt es die Coupons.
 function hasCard(user, key) {
   const w = wallets[user];
@@ -2251,6 +2322,11 @@ const server = http.createServer(async (req, res) => {
       }));
       return send(res, 200, { list });
     }
+    // Was gibt es gerade bei McCheap? Nur Ausreisser (gratis / unter 1,50 €)
+    if (p === '/api/mccheap' && req.method === 'GET') {
+      scanMccheap();
+      return send(res, 200, { ok: mccheap.ok, checked: mccheap.checked, items: mccheap.items });
+    }
     // Die Coupons selbst: nur mit passender Sparkarte in der Wallet
     if (p === '/api/cardcoupons' && req.method === 'GET') {
       const user = authUser(req);
@@ -2283,6 +2359,7 @@ const server = http.createServer(async (req, res) => {
           extra: String(it.extra || '').slice(0, 160),
           price: String(it.price || '').slice(0, 24),
           plu: String(it.plu || '').slice(0, 12),
+          barcode: String(it.barcode || '').slice(0, 160),
         })).filter(it => it.name),
       })).filter(g => g.items.length);
       if (!groups.length) return send(res, 400, { error: 'Keine gültigen Coupons dabei.' });
