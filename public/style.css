@@ -3405,3 +3405,12 @@ body.kb-open #chat-box { min-height: 120px; }
   display: block; margin: 6px 2px 0; font-size: .74rem;
   color: var(--muted); text-decoration: underline; text-underline-offset: 2px;
 }
+
+/* Marken-Reihe: Hinweis, wenn es bei McCheap gerade etwas geschenkt gibt */
+.cc-tile { position: relative; }
+.cc-tile-flag {
+  position: absolute; top: 6px; right: 6px;
+  background: var(--accent-strong, #12C77E); color: #fff;
+  font-size: .6rem; font-weight: 800; letter-spacing: .02em;
+  border-radius: 999px; padding: 2px 6px;
+}

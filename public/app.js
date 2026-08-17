@@ -717,41 +717,42 @@ function computeOrder() {
   state.orderKey = state.activeChip;
 }
 
-// Coupons (im Wallet): Verzeichnis der offiziellen Coupon-Quellen + GzG + Payback
+// Coupons (im Wallet): EIN Bereich für alles, was Coupons bringt, darunter GzG.
+// Oben in der Reihe stehen die Marken mit echtem Inhalt (gepflegte Coupon-Sätze,
+// McDonald's mit den McCheap-Funden). Alles andere folgt im Raster. Keine Marke
+// taucht zweimal auf — vorher stand z. B. Rossmann oben UND unten.
 function renderCoupons(host) {
   host = host || $('#coupons-content');
-  const hasPayback = state.wallet.cards.some(c => /payback/i.test(c.name));
   const gzg = state.deals.filter(d => /geld.?zur(ü|ue)ck|gzg\b/i.test(d.title + ' ' + (d.excerpt || '')));
 
-  // Alle Quellen als App-Kacheln, Reihenfolge merkt sich die App (Ziehen zum Sortieren)
   const all = [];
   COUPON_SOURCES.forEach(sec => sec.items.forEach(it => all.push({ ...it, cat: sec.cat })));
   const order = JSON.parse(localStorage.getItem('ra.couponOrder') || '[]');
   const pos = n => { const i = order.indexOf(n); return i < 0 ? 999 : i; };
   all.sort((a, b) => pos(a.name) - pos(b.name));
+
+  // Welche Marken kommen nach oben? Alle mit gepflegten Coupons plus McDonald's
+  const obenKeys = new Set((cardCouponList || []).map(c => c.key));
+  obenKeys.add('mcdonalds');
+  const istOben = n => obenKeys.has(String(n).trim().toLowerCase());
   const q = (state.couponQuery || '').trim().toLowerCase();
-  const shown = all.filter(it => !q || it.name.toLowerCase().includes(q)
-    || it.cat.toLowerCase().includes(q) || (it.desc || '').toLowerCase().includes(q));
+  const passt = it => !q || it.name.toLowerCase().includes(q)
+    || it.cat.toLowerCase().includes(q) || (it.desc || '').toLowerCase().includes(q);
+  const raster = all.filter(it => !istOben(it.name) && passt(it));
 
   host.innerHTML = `
+    <h3 class="wallet-h" style="margin-top:0">Coupons</h3>
     <div id="card-coupon-box"></div>
-    <h3 class="wallet-h">Offizielle Coupon-Seiten</h3>
     <input id="coupon-search" class="input" type="search" placeholder="Coupons suchen; z.B. Rossmann, Drogerie …" value="${esc(state.couponQuery || '')}">
-    <p class="muted grid-hint">Diese Kacheln öffnen die Seite des Anbieters. Gedrückt halten und ziehen zum Sortieren.</p>
+    <p class="muted grid-hint">Diese Kacheln springen in die App des Anbieters. Gedrückt halten und ziehen zum Sortieren.</p>
     <div class="app-grid" id="coupon-grid">
-      ${shown.map(it => {
-        const mcd = /mcdonald/i.test(it.name);
-        const gratis = mcd && (mccheapDaten?.items || []).some(x => x.gratis);
-        return `
+      ${raster.map(it => `
       <a class="app-tile" data-cpn="${esc(it.name)}" title="${esc(it.desc || '')}"
-         ${mcd ? 'data-mcd="1" href="#"' : `href="${esc(it.url)}" target="_blank" rel="noopener noreferrer"`}
-         style="--bc:${brandColor(it.name)}">
+         href="${esc(it.url)}" target="_blank" rel="noopener noreferrer" style="--bc:${brandColor(it.name)}">
         ${brandChipHtml(it.name)}
         <span class="app-tile-name">${esc(it.name)}</span>
-        <span class="app-tile-desc">${mcd ? 'App oder McCheap' : esc(it.cat)}</span>
-        ${gratis ? '<span class="tile-flag">gratis!</span>' : ''}
-      </a>`;
-      }).join('')
+        <span class="app-tile-desc">${esc(it.cat)}</span>
+      </a>`).join('')
       || '<div class="status">Nichts gefunden.</div>'}
     </div>
     <h3 class="wallet-h" style="margin-top:18px">Geld-zurück-Garantien (GzG)</h3>
@@ -760,10 +761,9 @@ function renderCoupons(host) {
       : '<div class="status">Aktuelle GzG-Aktionen postet die Redaktion über das Admin-Panel, sie erscheinen dann hier.</div>'}`;
 
   renderCardCouponBox(host.querySelector('#card-coupon-box'));
-  host.querySelectorAll('[data-mcd]').forEach(a => a.onclick = e => { e.preventDefault(); openMcdWahl(); });
   // Kacheln bekannter Händler öffnen die App, nicht die Webseite
   host.querySelectorAll('[data-cpn]').forEach(a => {
-    if (a.dataset.mcd || !cardApp(a.dataset.cpn)) return;
+    if (!cardApp(a.dataset.cpn)) return;
     a.onclick = e => { e.preventDefault(); oeffneHaendlerApp(a.dataset.cpn); };
   });
   // Einmal nachsehen, ob McCheap gerade etwas Gratis hat — danach steht es im Speicher
@@ -5291,12 +5291,12 @@ let ccListGeladen = false;
 const ccBesitzt = c => !!c.open
   || state.wallet.cards.some(x => String(x.name || '').trim().toLowerCase() === c.key);
 
+// Die Reihe oben: Marken mit echtem Inhalt. Erst die gepflegten Coupon-Sätze,
+// dann McDonald's (das hat mit McCheap eine eigene Auswahl statt einer Liste).
 function ccRailHtml(list) {
-  return `
-    <h3 class="wallet-h" style="margin-top:0">Coupons in der App</h3>
-    <div class="cc-rail">${list.map(c => {
-      const owned = ccBesitzt(c);
-      return `
+  const kacheln = list.map(c => {
+    const owned = ccBesitzt(c);
+    return `
       <button class="cc-tile ${owned ? '' : 'locked'}" data-cc="${esc(c.key)}" style="--bc:${brandColor(c.brand)}">
         ${brandChipHtml(c.brand)}
         <b>${esc(c.brand)}</b>
@@ -5304,26 +5304,33 @@ function ccRailHtml(list) {
         ${c.validUntil && owned ? `<span class="cc-tile-date">bis ${dateShort(c.validUntil)}</span>` : ''}
         ${owned ? '' : `<span class="cc-tile-lock">${icon('lock', 'icon icon-sm')}</span>`}
       </button>`;
-    }).join('')}</div>`;
+  });
+  const gratis = (mccheapDaten?.items || []).some(x => x.gratis);
+  kacheln.push(`
+      <button class="cc-tile" data-cc-mcd="1" style="--bc:${brandColor('mcdonalds')}">
+        ${brandChipHtml('McDonalds')}
+        <b>McDonald&rsquo;s</b>
+        <small>App oder McCheap</small>
+        ${gratis ? '<span class="cc-tile-flag">gratis!</span>' : ''}
+      </button>`);
+  return `<div class="cc-rail">${kacheln.join('')}</div>`;
 }
 
 async function renderCardCouponBox(host) {
   if (!host) return;
-  if (!state.token) { host.innerHTML = ''; return; }
   const zeichne = () => {
-    if (!cardCouponList || !cardCouponList.length) { host.innerHTML = ''; return; }
-    host.innerHTML = ccRailHtml(cardCouponList);
+    host.innerHTML = ccRailHtml(cardCouponList || []);
     host.querySelectorAll('[data-cc]').forEach(b => b.onclick = () => {
       const c = cardCouponList.find(x => x.key === b.dataset.cc);
       if (!ccBesitzt(c)) { openWalletAdd('card', c.brand); return; }
       openCardCoupons(c.key, c.brand);
     });
+    host.querySelectorAll('[data-cc-mcd]').forEach(b => b.onclick = () => openMcdWahl());
   };
   if (cardCouponList) zeichne();
-  else host.innerHTML = `
-    <h3 class="wallet-h" style="margin-top:0">Coupons in der App</h3>
-    <div class="cc-rail">${[0, 1, 2].map(() => '<div class="cc-tile cc-skel"></div>').join('')}</div>`;
-  if (ccListGeladen) return;
+  else host.innerHTML = `<div class="cc-rail">${
+    [0, 1, 2].map(() => '<div class="cc-tile cc-skel"></div>').join('')}</div>`;
+  if (ccListGeladen || !state.token) return;   // Coupon-Sätze brauchen ein Konto
   ccListGeladen = true;
   try {
     const list = (await api('/api/cardcoupons/list')).list || [];
@@ -5334,7 +5341,7 @@ async function renderCardCouponBox(host) {
     if (JSON.stringify(list) !== alt) zeichne();
   } catch {
     ccListGeladen = false;                       // beim naechsten Mal neu versuchen
-    if (!cardCouponList) host.innerHTML = '';
+    if (!cardCouponList) zeichne();
   }
 }
 function dateShort(iso) {
@@ -5441,7 +5448,14 @@ function ccFavListe() {
   return ccCtx.flat.filter(it => ccIsFav(ccCtx.key, it.code));
 }
 
+// Welche Ansicht gilt gerade? Kleine Coupon-Sätze zeigen immer die Flyer-
+// Reihenfolge — sie haben ja keine Filterzeile, mit der man zurückschalten könnte.
+function ccAnsicht() {
+  return ccCtx.flat.length < 5 ? 'gruppen' : ccSort;
+}
 function ccFilterChips() {
+  // Bei einer Handvoll Coupons sieht man ohnehin alles — dann keine Filterzeile
+  if (ccCtx.flat.length < 5) { $('#cc-filters').innerHTML = ''; return; }
   const n = ccFavListe().length;
   $('#cc-filters').innerHTML = [
     ['gruppen', 'Flyer-Reihenfolge'],
@@ -5455,17 +5469,18 @@ function ccFilterChips() {
 function ccBody() {
   const { d } = ccCtx;
   const host = $('#cc-body');
-  if (ccSort === 'preisAuf' || ccSort === 'preisAb') {
+  const sicht = ccAnsicht();
+  if (sicht === 'preisAuf' || sicht === 'preisAb') {
     const sorted = [...ccCtx.flat].sort((a, b) => {
       const pa = ccPreis(a.price), pb = ccPreis(b.price);
       if (isNaN(pa) && isNaN(pb)) return 0;
       if (isNaN(pa)) return 1;
       if (isNaN(pb)) return -1;
-      return ccSort === 'preisAuf' ? pa - pb : pb - pa;
+      return sicht === 'preisAuf' ? pa - pb : pb - pa;
     });
     host.innerHTML = `<div class="cc-list">${sorted
       .filter(it => !ccIsFav(ccCtx.key, it.code)).map(ccZeile).join('')}</div>`;
-  } else if (ccSort === 'favs') {
+  } else if (sicht === 'favs') {
     const favs = ccFavListe();
     host.innerHTML = favs.length
       ? `<div class="cc-list">${favs.map(ccZeile).join('')}</div>`
@@ -5487,7 +5502,7 @@ function ccBody() {
 function ccFavBox() {
   const host = $('#cc-favbox');
   if (!host) return;
-  const favs = ccSort === 'favs' ? [] : ccFavListe();
+  const favs = ccAnsicht() === 'favs' ? [] : ccFavListe();
   host.innerHTML = favs.length ? `
     <h3 class="gm-h">${icon('star', 'icon icon-sm')} Deine Favoriten</h3>
     <div class="cc-list">${favs.map(ccZeile).join('')}</div>` : '';
@@ -5506,7 +5521,7 @@ function ccFavGeaendert(code) {
   const ankerVorher = anker?.getBoundingClientRect().top ?? 0;
   const ankerCode = anker?.dataset.ccWrap;
   ccFilterChips();
-  if (ccSort === 'favs') { ccBody(); return; }
+  if (ccAnsicht() === 'favs') { ccBody(); return; }
   ccFavBox();
   ccBody();
   // Der Anker wurde neu gebaut — dieselbe Zeile wieder suchen und ausgleichen
