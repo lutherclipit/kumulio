@@ -75,14 +75,12 @@ const COUPON_SOURCES = [
     { name: 'Müller', url: 'https://www.mueller.de/', desc: 'Vorteile & Coupons über „Mein Müller"' },
   ]},
   { cat: 'Supermärkte', items: [
-    { name: 'Lidl Plus', url: 'https://www.lidl.de/c/lidl-plus/s10007389', desc: 'Wochen-Coupons & Rubbellos in der Lidl-Plus-App' },
     { name: 'REWE', url: 'https://www.rewe.de/angebote/', desc: 'App-Coupons & Payback-Punkte bei REWE' },
     { name: 'EDEKA', url: 'https://www.edeka.de/', desc: 'Coupons & Aktionen in der EDEKA-App' },
     { name: 'Netto', url: 'https://www.netto-online.de/', desc: 'Rabatt-Coupons in der Netto-App, oft ohne Mindestwert' },
   ]},
   { cat: 'Fast Food', items: [
     { name: 'McDonalds', url: 'https://www.mcdonalds.com/de/de-de.html', desc: 'App-Coupons & McDonald’s-Methode-Basics' },
-    { name: 'Burger King', url: 'https://www.burgerking.de/', desc: 'King-Deals & Coupons in der BK-App' },
     { name: 'Subway', url: 'https://www.subway.com/de-DE', desc: 'Angebote & Coupons über die Subway-App' },
   ]},
   { cat: 'Einrichtung', items: [
@@ -653,11 +651,7 @@ function renderCoupons(host) {
   const gzg = state.deals.filter(d => /geld.?zur(ü|ue)ck|gzg\b/i.test(d.title + ' ' + (d.excerpt || '')));
 
   // Alle Quellen als App-Kacheln, Reihenfolge merkt sich die App (Ziehen zum Sortieren)
-  const all = [{
-    name: 'Payback', url: 'https://www.payback.de/coupons', cat: 'Punkte',
-    desc: hasPayback ? 'Coupon-Center: eCoupons für deine verbundene Karte aktivieren'
-      : 'Karte in der Wallet verbinden, dann findest du hier dein Coupon-Center',
-  }];
+  const all = [];
   COUPON_SOURCES.forEach(sec => sec.items.forEach(it => all.push({ ...it, cat: sec.cat })));
   const order = JSON.parse(localStorage.getItem('ra.couponOrder') || '[]');
   const pos = n => { const i = order.indexOf(n); return i < 0 ? 999 : i; };
@@ -667,8 +661,10 @@ function renderCoupons(host) {
     || it.cat.toLowerCase().includes(q) || (it.desc || '').toLowerCase().includes(q));
 
   host.innerHTML = `
-    <input id="coupon-search" class="input" type="search" placeholder="Coupons suchen; z.B. Lidl, Drogerie …" value="${esc(state.couponQuery || '')}">
-    <p class="muted grid-hint">Antippen öffnet die offizielle Coupon-Seite. Gedrückt halten und ziehen zum Sortieren.</p>
+    <div id="card-coupon-box"></div>
+    <h3 class="wallet-h">Offizielle Coupon-Seiten</h3>
+    <input id="coupon-search" class="input" type="search" placeholder="Coupons suchen; z.B. Rossmann, Drogerie …" value="${esc(state.couponQuery || '')}">
+    <p class="muted grid-hint">Diese Kacheln öffnen die Seite des Anbieters. Gedrückt halten und ziehen zum Sortieren.</p>
     <div class="app-grid" id="coupon-grid">
       ${shown.map(it => `
       <a class="app-tile" data-cpn="${esc(it.name)}" title="${esc(it.desc || '')}"
@@ -684,6 +680,7 @@ function renderCoupons(host) {
       ? gzg.map((d, i) => renderOfferCard(d, i, false)).join('')
       : '<div class="status">Aktuelle GzG-Aktionen postet die Redaktion über das Admin-Panel, sie erscheinen dann hier.</div>'}`;
 
+  renderCardCouponBox(host.querySelector('#card-coupon-box'));
   const cs = host.querySelector('#coupon-search');
   cs.addEventListener('input', () => {
     state.couponQuery = cs.value;
@@ -5141,6 +5138,160 @@ function openVoucherSheet(id, animFrom) {
   openSheetShell();
 }
 
+// ---- Coupons zu Sparkarten: gepflegt von der Redaktion, sichtbar nur mit
+// passender Karte in der Wallet. Geladen wird erst beim Öffnen (nie auf Vorrat).
+let cardCouponList = null;
+async function renderCardCouponBox(host) {
+  if (!host) return;
+  if (!state.token) { host.innerHTML = ''; return; }
+  try { cardCouponList = (await api('/api/cardcoupons/list')).list || []; }
+  catch { host.innerHTML = ''; return; }
+  if (!cardCouponList.length) { host.innerHTML = ''; return; }
+  host.innerHTML = `
+    <h3 class="wallet-h" style="margin-top:0">Coupons in deiner Wallet</h3>
+    <div class="cc-cards">${cardCouponList.map(c => `
+      <button class="cc-card ${c.owned ? '' : 'locked'}" data-cc="${esc(c.key)}" style="--bc:${brandColor(c.brand)}">
+        ${brandChipHtml(c.brand)}
+        <span class="cc-card-main">
+          <b>${esc(c.brand)}</b>
+          <small>${c.owned ? `${c.count} Coupons${c.validUntil ? ' · bis ' + dateShort(c.validUntil) : ''}`
+            : 'Sparkarte hinzufügen zum Freischalten'}</small>
+        </span>
+        ${c.owned ? icon('arrow-right', 'icon icon-sm') : icon('lock', 'icon icon-sm')}
+      </button>`).join('')}</div>`;
+  host.querySelectorAll('[data-cc]').forEach(b => b.onclick = () => {
+    const c = cardCouponList.find(x => x.key === b.dataset.cc);
+    if (!c.owned) { openWalletAdd('card', c.brand); return; }
+    openCardCoupons(c.key, c.brand);
+  });
+}
+function dateShort(iso) {
+  const d = new Date(iso);
+  return isNaN(d) ? iso : d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' });
+}
+// Die Coupon-Liste einer Karte: Gruppen mit Überschrift, Nummer groß, Preis rechts
+async function openCardCoupons(key, brand) {
+  state.sheetMode = 'card-coupons';
+  $('#sheet-content').innerHTML = `<div class="sheet-title">${esc(brand)}</div><div class="status">Lade Coupons …</div>`;
+  openSheetShell();
+  let d;
+  try { d = await api('/api/cardcoupons?card=' + encodeURIComponent(key)); }
+  catch (e) { $('#sheet-content').innerHTML = `<div class="sheet-title">${esc(brand)}</div><div class="status">${esc(e.message)}</div>`; return; }
+  const abgelaufen = d.validUntil && new Date(d.validUntil) < new Date(new Date().toDateString());
+  $('#sheet-content').innerHTML = `
+    <div class="offer-head">
+      ${brandChipHtml(d.brand || brand)}
+      <div class="offer-brand">
+        <div class="offer-merchant">${esc(d.brand || brand)}</div>
+        <div class="offer-cat">Coupons der Redaktion</div>
+      </div>
+      <button class="fav-remove" id="cc-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
+    </div>
+    ${d.validUntil ? `<div class="cc-valid ${abgelaufen ? 'over' : ''}">${icon('clock', 'icon icon-sm')}
+      ${abgelaufen ? 'Abgelaufen seit' : 'Gültig bis'} ${dateShort(d.validUntil)}</div>` : ''}
+    ${(d.groups || []).map(g => `
+      <h3 class="gm-h">${esc(g.title)}</h3>
+      <div class="cc-list">${g.items.map(it => `
+        <button class="cc-item" data-cc-item="${esc(it.code)}">
+          <span class="cc-code">${esc(it.code)}</span>
+          <span class="cc-text">
+            <b>${esc(it.name)}</b>
+            ${it.extra ? `<small>${esc(it.extra)}</small>` : ''}
+            ${it.plu ? `<small class="cc-plu">PLU ${esc(it.plu)}</small>` : ''}
+          </span>
+          <span class="cc-price">${esc(it.price)}${/^[\d.,]+$/.test(it.price) ? ' €' : ''}</span>
+        </button>`).join('')}</div>`).join('')}
+    ${d.note ? `<p class="cc-note">${icon('bulb', 'icon icon-sm')} ${esc(d.note)}</p>` : ''}
+    ${state.role === 'admin' ? `<button class="btn btn-small btn-ghost" id="cc-edit" style="margin-top:14px">Coupons pflegen</button>` : ''}`;
+  $('#cc-close').onclick = closeSheet;
+  $('#cc-edit') && ($('#cc-edit').onclick = () => openCardCouponEditor(key, d));
+  // Antippen zeigt die Nummer groß — an der Kasse muss man sie nur vorzeigen
+  const flat = (d.groups || []).flatMap(g => g.items);
+  $('#sheet-content').querySelectorAll('[data-cc-item]').forEach(b => b.onclick = () => {
+    const it = flat.find(x => x.code === b.dataset.ccItem);
+    if (it) showCouponBig(it, d.brand || brand, d.validUntil);
+  });
+}
+function showCouponBig(it, brand, validUntil) {
+  const wrap = document.createElement('div');
+  wrap.className = 'overlay';
+  wrap.innerHTML = `<div class="modal cc-big">
+    <button class="fav-remove" id="ccb-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
+    <div class="cc-big-brand">${esc(brand)}</div>
+    <div class="cc-big-code">${esc(it.code)}</div>
+    <div class="cc-big-name">${esc(it.name)}</div>
+    ${it.extra ? `<div class="cc-big-extra">${esc(it.extra)}</div>` : ''}
+    <div class="cc-big-price">${esc(it.price)}${/^[\d.,]+$/.test(it.price) ? ' €' : ''}</div>
+    ${it.plu ? `<div class="cc-big-plu">PLU ${esc(it.plu)}</div>` : ''}
+    ${validUntil ? `<div class="cc-big-valid">gültig bis ${dateShort(validUntil)}</div>` : ''}
+  </div>`;
+  document.body.appendChild(wrap);
+  buzz(12);
+  wrap.addEventListener('click', e => {
+    if (e.target === wrap || e.target.closest('#ccb-close')) {
+      wrap.classList.add('closing');
+      setTimeout(() => wrap.remove(), 280);
+    }
+  });
+}
+// Redaktions-Editor: Zeilenformat statt Formular-Wüste, monatlich schnell gepflegt
+function openCardCouponEditor(key, data) {
+  const txt = (data.groups || []).map(g =>
+    `# ${g.title}\n` + g.items.map(it => [it.code, it.name, it.extra, it.price, it.plu].join(' | ')).join('\n')
+  ).join('\n\n');
+  const wrap = document.createElement('div');
+  wrap.className = 'overlay';
+  wrap.innerHTML = `<div class="modal modal-left cc-editor">
+    <h2 class="card-h">Coupons pflegen: ${esc(data.brand || key)}</h2>
+    <label class="f-label">Marke</label>
+    <input class="input" id="cce-brand" maxlength="40" value="${esc(data.brand || key)}">
+    <label class="f-label">Gültig bis</label>
+    <input class="input" id="cce-valid" type="date" value="${esc(data.validUntil || '')}">
+    <label class="f-label">Hinweis (optional)</label>
+    <input class="input" id="cce-note" maxlength="300" value="${esc(data.note || '')}">
+    <label class="f-label">Coupons</label>
+    <p class="muted" style="font-size:.76rem">Eine Zeile je Coupon:
+      <b>Nummer | Name | Zusatz | Preis | PLU</b>. Zeilen mit <b>#</b> sind Überschriften.</p>
+    <textarea class="input cc-area" id="cce-text" rows="14">${esc(txt)}</textarea>
+    <div class="form-row" style="margin-top:10px">
+      <button class="btn btn-small" id="cce-save">Speichern</button>
+      <button class="btn btn-small btn-ghost" id="cce-cancel">Abbrechen</button>
+      <span class="form-msg" id="cce-msg"></span>
+    </div>
+  </div>`;
+  document.body.appendChild(wrap);
+  $('#cce-cancel').onclick = () => wrap.remove();
+  $('#cce-save').onclick = async () => {
+    const groups = [];
+    let cur = { title: 'Coupons', items: [] };
+    $('#cce-text').value.split('\n').forEach(line => {
+      const l = line.trim();
+      if (!l) return;
+      if (l.startsWith('#')) {
+        if (cur.items.length) groups.push(cur);
+        cur = { title: l.replace(/^#+\s*/, '').slice(0, 60), items: [] };
+        return;
+      }
+      const [code, name, extra, price, plu] = l.split('|').map(x => (x || '').trim());
+      if (name) cur.items.push({ code, name, extra, price, plu });
+    });
+    if (cur.items.length) groups.push(cur);
+    try {
+      const r = await api('/api/admin/cardcoupons', {
+        method: 'POST',
+        body: JSON.stringify({
+          card: key, brand: $('#cce-brand').value, validUntil: $('#cce-valid').value,
+          note: $('#cce-note').value, groups,
+        }),
+      });
+      wrap.remove();
+      island(`${r.count} Coupons gespeichert`);
+      openCardCoupons(key, $('#cce-brand').value);
+    } catch (e) {
+      const m = $('#cce-msg'); m.className = 'form-msg error'; m.textContent = e.message;
+    }
+  };
+}
 function openCardSheet(id) {
   const c = state.wallet.cards.find(x => x.id === id);
   if (!c) return;
@@ -5158,7 +5309,21 @@ function openCardSheet(id) {
     ${c.codeImg ? `<img class="wallet-code-img" src="${c.codeImg}" alt="Code für die Kasse">`
       : c.img ? `<img class="wallet-img" src="${c.img}" alt="QR/Barcode">`
       : '<p class="muted" style="margin-top:10px; font-size:.82rem">Tipp: Screenshot vom Karten-Barcode anhängen (beim Anlegen), dann kannst du ihn an der Kasse scannen lassen.</p>'}
+    <div id="wc-coupon-slot"></div>
     <button class="btn btn-danger" id="wc-del" style="margin-top:18px">Karte löschen</button>`;
+  // Coupons dieser Karte: nur ein Knopf, die Liste kommt erst beim Antippen
+  (async () => {
+    const slot = $('#wc-coupon-slot');
+    if (!slot || !state.token) return;
+    try {
+      const { list } = await api('/api/cardcoupons/list');
+      const hit = (list || []).find(x => x.key === c.name.trim().toLowerCase());
+      if (!hit) return;
+      slot.innerHTML = `<button class="btn btn-block cc-open-btn" id="wc-coupons">
+        ${icon('tag', 'icon icon-sm')} ${hit.count} Coupons ansehen${hit.validUntil ? ` · bis ${dateShort(hit.validUntil)}` : ''}</button>`;
+      $('#wc-coupons').onclick = () => openCardCoupons(hit.key, hit.brand);
+    } catch { }
+  })();
   $('#sheet-content').querySelectorAll('[data-copy-txt]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copyTxt)));
   $('#wc-close').addEventListener('click', closeSheet);
   $('#wc-del').addEventListener('click', async () => {

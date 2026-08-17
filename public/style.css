@@ -3110,3 +3110,83 @@ body.kb-open #view-chat.emotes-open:has(#dm-head:not(.hidden)) { --chatpad: 392p
   font-size: .84rem; line-height: 1.45;
 }
 .reg-ref-note .icon { flex: none; color: var(--accent-strong, #12C77E); }
+
+/* ================= Runde 63: Sparkarten-Coupons ================= */
+
+/* Übersicht im Coupons-Tab: welche Karte hat gepflegte Coupons */
+.cc-cards { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
+.cc-card {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  background: var(--surface); border: 1px solid var(--stroke-light);
+  border-left: 4px solid var(--bc, #12C77E);
+  border-radius: 16px; padding: 12px 14px;
+  font: inherit; color: inherit; text-align: left; cursor: pointer;
+}
+.cc-card:active { transform: scale(.99); }
+.cc-card.locked { opacity: .72; }
+.cc-card-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.cc-card-main b { font-size: .95rem; }
+.cc-card-main small { font-size: .74rem; color: var(--muted); }
+.cc-card .icon { flex: none; color: var(--muted); }
+
+/* Knopf im Sparkarten-Detail */
+.cc-open-btn { margin-top: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+
+/* Gültigkeit */
+.cc-valid {
+  display: flex; align-items: center; gap: 7px; margin: 12px 0 4px;
+  background: rgba(18, 199, 126, .12); color: var(--accent-strong, #0E9C64);
+  border-radius: 999px; padding: 7px 14px; font-size: .8rem; font-weight: 800;
+  width: fit-content;
+}
+.cc-valid.over { background: rgba(217, 45, 32, .14); color: #D92D20; }
+
+/* Coupon-Liste: Nummer links groß, Preis rechts */
+.cc-list { display: flex; flex-direction: column; gap: 8px; }
+.cc-item {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  background: var(--surface); border: 1px solid var(--stroke-light);
+  border-radius: 14px; padding: 11px 13px;
+  font: inherit; color: inherit; text-align: left; cursor: pointer;
+}
+.cc-item:active { transform: scale(.99); }
+.cc-code {
+  flex: none; min-width: 52px; text-align: center;
+  font-size: 1.15rem; font-weight: 900; letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums; color: var(--accent-strong, #12C77E);
+}
+.cc-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.cc-text b { font-size: .9rem; line-height: 1.25; }
+.cc-text small { font-size: .74rem; color: var(--muted); line-height: 1.35; }
+.cc-plu { opacity: .65; }
+.cc-price {
+  flex: none; font-weight: 900; font-size: .95rem;
+  background: #D92D20; color: #fff; border-radius: 999px; padding: 5px 11px;
+  white-space: nowrap;
+}
+.cc-note {
+  display: flex; gap: 8px; align-items: flex-start; margin-top: 14px;
+  font-size: .76rem; line-height: 1.5; color: var(--muted);
+}
+.cc-note .icon { flex: none; margin-top: 1px; }
+
+/* Große Ansicht: die Nummer zum Vorzeigen an der Kasse */
+.cc-big { text-align: center; width: min(340px, 90vw); padding-top: 22px; }
+.cc-big-brand { font-size: .8rem; font-weight: 800; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+.cc-big-code {
+  font-size: 4.4rem; font-weight: 900; line-height: 1.05; letter-spacing: -.04em;
+  color: var(--accent-strong, #12C77E); font-variant-numeric: tabular-nums;
+}
+.cc-big-name { font-size: 1.05rem; font-weight: 800; margin-top: 2px; }
+.cc-big-extra { font-size: .84rem; color: var(--muted); margin-top: 3px; line-height: 1.4; }
+.cc-big-price {
+  display: inline-block; margin-top: 12px;
+  background: #D92D20; color: #fff; border-radius: 999px;
+  padding: 7px 18px; font-size: 1.1rem; font-weight: 900;
+}
+.cc-big-plu { font-size: .78rem; color: var(--muted); margin-top: 8px; }
+.cc-big-valid { font-size: .74rem; color: var(--muted); margin-top: 4px; }
+
+/* Redaktions-Editor */
+.cc-editor { width: min(520px, 94vw); }
+.cc-area { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; line-height: 1.5; }

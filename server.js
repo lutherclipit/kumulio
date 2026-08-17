@@ -520,6 +520,67 @@ function ensureProgress(user) {
   }
 }
 
+// ---------------------------------------------------------------- Sparkarten-Coupons
+// Coupons, die es NUR im Papier-Flyer oder in der Anbieter-App gibt, gepflegt
+// von der Redaktion. Sichtbar sind sie erst, wenn jemand die passende Sparkarte
+// in seiner Wallet hat — sonst wäre es nur eine weitere Werbeliste.
+const CARD_COUPONS_DEFAULT = {
+  'burger king': {
+    brand: 'Burger King',
+    validUntil: '2026-09-04',
+    note: 'Nummer an der Kasse nennen oder QR im Flyer scannen lassen. Nicht mit anderen Rabatten kombinierbar, nicht im Lieferservice.',
+    groups: [
+      {
+        title: 'Menüs und Kombis',
+        items: [
+          { code: '968', name: 'Crispy Chicken', extra: '+ große King Pommes + Monster Energy Green', price: '9,99', plu: '33654' },
+          { code: '918', name: 'Crispy Chicken', extra: '', price: '3,49', plu: '16129' },
+          { code: '929', name: '2 Crispy Chicken', extra: '+ mittlere King Pommes + 0,4 l Coca-Cola', price: '10,99', plu: '34587' },
+          { code: '911', name: '2 Whopper Jr.', extra: '+ kleine King Pommes + 0,25 l Coca-Cola', price: '7,99', plu: '30624' },
+          { code: '914', name: '2 Chili Cheese Burger', extra: '+ kleine King Pommes + 0,25 l Coca-Cola', price: '7,49', plu: '30630' },
+          { code: '747', name: '2 Chicken Nugget Burger', extra: '+ kleine King Pommes + 0,25 l Coca-Cola', price: '6,99', plu: '30639' },
+          { code: '912', name: '2 Cheeseburger', extra: '+ kleine King Pommes + 0,25 l Coca-Cola', price: '7,49', plu: '30629' },
+          { code: '920', name: 'Long Chicken', extra: '', price: '3,99', plu: '16617' },
+          { code: '997', name: 'Chili Cheese Burger + Big King', extra: '+ mittlere King Pommes + 0,4 l Coca-Cola', price: '9,99', plu: '34657' },
+          { code: '959', name: 'Chili Cheese Burger + Crispy Chicken', extra: '+ mittlere King Pommes + 0,4 l Coca-Cola', price: '9,99', plu: '34592' },
+          { code: '915', name: 'Whopper', extra: '+ mittlere King Pommes + 0,4 l Coca-Cola', price: '8,99', plu: '33523' },
+          { code: '924', name: 'Long Chicken + Whopper', extra: '+ mittlere King Pommes + 0,4 l Coca-Cola', price: '12,99', plu: '34591' },
+          { code: '996', name: 'X-tra Long Chili Cheese + Crispy Chicken', extra: '+ mittlere King Pommes + 0,4 l Coca-Cola', price: '12,99', plu: '34658' },
+          { code: '885', name: 'Crispy Chicken + Big King XXL', extra: '+ mittlere King Pommes + 0,4 l Coca-Cola', price: '14,99', plu: '34659' },
+        ],
+      },
+      {
+        title: 'Plant-based',
+        items: [
+          { code: '919', name: 'Plant-based Double Chili Cheese Burger', extra: '', price: '3,49', plu: '16261' },
+          { code: '967', name: '2 Plant-based Long Chicken', extra: '+ mittlere King Pommes + 0,4 l Coca-Cola', price: '11,79', plu: '34669' },
+        ],
+      },
+      {
+        title: 'Für den kleinen Hunger',
+        items: [
+          { code: '917', name: '20 King Nuggets', extra: '+ 3 Dips', price: '7,99', plu: '23277' },
+          { code: '909', name: '6 Onion Rings', extra: '', price: '1,99', plu: '23004' },
+          { code: '904', name: '6 Chili Cheese Nuggets', extra: '', price: '2,99', plu: '23273' },
+          { code: '902', name: 'Fries Chili Cheese Style', extra: '', price: '2,99', plu: '22093' },
+          { code: '900', name: '2 mittlere King Pommes', extra: 'zum Preis von einer Portion', price: '50 % sparen', plu: '22064' },
+          { code: '980', name: 'King Fusion Oreo', extra: '', price: '2,49', plu: '44415' },
+          { code: '984', name: '0,5 l King Shake', extra: 'Schoko, Erdbeer oder Vanille (5,98 €/l)', price: '2,99', plu: '51597' },
+          { code: '966', name: 'King Jr. Meal', extra: '4 King Nuggets, kleine King Pommes, Apfel-Bananen-Quetschie, 0,5 l Wasser', price: '4,99', plu: '33144' },
+        ],
+      },
+    ],
+  },
+};
+let cardCoupons = loadJson('cardcoupons.json', null);
+if (!cardCoupons) { cardCoupons = CARD_COUPONS_DEFAULT; saveJson('cardcoupons.json', cardCoupons); }
+// Hat jemand diese Sparkarte in der Wallet? Nur dann gibt es die Coupons.
+function hasCard(user, key) {
+  const w = wallets[user];
+  if (!w) return false;
+  return (w.cards || []).some(c => String(c.name || '').trim().toLowerCase() === key);
+}
+
 // ---------------------------------------------------------------- Web-Push (RFC 8291/8292, ohne Abhängigkeiten)
 // Preisfehler-Alarm: Browser abonnieren per VAPID, der Server verschlüsselt
 // jede Nachricht einzeln (aes128gcm), alles mit Node-Bordmitteln.
@@ -2166,6 +2227,61 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { rating: r.sum / r.count, ratingCount: r.count });
     }
 
+    // Welche Sparkarten haben gepflegte Coupons? (nur Übersicht, ohne Inhalte)
+    if (p === '/api/cardcoupons/list' && req.method === 'GET') {
+      const user = authUser(req);
+      const list = Object.entries(cardCoupons).map(([key, v]) => ({
+        key, brand: v.brand || key, validUntil: v.validUntil || '',
+        count: (v.groups || []).reduce((s, g) => s + (g.items || []).length, 0),
+        owned: user ? hasCard(user, key) : false,
+      }));
+      return send(res, 200, { list });
+    }
+    // Die Coupons selbst: nur mit passender Sparkarte in der Wallet
+    if (p === '/api/cardcoupons' && req.method === 'GET') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      const key = String(url.searchParams.get('card') || '').trim().toLowerCase();
+      const data = cardCoupons[key];
+      if (!data) return send(res, 404, { error: 'Für diese Karte gibt es noch keine Coupons.' });
+      if (!hasCard(user, key) && roleOf(user) !== 'admin') {
+        return send(res, 403, { error: 'Füge die Sparkarte zu deiner Wallet hinzu, dann erscheinen die Coupons hier.' });
+      }
+      return send(res, 200, { key, ...data });
+    }
+    // Redaktion pflegt die Coupons (Rolle admin ODER Admin-Key)
+    if (p === '/api/admin/cardcoupons' && req.method === 'POST') {
+      const me = authUser(req);
+      if (roleOf(me) !== 'admin' && !isAdmin(req)) return send(res, 403, { error: 'Nur für Admins.' });
+      const b = await readBody(req, 400_000);
+      const key = String(b.card || '').trim().toLowerCase();
+      if (!key) return send(res, 400, { error: 'Karte fehlt.' });
+      if (b.remove) {
+        delete cardCoupons[key];
+        saveJson('cardcoupons.json', cardCoupons);
+        return send(res, 200, { ok: true, removed: key });
+      }
+      const groups = (Array.isArray(b.groups) ? b.groups : []).slice(0, 20).map(g => ({
+        title: String(g.title || '').slice(0, 60),
+        items: (Array.isArray(g.items) ? g.items : []).slice(0, 100).map(it => ({
+          code: String(it.code || '').slice(0, 12),
+          name: String(it.name || '').slice(0, 120),
+          extra: String(it.extra || '').slice(0, 160),
+          price: String(it.price || '').slice(0, 24),
+          plu: String(it.plu || '').slice(0, 12),
+        })).filter(it => it.name),
+      })).filter(g => g.items.length);
+      if (!groups.length) return send(res, 400, { error: 'Keine gültigen Coupons dabei.' });
+      cardCoupons[key] = {
+        brand: String(b.brand || key).slice(0, 40),
+        validUntil: String(b.validUntil || '').slice(0, 10),
+        note: String(b.note || '').slice(0, 300),
+        updated: Date.now(),
+        groups,
+      };
+      saveJson('cardcoupons.json', cardCoupons);
+      return send(res, 200, { ok: true, key, count: groups.reduce((s, g) => s + g.items.length, 0) });
+    }
     if (p === '/api/comments' && req.method === 'GET') {
       const dealId = url.searchParams.get('dealId') || '';
       // Jeder Kommentar traegt den AKTUELLEN Look seines Autors (Avatar, Paint,
