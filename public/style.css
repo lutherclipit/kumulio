@@ -3015,3 +3015,25 @@ body.kb-open #view-chat.emotes-open:has(#dm-head:not(.hidden)) { --chatpad: 392p
   border-radius: 12px; padding: 9px; font: inherit; font-size: .78rem;
   font-weight: 700; color: var(--muted); cursor: pointer;
 }
+
+/* ================= Runde 61: Bild-Zuschnitt + Einladen ================= */
+
+/* Zuschnitt-Buehne: fester Breitformat-Rahmen, Bild wird verschoben/gezoomt */
+.crop-modal { width: min(430px, 94vw); }
+.crop-stage {
+  position: relative; width: 100%; aspect-ratio: 5 / 2;
+  overflow: hidden; border-radius: 12px; margin-top: 10px;
+  background: #0F1419; border: 2px dashed var(--accent-strong, #12C77E);
+  touch-action: none; cursor: grab;
+}
+.crop-stage:active { cursor: grabbing; }
+.crop-stage img {
+  position: absolute; left: 0; top: 0;
+  transform-origin: 0 0; user-select: none; pointer-events: none;
+  max-width: none;
+}
+#crop-zoom { width: 100%; margin-top: 12px; }
+.wv-img-actions { margin-top: 8px; }
+
+/* Dropdown: kleiner Funken-Hinweis am Einladen-Eintrag */
+.tm-sub-hint { margin-left: auto; font-size: .72rem; color: var(--muted); font-weight: 700; }

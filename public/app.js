@@ -851,6 +851,89 @@ document.addEventListener('click', e => {
   if (d) openDealSheet(d);
   else island('Dieser Deal ist nicht mehr im Feed');
 });
+// Bild eines Gutscheins nachtraeglich pflegen: neu hochladen (mit direktem
+// Zuschnitt) oder das vorhandene selbst zuschneiden. Fester Rahmen, Bild wird
+// verschoben und gezoomt — das ist auf dem Handy am treffsichersten.
+function wireVoucherImage(v) {
+  $('#wv-img-file')?.addEventListener('change', async e => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const url = await new Promise((res, rej) => {
+      const rd = new FileReader();
+      rd.onload = () => res(rd.result); rd.onerror = rej; rd.readAsDataURL(f);
+    });
+    openImgCrop(url, out => { v.codeImg = out; v.img = ''; saveWallet(); openVoucherSheet(v.id); });
+  });
+  $('#wv-img-crop')?.addEventListener('click', () => {
+    openImgCrop(v.codeImg || v.img, out => { v.codeImg = out; v.img = ''; saveWallet(); openVoucherSheet(v.id); });
+  });
+}
+function openImgCrop(src, onDone) {
+  const wrap = document.createElement('div');
+  wrap.className = 'overlay';
+  wrap.innerHTML = `<div class="modal crop-modal">
+    <h2 class="card-h">Bild zuschneiden</h2>
+    <p class="muted" style="font-size:.8rem">Bild verschieben und zoomen, der Rahmen wird übernommen.</p>
+    <div class="crop-stage" id="crop-stage"><img id="crop-src" src="${src}" alt="" draggable="false"></div>
+    <input type="range" id="crop-zoom" min="100" max="320" value="100" aria-label="Zoom">
+    <div class="form-row" style="justify-content:center; margin-top:10px">
+      <button class="btn btn-small" id="crop-ok">Übernehmen</button>
+      <button class="btn btn-small btn-ghost" id="crop-full">Ganzes Bild</button>
+      <button class="btn btn-small btn-ghost" id="crop-cancel">Abbrechen</button>
+    </div>
+  </div>`;
+  document.body.appendChild(wrap);
+  const stage = wrap.querySelector('#crop-stage');
+  const img = wrap.querySelector('#crop-src');
+  let zoom = 1, offX = 0, offY = 0, baseScale = 1;
+  const applyT = () => { img.style.transform = `translate(${offX}px, ${offY}px) scale(${zoom})`; };
+  img.onload = () => {
+    baseScale = stage.clientWidth / img.naturalWidth;
+    img.style.width = stage.clientWidth + 'px';
+    // vertikal mittig starten
+    offY = (stage.clientHeight - img.naturalHeight * baseScale) / 2;
+    applyT();
+  };
+  if (img.complete) img.onload();
+  // Ein-Finger-Drag
+  let drag = null;
+  stage.addEventListener('pointerdown', e => { drag = { x: e.clientX - offX, y: e.clientY - offY }; stage.setPointerCapture(e.pointerId); });
+  stage.addEventListener('pointermove', e => { if (!drag) return; offX = e.clientX - drag.x; offY = e.clientY - drag.y; applyT(); });
+  stage.addEventListener('pointerup', () => { drag = null; });
+  wrap.querySelector('#crop-zoom').addEventListener('input', e => {
+    const nz = Number(e.target.value) / 100;
+    // um die Stage-Mitte zoomen
+    const cx = stage.clientWidth / 2, cy = stage.clientHeight / 2;
+    offX = cx - (cx - offX) * (nz / zoom);
+    offY = cy - (cy - offY) * (nz / zoom);
+    zoom = nz;
+    applyT();
+  });
+  const finish = out => { wrap.remove(); if (out) onDone(out); };
+  wrap.querySelector('#crop-cancel').onclick = () => finish(null);
+  wrap.querySelector('#crop-full').onclick = () => {
+    // Original unveraendert uebernehmen (nur kompakt als JPEG)
+    const c = document.createElement('canvas');
+    const s = Math.min(1, 1400 / Math.max(img.naturalWidth, img.naturalHeight));
+    c.width = Math.round(img.naturalWidth * s); c.height = Math.round(img.naturalHeight * s);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    finish(c.toDataURL('image/jpeg', 0.86));
+  };
+  wrap.querySelector('#crop-ok').onclick = () => {
+    const k = baseScale * zoom;
+    let sx = -offX / k, sy = -offY / k;
+    let sw = stage.clientWidth / k, sh = stage.clientHeight / k;
+    sx = Math.max(0, Math.min(img.naturalWidth - 10, sx));
+    sy = Math.max(0, Math.min(img.naturalHeight - 10, sy));
+    sw = Math.min(img.naturalWidth - sx, sw);
+    sh = Math.min(img.naturalHeight - sy, sh);
+    const c = document.createElement('canvas');
+    const outW = Math.min(1200, Math.round(sw));
+    c.width = outW; c.height = Math.round(outW * (sh / sw));
+    c.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
+    finish(c.toDataURL('image/jpeg', 0.86));
+  };
+}
 async function shareDeal(d) {
   const shareUrl = d.dealUrl || d.sourceUrl || location.href;
   try {
@@ -2725,6 +2808,7 @@ function toggleTopMenu() {
     <button class="tm-item" id="tm-shop">${icon('banknote', 'icon icon-sm')} Container-Shop</button>
     <button class="tm-item" id="tm-catalog">${icon('list', 'icon icon-sm')} Sammlung</button>
     <button class="tm-item" id="tm-quests">${icon('trophy', 'icon icon-sm')} Quests ${(gami?.claimable || []).length ? `<span class="dm-unread-pill">${gami.claimable.length}</span>` : ''}</button>
+    <button class="tm-item" id="tm-invite">${icon('share', 'icon icon-sm')} Freunde einladen <span class="tm-sub-hint">+1.000 ${funkeIcon(true)}</span></button>
     <button class="tm-item" id="tm-gifts">${icon('gift', 'icon icon-sm')} Geschenke ${pendingGifts.length ? `<span class="dm-unread-pill">${pendingGifts.length}</span>` : ''}</button>
     <button class="tm-item" id="tm-favs">${icon('star', 'icon icon-sm')} Favoriten</button>
     <button class="tm-item" id="tm-settings">${icon('sliders', 'icon icon-sm')} Einstellungen</button>`;
@@ -2746,6 +2830,7 @@ function toggleTopMenu() {
       f.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 400);
   };
+  $('#tm-invite').onclick = () => { done(); shareInvite(); };
   $('#tm-gifts').onclick = () => { done(); switchView('gifts', 'enter-drop'); };
   $('#tm-favs').onclick = () => {
     done();
@@ -2961,7 +3046,22 @@ function authOk(r, { welcome = false } = {}) {
   localStorage.setItem('ra.user', r.user);
   refreshProfileTab();
   pullWallet(); // Wallet vom Konto holen (Gerätewechsel/Neuinstallation)
-  connectStream(); // Echtzeit-Stream mit dem frischen Token neu verbinden
+  connectStream();
+
+// Einladungslink: ?ref=NAME wird gemerkt und zaehlt bei der Registrierung
+{
+  const rp = new URLSearchParams(location.search).get('ref');
+  if (rp) localStorage.setItem('ra.ref', rp.slice(0, 24));
+}
+// Freunde einladen: eigener Link, 1000 Funken je geworbenem Freund
+function shareInvite() {
+  if (!state.userName) { island('Zum Einladen bitte anmelden'); return; }
+  const url = 'https://kumulio.de/?ref=' + encodeURIComponent(state.userName);
+  const text = 'Komm zu kumulio: Deals, Preisfehler-Alarm und deine Gutschein-Wallet in einer App.';
+  if (navigator.share) { navigator.share({ title: 'kumulio', text, url }).catch(() => { }); return; }
+  navigator.clipboard.writeText(url).then(() => island('Einladungslink kopiert'))
+    .catch(() => island(url));
+} // Echtzeit-Stream mit dem frischen Token neu verbinden
   api('/api/me').then(x => { state.role = x.role || ''; refreshAdminUi(); }).catch(() => { });
   if (welcome) {
     // Willkommens-Moment: der Punkt quittiert das neue Konto
@@ -3016,10 +3116,12 @@ $('#btn-register').addEventListener('click', async () => {
       body: JSON.stringify({
         user: $('#reg-user').value, email: $('#reg-email').value, pass: $('#reg-pass').value,
         newsletter: $('#reg-news').checked,
+        ref: localStorage.getItem('ra.ref') || '',
         turnstileToken: tsToken('reg'),
       }),
     });
     hideOverlay($('#register-backdrop'));
+    localStorage.removeItem('ra.ref');
     $('#reg-pass').value = '';
     authOk(r, { welcome: true });
     if (state.activeView !== 'profile') switchView('profile');
@@ -4463,7 +4565,7 @@ function openWalletAdd(type, prefillName) {
         <input id="wa-amount" class="input" inputmode="decimal" placeholder="z. B. 25">
       </div>
       <div>
-        <label class="f-label" for="wa-pin">PIN <span class="req">*</span></label>
+        <label class="f-label" for="wa-pin">PIN <span class="opt">(optional)</span></label>
         <input id="wa-pin" class="input" maxlength="16" placeholder="z. B. 0689">
       </div>
     </div>
@@ -4787,11 +4889,11 @@ function openWalletAdd(type, prefillName) {
         // Originalfoto nur behalten, wenn es keinen Kassen-Zuschnitt gibt (Payload-Diät)
         img: addCodeImg ? '' : addImg, codeImg: addCodeImg, tx: [], added: Date.now(),
       };
-      // Pflicht: Shop, Wert, PIN (Code ist optional, fehlende Felder leuchten rot)
+      // Pflicht: Shop und Wert (PIN und Code sind optional, nicht jeder Gutschein hat welche)
       $('#wa-amount').classList.toggle('err', v.amount == null);
-      $('#wa-pin').classList.toggle('err', !v.pin);
+      $('#wa-pin').classList.remove('err');
       $('#wa-vendor-grid')?.classList.toggle('err', !v.vendor);
-      if (!v.vendor || v.amount == null || !v.pin) {
+      if (!v.vendor || v.amount == null) {
         msg.className = 'form-msg error';
         msg.textContent = !v.vendor ? 'Bitte einen Shop auswählen.' : 'Bitte die rot markierten Pflichtfelder ausfüllen.';
         return;
@@ -4891,6 +4993,11 @@ function openVoucherSheet(id, animFrom) {
       <button class="btn btn-small btn-ghost" data-copy-txt="${esc(v.pin)}">PIN kopieren</button></div>` : ''}
     ${v.codeImg ? `<img class="wallet-code-img" src="${v.codeImg}" alt="Code für die Kasse">`
       : v.img ? `<img class="wallet-img" src="${v.img}" alt="QR/Barcode">` : ''}
+    <div class="form-row wv-img-actions">
+      <label class="btn btn-small btn-ghost" style="cursor:pointer">${v.codeImg || v.img ? 'Bild tauschen' : 'Bild hochladen'}
+        <input type="file" id="wv-img-file" accept="image/*" style="display:none"></label>
+      ${v.codeImg || v.img ? `<button class="btn btn-small btn-ghost" id="wv-img-crop">Zuschneiden</button>` : ''}
+    </div>
     ${v.balance != null ? `
     <div class="sheet-section">
       <h3>Betrag abbuchen / aufladen</h3>
@@ -4968,6 +5075,7 @@ function openVoucherSheet(id, animFrom) {
     }));
   });
   // Löschen gibt es nur bei aufgebrauchten Gutscheinen, immer mit Rückfrage
+  wireVoucherImage(v); // Bild tauschen / zuschneiden / nachtraeglich hochladen
   $('#wv-del')?.addEventListener('click', async () => {
     if (v.balance != null && v.balance > 0) return;
     if (!await askConfirm(`Bist du sicher, dass du den ${esc(v.vendor)}-Gutschein löschen willst?`)) return;
@@ -6395,10 +6503,40 @@ function connectStream() {
   es.onerror = () => {
     es.close();
     if (chatStream === es) chatStream = null;
-    setTimeout(() => { if (!chatStream) connectStream(); }, Math.min(15000, 1500 * ++streamRetry));
+    setTimeout(() => { if (!chatStream) connectStream();
+
+// Einladungslink: ?ref=NAME wird gemerkt und zaehlt bei der Registrierung
+{
+  const rp = new URLSearchParams(location.search).get('ref');
+  if (rp) localStorage.setItem('ra.ref', rp.slice(0, 24));
+}
+// Freunde einladen: eigener Link, 1000 Funken je geworbenem Freund
+function shareInvite() {
+  if (!state.userName) { island('Zum Einladen bitte anmelden'); return; }
+  const url = 'https://kumulio.de/?ref=' + encodeURIComponent(state.userName);
+  const text = 'Komm zu kumulio: Deals, Preisfehler-Alarm und deine Gutschein-Wallet in einer App.';
+  if (navigator.share) { navigator.share({ title: 'kumulio', text, url }).catch(() => { }); return; }
+  navigator.clipboard.writeText(url).then(() => island('Einladungslink kopiert'))
+    .catch(() => island(url));
+} }, Math.min(15000, 1500 * ++streamRetry));
   };
 }
 connectStream();
+
+// Einladungslink: ?ref=NAME wird gemerkt und zaehlt bei der Registrierung
+{
+  const rp = new URLSearchParams(location.search).get('ref');
+  if (rp) localStorage.setItem('ra.ref', rp.slice(0, 24));
+}
+// Freunde einladen: eigener Link, 1000 Funken je geworbenem Freund
+function shareInvite() {
+  if (!state.userName) { island('Zum Einladen bitte anmelden'); return; }
+  const url = 'https://kumulio.de/?ref=' + encodeURIComponent(state.userName);
+  const text = 'Komm zu kumulio: Deals, Preisfehler-Alarm und deine Gutschein-Wallet in einer App.';
+  if (navigator.share) { navigator.share({ title: 'kumulio', text, url }).catch(() => { }); return; }
+  navigator.clipboard.writeText(url).then(() => island('Einladungslink kopiert'))
+    .catch(() => island(url));
+}
 
 // ---------------- Start ----------------
 

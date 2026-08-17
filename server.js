@@ -1080,6 +1080,19 @@ const server = http.createServer(async (req, res) => {
       if (Object.values(users).some(u => u.email === email)) return send(res, 409, { error: 'E-Mail wird schon verwendet.' });
       const salt = crypto.randomBytes(12).toString('hex');
       users[user] = { hash: hashPass(pass, salt), salt, email, newsletter: !!b.newsletter, ts: Date.now() };
+      // Freunde werben Freunde: kam die Registrierung ueber einen Einladungslink,
+      // bekommt der Werber 1000 Funken (Mitmach-Belohnung, kein Echtgeld-Pfad;
+      // Deckel gegen Fake-Konten-Farmen)
+      const ref = String(b.ref || '').trim();
+      const refUser = ref && Object.keys(users).find(k => k.toLowerCase() === ref.toLowerCase());
+      if (refUser && refUser !== user) {
+        const rp = profileOf(refUser);
+        rp.refCount = (rp.refCount || 0) + 1;
+        if (rp.refCount <= 20) {
+          rp.coins = (rp.coins || 0) + 1000;
+          pushToUser(refUser, { title: 'Freund geworben!', body: `@${user} ist über deinen Link dabei: 1.000 Funken für dich.`, url: '/?tab=profile', tag: 'ref-' + user, kind: 'mention', from: user });
+        }
+      }
       saveJson('users.json', users);
       const token = crypto.randomBytes(18).toString('hex');
       sessions[token] = user;
