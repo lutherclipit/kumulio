@@ -3399,3 +3399,9 @@ body.kb-open #chat-box { min-height: 120px; }
   .cc-skel, .cc-row-skel { animation: none; }
 }
 .mcd-hit small { display: block; margin-top: 2px; font-size: .7rem; color: var(--muted); }
+
+/* Kleiner Ausweg, falls die Händler-App gar nicht installiert ist */
+.app-store-link {
+  display: block; margin: 6px 2px 0; font-size: .74rem;
+  color: var(--muted); text-decoration: underline; text-underline-offset: 2px;
+}

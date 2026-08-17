@@ -71,26 +71,69 @@ const SEGMENTS = [
 // Händler-Apps: android/ios führen in die installierte App, url ist der Rückweg
 // über die Webseite. rotierend = der Code wechselt ständig (dann bringt
 // "Coupons aktivieren" nichts), woche = wöchentliche Belohnung in der App.
+// Händler-Apps. `android` ist der Play-Store-Paketname (damit startet intent://
+// die App zuverlässig). Auf iPhones gibt es keine dokumentierten URL-Schemas für
+// diese Apps — dort greifen nur Universal Links, und die funktionieren
+// ausschliesslich fuer die Pfade, die der Haendler in seiner
+// apple-app-site-association listet. `iosUrl` ist deshalb, wo noetig, eine
+// andere Adresse als der Web-Rueckweg `url` — nachgeschlagen, nicht geraten.
+// Wo kein passender Pfad gelistet ist, oeffnet sich auf dem iPhone die Webseite;
+// das laesst sich ohne Schema-Raterei nicht aendern.
+// rotierend = der Code wechselt staendig, "Coupons aktivieren" bringt nichts.
+// woche = woechentliche Belohnung in der App, an die wir erinnern.
 const CARD_APPS = {
-  rossmann: { url: 'https://www.rossmann.de/de/coupons', hinweis: 'Der App-Coupon (10 %) ist dreimal im Monat verfügbar.' },
-  payback: { url: 'https://www.payback.de/coupons' },
-  dm: { url: 'https://www.dm.de/services/dm-app' },
-  rewe: { url: 'https://www.rewe.de/angebote/' },
-  edeka: { url: 'https://www.edeka.de/' },
-  penny: { url: 'https://www.penny.de/' },
-  kaufland: { url: 'https://www.kaufland.de/kaufland-card/' },
-  netto: { url: 'https://www.netto-online.de/', rotierend: true },
-  'netto marken-discount': { url: 'https://www.netto-online.de/', rotierend: true },
-  'burger king': { url: 'https://www.burgerking.de/', rotierend: true },
-  mcdonalds: { url: 'https://www.mcdonalds.com/de/de-de/mcdonalds-app.html', alt: { url: 'https://mccheap.tech/', name: 'McCheap.tech' } },
-  "mcdonald's": { url: 'https://www.mcdonalds.com/de/de-de/mcdonalds-app.html', alt: { url: 'https://mccheap.tech/', name: 'McCheap.tech' } },
-  subway: { url: 'https://www.subway.com/de-DE' },
-  'müller': { url: 'https://www.mueller.de/' },
-  mueller: { url: 'https://www.mueller.de/' },
-  lidl: { url: 'https://www.lidl.de/c/lidl-plus/s10007306' },
-  'lidl plus': { url: 'https://www.lidl.de/c/lidl-plus/s10007306' },
+  rossmann: {
+    url: 'https://www.rossmann.de/de/coupons',
+    iosUrl: 'https://www.rossmann.de/einkaufsportal/angebote.html',   // in der AASA gelistet
+    android: 'de.rossmann.app.android', iosId: '1034309353',
+    hinweis: 'Der App-Coupon (10 %) ist dreimal im Monat verfügbar.',
+  },
+  payback: { url: 'https://www.payback.de/coupons', android: 'de.payback.client.android', iosId: '363126964' },
+  dm: { url: 'https://www.dm.de/', android: 'de.dm.meindm.android', iosId: '1186271926' },
+  rewe: {
+    url: 'https://www.rewe.de/angebote/',
+    iosUrl: 'https://www.rewe.de/shop',                               // in der AASA gelistet
+    android: 'de.rewe.app.mobile', iosId: '714121079',
+  },
+  edeka: { url: 'https://www.edeka.de/', android: 'de.edeka.genuss', iosId: '1272688648' },
+  penny: {
+    url: 'https://www.penny.de/angebote/',                            // steht so in der AASA
+    android: 'de.penny.app', iosId: '1096204041',
+  },
+  kaufland: { url: 'https://www.kaufland.de/kaufland-card/', android: 'com.kaufland.Kaufland', iosId: '1087780386' },
+  // Netto und Burger King: der Code in der App wechselt staendig, hier bringt
+  // "Coupons aktivieren" nichts — nur der Sprung in die App hilft
+  netto: {
+    url: 'https://www.netto-online.de/', android: 'com.valuephone.vpnetto',
+    iosId: '379404334', rotierend: true,
+  },
+  'netto marken-discount': {
+    url: 'https://www.netto-online.de/', android: 'com.valuephone.vpnetto',
+    iosId: '379404334', rotierend: true,
+  },
+  'burger king': {
+    url: 'https://www.burgerking.de/', android: 'de.burgerking.kingfinder',
+    iosId: '471268068', rotierend: true,                              // AASA deckt die ganze Domain
+  },
+  mcdonalds: {
+    url: 'https://www.mcdonalds.com/de/de-de.html',
+    android: 'de.mcdonalds.mcdonaldsinfoapp', iosId: '524943492',
+    alt: { url: 'https://mccheap.tech/', name: 'McCheap.tech' },
+  },
+  "mcdonald's": {
+    url: 'https://www.mcdonalds.com/de/de-de.html',
+    android: 'de.mcdonalds.mcdonaldsinfoapp', iosId: '524943492',
+    alt: { url: 'https://mccheap.tech/', name: 'McCheap.tech' },
+  },
+  subway: { url: 'https://www.subway.com/de-DE', android: 'com.subway.mobile.emea.germany', iosId: '6479694657' },
+  'müller': { url: 'https://www.mueller.de/', android: 'at.helloagain.muellerde', iosId: '1516484066' },
+  mueller: { url: 'https://www.mueller.de/', android: 'at.helloagain.muellerde', iosId: '1516484066' },
+  lidl: { url: 'https://www.lidl.de/c/lidl-plus/s10007306', android: 'com.lidl.eci.lidlplus', iosId: '1238611143' },
+  'lidl plus': { url: 'https://www.lidl.de/c/lidl-plus/s10007306', android: 'com.lidl.eci.lidlplus', iosId: '1238611143' },
   ikea: {
     url: 'https://www.ikea.com/de/de/ikea-family/',
+    iosUrl: 'https://www.ikea.com/de/de/cat/products-products/',      // in der AASA gelistet
+    android: 'com.ingka.ikea.app', iosId: '1452164827',
     woche: 'Einmal pro Woche in der IKEA-App einloggen bringt Punkte für Gutscheine.',
   },
 };
@@ -5665,38 +5708,48 @@ function openCardCouponEditor(key, data) {
     }
   };
 }
-// Eine Haendler-App wirklich oeffnen, nicht die Webseite.
-// Android: intent:// mit Paketnamen — der Browser startet die App und faellt
-//   von selbst auf die Webseite zurueck, wenn sie nicht installiert ist.
-// iOS: es gibt keinen sauberen "ist die App da?"-Test. Also das URL-Schema
-//   anstossen und, falls die Seite danach noch sichtbar ist, aufs Web wechseln.
-//   Wechselt das Handy in die App, wird die Seite versteckt und der Timer faellt weg.
-function oeffneHaendlerApp(name) {
-  const a = cardApp(name);
-  if (!a) return;
+// Eine Händler-App wirklich öffnen, nicht die Webseite.
+//
+// Android: intent:// mit dem Paketnamen. Ist die App da, startet sie; fehlt sie,
+//   schickt der Browser den Nutzer selbst auf browser_fallback_url.
+// iOS: eigene URL-Schemas (rossmann://, ikea://, …) dokumentiert kein einziger
+//   dieser Händler — geraten wird hier nichts. Der belegte Weg sind Universal
+//   Links: die normale https-Adresse öffnet die App, WENN sie installiert ist.
+//   Der Haken, an dem es bisher scheiterte: Safari löst Universal Links nicht
+//   aus, wenn man einen neuen Tab aufmacht (target="_blank"/window.open).
+//   Deshalb hier bewusst eine Navigation im selben Fenster.
+function istHandyIOS() {
   const ua = navigator.userAgent || '';
-  const istAndroid = /Android/i.test(ua);
+  return /iPad|iPhone|iPod/i.test(ua)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+// Wohin die Reise geht — getrennt vom Navigieren, damit es prüfbar bleibt
+function appZiel(name) {
+  const a = cardApp(name);
+  if (!a) return null;
+  if (/Android/i.test(navigator.userAgent || '') && a.android) {
+    return { art: 'intent', url: `intent://#Intent;package=${a.android};S.browser_fallback_url=${encodeURIComponent(a.url)};end` };
+  }
+  if (istHandyIOS()) return { art: 'universal', url: a.iosUrl || a.url };
+  return { art: 'tab', url: a.url };
+}
+function oeffneHaendlerApp(name) {
+  const ziel = appZiel(name);
+  if (!ziel) return;
+  // Neuer Tab nur am Rechner: Safari löst Universal Links sonst nicht aus
+  if (ziel.art === 'tab') window.open(ziel.url, '_blank', 'noopener');
+  else location.href = ziel.url;
+}
+
+// Direkt in den App-Store, falls die App gar nicht installiert ist
+function appStoreLink(name) {
+  const a = cardApp(name);
+  if (!a) return '';
+  const ua = navigator.userAgent || '';
+  if (/Android/i.test(ua)) return a.android ? `https://play.google.com/store/apps/details?id=${a.android}` : '';
   const istIOS = /iPad|iPhone|iPod/i.test(ua)
     || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-
-  if (istAndroid && a.android) {
-    const rueckweg = encodeURIComponent(a.url);
-    location.href = `intent://#Intent;package=${a.android};S.browser_fallback_url=${rueckweg};end`;
-    return;
-  }
-  if (istIOS && a.ios) {
-    let weg = false;
-    const merke = () => { if (document.hidden) weg = true; };
-    document.addEventListener('visibilitychange', merke);
-    setTimeout(() => {
-      document.removeEventListener('visibilitychange', merke);
-      if (!weg && !document.hidden) location.href = a.url;   // App fehlt -> Webseite
-    }, 1400);
-    location.href = a.ios;
-    return;
-  }
-  // Rechner oder keine App bekannt: normale Webseite in neuem Tab
-  window.open(a.url, '_blank', 'noopener');
+  return istIOS && a.iosId ? `https://apps.apple.com/de/app/id${a.iosId}` : '';
 }
 
 
@@ -5736,6 +5789,8 @@ function cardAppBlockHtml(name) {
           : 'Coupons einmal antippen, dann gelten sie an der Kasse.'}</small></span>
       ${icon('arrow-right', 'icon icon-sm')}
     </button>
+    ${appStoreLink(name) ? `<a class="app-store-link" href="${esc(appStoreLink(name))}"
+      target="_blank" rel="noopener noreferrer">App noch nicht drauf? Hier laden</a>` : ''}
     ${a.hinweis ? `<p class="cc-note">${icon('bulb', 'icon icon-sm')} ${esc(a.hinweis)}</p>` : ''}
     ${a.woche ? `
       <button class="quest-row ${rest ? 'done' : ''}" data-quest="${esc(name)}">
