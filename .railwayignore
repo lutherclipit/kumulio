@@ -1,0 +1,8 @@
+# Beim Direkt-Deploy (railway up) NICHT hochladen: Laufzeitdaten liegen auf dem
+# Volume unter /data, alles andere braucht der Container nicht.
+data
+node_modules
+.git
+android
+ios
+scripts
