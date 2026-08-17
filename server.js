@@ -527,6 +527,10 @@ function ensureProgress(user) {
 const CARD_COUPONS_DEFAULT = {
   'burger king': {
     brand: 'Burger King',
+    // Offen für alle: die My-BurgerKing-Codes wechseln alle paar Minuten,
+    // eine gespeicherte Karte bringt hier niemandem etwas
+    open: true,
+    img: '/coupons/burger-king',
     validUntil: '2026-09-04',
     note: 'Nummer an der Kasse nennen oder QR im Flyer scannen lassen. Nicht mit anderen Rabatten kombinierbar, nicht im Lieferservice.',
     groups: [
@@ -574,6 +578,15 @@ const CARD_COUPONS_DEFAULT = {
 };
 let cardCoupons = loadJson('cardcoupons.json', null);
 if (!cardCoupons) { cardCoupons = CARD_COUPONS_DEFAULT; saveJson('cardcoupons.json', cardCoupons); }
+// Bestandsdaten nachziehen: Burger King ist offen für alle und hat Produktfotos
+{
+  const bk = cardCoupons['burger king'];
+  if (bk && (bk.open !== true || !bk.img)) {
+    bk.open = true;
+    bk.img = bk.img || '/coupons/burger-king';
+    saveJson('cardcoupons.json', cardCoupons);
+  }
+}
 // Hat jemand diese Sparkarte in der Wallet? Nur dann gibt es die Coupons.
 function hasCard(user, key) {
   const w = wallets[user];
@@ -2233,7 +2246,8 @@ const server = http.createServer(async (req, res) => {
       const list = Object.entries(cardCoupons).map(([key, v]) => ({
         key, brand: v.brand || key, validUntil: v.validUntil || '',
         count: (v.groups || []).reduce((s, g) => s + (g.items || []).length, 0),
-        owned: user ? hasCard(user, key) : false,
+        open: !!v.open,
+        owned: !!v.open || (user ? hasCard(user, key) : false),
       }));
       return send(res, 200, { list });
     }
@@ -2244,7 +2258,7 @@ const server = http.createServer(async (req, res) => {
       const key = String(url.searchParams.get('card') || '').trim().toLowerCase();
       const data = cardCoupons[key];
       if (!data) return send(res, 404, { error: 'Für diese Karte gibt es noch keine Coupons.' });
-      if (!hasCard(user, key) && roleOf(user) !== 'admin') {
+      if (!data.open && !hasCard(user, key) && roleOf(user) !== 'admin') {
         return send(res, 403, { error: 'Füge die Sparkarte zu deiner Wallet hinzu, dann erscheinen die Coupons hier.' });
       }
       return send(res, 200, { key, ...data });
@@ -2272,10 +2286,13 @@ const server = http.createServer(async (req, res) => {
         })).filter(it => it.name),
       })).filter(g => g.items.length);
       if (!groups.length) return send(res, 400, { error: 'Keine gültigen Coupons dabei.' });
+      const alt = cardCoupons[key] || {};
       cardCoupons[key] = {
         brand: String(b.brand || key).slice(0, 40),
         validUntil: String(b.validUntil || '').slice(0, 10),
         note: String(b.note || '').slice(0, 300),
+        open: b.open != null ? !!b.open : !!alt.open,
+        img: String(b.img != null ? b.img : (alt.img || '')).slice(0, 120),
         updated: Date.now(),
         groups,
       };

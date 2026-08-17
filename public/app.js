@@ -5148,16 +5148,14 @@ async function renderCardCouponBox(host) {
   catch { host.innerHTML = ''; return; }
   if (!cardCouponList.length) { host.innerHTML = ''; return; }
   host.innerHTML = `
-    <h3 class="wallet-h" style="margin-top:0">Coupons in deiner Wallet</h3>
-    <div class="cc-cards">${cardCouponList.map(c => `
-      <button class="cc-card ${c.owned ? '' : 'locked'}" data-cc="${esc(c.key)}" style="--bc:${brandColor(c.brand)}">
+    <h3 class="wallet-h" style="margin-top:0">Coupons in der App</h3>
+    <div class="cc-rail">${cardCouponList.map(c => `
+      <button class="cc-tile ${c.owned ? '' : 'locked'}" data-cc="${esc(c.key)}" style="--bc:${brandColor(c.brand)}">
         ${brandChipHtml(c.brand)}
-        <span class="cc-card-main">
-          <b>${esc(c.brand)}</b>
-          <small>${c.owned ? `${c.count} Coupons${c.validUntil ? ' · bis ' + dateShort(c.validUntil) : ''}`
-            : 'Sparkarte hinzufügen zum Freischalten'}</small>
-        </span>
-        ${c.owned ? icon('arrow-right', 'icon icon-sm') : icon('lock', 'icon icon-sm')}
+        <b>${esc(c.brand)}</b>
+        <small>${c.owned ? `${c.count} Coupons` : 'Karte nötig'}</small>
+        ${c.validUntil && c.owned ? `<span class="cc-tile-date">bis ${dateShort(c.validUntil)}</span>` : ''}
+        ${c.owned ? '' : `<span class="cc-tile-lock">${icon('lock', 'icon icon-sm')}</span>`}
       </button>`).join('')}</div>`;
   host.querySelectorAll('[data-cc]').forEach(b => b.onclick = () => {
     const c = cardCouponList.find(x => x.key === b.dataset.cc);
@@ -5193,6 +5191,7 @@ async function openCardCoupons(key, brand) {
       <h3 class="gm-h">${esc(g.title)}</h3>
       <div class="cc-list">${g.items.map(it => `
         <button class="cc-item" data-cc-item="${esc(it.code)}">
+          ${d.img ? `<img class="cc-img" src="${esc(d.img)}/${esc(it.code)}.jpg" alt="" loading="lazy" onerror="this.remove()">` : ''}
           <span class="cc-code">${esc(it.code)}</span>
           <span class="cc-text">
             <b>${esc(it.name)}</b>
@@ -5209,7 +5208,7 @@ async function openCardCoupons(key, brand) {
   const flat = (d.groups || []).flatMap(g => g.items);
   $('#sheet-content').querySelectorAll('[data-cc-item]').forEach(b => b.onclick = () => {
     const it = flat.find(x => x.code === b.dataset.ccItem);
-    if (it) showCouponBig(it, d.brand || brand, d.validUntil);
+    if (it) showCouponBig({ ...it, imgBase: d.img || '' }, d.brand || brand, d.validUntil);
   });
 }
 function showCouponBig(it, brand, validUntil) {
@@ -5218,6 +5217,7 @@ function showCouponBig(it, brand, validUntil) {
   wrap.innerHTML = `<div class="modal cc-big">
     <button class="fav-remove" id="ccb-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
     <div class="cc-big-brand">${esc(brand)}</div>
+    ${it.imgBase ? `<img class="cc-big-img" src="${esc(it.imgBase)}/${esc(it.code)}.jpg" alt="" onerror="this.remove()">` : ''}
     <div class="cc-big-code">${esc(it.code)}</div>
     <div class="cc-big-name">${esc(it.name)}</div>
     ${it.extra ? `<div class="cc-big-extra">${esc(it.extra)}</div>` : ''}
@@ -5249,6 +5249,12 @@ function openCardCouponEditor(key, data) {
     <input class="input" id="cce-valid" type="date" value="${esc(data.validUntil || '')}">
     <label class="f-label">Hinweis (optional)</label>
     <input class="input" id="cce-note" maxlength="300" value="${esc(data.note || '')}">
+    <label class="f-label">Bilder-Ordner (optional, z. B. /coupons/burger-king)</label>
+    <input class="input" id="cce-img" maxlength="120" value="${esc(data.img || '')}">
+    <label class="check-row" style="margin-top:8px">
+      <input type="checkbox" id="cce-open" ${data.open ? 'checked' : ''}>
+      <span>Ohne Sparkarte für alle sichtbar (z. B. wenn die Karte wechselnde Codes hat)</span>
+    </label>
     <label class="f-label">Coupons</label>
     <p class="muted" style="font-size:.76rem">Eine Zeile je Coupon:
       <b>Nummer | Name | Zusatz | Preis | PLU</b>. Zeilen mit <b>#</b> sind Überschriften.</p>
@@ -5281,7 +5287,8 @@ function openCardCouponEditor(key, data) {
         method: 'POST',
         body: JSON.stringify({
           card: key, brand: $('#cce-brand').value, validUntil: $('#cce-valid').value,
-          note: $('#cce-note').value, groups,
+          note: $('#cce-note').value, img: $('#cce-img').value,
+          open: $('#cce-open').checked, groups,
         }),
       });
       wrap.remove();
@@ -5318,6 +5325,7 @@ function openCardSheet(id) {
     try {
       const { list } = await api('/api/cardcoupons/list');
       const hit = (list || []).find(x => x.key === c.name.trim().toLowerCase());
+      if (hit && hit.open) { /* offen für alle, Knopf trotzdem praktisch */ }
       if (!hit) return;
       slot.innerHTML = `<button class="btn btn-block cc-open-btn" id="wc-coupons">
         ${icon('tag', 'icon icon-sm')} ${hit.count} Coupons ansehen${hit.validUntil ? ` · bis ${dateShort(hit.validUntil)}` : ''}</button>`;

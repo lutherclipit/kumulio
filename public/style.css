@@ -3190,3 +3190,35 @@ body.kb-open #view-chat.emotes-open:has(#dm-head:not(.hidden)) { --chatpad: 392p
 /* Redaktions-Editor */
 .cc-editor { width: min(520px, 94vw); }
 .cc-area { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; line-height: 1.5; }
+
+/* ---- Runde 64: Coupon-Reihe horizontal + Produktbilder ---- */
+.cc-rail {
+  display: flex; gap: 10px; overflow-x: auto; padding: 2px 2px 10px;
+  scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch;
+}
+.cc-rail::-webkit-scrollbar { height: 0; }
+.cc-tile {
+  position: relative; flex: 0 0 auto; width: 124px;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  background: var(--surface); border: 1px solid var(--stroke-light);
+  border-top: 3px solid var(--bc, #12C77E);
+  border-radius: 16px; padding: 12px 10px 10px;
+  font: inherit; color: inherit; cursor: pointer; scroll-snap-align: start;
+}
+.cc-tile:active { transform: scale(.97); }
+.cc-tile.locked { opacity: .6; }
+.cc-tile b { font-size: .84rem; text-align: center; line-height: 1.2; }
+.cc-tile small { font-size: .7rem; color: var(--muted); }
+.cc-tile-date { font-size: .66rem; color: var(--muted); opacity: .8; }
+.cc-tile-lock { position: absolute; top: 8px; right: 8px; color: var(--muted); }
+.cc-tile .brand-chip { width: 38px; height: 38px; }
+
+/* Produktbild in der Coupon-Zeile und in der großen Ansicht */
+.cc-img {
+  flex: none; width: 74px; height: 52px; object-fit: cover;
+  border-radius: 10px; background: #fff;
+}
+.cc-big-img {
+  width: 100%; max-width: 260px; border-radius: 14px;
+  margin: 6px auto 4px; display: block; background: #fff;
+}
