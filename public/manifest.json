@@ -3,6 +3,7 @@
  "short_name": "kumulio",
  "description": "Deine kuratierte Spar-App: Angebote, Gutschein-Wallet und Coupons.",
  "start_url": "/",
+ "scope": "/",
  "display": "standalone",
  "background_color": "#eef1f5",
  "theme_color": "#12C77E",

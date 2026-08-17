@@ -88,8 +88,9 @@ const CARD_APPS = {
     android: 'de.rossmann.app.android', iosId: '1034309353',
     hinweis: 'Der App-Coupon (10 %) ist dreimal im Monat verfügbar.',
   },
-  payback: { url: 'https://www.payback.de/coupons', android: 'de.payback.client.android', iosId: '363126964' },
-  dm: { url: 'https://www.dm.de/', android: 'de.dm.meindm.android', iosId: '1186271926' },
+  // AASA listet nur /oauth* — Universal Link unmoeglich, also raus in Safari
+  payback: { url: 'https://www.payback.de/coupons', android: 'de.payback.client.android', iosId: '363126964', keinUniLink: true },
+  dm: { url: 'https://www.dm.de/', android: 'de.dm.meindm.android', iosId: '1186271926', keinUniLink: true },   // AASA nur /applink/*
   rewe: {
     url: 'https://www.rewe.de/angebote/',
     iosUrl: 'https://www.rewe.de/shop',                               // in der AASA gelistet
@@ -126,10 +127,11 @@ const CARD_APPS = {
     alt: { url: 'https://mccheap.tech/', name: 'McCheap.tech' },
   },
   subway: { url: 'https://www.subway.com/de-DE', android: 'com.subway.mobile.emea.germany', iosId: '6479694657' },
-  'müller': { url: 'https://www.mueller.de/', android: 'at.helloagain.muellerde', iosId: '1516484066' },
-  mueller: { url: 'https://www.mueller.de/', android: 'at.helloagain.muellerde', iosId: '1516484066' },
-  lidl: { url: 'https://www.lidl.de/c/lidl-plus/s10007306', android: 'com.lidl.eci.lidlplus', iosId: '1238611143' },
-  'lidl plus': { url: 'https://www.lidl.de/c/lidl-plus/s10007306', android: 'com.lidl.eci.lidlplus', iosId: '1238611143' },
+  'müller': { url: 'https://www.mueller.de/', android: 'at.helloagain.muellerde', iosId: '1516484066', keinUniLink: true },   // leeres applinks
+  mueller: { url: 'https://www.mueller.de/', android: 'at.helloagain.muellerde', iosId: '1516484066', keinUniLink: true },
+  // AASA nur Produktseiten (/*/p0* …) — die Plus-Seite ist nicht dabei
+  lidl: { url: 'https://www.lidl.de/c/lidl-plus/s10007306', android: 'com.lidl.eci.lidlplus', iosId: '1238611143', keinUniLink: true },
+  'lidl plus': { url: 'https://www.lidl.de/c/lidl-plus/s10007306', android: 'com.lidl.eci.lidlplus', iosId: '1238611143', keinUniLink: true },
   ikea: {
     url: 'https://www.ikea.com/de/de/ikea-family/',
     iosUrl: 'https://www.ikea.com/de/de/cat/products-products/',      // in der AASA gelistet
@@ -748,7 +750,8 @@ function renderCoupons(host) {
     <div class="app-grid" id="coupon-grid">
       ${raster.map(it => `
       <a class="app-tile" data-cpn="${esc(it.name)}" title="${esc(it.desc || '')}"
-         href="${esc(it.url)}" target="_blank" rel="noopener noreferrer" style="--bc:${brandColor(it.name)}">
+         ${cardApp(it.name) ? appLinkAttrs(it.name)
+           : `href="${esc(it.url)}" target="_blank" rel="noopener noreferrer"`} style="--bc:${brandColor(it.name)}">
         ${brandChipHtml(it.name)}
         <span class="app-tile-name">${esc(it.name)}</span>
         <span class="app-tile-desc">${esc(it.cat)}</span>
@@ -761,11 +764,6 @@ function renderCoupons(host) {
       : '<div class="status">Aktuelle GzG-Aktionen postet die Redaktion über das Admin-Panel, sie erscheinen dann hier.</div>'}`;
 
   renderCardCouponBox(host.querySelector('#card-coupon-box'));
-  // Kacheln bekannter Händler öffnen die App, nicht die Webseite
-  host.querySelectorAll('[data-cpn]').forEach(a => {
-    if (!cardApp(a.dataset.cpn)) return;
-    a.onclick = e => { e.preventDefault(); oeffneHaendlerApp(a.dataset.cpn); };
-  });
   // Einmal nachsehen, ob McCheap gerade etwas Gratis hat — danach steht es im Speicher
   if (!mccheapDaten) ladeMccheap().then(d => {
     if ((d.items || []).some(x => x.gratis) && walletTab === 'coupons') renderCoupons(host);
@@ -802,11 +800,11 @@ function openMcdWahl() {
     <button class="fav-remove" id="mcd-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
     <h3 class="modal-title">McDonald&rsquo;s Coupons</h3>
     <p class="muted" style="font-size:.82rem">Wo willst du hin?</p>
-    <button class="app-jump" data-app-open="McDonalds" style="--bc:${brandColor('mcdonalds')}">
+    <a class="app-jump" ${appLinkAttrs('McDonalds')} style="--bc:${brandColor('mcdonalds')}">
       ${brandChipHtml('McDonalds')}
       <span class="app-jump-txt"><b>McDonald&rsquo;s App</b><small>Offizielle Coupons, direkt einlösbar</small></span>
       ${icon('arrow-right', 'icon icon-sm')}
-    </button>
+    </a>
     <a class="app-jump" href="https://mccheap.tech/" target="_blank" rel="noopener noreferrer" style="--bc:#12C77E">
       <span class="brand-chip" style="--bc:#12C77E">MC</span>
       <span class="app-jump-txt"><b>McCheap.tech</b><small>Gesammelte Codes, oft günstiger als die App</small></span>
@@ -823,8 +821,6 @@ function openMcdWahl() {
       : '<p class="muted" style="font-size:.76rem; margin-top:12px">Aktuell nichts Auffälliges bei McCheap gefunden.</p>'}
   </div>`;
   document.body.appendChild(wrap);
-  wrap.querySelectorAll('[data-app-open]').forEach(b =>
-    b.onclick = () => oeffneHaendlerApp(b.dataset.appOpen));
   wrap.addEventListener('click', e => {
     if (e.target === wrap || e.target.closest('#mcd-close')) {
       wrap.classList.add('closing');
@@ -5723,37 +5719,51 @@ function openCardCouponEditor(key, data) {
     }
   };
 }
-// Eine Händler-App wirklich öffnen, nicht die Webseite.
+// Der Sprung in eine Händler-App ist immer ein ECHTER Link, nie eine
+// programmatische Navigation. Das ist der wichtige Punkt: setzt man
+// location.href, wandert das Fenster von kumulio selbst auf die fremde Seite —
+// in der Homescreen-App gibt es dann keine Adresszeile und kein Zurück, man
+// sitzt fest. Ein angetippter <a>-Link auf eine fremde Domain öffnet dagegen
+// entweder die App (Universal Link) oder ein Safari-Fenster mit "Fertig".
 //
-// Android: intent:// mit dem Paketnamen. Ist die App da, startet sie; fehlt sie,
-//   schickt der Browser den Nutzer selbst auf browser_fallback_url.
-// iOS: eigene URL-Schemas (rossmann://, ikea://, …) dokumentiert kein einziger
-//   dieser Händler — geraten wird hier nichts. Der belegte Weg sind Universal
-//   Links: die normale https-Adresse öffnet die App, WENN sie installiert ist.
-//   Der Haken, an dem es bisher scheiterte: Safari löst Universal Links nicht
-//   aus, wenn man einen neuen Tab aufmacht (target="_blank"/window.open).
-//   Deshalb hier bewusst eine Navigation im selben Fenster.
+// Android: intent:// mit dem Paketnamen — startet die App, sonst schickt der
+//   Browser selbst auf browser_fallback_url.
+// iOS: URL-Schemas (rossmann:// …) dokumentiert keiner dieser Händler, geraten
+//   wird nichts. Es bleiben Universal Links, und die greifen nur bei einem
+//   echten Klick ohne target="_blank" und nur für die Pfade aus der
+//   apple-app-site-association des Händlers (siehe iosUrl im Katalog).
 function istHandyIOS() {
   const ua = navigator.userAgent || '';
   return /iPad|iPhone|iPod/i.test(ua)
     || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
-// Wohin die Reise geht — getrennt vom Navigieren, damit es prüfbar bleibt
+// Wohin die Reise geht — als fertige Link-Angaben, damit es prüfbar bleibt
 function appZiel(name) {
   const a = cardApp(name);
   if (!a) return null;
   if (/Android/i.test(navigator.userAgent || '') && a.android) {
-    return { art: 'intent', url: `intent://#Intent;package=${a.android};S.browser_fallback_url=${encodeURIComponent(a.url)};end` };
+    return {
+      art: 'intent',
+      url: `intent://#Intent;package=${a.android};S.browser_fallback_url=${encodeURIComponent(a.url)};end`,
+      neuerTab: false,
+    };
   }
-  if (istHandyIOS()) return { art: 'universal', url: a.iosUrl || a.url };
-  return { art: 'tab', url: a.url };
+  // Handy: gleicher Tab, sonst verschluckt Safari den Universal Link.
+  // iOS öffnet fremde Domains aus einer Homescreen-App von sich aus in Safari,
+  // mit "Fertig" zum Zurückkommen. Wo gar kein Universal Link existieren kann,
+  // sparen wir uns den Versuch und gehen gleich sauber in einen eigenen Tab.
+  if (istHandyIOS()) {
+    return a.keinUniLink
+      ? { art: 'web', url: a.url, neuerTab: true }
+      : { art: 'universal', url: a.iosUrl || a.url, neuerTab: false };
+  }
+  return { art: 'tab', url: a.url, neuerTab: true };
 }
-function oeffneHaendlerApp(name) {
-  const ziel = appZiel(name);
-  if (!ziel) return;
-  // Neuer Tab nur am Rechner: Safari löst Universal Links sonst nicht aus
-  if (ziel.art === 'tab') window.open(ziel.url, '_blank', 'noopener');
-  else location.href = ziel.url;
+// Fertige Attribute für ein <a> — so wird jeder Sprung ein normaler Link
+function appLinkAttrs(name) {
+  const z = appZiel(name);
+  if (!z) return '';
+  return `href="${esc(z.url)}" ${z.neuerTab ? 'target="_blank" rel="noopener noreferrer"' : 'rel="noopener"'}`;
 }
 
 // Direkt in den App-Store, falls die App gar nicht installiert ist
@@ -5796,14 +5806,14 @@ function cardAppBlockHtml(name) {
     : `Coupons in der ${esc(name)}-App aktivieren`;
   const rest = a.woche ? questRest(name) : 0;
   return `
-    <button class="app-jump" data-app-open="${esc(name)}" style="--bc:${brandColor(name)}">
+    <a class="app-jump" ${appLinkAttrs(name)} style="--bc:${brandColor(name)}">
       ${brandChipHtml(name)}
       <span class="app-jump-txt"><b>${label}</b>
         <small>${a.rotierend
           ? 'Der Code wechselt ständig — hol ihn dir direkt in der App.'
           : 'Coupons einmal antippen, dann gelten sie an der Kasse.'}</small></span>
       ${icon('arrow-right', 'icon icon-sm')}
-    </button>
+    </a>
     ${appStoreLink(name) ? `<a class="app-store-link" href="${esc(appStoreLink(name))}"
       target="_blank" rel="noopener noreferrer">App noch nicht drauf? Hier laden</a>` : ''}
     ${a.hinweis ? `<p class="cc-note">${icon('bulb', 'icon icon-sm')} ${esc(a.hinweis)}</p>` : ''}
@@ -5835,9 +5845,6 @@ function openCardSheet(id) {
     <div id="wc-app-slot">${cardAppBlockHtml(c.name)}</div>
     <button class="btn btn-danger" id="wc-del" style="margin-top:18px">Karte löschen</button>`;
   // Wochen-Erinnerung abhaken (IKEA & Co.): danach laeuft der 7-Tage-Timer
-  const wireApp = () => $('#wc-app-slot').querySelectorAll('[data-app-open]').forEach(b =>
-    b.onclick = () => oeffneHaendlerApp(b.dataset.appOpen));
-  wireApp();
   const wireQuest = () => $('#wc-app-slot').querySelectorAll('[data-quest]').forEach(b => b.onclick = () => {
     if (questRest(b.dataset.quest)) return;
     questErledigt(b.dataset.quest);
@@ -5845,7 +5852,6 @@ function openCardSheet(id) {
     island('Erledigt — in 7 Tagen erinnern wir dich wieder');
     $('#wc-app-slot').innerHTML = cardAppBlockHtml(c.name);
     $('#wc-app-slot').querySelector('.quest-row')?.classList.add('quest-pop');
-    wireApp();
     wireQuest();
   });
   wireQuest();
