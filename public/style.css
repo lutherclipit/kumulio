@@ -3444,3 +3444,10 @@ body.kb-open #chat-box { min-height: 120px; }
 @media (max-width: 560px) {
   .cc-ean-mini { width: 96px; }
 }
+
+/* "gratis!"-Hinweis in der Sofort-einlösbar-Liste */
+.cc-card-flag {
+  flex: none; background: var(--accent-strong, #12C77E); color: #fff;
+  font-size: .64rem; font-weight: 800; letter-spacing: .02em;
+  border-radius: 999px; padding: 3px 8px;
+}

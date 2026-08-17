@@ -754,22 +754,27 @@ function renderCoupons(host) {
     || (b.quelle?.cat || '').toLowerCase().includes(q)
     || (b.card?.number || '').toLowerCase().includes(q));
 
-  // Oben in einer Reihe: was man ohne Sparkarte sofort einlösen kann
-  // (Burger King, Netto, McDonald's). Der Rest folgt im Raster darunter.
+  // Oben, was man ohne Sparkarte sofort einlösen kann (Burger King, Netto,
+  // McDonald's): breite Zeilen untereinander — da muss man nicht seitwärts
+  // scrollen und sieht auf einen Blick, was drinsteckt.
   const sofort = marken.filter(b => (b.coupons && b.coupons.open) || /mcdonald/i.test(b.name));
   const rest = marken.filter(b => !sofort.includes(b));
 
   host.innerHTML = `
     <h3 class="wallet-h" style="margin-top:0">Sofort einlösbar</h3>
-    <div class="cc-rail">${sofort.map(b => {
+    <div class="cc-cards">${sofort.map(b => {
       const gratis = /mcdonald/i.test(b.name) && (mccheapDaten?.items || []).some(x => x.gratis);
+      const n = b.coupons ? b.coupons.count : 0;
       return `
-      <button class="cc-tile" data-brand="${esc(b.key)}" style="--bc:${brandColor(b.name)}">
+      <button class="cc-card" data-brand="${esc(b.key)}" style="--bc:${brandColor(b.name)}">
         ${brandChipHtml(b.name)}
-        <b>${esc(b.name)}</b>
-        <small>${esc(brandUntertitel(b))}</small>
-        ${b.coupons?.validUntil ? `<span class="cc-tile-date">bis ${dateShort(b.coupons.validUntil)}</span>` : ''}
-        ${gratis ? '<span class="cc-tile-flag">gratis!</span>' : ''}
+        <span class="cc-card-main">
+          <b>${esc(b.name)}</b>
+          <small>${n ? `${n} Coupon${n === 1 ? '' : 's'}${b.coupons.validUntil ? ' · bis ' + dateShort(b.coupons.validUntil) : ''}`
+            : 'App-Coupons und McCheap-Funde'}</small>
+        </span>
+        ${gratis ? '<span class="cc-card-flag">gratis!</span>' : ''}
+        ${icon('arrow-right', 'icon icon-sm')}
       </button>`;
     }).join('') || '<div class="status">Gerade nichts ohne Karte verfügbar.</div>'}</div>
     <h3 class="wallet-h" style="margin-top:14px">Deine Karten &amp; Coupons</h3>
