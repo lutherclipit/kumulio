@@ -56,7 +56,7 @@ const fmtFunken = n => (Math.round(Number(n)) || 0).toLocaleString('de-DE');
 const funkeIcon = (small = false) =>
   `<img class="px-icon${small ? ' px-16' : ''}" src="${small ? '/gamification/currency-funke-16.svg' : CUR.icon}" alt="${CUR.name}">`;
 
-const VIEW_ORDER = ['wallet', 'feed', 'chat', 'search', 'profile', 'settings', 'friends', 'user', 'inventory', 'shop', 'gifts', 'editprofile'];
+const VIEW_ORDER = ['wallet', 'feed', 'chat', 'search', 'profile', 'settings', 'friends', 'user', 'inventory', 'shop', 'gifts', 'invite', 'editprofile'];
 const FEED_LIMIT = 40;
 
 // Menüpunkte oben: Sparen / Verdienen / Neukunden / Coupons.
@@ -277,6 +277,7 @@ function switchView(next, animClass) {
   if (next === 'inventory') renderInventoryPage();
   if (next === 'shop') renderShopPage();
   if (next === 'gifts') renderGiftsPage();
+  if (next === 'invite') renderInvitePage();
   if (next !== 'wallet') $('#wallet-mini')?.classList.remove('show');
   document.body.classList.toggle('chat-locked', next === 'chat');
   if (next !== 'chat') document.body.style.transform = ''; // Tastatur-Versatz zurücksetzen
@@ -299,6 +300,7 @@ $('#btn-user-back').addEventListener('click', () => switchView(userPageReturn, '
 $('#btn-inv-back').addEventListener('click', () => switchView('profile', 'enter-drop'));
 $('#btn-shop-back').addEventListener('click', () => switchView('profile', 'enter-drop'));
 $('#btn-gifts-back').addEventListener('click', () => switchView('profile', 'enter-drop'));
+$('#btn-invite-back')?.addEventListener('click', () => switchView('profile', 'enter-drop'));
 $('#btn-edit-back').addEventListener('click', () => switchView('profile', 'enter-drop'));
 
 // ---- Freunde-Bereich: Liste mit Profilbild, Profil ansehen oder schreiben
@@ -2830,7 +2832,7 @@ function toggleTopMenu() {
       f.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 400);
   };
-  $('#tm-invite').onclick = () => { done(); shareInvite(); };
+  $('#tm-invite').onclick = () => { done(); switchView('invite', 'enter-drop'); };
   $('#tm-gifts').onclick = () => { done(); switchView('gifts', 'enter-drop'); };
   $('#tm-favs').onclick = () => {
     done();
@@ -3046,22 +3048,7 @@ function authOk(r, { welcome = false } = {}) {
   localStorage.setItem('ra.user', r.user);
   refreshProfileTab();
   pullWallet(); // Wallet vom Konto holen (Gerätewechsel/Neuinstallation)
-  connectStream();
-
-// Einladungslink: ?ref=NAME wird gemerkt und zaehlt bei der Registrierung
-{
-  const rp = new URLSearchParams(location.search).get('ref');
-  if (rp) localStorage.setItem('ra.ref', rp.slice(0, 24));
-}
-// Freunde einladen: eigener Link, 1000 Funken je geworbenem Freund
-function shareInvite() {
-  if (!state.userName) { island('Zum Einladen bitte anmelden'); return; }
-  const url = 'https://kumulio.de/?ref=' + encodeURIComponent(state.userName);
-  const text = 'Komm zu kumulio: Deals, Preisfehler-Alarm und deine Gutschein-Wallet in einer App.';
-  if (navigator.share) { navigator.share({ title: 'kumulio', text, url }).catch(() => { }); return; }
-  navigator.clipboard.writeText(url).then(() => island('Einladungslink kopiert'))
-    .catch(() => island(url));
-} // Echtzeit-Stream mit dem frischen Token neu verbinden
+  connectStream(); // Echtzeit-Stream mit dem frischen Token neu verbinden
   api('/api/me').then(x => { state.role = x.role || ''; refreshAdminUi(); }).catch(() => { });
   if (welcome) {
     // Willkommens-Moment: der Punkt quittiert das neue Konto
@@ -3101,6 +3088,13 @@ $('#btn-login').addEventListener('click', async () => {
 // Registrieren: eigenes Popup mit E-Mail-Pflicht + Captcha
 $('#btn-register-open').addEventListener('click', () => {
   $('#reg-msg').textContent = '';
+  // Über einen Einladungslink gekommen? Dann sagen wir sofort, was es bringt
+  const ref = localStorage.getItem('ra.ref');
+  const note = $('#reg-ref-note');
+  if (note) {
+    note.classList.toggle('hidden', !ref);
+    if (ref) note.innerHTML = `${icon('gift', 'icon icon-sm')} <span><b>@${esc(ref)}</b> hat dich eingeladen: <b>500 Funken</b> Startguthaben, sobald dein Konto steht.</span>`;
+  }
   $('#register-backdrop').classList.remove('hidden');
   renderTurnstile('reg');
 });
@@ -3121,7 +3115,11 @@ $('#btn-register').addEventListener('click', async () => {
       }),
     });
     hideOverlay($('#register-backdrop'));
+    const hatteRef = localStorage.getItem('ra.ref');
     localStorage.removeItem('ra.ref');
+    if (hatteRef && r.refBonus) {
+      setTimeout(() => achvToast(`Willkommensgeschenk von @${hatteRef}`, `+${fmtFunken(r.refBonus)} Funken sind auf deinem Konto`), 900);
+    }
     $('#reg-pass').value = '';
     authOk(r, { welcome: true });
     if (state.activeView !== 'profile') switchView('profile');
@@ -6503,22 +6501,7 @@ function connectStream() {
   es.onerror = () => {
     es.close();
     if (chatStream === es) chatStream = null;
-    setTimeout(() => { if (!chatStream) connectStream();
-
-// Einladungslink: ?ref=NAME wird gemerkt und zaehlt bei der Registrierung
-{
-  const rp = new URLSearchParams(location.search).get('ref');
-  if (rp) localStorage.setItem('ra.ref', rp.slice(0, 24));
-}
-// Freunde einladen: eigener Link, 1000 Funken je geworbenem Freund
-function shareInvite() {
-  if (!state.userName) { island('Zum Einladen bitte anmelden'); return; }
-  const url = 'https://kumulio.de/?ref=' + encodeURIComponent(state.userName);
-  const text = 'Komm zu kumulio: Deals, Preisfehler-Alarm und deine Gutschein-Wallet in einer App.';
-  if (navigator.share) { navigator.share({ title: 'kumulio', text, url }).catch(() => { }); return; }
-  navigator.clipboard.writeText(url).then(() => island('Einladungslink kopiert'))
-    .catch(() => island(url));
-} }, Math.min(15000, 1500 * ++streamRetry));
+    setTimeout(() => { if (!chatStream) connectStream(); }, Math.min(15000, 1500 * ++streamRetry));
   };
 }
 connectStream();
@@ -6528,14 +6511,79 @@ connectStream();
   const rp = new URLSearchParams(location.search).get('ref');
   if (rp) localStorage.setItem('ra.ref', rp.slice(0, 24));
 }
-// Freunde einladen: eigener Link, 1000 Funken je geworbenem Freund
+function inviteUrl() { return 'https://kumulio.de/?ref=' + encodeURIComponent(state.userName || ''); }
+// Teilen bzw. kopieren, je nachdem was das Geraet kann
 function shareInvite() {
   if (!state.userName) { island('Zum Einladen bitte anmelden'); return; }
-  const url = 'https://kumulio.de/?ref=' + encodeURIComponent(state.userName);
-  const text = 'Komm zu kumulio: Deals, Preisfehler-Alarm und deine Gutschein-Wallet in einer App.';
+  const url = inviteUrl();
+  const text = 'Komm zu kumulio: Deals, Preisfehler-Alarm und deine Gutschein-Wallet in einer App. Über meinen Link bekommst du 500 Funken zum Start.';
   if (navigator.share) { navigator.share({ title: 'kumulio', text, url }).catch(() => { }); return; }
-  navigator.clipboard.writeText(url).then(() => island('Einladungslink kopiert'))
-    .catch(() => island(url));
+  copyInvite();
+}
+function copyInvite() {
+  navigator.clipboard.writeText(inviteUrl())
+    .then(() => { island('Einladungslink kopiert'); playSfx('plop'); })
+    .catch(() => island(inviteUrl()));
+}
+// Eigene Seite: erklaert das Programm, zeigt den Link und die eigene Bilanz
+async function renderInvitePage() {
+  const host = $('#invite-page');
+  if (!host) return;
+  if (!state.token) {
+    host.innerHTML = '<div class="status">Zum Einladen bitte anmelden.</div>';
+    return;
+  }
+  await refreshGami(); // frischer Werbe-Zaehler
+  const n = myProfile?.refCount || 0;
+  const verdient = n * 1000;
+  host.innerHTML = `
+    <div class="inv-hero">
+      <div class="inv-hero-icons">
+        <span class="inv-chip">${funkeIcon()}</span>
+        <span class="inv-plus">+</span>
+        <span class="inv-chip">${icon('user', 'icon')}</span>
+      </div>
+      <b>Bring deine Leute mit</b>
+      <span>Für jeden Freund, der sich über deinen Link anmeldet, bekommst du 1.000 Funken.
+        Dein Freund startet mit 500 Funken. So oft du magst, ohne Limit.</span>
+    </div>
+
+    <div class="inv-stats">
+      <div class="inv-stat">
+        <b>${n}</b>
+        <span>${n === 1 ? 'Freund geworben' : 'Freunde geworben'}</span>
+      </div>
+      <div class="inv-stat">
+        <b>${funkeIcon(true)} ${fmtFunken(verdient)}</b>
+        <span>dadurch verdient</span>
+      </div>
+    </div>
+
+    <h3 class="gm-h">Dein Einladungslink</h3>
+    <div class="inv-link" id="inv-link-box" role="button" aria-label="Link kopieren">
+      <span class="inv-link-text">${esc(inviteUrl())}</span>
+      ${icon('list', 'icon icon-sm')}
+    </div>
+    <div class="form-row" style="margin-top:10px">
+      <button class="btn btn-big" id="inv-share">${icon('share', 'icon icon-sm')} Link teilen</button>
+      <button class="btn btn-small btn-ghost" id="inv-copy">Kopieren</button>
+    </div>
+
+    <h3 class="gm-h">So läuft es</h3>
+    <div class="inv-steps">
+      <div class="inv-step"><b>1</b><span>Link teilen, per WhatsApp, Story oder wie du magst.</span></div>
+      <div class="inv-step"><b>2</b><span>Dein Freund öffnet ihn und legt ein kostenloses Konto an.</span></div>
+      <div class="inv-step"><b>3</b><span>Sofort danach: 1.000 Funken für dich, 500 für deinen Freund.</span></div>
+    </div>
+
+    <div class="inv-note">
+      ${icon('bulb', 'icon icon-sm')}
+      <span>Funken gibt es nur fürs Mitmachen, nie für Echtgeld. Mit ihnen holst du dir Container
+        mit Emotes, Paints, Stickern und Profilrahmen. Mehrfach-Konten zählen nicht.</span>
+    </div>`;
+  $('#inv-share').onclick = shareInvite;
+  $('#inv-copy').onclick = copyInvite;
+  $('#inv-link-box').onclick = copyInvite;
 }
 
 // ---------------- Start ----------------

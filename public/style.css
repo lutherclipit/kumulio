@@ -3037,3 +3037,76 @@ body.kb-open #view-chat.emotes-open:has(#dm-head:not(.hidden)) { --chatpad: 392p
 
 /* Dropdown: kleiner Funken-Hinweis am Einladen-Eintrag */
 .tm-sub-hint { margin-left: auto; font-size: .72rem; color: var(--muted); font-weight: 700; }
+
+/* ================= Runde 62: Freunde-einladen-Seite ================= */
+
+.inv-hero {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  text-align: center; padding: 22px 18px;
+  background: linear-gradient(140deg, #12C77E 0%, #0E9C64 55%, #0B7C50 100%);
+  color: #fff; border-radius: 20px; margin-bottom: 14px;
+}
+.inv-hero b { font-size: 1.15rem; }
+.inv-hero span { font-size: .86rem; line-height: 1.5; opacity: .92; max-width: 330px; }
+.inv-hero-icons { display: flex; align-items: center; gap: 10px; margin-bottom: 2px; }
+.inv-chip {
+  width: 46px; height: 46px; border-radius: 999px;
+  background: rgba(255, 255, 255, .18);
+  display: flex; align-items: center; justify-content: center;
+}
+.inv-chip .icon { width: 24px; height: 24px; color: #fff; }
+.inv-chip .px-icon { width: 24px; height: 24px; }
+.inv-plus { font-size: 1.3rem; font-weight: 900; opacity: .8; }
+
+.inv-stats { display: flex; gap: 10px; margin-bottom: 4px; }
+.inv-stat {
+  flex: 1; text-align: center; padding: 14px 10px;
+  background: var(--surface); border: 1px solid var(--stroke-light); border-radius: 16px;
+}
+.inv-stat b { display: block; font-size: 1.45rem; font-weight: 900; letter-spacing: -.02em; }
+.inv-stat b .px-icon { width: 18px; height: 18px; vertical-align: -2px; }
+.inv-stat span { font-size: .74rem; color: var(--muted); }
+
+.inv-link {
+  display: flex; align-items: center; gap: 10px; cursor: pointer;
+  background: var(--surface-2); border: 1px dashed var(--stroke-light);
+  border-radius: 14px; padding: 13px 14px;
+}
+.inv-link:active { transform: scale(.99); }
+.inv-link-text {
+  flex: 1; min-width: 0; font-size: .84rem; font-weight: 700;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.inv-link .icon { color: var(--muted); flex: none; }
+
+.inv-steps { display: flex; flex-direction: column; gap: 8px; }
+.inv-step {
+  display: flex; align-items: flex-start; gap: 12px;
+  background: var(--surface); border: 1px solid var(--stroke-light);
+  border-radius: 14px; padding: 12px 14px;
+}
+.inv-step b {
+  flex: none; width: 24px; height: 24px; border-radius: 999px;
+  background: var(--accent-strong, #12C77E); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .8rem; font-weight: 900;
+}
+.inv-step span { font-size: .87rem; line-height: 1.45; }
+
+.inv-note {
+  display: flex; gap: 10px; align-items: flex-start;
+  margin: 16px 0 24px; padding: 12px 14px;
+  background: var(--surface-2); border-radius: 14px;
+  font-size: .78rem; line-height: 1.5; color: var(--muted);
+}
+.inv-note .icon { flex: none; margin-top: 1px; }
+
+/* Hinweis im Registrieren-Dialog, wenn man über einen Einladungslink kommt */
+.reg-ref-note {
+  display: flex; align-items: center; gap: 10px; margin: 10px 0 4px;
+  padding: 11px 13px; border-radius: 14px;
+  background: rgba(18, 199, 126, .12);
+  border: 1px solid rgba(18, 199, 126, .35);
+  font-size: .84rem; line-height: 1.45;
+}
+.reg-ref-note .icon { flex: none; color: var(--accent-strong, #12C77E); }

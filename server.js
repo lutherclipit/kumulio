@@ -1085,19 +1085,24 @@ const server = http.createServer(async (req, res) => {
       // Deckel gegen Fake-Konten-Farmen)
       const ref = String(b.ref || '').trim();
       const refUser = ref && Object.keys(users).find(k => k.toLowerCase() === ref.toLowerCase());
+      let refBonus = 0;
       if (refUser && refUser !== user) {
+        // Beide profitieren: Werber 1.000, Neuling 500 Funken zum Start.
+        // Kein Limit — wer viele Leute mitbringt, verdient auch viel.
         const rp = profileOf(refUser);
         rp.refCount = (rp.refCount || 0) + 1;
-        if (rp.refCount <= 20) {
-          rp.coins = (rp.coins || 0) + 1000;
-          pushToUser(refUser, { title: 'Freund geworben!', body: `@${user} ist über deinen Link dabei: 1.000 Funken für dich.`, url: '/?tab=profile', tag: 'ref-' + user, kind: 'mention', from: user });
-        }
+        rp.coins = (rp.coins || 0) + 1000;
+        const np = profileOf(user);
+        np.coins = (np.coins || 0) + 500;
+        np.invitedBy = refUser;
+        refBonus = 500;
+        pushToUser(refUser, { title: 'Freund geworben!', body: `@${user} ist über deinen Link dabei: 1.000 Funken für dich.`, url: '/?tab=profile', tag: 'ref-' + user, kind: 'mention', from: user });
       }
       saveJson('users.json', users);
       const token = crypto.randomBytes(18).toString('hex');
       sessions[token] = user;
       saveJson('sessions.json', sessions);
-      return send(res, 201, { token, user });
+      return send(res, 201, { token, user, refBonus });
     }
 
     if (p === '/api/login' && req.method === 'POST') {

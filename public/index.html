@@ -319,6 +319,17 @@
       <div id="shop-page" style="margin-top:4px"></div>
     </section>
 
+    <!-- ================= FREUNDE EINLADEN (eigene Seite) ================= -->
+    <section id="view-invite" class="view hidden">
+      <div class="search-head">
+        <button class="iconbtn back-btn" id="btn-invite-back" aria-label="Zurück">
+          <svg class="icon"><use href="#i-arrow-back"/></svg>
+        </button>
+        <h1 style="margin:0">Freunde einladen</h1>
+      </div>
+      <div id="invite-page"></div>
+    </section>
+
     <!-- ================= GESCHENKE (eigene Seite) ================= -->
     <section id="view-gifts" class="view hidden">
       <div class="search-head">
@@ -588,6 +599,7 @@
   <div id="register-backdrop" class="overlay hidden">
     <div class="modal modal-left">
       <h2>Registrieren</h2>
+      <div id="reg-ref-note" class="reg-ref-note hidden"></div>
       <p class="muted" style="font-size:.84rem; margin-top:4px">Mit Profil kannst du kommentieren,
         bewerten und dir Beschreibungen entwerfen lassen.</p>
       <input id="reg-user" class="input" maxlength="24" placeholder="Benutzername" autocomplete="username">
