@@ -3145,8 +3145,8 @@ body.kb-open #view-chat.emotes-open:has(#dm-head:not(.hidden)) { --chatpad: 392p
 .cc-list { display: flex; flex-direction: column; gap: 8px; }
 .cc-item {
   display: grid; align-items: center; gap: 12px; width: 100%;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  grid-template-areas: "media text meta";
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-areas: "media text meta stern";
   background: var(--surface); border: 1px solid var(--stroke-light);
   border-radius: 14px; padding: 11px 13px;
   font: inherit; color: inherit; text-align: left; cursor: pointer;
@@ -3235,30 +3235,44 @@ body.kb-open #view-chat.emotes-open:has(#dm-head:not(.hidden)) { --chatpad: 392p
 .cc-filters { margin: 10px 0 4px; }
 .cc-filters .chip .icon { width: 13px; height: 13px; vertical-align: -2px; }
 .cc-item { cursor: pointer; }
-.cc-right { grid-area: meta; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.cc-right { grid-area: meta; display: flex; align-items: center; }
+/* Der Stern hat eine eigene Spalte und eine Trefferflaeche, die man am Handy
+   auch wirklich trifft — vorher klebte er unter dem Preis und man erwischte
+   stattdessen die Zeile (und damit die grosse Ansicht). */
 .cc-fav {
-  background: none; border: none; padding: 2px; cursor: pointer;
-  color: var(--muted); opacity: .55; line-height: 0;
+  grid-area: stern; align-self: center;
+  width: 46px; height: 46px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  background: none; border: none; padding: 0; cursor: pointer;
+  color: var(--muted); opacity: .5; line-height: 0;
+  transition: opacity .2s ease, color .2s ease, transform .2s var(--spring);
 }
+.cc-fav .icon { width: 25px; height: 25px; transition: fill .2s ease; }
 .cc-fav.on { color: #F5B301; opacity: 1; }
 .cc-fav.on .icon { fill: #F5B301; }
-.cc-fav:active { transform: scale(.85); }
+.cc-fav:active { transform: scale(.82); }
+@keyframes favPop {
+  0%   { transform: scale(1) rotate(0); }
+  35%  { transform: scale(1.5) rotate(14deg); }
+  65%  { transform: scale(.92) rotate(-6deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+.cc-fav.pop .icon { animation: favPop .5s cubic-bezier(.3, 1.5, .5, 1); }
+@media (prefers-reduced-motion: reduce) { .cc-fav.pop .icon { animation: none; } }
 
 /* Handy: Text bekommt die volle Restbreite, Preis und Stern wandern
    in eine eigene Zeile darunter — statt drei enge Spalten nebeneinander */
 @media (max-width: 560px) {
   .cc-item {
-    grid-template-columns: 96px minmax(0, 1fr);
-    grid-template-areas: "media text" "media meta";
-    align-items: start; column-gap: 11px; row-gap: 7px; padding: 10px 12px;
+    grid-template-columns: 96px minmax(0, 1fr) auto;
+    grid-template-areas: "media text  stern"
+                         "media meta  stern";
+    align-items: start; column-gap: 11px; row-gap: 7px; padding: 10px 8px 10px 12px;
   }
   .cc-media { width: 96px; align-self: center; }
   .cc-img { width: 96px; }
   .cc-text b { font-size: .95rem; }
-  .cc-right {
-    flex-direction: row; align-items: center; justify-content: flex-start; gap: 10px;
-  }
-  .cc-fav { padding: 4px 2px; }
+  .cc-right { justify-content: flex-start; }
 }
 
 /* Coupon nach links wischen = Favorit (wie bei den Deals) */
@@ -3463,3 +3477,15 @@ body.kb-open #chat-box { min-height: 120px; }
 /* Die Quest-Zeile ist jetzt ein Link */
 a.app-quest { text-decoration: none; }
 a.app-quest .app-quest-txt { flex: 1; min-width: 0; }
+
+/* Wenn der Händler auf dem iPhone keinen App-Sprung zulässt */
+.app-hinweis {
+  display: flex; align-items: flex-start; gap: 9px; margin-top: 12px;
+  background: rgba(245, 179, 1, .09); border: 1px solid rgba(245, 179, 1, .35);
+  border-radius: 14px; padding: 12px 13px;
+  font-size: .8rem; line-height: 1.45; color: var(--text);
+}
+.app-hinweis .icon { flex: none; margin-top: 2px; color: #B8860B; }
+.app-hinweis b { display: block; margin-bottom: 2px; }
+/* Der Stern darf nicht in die Wisch-Erkennung geraten */
+.cc-fav { touch-action: manipulation; }

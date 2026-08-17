@@ -5488,14 +5488,12 @@ function renderCardCoupons(key, brand, d, host) {
     ${d.validUntil ? `<div class="cc-valid ${abgelaufen ? 'over' : ''}">${icon('clock', 'icon icon-sm')}
       ${abgelaufen ? 'Abgelaufen seit' : 'Gültig bis'} ${dateShort(d.validUntil)}</div>` : ''}
     <div class="wallet-filters cc-filters" id="cc-filters"></div>
-    <div id="cc-favbox"></div>
     <div id="cc-body"></div>
     ${d.note ? `<p class="cc-note">${icon('bulb', 'icon icon-sm')} ${esc(d.note)}</p>` : ''}
     ${state.role === 'admin' ? `<button class="btn btn-small btn-ghost" id="cc-edit" style="margin-top:14px">Coupons pflegen</button>` : ''}`;
   $('#cc-edit') && ($('#cc-edit').onclick = () => openCardCouponEditor(key, d));
   ccFilterChips();
   ccBody();
-  ccFavBox();
   ccWireSheet();
 }
 
@@ -5522,9 +5520,10 @@ function ccZeile(it) {
         </span>
         <span class="cc-right">
           <span class="cc-price">${esc(it.price)}${/^[\d.,]+$/.test(it.price) ? ' €' : ''}</span>
-          <button class="cc-fav ${fav ? 'on' : ''}" data-cc-fav="${esc(it.code)}"
-            aria-label="${fav ? 'Aus Favoriten entfernen' : 'Zu Favoriten'}">${icon('star', 'icon icon-sm')}</button>
         </span>
+        <button class="cc-fav ${fav ? 'on' : ''}" data-cc-fav="${esc(it.code)}"
+          aria-label="${fav ? 'Aus Favoriten entfernen' : 'Zu Favoriten'}"
+          aria-pressed="${fav ? 'true' : 'false'}">${icon('star', 'icon')}</button>
       </div>
     </div>`;
 }
@@ -5563,58 +5562,37 @@ function ccBody() {
       if (isNaN(pb)) return -1;
       return sicht === 'preisAuf' ? pa - pb : pb - pa;
     });
-    host.innerHTML = `<div class="cc-list">${sorted
-      .filter(it => !ccIsFav(ccCtx.key, it.code)).map(ccZeile).join('')}</div>`;
+    host.innerHTML = `<div class="cc-list">${sorted.map(ccZeile).join('')}</div>`;
   } else if (sicht === 'favs') {
     const favs = ccFavListe();
     host.innerHTML = favs.length
       ? `<div class="cc-list">${favs.map(ccZeile).join('')}</div>`
       : '<div class="status">Noch keine Favoriten. Tippe auf den Stern oder wisch die Zeile nach links.</div>';
   } else {
-    // Was oben schon als Favorit steht, taucht unten nicht nochmal auf —
-    // sonst steht derselbe Coupon zweimal im Blatt
-    host.innerHTML = (d.groups || []).map(g => {
-      const rest = g.items.filter(it => !ccIsFav(ccCtx.key, it.code));
-      if (!rest.length) return '';
-      return `
+    host.innerHTML = (d.groups || []).map(g => `
       <h3 class="gm-h">${esc(g.title)}</h3>
-      <div class="cc-list">${rest.map(ccZeile).join('')}</div>`;
-    }).join('');
+      <div class="cc-list">${g.items.map(ccZeile).join('')}</div>`).join('');
   }
 }
 
-// Favoriten-Block oben: wird einzeln nachgezogen, der Rest der Liste bleibt stehen
-function ccFavBox() {
-  const host = $('#cc-favbox');
-  if (!host) return;
-  const favs = ccAnsicht() === 'favs' ? [] : ccFavListe();
-  host.innerHTML = favs.length ? `
-    <h3 class="gm-h">${icon('star', 'icon icon-sm')} Deine Favoriten</h3>
-    <div class="cc-list">${favs.map(ccZeile).join('')}</div>` : '';
-}
-
-// Ein einzelner Favorit wechselt: nur Sterne umfaerben, Zaehler und Block nachziehen.
-// Der Favoriten-Block oben waechst dabei — ohne Ausgleich wuerde einem die Liste
-// unter dem Finger wegrutschen, deshalb wird der Scroll um genau diesen Betrag
-// nachgezogen.
-// Der Coupon wandert zwischen Favoriten-Block und Hauptliste hin und her.
-// Beide Bereiche werden neu gesetzt, der Scroll dabei am unteren Block verankert,
-// damit einem beim Favorisieren nichts unter dem Finger wegrutscht.
+// Favorisieren verschiebt nichts: der Coupon bleibt an seinem Platz, nur der
+// Stern wechselt die Farbe und poppt kurz. Zum Nachschlagen gibt es den Filter.
 function ccFavGeaendert(code) {
-  const blatt = $('#sheet-content');
-  const anker = $('#cc-body .cc-wrap');
-  const ankerVorher = anker?.getBoundingClientRect().top ?? 0;
-  const ankerCode = anker?.dataset.ccWrap;
+  const an = ccIsFav(ccCtx.key, code);
+  document.querySelectorAll(`#sheet-content [data-cc-wrap="${CSS.escape(code)}"]`).forEach(w => {
+    w.querySelector('.cc-item')?.classList.toggle('fav', an);
+    const b = w.querySelector('.cc-fav');
+    if (!b) return;
+    b.classList.toggle('on', an);
+    b.setAttribute('aria-pressed', an ? 'true' : 'false');
+    b.setAttribute('aria-label', an ? 'Aus Favoriten entfernen' : 'Zu Favoriten');
+    b.classList.remove('pop');
+    void b.offsetWidth;
+    if (an) b.classList.add('pop');
+  });
   ccFilterChips();
-  if (ccAnsicht() === 'favs') { ccBody(); return; }
-  ccFavBox();
-  ccBody();
-  // Der Anker wurde neu gebaut — dieselbe Zeile wieder suchen und ausgleichen
-  const neu = ankerCode && $(`#cc-body [data-cc-wrap="${CSS.escape(ankerCode)}"]`);
-  if (blatt && neu && blatt.scrollTop > 0) {
-    const rutsch = neu.getBoundingClientRect().top - ankerVorher;
-    if (rutsch) blatt.scrollTop += rutsch;
-  }
+  // Nur in der Favoriten-Ansicht muss die Liste selbst nachziehen
+  if (ccAnsicht() === 'favs') ccBody();
 }
 
 // Ein einziger Satz Handler fuer das ganze Blatt — ueberlebt jedes Nachzeichnen.
@@ -5624,25 +5602,28 @@ function ccFavGeaendert(code) {
 let ccSwipeSperre = 0;
 function ccWireSheet() {
   const sheet = $('#sheet-content');
-  let wrap = null, card = null, sx = 0, sy = 0, dx = 0, aktiv = false, start = 0, sternZiel = null;
+  let wrap = null, card = null, sx = 0, sy = 0, dx = 0, aktiv = false, start = 0;
 
   const aufraeumen = () => {
     if (card) card.style.transform = '';
     wrap?.classList.remove('dragging');
     document.body.classList.remove('no-select');
-    wrap = card = null; aktiv = false; dx = 0; sternZiel = null;
+    wrap = card = null; aktiv = false; dx = 0;
   };
 
   sheet.onpointerdown = e => {
-    if (e.target.closest('[data-ccsort]')) return;
+    // Chips und Stern sind Knoepfe — die laufen ueber ihren eigenen Klick,
+    // sonst reisst der Browser bei der kleinsten Seitwaertsbewegung den
+    // Pointer ab (touch-action) und das Antippen verpufft
+    if (wrap) aufraeumen();     // falls ein Wisch ohne pointerup verendet ist
+    if (e.target.closest('[data-ccsort]') || e.target.closest('.cc-fav')) return;
     const w = e.target.closest('.cc-wrap');
     if (!w) return;
     wrap = w; card = w.querySelector('.cc-item');
     sx = e.clientX; sy = e.clientY; dx = 0; aktiv = false; start = Date.now();
-    sternZiel = e.target.closest('.cc-fav');   // Stern: nur tippen, nicht wischen
   };
   sheet.onpointermove = e => {
-    if (!wrap || sternZiel) return;
+    if (!wrap) return;
     const x = e.clientX - sx, y = e.clientY - sy;
     if (!aktiv) {
       if (Math.abs(y) > 12) { aufraeumen(); return; }   // das war Scrollen
@@ -5659,7 +5640,7 @@ function ccWireSheet() {
   };
   const ende = e => {
     if (!wrap) return;
-    const w = wrap, code = w.dataset.ccWrap, stern = sternZiel;
+    const w = wrap, code = w.dataset.ccWrap;
     const kurz = Date.now() - start < 700;
     const stillGehalten = e && Math.abs(e.clientX - sx) < 10 && Math.abs(e.clientY - sy) < 10;
     const gezogen = aktiv;                    // vor dem Aufräumen sichern
@@ -5676,12 +5657,6 @@ function ccWireSheet() {
     if (!kurz || !stillGehalten) return;
     // Sauberes Antippen: hier selbst auslösen, der Klick danach wird gesperrt
     ccSwipeSperre = Date.now() + 400;
-    if (stern) {
-      ccToggleFav(ccCtx.key, code);
-      buzz(12);
-      ccFavGeaendert(code);
-      return;
-    }
     ccOeffneGross(code);
   };
   sheet.onpointerup = ende;
@@ -5692,22 +5667,25 @@ function ccWireSheet() {
     if (chip) {
       ccSort = chip.dataset.ccsort;
       localStorage.setItem('ra.couponSort', ccSort);
-      ccFilterChips(); ccBody(); ccFavBox();
+      ccFilterChips(); ccBody();
       const body = $('#cc-body');
       body?.classList.remove('cc-fade');
       void body?.offsetWidth;
       body?.classList.add('cc-fade');
       return;
     }
-    // Zeilen und Sterne laufen ueber die Pointer-Erkennung. Der Klick kommt nur
-    // noch bei Tastaturbedienung durch (dann ist die Sperre laengst abgelaufen).
-    if (Date.now() < ccSwipeSperre) return;
+    // Der Stern ist ein Knopf und laeuft ueber seinen eigenen Klick — zuverlaessig
+    // auch dann, wenn der Finger beim Tippen ein wenig wandert
     const stern = e.target.closest('.cc-fav');
     if (stern) {
       ccToggleFav(ccCtx.key, stern.dataset.ccFav);
+      buzz(12);
       ccFavGeaendert(stern.dataset.ccFav);
       return;
     }
+    // Die Zeile selbst kommt ueber die Pointer-Erkennung; der Klick greift nur
+    // bei Tastaturbedienung (dann ist die Wisch-Sperre laengst abgelaufen)
+    if (Date.now() < ccSwipeSperre) return;
     const zeile = e.target.closest('[data-cc-item]');
     if (zeile) ccOeffneGross(zeile.dataset.ccItem);
   };
@@ -5889,15 +5867,28 @@ function restText(ms) {
   return `wieder in ${std} Std.`;
 }
 
-// Der Knopf-Block, der im Sparkarten-Blatt unter dem Barcode sitzt
+// Der Block unter dem Barcode: Sprung in die App, Hinweise, Wochen-Erinnerung.
+// Wo der Händler auf dem iPhone gar keinen App-Sprung zulässt, versprechen wir
+// keinen — dann steht dort, dass man die App selbst öffnen muss.
 function cardAppBlockHtml(name) {
   const a = cardApp(name);
   if (!a) return '';
+  const ziel = appZiel(name);
+  const nurWeb = ziel && ziel.art === 'web';       // iPhone ohne Universal Link
+  const rest = a.woche ? questRest(name) : 0;
   const label = a.rotierend
     ? `${esc(name)}-App öffnen`
     : `Coupons in der ${esc(name)}-App aktivieren`;
-  const rest = a.woche ? questRest(name) : 0;
-  return `
+
+  const sprung = nurWeb ? `
+    <div class="app-hinweis">
+      ${icon('bulb', 'icon icon-sm')}
+      <span><b>${esc(name)} lässt sich von hier nicht direkt öffnen.</b>
+        ${esc(name)} erlaubt das auf dem iPhone nicht — tipp die ${esc(name)}-App
+        auf deinem Startbildschirm an. Der Link hier führt nur auf die Webseite.</span>
+    </div>
+    <a class="app-store-link" ${appLinkAttrs(name)}>Trotzdem die Webseite öffnen</a>`
+  : `
     <a class="app-jump" ${appLinkAttrs(name)} style="--bc:${brandColor(name)}">
       ${brandChipHtml(name)}
       <span class="app-jump-txt"><b>${label}</b>
@@ -5907,15 +5898,27 @@ function cardAppBlockHtml(name) {
       ${icon('arrow-right', 'icon icon-sm')}
     </a>
     ${appStoreLink(name) ? `<a class="app-store-link" href="${esc(appStoreLink(name))}"
-      target="_blank" rel="noopener noreferrer">App noch nicht drauf? Hier laden</a>` : ''}
-    ${a.hinweis ? `<p class="cc-note">${icon('bulb', 'icon icon-sm')} ${esc(a.hinweis)}</p>` : ''}
-    ${a.woche ? `
+      target="_blank" rel="noopener noreferrer">App noch nicht drauf? Hier laden</a>` : ''}`;
+
+  // Die Erinnerung bleibt auch ohne App-Sprung — sie ist ja der eigentliche Sinn.
+  // Ohne Sprung wird sie zum reinen Abhaken statt zu einem Link, der nichts hält.
+  const quest = !a.woche ? '' : nurWeb ? `
+      <button class="app-quest ${rest ? 'done' : ''}" data-quest="${esc(name)}">
+        <span class="app-quest-check">${icon(rest ? 'check' : 'clock', 'icon icon-sm')}</span>
+        <span class="app-quest-txt"><b>Wöchentlich einloggen</b>
+          <small>${rest ? restText(rest) : 'Öffne die ' + esc(name) + '-App und tipp hier auf Erledigt — wir erinnern dich in 7 Tagen wieder.'}</small></span>
+      </button>`
+  : `
       <a class="app-quest ${rest ? 'done' : ''}" data-quest="${esc(name)}" ${appLinkAttrs(name)}>
         <span class="app-quest-check">${icon(rest ? 'check' : 'clock', 'icon icon-sm')}</span>
         <span class="app-quest-txt"><b>Wöchentlich einloggen</b>
           <small>${rest ? restText(rest) : 'Antippen öffnet die App — wir erinnern dich in 7 Tagen wieder.'}</small></span>
         ${icon('arrow-right', 'icon icon-sm')}
-      </a>` : ''}`;
+      </a>`;
+
+  return `${sprung}
+    ${a.hinweis ? `<p class="cc-note">${icon('bulb', 'icon icon-sm')} ${esc(a.hinweis)}</p>` : ''}
+    ${quest}`;
 }
 
 // Ein Blatt je Marke: oben die Sparkarte (Nummer und Barcode fuer die Kasse),
