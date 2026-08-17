@@ -3432,3 +3432,15 @@ body.kb-open #chat-box { min-height: 120px; }
   font-size: .82rem; color: var(--muted); line-height: 1.4;
 }
 .cc-locked .icon { flex: none; }
+
+/* ---- Netto-Wochencoupons: Barcode wird live gezeichnet ---- */
+.cc-ean-mini { display: block; width: 126px; }
+.cc-ean-mini .ean { width: 100%; height: auto; border-radius: 6px; }
+.cc-big-ean { width: 100%; display: flex; justify-content: center; margin: 4px 0 8px; }
+.cc-big-ean .ean {
+  width: 100%; max-width: 340px; height: auto;
+  background: #fff; border-radius: 12px; padding: 8px;
+}
+@media (max-width: 560px) {
+  .cc-ean-mini { width: 96px; }
+}

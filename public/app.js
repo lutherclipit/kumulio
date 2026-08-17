@@ -5285,6 +5285,51 @@ function openVoucherSheet(id, animFrom) {
   openSheetShell();
 }
 
+// EAN-13 als SVG zeichnen. Muss sein, weil die Netto-Codes jede Woche wechseln —
+// fertige Bilddateien waeren spaetestens Montag falsch. Scharf auf jedem Display
+// und winzig im Vergleich zu einem PNG.
+const EAN_L = ['0001101', '0011001', '0010011', '0111101', '0100011',
+               '0110001', '0101111', '0111011', '0110111', '0001011'];
+const EAN_G = ['0100111', '0110011', '0011011', '0100001', '0011101',
+               '0111001', '0000101', '0010001', '0001001', '0010111'];
+const EAN_R = EAN_L.map(x => [...x].map(b => (b === '0' ? '1' : '0')).join(''));
+const EAN_PAR = ['LLLLLL', 'LLGLGG', 'LLGGLG', 'LLGGGL', 'LGLLGG',
+                 'LGGLLG', 'LGGGLL', 'LGLGLG', 'LGLGGL', 'LGGLGL'];
+
+function ean13Svg(code, hoehe = 90) {
+  const c = String(code || '').replace(/\D/g, '');
+  if (c.length !== 13) return '';
+  const z = [...c].map(Number);
+  let muster = '101';
+  for (let i = 0; i < 6; i++) muster += (EAN_PAR[z[0]][i] === 'L' ? EAN_L : EAN_G)[z[i + 1]];
+  muster += '01010';
+  for (let i = 7; i < 13; i++) muster += EAN_R[z[i]];
+  muster += '101';
+
+  const M = 2;                       // Breite eines Moduls
+  const rand = 11 * M;               // Ruhezone links und rechts
+  const w = rand * 2 + muster.length * M;
+  const txt = 15;
+  // Start-, Mittel- und Endbalken laufen etwas tiefer, wie beim Original
+  const lang = i => (i < 3) || (i >= 45 && i < 50) || (i >= 92);
+  let balken = '';
+  for (let i = 0; i < muster.length; i++) {
+    if (muster[i] !== '1') continue;
+    balken += `<rect x="${rand + i * M}" y="0" width="${M}" height="${hoehe + (lang(i) ? 6 : 0)}"/>`;
+  }
+  const mitte = (a, b) => rand + (a + b) / 2 * M;
+  return `<svg class="ean" viewBox="0 0 ${w} ${hoehe + txt + 6}" width="${w}" height="${hoehe + txt + 6}"
+      xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Barcode ${esc(c)}">
+    <rect width="${w}" height="${hoehe + txt + 6}" fill="#fff"/>
+    <g fill="#000">${balken}</g>
+    <g fill="#000" font-family="ui-monospace, monospace" font-size="${txt}" text-anchor="middle">
+      <text x="${rand / 2}" y="${hoehe + txt}">${c[0]}</text>
+      <text x="${mitte(3, 45)}" y="${hoehe + txt}">${c.slice(1, 7)}</text>
+      <text x="${mitte(50, 92)}" y="${hoehe + txt}">${c.slice(7)}</text>
+    </g>
+  </svg>`;
+}
+
 // Eine Marke buendelt alles, was zu einem Haendler gehoert: die Sparkarte in der
 // Wallet, die gepflegten Coupons und den Sprung in die App. Vorher lag das in
 // zwei Tabs verstreut, und dieselbe Marke tauchte doppelt auf.
@@ -5426,7 +5471,8 @@ function renderCardCoupons(key, brand, d, host) {
 function ccZeile(it) {
   const { key, d } = ccCtx;
   const fav = ccIsFav(key, it.code);
-  const bild = it.barcode
+  const bild = it.ean ? `<span class="cc-ean-mini">${ean13Svg(it.code, 34)}</span>`
+    : it.barcode
     ? `<img class="cc-img cc-img-code" src="${esc(it.barcode)}" alt="" loading="lazy" decoding="async">`
     : d.img ? `<img class="cc-img" src="${esc(d.img)}/${esc(it.code)}.jpg" alt="" loading="lazy" decoding="async"
         onerror="this.closest('.cc-media')?.classList.add('no-img')">` : '';
@@ -5436,7 +5482,7 @@ function ccZeile(it) {
       <div class="cc-item ${fav ? 'fav' : ''}" data-cc-item="${esc(it.code)}">
         <span class="cc-media">
           ${bild}
-          <span class="cc-code">${esc(it.barcode ? 'Barcode zeigen' : it.code)}</span>
+          <span class="cc-code">${esc(it.barcode || it.ean ? 'Barcode zeigen' : it.code)}</span>
         </span>
         <span class="cc-text">
           <b>${esc(it.name)}</b>
@@ -5643,13 +5689,14 @@ function ccOeffneGross(code) {
 function showCouponBig(it, brand, validUntil) {
   const wrap = document.createElement('div');
   wrap.className = 'overlay';
-  wrap.innerHTML = `<div class="modal cc-big ${it.barcode ? 'cc-big-bc' : ''}">
+  wrap.innerHTML = `<div class="modal cc-big ${it.barcode || it.ean ? 'cc-big-bc' : ''}">
     <button class="fav-remove" id="ccb-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
     <div class="cc-big-brand">${esc(brand)}</div>
-    ${it.barcode
+    ${it.ean ? `<div class="cc-big-ean">${ean13Svg(it.code, 110)}</div>`
+      : it.barcode
       ? `<img class="cc-big-barcode" src="${esc(it.barcode)}" alt="Barcode ${esc(it.code)}">`
       : it.imgBase ? `<img class="cc-big-img" src="${esc(it.imgBase)}/${esc(it.code)}.jpg" alt="" onerror="this.remove()">` : ''}
-    <div class="cc-big-code ${it.barcode ? 'small' : ''}">${esc(it.code)}</div>
+    ${it.ean ? '' : `<div class="cc-big-code ${it.barcode ? 'small' : ''}">${esc(it.code)}</div>`}
     <div class="cc-big-name">${esc(it.name)}</div>
     ${it.extra ? `<div class="cc-big-extra">${esc(it.extra)}</div>` : ''}
     <div class="cc-big-price">${esc(it.price)}${/^[\d.,]+$/.test(it.price) ? ' €' : ''}</div>

@@ -663,6 +663,109 @@ async function scanMccheap() {
 scanMccheap();
 setInterval(scanMccheap, 60 * 60 * 1000).unref?.();
 
+// ---------------------------------------------------------------- Netto-Wochencoupons
+// Die Rabatt-Barcodes von Netto folgen einem Muster, das sich aus der
+// Kalenderwoche ergibt (so macht es auch nettsoviel.com, wo das Muster
+// oeffentlich dokumentiert ist). Wir rechnen selbst statt zu scrapen: dadurch
+// ist die Liste jede Woche von allein aktuell und haengt an keiner fremden Seite.
+//
+// Wichtig: es sind Haendler-Coupons, keine persoenlichen. Der Hinweis "nur
+// einloesen, wenn man berechtigt ist" gehoert dazu und steht in der note.
+function ean13(zwoelf) {
+  let sum = 0;
+  for (let i = 0; i < 12; i++) sum += parseInt(zwoelf[i], 10) * (i % 2 === 0 ? 1 : 3);
+  return zwoelf + ((10 - sum % 10) % 10);
+}
+// Wochenzaehler wie auf der Quellseite — bewusst NICHT ISO-8601, sondern
+// "Tage seit dem 1. Januar plus dessen Wochentag, aufgerundet durch 7"
+function nettoKw(d = new Date()) {
+  const jan1 = new Date(d.getFullYear(), 0, 1);
+  const tage = (d - jan1) / 86400000;
+  const kw = Math.ceil((tage + jan1.getDay()) / 7);
+  return kw < 10 ? '0' + kw : String(kw);
+}
+function nettoCoupons() {
+  const kw = nettoKw();
+  const wechsel = ['88', '97', '68', '83'][parseInt(kw, 10) % 4];
+  const basis = '98319';
+  const pre = basis + wechsel;
+  const c = (rest, name, extra, prozent) => ({
+    code: ean13(pre + rest), name, extra: extra || '',
+    price: prozent, ean: true,
+  });
+  // Coupons mit eigenem Praefix (gelten nur fuer eine Warengruppe)
+  const g = (praefix, rest, name, extra, prozent) => ({
+    code: ean13(praefix + rest), name, extra: extra || '',
+    price: prozent, ean: true,
+  });
+  const getraenk = 'Ausgenommen sind Pfand, gekühlte Getränke, Milch und milchhaltige Trinkprodukte, alkoholhaltige Getränke exkl. Bier';
+  const fleisch = 'Ausgenommen sind Fleisch- und Wurstartikel in Konserven und aus der Tiefkühlung';
+  const molkerei = 'Ausgenommen sind SB-Fleisch- und Wurstartikel';
+  const obst = 'Ausgenommen sind Obst- und Gemüseartikel in Konserven und Tiefkühlung, Blumen und Pflanzen';
+
+  // Bis wann gilt dieser Satz? Nicht raten, sondern die Formel befragen: der
+  // letzte Tag, an dem sie noch dieselbe Woche liefert. An welchem Wochentag
+  // der Zaehler springt, haengt vom Jahr ab (vom Wochentag des 1. Januar).
+  // Mittags pruefen, nicht um Mitternacht: die Formel rechnet mit Bruchteilen
+  // von Tagen und springt exakt um 00:00, dieser Zeitpunkt zaehlt noch zur
+  // alten Woche. Mit 12 Uhr trifft man, was am Tag tatsaechlich gilt.
+  const heute = new Date();
+  const ende = new Date(heute.getFullYear(), heute.getMonth(), heute.getDate());
+  for (let i = 1; i <= 7; i++) {
+    const test = new Date(heute.getFullYear(), heute.getMonth(), heute.getDate() + i, 12);
+    if (nettoKw(test) !== kw) break;
+    ende.setDate(ende.getDate() + 1);
+  }
+  // Datum lokal zusammensetzen — toISOString() wuerde in unserer Zeitzone
+  // einen Tag zu frueh anzeigen
+  const zz = n => String(n).padStart(2, '0');
+  const iso = `${ende.getFullYear()}-${zz(ende.getMonth() + 1)}-${zz(ende.getDate())}`;
+
+  return {
+    brand: 'Netto',
+    open: true,          // keine Sparkarte nötig, die Codes gelten für alle
+    validUntil: iso,
+    note: 'Barcode an der Kasse zeigen. Die Codes wechseln jede Woche und werden hier automatisch neu berechnet (KW ' + kw + '). '
+      + 'Angaben ohne Gewähr — bitte nur einlösen, wenn du dazu berechtigt bist. An SB-Kassen werden sie oft nicht mehr angenommen.',
+    groups: [
+      {
+        title: 'Auf den ganzen Einkauf',
+        items: [
+          c('02015', '2 × 15 % Rabatt', 'zweimal einlösbar', '15 %'),
+          c('01015', '1 × 15 % Rabatt', '', '15 %'),
+          c('03010', '3 × 10 % Rabatt', 'dreimal einlösbar', '10 %'),
+          c('02010', '2 × 10 % Rabatt', 'zweimal einlösbar', '10 %'),
+          c('01010', '1 × 10 % Rabatt', '', '10 %'),
+          c('05005', '5 × 5 % Rabatt', 'fünfmal einlösbar', '5 %'),
+          c('02005', '2 × 5 % Rabatt', 'zweimal einlösbar', '5 %'),
+          c('01005', '1 × 5 % Rabatt', '', '5 %'),
+        ],
+      },
+      {
+        title: 'Nur für eine Warengruppe',
+        items: [
+          g(basis, '2702015', '2 × 15 % auf Getränke', 'nicht in jeder Filiale. ' + getraenk, '15 %'),
+          g('98323' + wechsel, '02010', '2 × 10 % auf Getränke', getraenk, '10 %'),
+          g('98323' + wechsel, '01010', '1 × 10 % auf Getränke', getraenk, '10 %'),
+          g(basis, '6602015', '2 × 15 % auf Fleisch und Wurst', 'nicht in jeder Filiale. ' + fleisch, '15 %'),
+          g('98322' + wechsel, '02010', '2 × 10 % auf Fleisch und Wurst', fleisch, '10 %'),
+          g('98322' + wechsel, '01010', '1 × 10 % auf Fleisch und Wurst', fleisch, '10 %'),
+          g(basis, '6802015', '2 × 15 % auf Molkereiartikel', 'nicht in jeder Filiale. ' + molkerei, '15 %'),
+          g('98321' + wechsel, '02010', '2 × 10 % auf Molkereiartikel', molkerei, '10 %'),
+          g('98321' + wechsel, '01010', '1 × 10 % auf Molkereiartikel', molkerei, '10 %'),
+          g(basis, '7302015', '2 × 15 % auf Obst und Gemüse', 'nicht in jeder Filiale. ' + obst, '15 %'),
+          g('98320' + wechsel, '02010', '2 × 10 % auf Obst und Gemüse', obst, '10 %'),
+          g('98320' + wechsel, '01010', '1 × 10 % auf Obst und Gemüse', obst, '10 %'),
+        ],
+      },
+    ],
+  };
+}
+// Netto liegt nie in der Datei — der Satz wird bei jedem Abruf frisch gerechnet
+function couponSatz(key) {
+  return key === 'netto' ? nettoCoupons() : cardCoupons[key];
+}
+
 // Hat jemand diese Sparkarte in der Wallet? Nur dann gibt es die Coupons.
 function hasCard(user, key) {
   const w = wallets[user];
@@ -2324,7 +2427,8 @@ const server = http.createServer(async (req, res) => {
     // Welche Sparkarten haben gepflegte Coupons? (nur Übersicht, ohne Inhalte)
     if (p === '/api/cardcoupons/list' && req.method === 'GET') {
       const user = authUser(req);
-      const list = Object.entries(cardCoupons).map(([key, v]) => ({
+      const alle = { ...cardCoupons, netto: nettoCoupons() };
+      const list = Object.entries(alle).map(([key, v]) => ({
         key, brand: v.brand || key, validUntil: v.validUntil || '',
         count: (v.groups || []).reduce((s, g) => s + (g.items || []).length, 0),
         open: !!v.open,
@@ -2342,7 +2446,7 @@ const server = http.createServer(async (req, res) => {
       const user = authUser(req);
       if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
       const key = String(url.searchParams.get('card') || '').trim().toLowerCase();
-      const data = cardCoupons[key];
+      const data = couponSatz(key);
       if (!data) return send(res, 404, { error: 'Für diese Karte gibt es noch keine Coupons.' });
       if (!data.open && !hasCard(user, key) && roleOf(user) !== 'admin') {
         return send(res, 403, { error: 'Füge die Sparkarte zu deiner Wallet hinzu, dann erscheinen die Coupons hier.' });
@@ -2356,6 +2460,7 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req, 400_000);
       const key = String(b.card || '').trim().toLowerCase();
       if (!key) return send(res, 400, { error: 'Karte fehlt.' });
+      if (key === 'netto') return send(res, 400, { error: 'Netto wird automatisch aus der Kalenderwoche berechnet.' });
       if (b.remove) {
         delete cardCoupons[key];
         saveJson('cardcoupons.json', cardCoupons);
@@ -2370,6 +2475,7 @@ const server = http.createServer(async (req, res) => {
           price: String(it.price || '').slice(0, 24),
           plu: String(it.plu || '').slice(0, 12),
           barcode: String(it.barcode || '').slice(0, 160),
+          ean: !!it.ean,
         })).filter(it => it.name),
       })).filter(g => g.items.length);
       if (!groups.length) return send(res, 400, { error: 'Keine gültigen Coupons dabei.' });
