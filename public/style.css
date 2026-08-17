@@ -2974,3 +2974,44 @@ body.kb-open #view-chat.emotes-open:has(#dm-head:not(.hidden)) { --chatpad: 392p
     -webkit-backdrop-filter: blur(5px);
   }
 }
+
+/* ================= Runde 60: Kartendecks + Chat-Fenster ================= */
+
+/* Kartendeck: ein Haendler, ein Stapel — nur die oberste Karte ist echt,
+   zwei versetzte Kanten dahinter zeigen die Tiefe */
+.deck { position: relative; cursor: pointer; margin-bottom: 26px; }
+.deck .wallet-card { position: relative; z-index: 1; margin-bottom: 0; pointer-events: none; }
+.deck::before, .deck::after {
+  content: ""; position: absolute; left: 10px; right: 10px; height: 18px; bottom: -7px;
+  border-radius: 0 0 16px 16px; z-index: 0;
+  background: var(--bc, #666); filter: brightness(.72); opacity: .85;
+}
+.deck::after { left: 20px; right: 20px; bottom: -13px; filter: brightness(.5); opacity: .6; }
+.deck:active .wallet-card { transform: scale(.985); }
+.deck-count {
+  position: absolute; z-index: 2; left: 50%; bottom: -9px; transform: translateX(-50%);
+  background: rgba(14, 18, 22, .88); color: #f3f5f7;
+  border-radius: 999px; padding: 3px 12px; font-size: .7rem; font-weight: 800;
+  white-space: nowrap; pointer-events: none;
+}
+.deck-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin: 14px 0 8px; gap: 10px;
+}
+.deck-head-name { display: flex; align-items: center; gap: 8px; font-size: .95rem; }
+.deck-head-name small { color: var(--muted); font-weight: 600; }
+.deck-more {
+  display: block; width: 100%; margin: 2px 0 12px;
+  background: var(--surface); border: 1px dashed var(--stroke-light);
+  border-radius: 14px; padding: 11px; font: inherit; font-size: .84rem;
+  font-weight: 700; color: var(--muted); cursor: pointer;
+}
+.deck-more:active { transform: scale(.98); }
+
+/* Chat: Aeltere-Nachrichten-Knopf am Listenanfang */
+.chat-older {
+  display: block; width: 100%; margin: 4px 0 10px;
+  background: var(--surface); border: 1px dashed var(--stroke-light);
+  border-radius: 12px; padding: 9px; font: inherit; font-size: .78rem;
+  font-weight: 700; color: var(--muted); cursor: pointer;
+}

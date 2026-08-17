@@ -5083,6 +5083,9 @@ function updateWalletTab(anim) {
   }
 }
 
+const walletDeckOpen = new Set();
+const walletDeckShown = {};
+let walletFlatShown = 12;
 function renderWallet() {
   // Wallet nur mit Profil: Gast sieht die Anmelde-Sperre (Coupons bleiben offen)
   updateWalletTab(false);
@@ -5189,12 +5192,56 @@ function renderWallet() {
     </div>`;
   };
 
-  $('#voucher-list').innerHTML =
-    active.length ? active.map(vCard).join('')
-      : `<div class="status">${q || marketOn || state.walletVal
-        ? 'Kein Gutschein passt zu Suche/Filter.'
-        : 'Noch keine Gutscheine, leg oben den ersten an.'}</div>`;
-  $('#voucher-used').innerHTML = used.map(vCard).join('') || '<div class="status">Nichts aufgebraucht.</div>';
+  // Kartendeck pro Haendler: viele Gutscheine desselben Shops stapeln sich zu
+  // EINER Karte (nur die oberste wird wirklich gerendert). Antippen faechert
+  // auf, und auch dann kommen die Karten portionsweise — die Wallet bleibt
+  // leicht, egal wie viele REWE-Gutscheine man hortet.
+  const DECK_MIN = 3, DECK_CHUNK = 6;
+  const moreBtn = (key, n) => `<button class="deck-more" data-deck-more="${esc(key)}">${n} weitere anzeigen</button>`;
+  const flatMode = !!(q || marketOn || state.walletVal || (state.walletSort || ''));
+  let voucherHtml = '';
+  if (!active.length) {
+    voucherHtml = `<div class="status">${q || marketOn || state.walletVal
+      ? 'Kein Gutschein passt zu Suche/Filter.'
+      : 'Noch keine Gutscheine, leg oben den ersten an.'}</div>`;
+  } else if (flatMode) {
+    const lim = walletFlatShown;
+    voucherHtml = active.slice(0, lim).map(vCard).join('')
+      + (active.length > lim ? moreBtn('__flat', active.length - lim) : '');
+  } else {
+    const order = [];
+    const byVendor = new Map();
+    active.forEach(v => {
+      if (!byVendor.has(v.vendor)) { byVendor.set(v.vendor, []); order.push(v.vendor); }
+      byVendor.get(v.vendor).push(v);
+    });
+    voucherHtml = order.map(vn => {
+      const list = byVendor.get(vn);
+      if (list.length < DECK_MIN) return list.map(vCard).join('');
+      if (!walletDeckOpen.has(vn)) {
+        const sum = Math.round(list.reduce((acc, v) => acc + (v.balance || 0), 0) * 100) / 100;
+        return `
+        <div class="deck" data-deck="${esc(vn)}" style="--bc:${brandColor(vn)}" role="button" aria-label="${esc(vn)}-Stapel öffnen">
+          ${vCard(list[0]).replace('data-wv=', 'data-deck-top=')}
+          <span class="deck-count">${list.length} Gutscheine · ${euroFmt(sum)}</span>
+        </div>`;
+      }
+      const shown = walletDeckShown[vn] || DECK_CHUNK;
+      return `
+        <div class="deck-head">
+          <span class="deck-head-name">${brandChipHtml(vn)} <b>${esc(vn)}</b> <small>(${list.length})</small></span>
+          <button class="chip" data-deck-close="${esc(vn)}">Stapeln</button>
+        </div>
+        ${list.slice(0, shown).map(vCard).join('')}
+        ${list.length > shown ? moreBtn(vn, list.length - shown) : ''}`;
+    }).join('');
+  }
+  $('#voucher-list').innerHTML = voucherHtml;
+  // Aufgebrauchte: nur die ersten 12 rendern, Rest auf Wunsch
+  const usedLim = 12;
+  $('#voucher-used').innerHTML = (used.slice(0, usedLim).map(vCard).join('')
+    + (used.length > usedLim ? moreBtn('__used', used.length - usedLim) : ''))
+    || '<div class="status">Nichts aufgebraucht.</div>';
   $('#used-count').textContent = used.length ? `(${used.length})` : '';
 
   // Sparkarten als App-Raster mit Logos, eigene Suche, per Ziehen sortierbar
@@ -5236,6 +5283,33 @@ function renderWallet() {
     el.style.animationDelay = Math.min(i * 45, 300) + 'ms';
   });
   $('#view-wallet').querySelectorAll('[data-wv]').forEach(el => el.onclick = () => openVoucherSheet(el.dataset.wv));
+  // Deck auf/zu + portionsweise nachladen (auch automatisch beim Scrollen)
+  $('#view-wallet').querySelectorAll('[data-deck]').forEach(el => el.onclick = () => {
+    walletDeckOpen.add(el.dataset.deck);
+    buzz(12);
+    renderWallet();
+  });
+  $('#view-wallet').querySelectorAll('[data-deck-close]').forEach(el => el.onclick = e => {
+    e.stopPropagation();
+    walletDeckOpen.delete(el.dataset.deckClose);
+    delete walletDeckShown[el.dataset.deckClose];
+    renderWallet();
+  });
+  $('#view-wallet').querySelectorAll('[data-deck-more]').forEach(el => {
+    const key = el.dataset.deckMore;
+    el.onclick = () => {
+      if (key === '__flat') walletFlatShown += 12;
+      else if (key === '__used') { /* einmal alles */ walletDeckShown[key] = 9999; }
+      else walletDeckShown[key] = (walletDeckShown[key] || 6) + 8;
+      renderWallet();
+    };
+    // Beim Runterscrollen laedt der Knopf sich selbst nach
+    if ('IntersectionObserver' in window) {
+      new IntersectionObserver((es, io) => {
+        if (es[0].isIntersecting) { io.disconnect(); el.click(); }
+      }, { rootMargin: '120px' }).observe(el);
+    }
+  });
   $('#view-wallet').querySelectorAll('[data-wc]').forEach(el => el.onclick = () => openCardSheet(el.dataset.wc));
   $('#view-wallet').querySelectorAll('[data-wadd]').forEach(el => el.onclick = () => openWalletAdd(el.dataset.wadd));
   $('#view-wallet').querySelectorAll('[data-wadd-prefill]').forEach(el => el.onclick = () => openWalletAdd('card', el.dataset.waddPrefill));
@@ -5716,6 +5790,7 @@ function setChatMode(mode, partner) {
   chatMode = mode;
   dmPartner = partner || '';
   dmLastTs = 0;
+  chatOlderPool = [];
   $('#chat-list').innerHTML = '';
   chatLastTs = mode === 'global' ? 0 : chatLastTs;
   document.querySelectorAll('[data-cmode]').forEach(b =>
@@ -5785,6 +5860,21 @@ function dmMsgHtml(m) {
   </div>`;
 }
 
+let chatOlderPool = [];
+function loadOlderChat() {
+  const box = $('#chat-box');
+  const btn = $('#chat-older');
+  if (!btn || !chatOlderPool.length) return;
+  const take = chatOlderPool.splice(-30);
+  const anchor = box.scrollHeight - box.scrollTop; // Leseposition halten
+  btn.insertAdjacentHTML('afterend', take.map(chatMsgHtml).join(''));
+  if (!chatOlderPool.length) btn.remove();
+  box.scrollTop = box.scrollHeight - anchor;
+}
+// Hochscrollen laedt von selbst nach
+$('#chat-box')?.addEventListener('scroll', () => {
+  if (chatMode === 'global' && chatOlderPool.length && $('#chat-box').scrollTop < 50) loadOlderChat();
+}, { passive: true });
 async function pollChat(force) {
   // Global wird immer gepollt (für Erwähnungs-Benachrichtigungen), DMs nur im Chat
   if (!force && state.activeView !== 'chat' && chatMode !== 'global') return;
@@ -5804,10 +5894,20 @@ async function pollChat(force) {
       if (r.messages.length) {
         const box = $('#chat-box'), list = $('#chat-list');
         const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+        // Fenster statt Voll-Historie: beim Erstladen nur die letzten 30 ins DOM,
+        // der Rest wartet im Pool und kommt beim Hochscrollen portionsweise
+        let msgs = r.messages;
+        if (!list.children.length && msgs.length > 30) {
+          chatOlderPool = msgs.slice(0, -30);
+          msgs = msgs.slice(-30);
+          chatOlderPool.forEach(m => { chatLastTs = Math.max(chatLastTs, m.ts); });
+          list.insertAdjacentHTML('afterbegin', '<button class="chat-older" id="chat-older">Ältere Nachrichten anzeigen</button>');
+          $('#chat-older').onclick = loadOlderChat;
+        }
         // Erwähnungen: nur für WIRKLICH neue Nachrichten, nicht beim Neuladen der Historie
         const mentionSeen = Number(localStorage.getItem('ra.mentionSeen') || 0);
         let batchMax = mentionSeen;
-        r.messages.forEach(m => {
+        msgs.forEach(m => {
           // Nie doppelt: die eigene Nachricht steht durch das Sende-Echo evtl. schon
           // da, während der Echtzeit-Ping parallel denselben Poll anstößt
           if (!list.querySelector(`[data-mid="${m.id}"]`)) list.insertAdjacentHTML('beforeend', chatMsgHtml(m));
