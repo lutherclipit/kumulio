@@ -581,7 +581,7 @@ const CARD_COUPONS_DEFAULT = {
   rossmann: {
     brand: 'Rossmann',
     validUntil: '2026-10-31',
-    note: 'Barcode an der Kasse zeigen. Gilt nicht auf Bücher, Tabak, Pfand, Gutscheine und bereits reduzierte Ware. Der 10-%-Coupon in der App ist davon unabhängig und dreimal im Monat verfügbar.',
+    note: 'Barcode an der Kasse zeigen — einmal pro Einkauf, aber bis zum Ablaufdatum immer wieder. Gilt nicht auf Bücher, Tabak, Pfand, Gutscheine und bereits reduzierte Ware. Der 10-%-Coupon in der App ist davon unabhängig und dreimal im Monat verfügbar.',
     groups: [
       {
         title: 'Dauerhaft gültig',
@@ -589,7 +589,7 @@ const CARD_COUPONS_DEFAULT = {
           {
             code: '9823219040107',
             name: '10 % auf deinen Einkauf',
-            extra: 'gültig vom 30.07. bis 31.10.2026, beliebig oft einlösbar',
+            extra: 'einmal pro Einkauf, bis 31.10.2026 immer wieder einlösbar',
             price: '10 % sparen',
             barcode: '/coupons/rossmann/10prozent.png',
           },
@@ -611,6 +611,11 @@ if (!cardCoupons) { cardCoupons = CARD_COUPONS_DEFAULT; saveJson('cardcoupons.js
     dirty = true;
   }
   if (!cardCoupons.rossmann) { cardCoupons.rossmann = CARD_COUPONS_DEFAULT.rossmann; dirty = true; }
+  else if (/beliebig oft/.test(JSON.stringify(cardCoupons.rossmann))) {
+    // Erste Fassung sagte "beliebig oft" — richtig ist: einmal pro Einkauf
+    cardCoupons.rossmann = CARD_COUPONS_DEFAULT.rossmann;
+    dirty = true;
+  }
   if (dirty) saveJson('cardcoupons.json', cardCoupons);
 }
 // ---------------------------------------------------------------- McCheap-Beobachter

@@ -68,6 +68,34 @@ const SEGMENTS = [
   { slug: 'neukunden', name: 'Neukunden', icon: 'sparkle' },
 ];
 
+// Händler-Apps: android/ios führen in die installierte App, url ist der Rückweg
+// über die Webseite. rotierend = der Code wechselt ständig (dann bringt
+// "Coupons aktivieren" nichts), woche = wöchentliche Belohnung in der App.
+const CARD_APPS = {
+  rossmann: { url: 'https://www.rossmann.de/de/coupons', hinweis: 'Der App-Coupon (10 %) ist dreimal im Monat verfügbar.' },
+  payback: { url: 'https://www.payback.de/coupons' },
+  dm: { url: 'https://www.dm.de/services/dm-app' },
+  rewe: { url: 'https://www.rewe.de/angebote/' },
+  edeka: { url: 'https://www.edeka.de/' },
+  penny: { url: 'https://www.penny.de/' },
+  kaufland: { url: 'https://www.kaufland.de/kaufland-card/' },
+  netto: { url: 'https://www.netto-online.de/', rotierend: true },
+  'netto marken-discount': { url: 'https://www.netto-online.de/', rotierend: true },
+  'burger king': { url: 'https://www.burgerking.de/', rotierend: true },
+  mcdonalds: { url: 'https://www.mcdonalds.com/de/de-de/mcdonalds-app.html', alt: { url: 'https://mccheap.tech/', name: 'McCheap.tech' } },
+  "mcdonald's": { url: 'https://www.mcdonalds.com/de/de-de/mcdonalds-app.html', alt: { url: 'https://mccheap.tech/', name: 'McCheap.tech' } },
+  subway: { url: 'https://www.subway.com/de-DE' },
+  'müller': { url: 'https://www.mueller.de/' },
+  mueller: { url: 'https://www.mueller.de/' },
+  lidl: { url: 'https://www.lidl.de/c/lidl-plus/s10007306' },
+  'lidl plus': { url: 'https://www.lidl.de/c/lidl-plus/s10007306' },
+  ikea: {
+    url: 'https://www.ikea.com/de/de/ikea-family/',
+    woche: 'Einmal pro Woche in der IKEA-App einloggen bringt Punkte für Gutscheine.',
+  },
+};
+const cardApp = name => CARD_APPS[String(name || '').trim().toLowerCase()];
+
 // Coupon-Quellen: offizielle Apps/Seiten der Anbieter, ordentlich unterteilt
 const COUPON_SOURCES = [
   { cat: 'Drogerie', items: [
@@ -690,6 +718,11 @@ function renderCoupons(host) {
 
   renderCardCouponBox(host.querySelector('#card-coupon-box'));
   host.querySelectorAll('[data-mcd]').forEach(a => a.onclick = e => { e.preventDefault(); openMcdWahl(); });
+  // Kacheln bekannter Händler öffnen die App, nicht die Webseite
+  host.querySelectorAll('[data-cpn]').forEach(a => {
+    if (a.dataset.mcd || !cardApp(a.dataset.cpn)) return;
+    a.onclick = e => { e.preventDefault(); oeffneHaendlerApp(a.dataset.cpn); };
+  });
   // Einmal nachsehen, ob McCheap gerade etwas Gratis hat — danach steht es im Speicher
   if (!mccheapDaten) ladeMccheap().then(d => {
     if ((d.items || []).some(x => x.gratis) && walletTab === 'coupons') renderCoupons(host);
@@ -726,11 +759,11 @@ function openMcdWahl() {
     <button class="fav-remove" id="mcd-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
     <h3 class="modal-title">McDonald&rsquo;s Coupons</h3>
     <p class="muted" style="font-size:.82rem">Wo willst du hin?</p>
-    <a class="app-jump" href="https://www.mcdonalds.com/de/de-de/mcdonalds-app.html" target="_blank" rel="noopener noreferrer" style="--bc:${brandColor('mcdonalds')}">
+    <button class="app-jump" data-app-open="McDonalds" style="--bc:${brandColor('mcdonalds')}">
       ${brandChipHtml('McDonalds')}
       <span class="app-jump-txt"><b>McDonald&rsquo;s App</b><small>Offizielle Coupons, direkt einlösbar</small></span>
       ${icon('arrow-right', 'icon icon-sm')}
-    </a>
+    </button>
     <a class="app-jump" href="https://mccheap.tech/" target="_blank" rel="noopener noreferrer" style="--bc:#12C77E">
       <span class="brand-chip" style="--bc:#12C77E">MC</span>
       <span class="app-jump-txt"><b>McCheap.tech</b><small>Gesammelte Codes, oft günstiger als die App</small></span>
@@ -747,6 +780,8 @@ function openMcdWahl() {
       : '<p class="muted" style="font-size:.76rem; margin-top:12px">Aktuell nichts Auffälliges bei McCheap gefunden.</p>'}
   </div>`;
   document.body.appendChild(wrap);
+  wrap.querySelectorAll('[data-app-open]').forEach(b =>
+    b.onclick = () => oeffneHaendlerApp(b.dataset.appOpen));
   wrap.addEventListener('click', e => {
     if (e.target === wrap || e.target.closest('#mcd-close')) {
       wrap.classList.add('closing');
@@ -5385,16 +5420,23 @@ function ccBody() {
       if (isNaN(pb)) return -1;
       return ccSort === 'preisAuf' ? pa - pb : pb - pa;
     });
-    host.innerHTML = `<div class="cc-list">${sorted.map(ccZeile).join('')}</div>`;
+    host.innerHTML = `<div class="cc-list">${sorted
+      .filter(it => !ccIsFav(ccCtx.key, it.code)).map(ccZeile).join('')}</div>`;
   } else if (ccSort === 'favs') {
     const favs = ccFavListe();
     host.innerHTML = favs.length
       ? `<div class="cc-list">${favs.map(ccZeile).join('')}</div>`
       : '<div class="status">Noch keine Favoriten. Tippe auf den Stern oder wisch die Zeile nach links.</div>';
   } else {
-    host.innerHTML = (d.groups || []).map(g => `
+    // Was oben schon als Favorit steht, taucht unten nicht nochmal auf —
+    // sonst steht derselbe Coupon zweimal im Blatt
+    host.innerHTML = (d.groups || []).map(g => {
+      const rest = g.items.filter(it => !ccIsFav(ccCtx.key, it.code));
+      if (!rest.length) return '';
+      return `
       <h3 class="gm-h">${esc(g.title)}</h3>
-      <div class="cc-list">${g.items.map(ccZeile).join('')}</div>`).join('');
+      <div class="cc-list">${rest.map(ccZeile).join('')}</div>`;
+    }).join('');
   }
 }
 
@@ -5412,57 +5454,56 @@ function ccFavBox() {
 // Der Favoriten-Block oben waechst dabei — ohne Ausgleich wuerde einem die Liste
 // unter dem Finger wegrutschen, deshalb wird der Scroll um genau diesen Betrag
 // nachgezogen.
+// Der Coupon wandert zwischen Favoriten-Block und Hauptliste hin und her.
+// Beide Bereiche werden neu gesetzt, der Scroll dabei am unteren Block verankert,
+// damit einem beim Favorisieren nichts unter dem Finger wegrutscht.
 function ccFavGeaendert(code) {
-  const an = ccIsFav(ccCtx.key, code);
   const blatt = $('#sheet-content');
-  // Als Anker dient eine Zeile aus der Hauptliste — die wird nicht neu gebaut,
-  // also verrät ihre Bildschirmposition exakt, wie weit alles gerutscht ist.
   const anker = $('#cc-body .cc-wrap');
   const ankerVorher = anker?.getBoundingClientRect().top ?? 0;
-  document.querySelectorAll(`#sheet-content [data-cc-wrap="${CSS.escape(code)}"]`).forEach(w => {
-    w.querySelector('.cc-item')?.classList.toggle('fav', an);
-    const b = w.querySelector('.cc-fav');
-    if (b) {
-      b.classList.toggle('on', an);
-      b.setAttribute('aria-label', an ? 'Aus Favoriten entfernen' : 'Zu Favoriten');
-    }
-  });
+  const ankerCode = anker?.dataset.ccWrap;
   ccFilterChips();
   if (ccSort === 'favs') { ccBody(); return; }
   ccFavBox();
-  if (blatt && anker && blatt.scrollTop > 0) {
-    const rutsch = anker.getBoundingClientRect().top - ankerVorher;
+  ccBody();
+  // Der Anker wurde neu gebaut — dieselbe Zeile wieder suchen und ausgleichen
+  const neu = ankerCode && $(`#cc-body [data-cc-wrap="${CSS.escape(ankerCode)}"]`);
+  if (blatt && neu && blatt.scrollTop > 0) {
+    const rutsch = neu.getBoundingClientRect().top - ankerVorher;
     if (rutsch) blatt.scrollTop += rutsch;
   }
 }
 
-// Ein einziger Satz Handler fuer das ganze Blatt — ueberlebt jedes Nachzeichnen,
-// deshalb kann ein Wisch nicht mehr mittendrin haengen bleiben.
+// Ein einziger Satz Handler fuer das ganze Blatt — ueberlebt jedes Nachzeichnen.
+// Wichtig: Antippen wird hier SELBST erkannt. Sobald der Finger auch nur ein paar
+// Pixel wandert, faengt der Browser den Klick ab (Pointer-Capture) — dann kam
+// vorher weder die grosse Ansicht noch der Stern durch.
 let ccSwipeSperre = 0;
 function ccWireSheet() {
   const sheet = $('#sheet-content');
-  let wrap = null, card = null, sx = 0, sy = 0, dx = 0, aktiv = false;
+  let wrap = null, card = null, sx = 0, sy = 0, dx = 0, aktiv = false, start = 0, sternZiel = null;
 
   const aufraeumen = () => {
     if (card) card.style.transform = '';
     wrap?.classList.remove('dragging');
     document.body.classList.remove('no-select');
-    wrap = card = null; aktiv = false; dx = 0;
+    wrap = card = null; aktiv = false; dx = 0; sternZiel = null;
   };
 
   sheet.onpointerdown = e => {
-    if (e.target.closest('[data-ccsort]') || e.target.closest('.cc-fav')) return;
+    if (e.target.closest('[data-ccsort]')) return;
     const w = e.target.closest('.cc-wrap');
     if (!w) return;
     wrap = w; card = w.querySelector('.cc-item');
-    sx = e.clientX; sy = e.clientY; dx = 0; aktiv = false;
+    sx = e.clientX; sy = e.clientY; dx = 0; aktiv = false; start = Date.now();
+    sternZiel = e.target.closest('.cc-fav');   // Stern: nur tippen, nicht wischen
   };
   sheet.onpointermove = e => {
-    if (!wrap) return;
+    if (!wrap || sternZiel) return;
     const x = e.clientX - sx, y = e.clientY - sy;
     if (!aktiv) {
       if (Math.abs(y) > 12) { aufraeumen(); return; }   // das war Scrollen
-      if (x > -10) return;
+      if (x > -12) return;
       aktiv = true;
       wrap.classList.add('dragging');
       document.body.classList.add('no-select');
@@ -5473,19 +5514,34 @@ function ccWireSheet() {
     dx = roh < -110 ? -110 + (roh + 110) * 0.35 : roh;
     card.style.transform = `translate3d(${dx}px,0,0)`;
   };
-  const ende = () => {
-    if (!wrap || !aktiv) { aufraeumen(); return; }
-    const code = wrap.dataset.ccWrap;
-    const ausgeloest = dx < -80;
+  const ende = e => {
+    if (!wrap) return;
+    const w = wrap, code = w.dataset.ccWrap, stern = sternZiel;
+    const kurz = Date.now() - start < 700;
+    const stillGehalten = e && Math.abs(e.clientX - sx) < 10 && Math.abs(e.clientY - sy) < 10;
+    const gewischt = aktiv && dx < -80;
     aufraeumen();
-    if (!ausgeloest) return;
-    ccSwipeSperre = Date.now() + 350;
-    ccToggleFav(ccCtx.key, code);
-    buzz(14);
-    ccFavGeaendert(code);
+    if (gewischt) {
+      ccSwipeSperre = Date.now() + 400;
+      ccToggleFav(ccCtx.key, code);
+      buzz(14);
+      ccFavGeaendert(code);
+      return;
+    }
+    if (aktiv) { ccSwipeSperre = Date.now() + 400; return; }  // Wisch ohne Auslösen
+    if (!kurz || !stillGehalten) return;
+    // Sauberes Antippen: hier selbst auslösen, der Klick danach wird gesperrt
+    ccSwipeSperre = Date.now() + 400;
+    if (stern) {
+      ccToggleFav(ccCtx.key, code);
+      buzz(12);
+      ccFavGeaendert(code);
+      return;
+    }
+    ccOeffneGross(code);
   };
   sheet.onpointerup = ende;
-  sheet.onpointercancel = ende;
+  sheet.onpointercancel = () => aufraeumen();
 
   sheet.onclick = e => {
     const chip = e.target.closest('[data-ccsort]');
@@ -5493,25 +5549,29 @@ function ccWireSheet() {
       ccSort = chip.dataset.ccsort;
       localStorage.setItem('ra.couponSort', ccSort);
       ccFilterChips(); ccBody(); ccFavBox();
-      $('#cc-body')?.classList.remove('cc-fade');
-      void $('#cc-body')?.offsetWidth;
-      $('#cc-body')?.classList.add('cc-fade');
+      const body = $('#cc-body');
+      body?.classList.remove('cc-fade');
+      void body?.offsetWidth;
+      body?.classList.add('cc-fade');
       return;
     }
+    // Zeilen und Sterne laufen ueber die Pointer-Erkennung. Der Klick kommt nur
+    // noch bei Tastaturbedienung durch (dann ist die Sperre laengst abgelaufen).
+    if (Date.now() < ccSwipeSperre) return;
     const stern = e.target.closest('.cc-fav');
     if (stern) {
       ccToggleFav(ccCtx.key, stern.dataset.ccFav);
-      buzz(12);
       ccFavGeaendert(stern.dataset.ccFav);
       return;
     }
     const zeile = e.target.closest('[data-cc-item]');
-    if (zeile) {
-      if (Date.now() < ccSwipeSperre) return;
-      const it = ccCtx.flat.find(x => x.code === zeile.dataset.ccItem);
-      if (it) showCouponBig({ ...it, imgBase: ccCtx.d.img || '' }, ccCtx.d.brand || ccCtx.brand, ccCtx.d.validUntil);
-    }
+    if (zeile) ccOeffneGross(zeile.dataset.ccItem);
   };
+}
+
+function ccOeffneGross(code) {
+  const it = ccCtx?.flat.find(x => x.code === code);
+  if (it) showCouponBig({ ...it, imgBase: ccCtx.d.img || '' }, ccCtx.d.brand || ccCtx.brand, ccCtx.d.validUntil);
 }
 function showCouponBig(it, brand, validUntil) {
   const wrap = document.createElement('div');
@@ -5605,34 +5665,40 @@ function openCardCouponEditor(key, data) {
     }
   };
 }
-// Wohin fuehrt die Karte? Alles https — auf dem Handy uebernimmt die installierte
-// App den Link von selbst, am Rechner oeffnet die Webseite.
-// rotierend = der Code wechselt staendig (dann bringt "aktivieren" nichts),
-// woche = woechentliche Belohnung in der App, an die wir erinnern.
-const CARD_APPS = {
-  rossmann: { url: 'https://www.rossmann.de/de/coupons', hinweis: 'Der App-Coupon (10 %) ist dreimal im Monat verfügbar.' },
-  payback: { url: 'https://www.payback.de/coupons' },
-  dm: { url: 'https://www.dm.de/services/dm-app' },
-  rewe: { url: 'https://www.rewe.de/angebote/' },
-  edeka: { url: 'https://www.edeka.de/' },
-  penny: { url: 'https://www.penny.de/' },
-  kaufland: { url: 'https://www.kaufland.de/kaufland-card/' },
-  netto: { url: 'https://www.netto-online.de/', rotierend: true },
-  'netto marken-discount': { url: 'https://www.netto-online.de/', rotierend: true },
-  'burger king': { url: 'https://www.burgerking.de/', rotierend: true },
-  mcdonalds: { url: 'https://www.mcdonalds.com/de/de-de/mcdonalds-app.html', alt: { url: 'https://mccheap.tech/', name: 'McCheap.tech' } },
-  "mcdonald's": { url: 'https://www.mcdonalds.com/de/de-de/mcdonalds-app.html', alt: { url: 'https://mccheap.tech/', name: 'McCheap.tech' } },
-  subway: { url: 'https://www.subway.com/de-DE' },
-  'müller': { url: 'https://www.mueller.de/' },
-  mueller: { url: 'https://www.mueller.de/' },
-  lidl: { url: 'https://www.lidl.de/c/lidl-plus/s10007306' },
-  'lidl plus': { url: 'https://www.lidl.de/c/lidl-plus/s10007306' },
-  ikea: {
-    url: 'https://www.ikea.com/de/de/ikea-family/',
-    woche: 'Einmal pro Woche in der IKEA-App einloggen bringt Punkte für Gutscheine.',
-  },
-};
-const cardApp = name => CARD_APPS[String(name || '').trim().toLowerCase()];
+// Eine Haendler-App wirklich oeffnen, nicht die Webseite.
+// Android: intent:// mit Paketnamen — der Browser startet die App und faellt
+//   von selbst auf die Webseite zurueck, wenn sie nicht installiert ist.
+// iOS: es gibt keinen sauberen "ist die App da?"-Test. Also das URL-Schema
+//   anstossen und, falls die Seite danach noch sichtbar ist, aufs Web wechseln.
+//   Wechselt das Handy in die App, wird die Seite versteckt und der Timer faellt weg.
+function oeffneHaendlerApp(name) {
+  const a = cardApp(name);
+  if (!a) return;
+  const ua = navigator.userAgent || '';
+  const istAndroid = /Android/i.test(ua);
+  const istIOS = /iPad|iPhone|iPod/i.test(ua)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+  if (istAndroid && a.android) {
+    const rueckweg = encodeURIComponent(a.url);
+    location.href = `intent://#Intent;package=${a.android};S.browser_fallback_url=${rueckweg};end`;
+    return;
+  }
+  if (istIOS && a.ios) {
+    let weg = false;
+    const merke = () => { if (document.hidden) weg = true; };
+    document.addEventListener('visibilitychange', merke);
+    setTimeout(() => {
+      document.removeEventListener('visibilitychange', merke);
+      if (!weg && !document.hidden) location.href = a.url;   // App fehlt -> Webseite
+    }, 1400);
+    location.href = a.ios;
+    return;
+  }
+  // Rechner oder keine App bekannt: normale Webseite in neuem Tab
+  window.open(a.url, '_blank', 'noopener');
+}
+
 
 // Wochen-Erinnerungen ("Quests") liegen nur auf dem Gerät — es geht ja nur darum,
 // dass man das Antippen in der fremden App nicht vergisst.
@@ -5662,14 +5728,14 @@ function cardAppBlockHtml(name) {
     : `Coupons in der ${esc(name)}-App aktivieren`;
   const rest = a.woche ? questRest(name) : 0;
   return `
-    <a class="app-jump" href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" style="--bc:${brandColor(name)}">
+    <button class="app-jump" data-app-open="${esc(name)}" style="--bc:${brandColor(name)}">
       ${brandChipHtml(name)}
       <span class="app-jump-txt"><b>${label}</b>
         <small>${a.rotierend
           ? 'Der Code wechselt ständig — hol ihn dir direkt in der App.'
           : 'Coupons einmal antippen, dann gelten sie an der Kasse.'}</small></span>
       ${icon('arrow-right', 'icon icon-sm')}
-    </a>
+    </button>
     ${a.hinweis ? `<p class="cc-note">${icon('bulb', 'icon icon-sm')} ${esc(a.hinweis)}</p>` : ''}
     ${a.woche ? `
       <button class="quest-row ${rest ? 'done' : ''}" data-quest="${esc(name)}">
@@ -5699,6 +5765,9 @@ function openCardSheet(id) {
     <div id="wc-app-slot">${cardAppBlockHtml(c.name)}</div>
     <button class="btn btn-danger" id="wc-del" style="margin-top:18px">Karte löschen</button>`;
   // Wochen-Erinnerung abhaken (IKEA & Co.): danach laeuft der 7-Tage-Timer
+  const wireApp = () => $('#wc-app-slot').querySelectorAll('[data-app-open]').forEach(b =>
+    b.onclick = () => oeffneHaendlerApp(b.dataset.appOpen));
+  wireApp();
   const wireQuest = () => $('#wc-app-slot').querySelectorAll('[data-quest]').forEach(b => b.onclick = () => {
     if (questRest(b.dataset.quest)) return;
     questErledigt(b.dataset.quest);
@@ -5706,6 +5775,7 @@ function openCardSheet(id) {
     island('Erledigt — in 7 Tagen erinnern wir dich wieder');
     $('#wc-app-slot').innerHTML = cardAppBlockHtml(c.name);
     $('#wc-app-slot').querySelector('.quest-row')?.classList.add('quest-pop');
+    wireApp();
     wireQuest();
   });
   wireQuest();
