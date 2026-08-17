@@ -3144,18 +3144,21 @@ body.kb-open #view-chat.emotes-open:has(#dm-head:not(.hidden)) { --chatpad: 392p
 /* Coupon-Liste: Nummer links groß, Preis rechts */
 .cc-list { display: flex; flex-direction: column; gap: 8px; }
 .cc-item {
-  display: flex; align-items: center; gap: 12px; width: 100%;
+  display: grid; align-items: center; gap: 12px; width: 100%;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: "media text meta";
   background: var(--surface); border: 1px solid var(--stroke-light);
   border-radius: 14px; padding: 11px 13px;
   font: inherit; color: inherit; text-align: left; cursor: pointer;
 }
 .cc-item:active { transform: scale(.99); }
 .cc-code {
-  flex: none; min-width: 52px; text-align: center;
-  font-size: 1.15rem; font-weight: 900; letter-spacing: -.02em;
+  text-align: center; line-height: 1.1;
+  font-size: 1.05rem; font-weight: 900; letter-spacing: -.02em;
   font-variant-numeric: tabular-nums; color: var(--accent-strong, #12C77E);
 }
-.cc-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.cc-media.no-img .cc-code { font-size: 1.25rem; min-width: 60px; }
+.cc-text { grid-area: text; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .cc-text b { font-size: .9rem; line-height: 1.25; }
 .cc-text small { font-size: .74rem; color: var(--muted); line-height: 1.35; }
 .cc-plu { opacity: .65; }
@@ -3213,12 +3216,61 @@ body.kb-open #view-chat.emotes-open:has(#dm-head:not(.hidden)) { --chatpad: 392p
 .cc-tile-lock { position: absolute; top: 8px; right: 8px; color: var(--muted); }
 .cc-tile .brand-chip { width: 38px; height: 38px; }
 
-/* Produktbild in der Coupon-Zeile und in der großen Ansicht */
+/* Produktbild in der Coupon-Zeile: VOLLSTÄNDIG zeigen, Nummer darunter */
+.cc-media {
+  grid-area: media; width: 126px; display: flex; flex-direction: column;
+  align-items: center; gap: 3px;
+}
 .cc-img {
-  flex: none; width: 74px; height: 52px; object-fit: cover;
+  width: 126px; height: auto; object-fit: contain;
   border-radius: 10px; background: #fff;
 }
+.cc-media.no-img .cc-img { display: none; }
 .cc-big-img {
   width: 100%; max-width: 260px; border-radius: 14px;
   margin: 6px auto 4px; display: block; background: #fff;
 }
+
+/* ---- Runde 65: Coupon-Filter und Favoriten ---- */
+.cc-filters { margin: 10px 0 4px; }
+.cc-filters .chip .icon { width: 13px; height: 13px; vertical-align: -2px; }
+.cc-item { cursor: pointer; }
+.cc-right { grid-area: meta; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.cc-fav {
+  background: none; border: none; padding: 2px; cursor: pointer;
+  color: var(--muted); opacity: .55; line-height: 0;
+}
+.cc-fav.on { color: #F5B301; opacity: 1; }
+.cc-fav.on .icon { fill: #F5B301; }
+.cc-fav:active { transform: scale(.85); }
+
+/* Handy: Text bekommt die volle Restbreite, Preis und Stern wandern
+   in eine eigene Zeile darunter — statt drei enge Spalten nebeneinander */
+@media (max-width: 560px) {
+  .cc-item {
+    grid-template-columns: 96px minmax(0, 1fr);
+    grid-template-areas: "media text" "media meta";
+    align-items: start; column-gap: 11px; row-gap: 7px; padding: 10px 12px;
+  }
+  .cc-media { width: 96px; align-self: center; }
+  .cc-img { width: 96px; }
+  .cc-text b { font-size: .95rem; }
+  .cc-right {
+    flex-direction: row; align-items: center; justify-content: flex-start; gap: 10px;
+  }
+  .cc-fav { padding: 4px 2px; }
+}
+
+/* Coupon nach links wischen = Favorit (wie bei den Deals) */
+.cc-wrap { position: relative; }
+.cc-wrap .fav-hint {
+  position: absolute; inset: 0; border-radius: 14px;
+  display: flex; align-items: center; justify-content: flex-end; padding-right: 22px;
+  background: linear-gradient(270deg, rgba(255, 200, 60, .5), rgba(255, 200, 60, .05) 45%);
+  color: #8a6a10; opacity: 0; transition: opacity .15s ease;
+}
+.cc-wrap.dragging .fav-hint { opacity: 1; }
+.cc-item { transition: transform .35s var(--spring); touch-action: pan-y; }
+.cc-wrap.dragging .cc-item { transition: none; }
+/* Favorisierte Coupons tragen einen goldenen Streifen */
+.cc-item.fav { border-color: rgba(245, 179, 1, .55); box-shadow: inset 3px 0 0 #F5B301; }

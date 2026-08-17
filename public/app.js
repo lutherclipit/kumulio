@@ -5168,6 +5168,20 @@ function dateShort(iso) {
   return isNaN(d) ? iso : d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' });
 }
 // Die Coupon-Liste einer Karte: Gruppen mit Überschrift, Nummer groß, Preis rechts
+// Favoriten und Sortierung merkt sich das Gerät (reine Ansichtssache)
+let ccFavs = JSON.parse(localStorage.getItem('ra.couponFavs') || '{}');
+let ccSort = localStorage.getItem('ra.couponSort') || 'gruppen';
+const ccIsFav = (key, code) => (ccFavs[key] || []).includes(code);
+function ccToggleFav(key, code) {
+  const list = ccFavs[key] || [];
+  ccFavs[key] = list.includes(code) ? list.filter(x => x !== code) : [...list, code];
+  localStorage.setItem('ra.couponFavs', JSON.stringify(ccFavs));
+}
+// "9,99" -> 9.99; "50 % sparen" hat keinen Preis und wandert ans Ende
+function ccPreis(p) {
+  const m = String(p || '').replace(',', '.').match(/\d+(\.\d+)?/);
+  return m && /[\d.,]/.test(String(p).trim()[0]) ? parseFloat(m[0]) : NaN;
+}
 async function openCardCoupons(key, brand) {
   state.sheetMode = 'card-coupons';
   $('#sheet-content').innerHTML = `<div class="sheet-title">${esc(brand)}</div><div class="status">Lade Coupons …</div>`;
@@ -5175,7 +5189,52 @@ async function openCardCoupons(key, brand) {
   let d;
   try { d = await api('/api/cardcoupons?card=' + encodeURIComponent(key)); }
   catch (e) { $('#sheet-content').innerHTML = `<div class="sheet-title">${esc(brand)}</div><div class="status">${esc(e.message)}</div>`; return; }
+  renderCardCoupons(key, brand, d);
+}
+function renderCardCoupons(key, brand, d) {
   const abgelaufen = d.validUntil && new Date(d.validUntil) < new Date(new Date().toDateString());
+  const flat = (d.groups || []).flatMap(g => g.items.map(it => ({ ...it, gruppe: g.title })));
+  const favs = flat.filter(it => ccIsFav(key, it.code));
+  const zeile = it => `
+    <div class="cc-wrap" data-cc-wrap="${esc(it.code)}">
+    <span class="fav-hint">${icon(ccIsFav(key, it.code) ? 'star' : 'star', 'icon')}</span>
+    <div class="cc-item ${ccIsFav(key, it.code) ? 'fav' : ''}" data-cc-item="${esc(it.code)}">
+      <span class="cc-media">
+        ${d.img ? `<img class="cc-img" src="${esc(d.img)}/${esc(it.code)}.jpg" alt="" loading="lazy" onerror="this.closest('.cc-media')?.classList.add('no-img')">` : ''}
+        <span class="cc-code">${esc(it.code)}</span>
+      </span>
+      <span class="cc-text">
+        <b>${esc(it.name)}</b>
+        ${it.extra ? `<small>${esc(it.extra)}</small>` : ''}
+        ${it.plu ? `<small class="cc-plu">PLU ${esc(it.plu)}</small>` : ''}
+      </span>
+      <span class="cc-right">
+        <span class="cc-price">${esc(it.price)}${/^[\d.,]+$/.test(it.price) ? ' €' : ''}</span>
+        <button class="cc-fav ${ccIsFav(key, it.code) ? 'on' : ''}" data-cc-fav="${esc(it.code)}"
+          aria-label="${ccIsFav(key, it.code) ? 'Aus Favoriten entfernen' : 'Zu Favoriten'}">${icon('star', 'icon icon-sm')}</button>
+      </span>
+    </div>
+    </div>`;
+  // Nach Preis: eine flache Liste, sonst die Gruppen des Flyers
+  let body;
+  if (ccSort === 'preisAuf' || ccSort === 'preisAb') {
+    const sorted = [...flat].sort((a, b) => {
+      const pa = ccPreis(a.price), pb = ccPreis(b.price);
+      if (isNaN(pa) && isNaN(pb)) return 0;
+      if (isNaN(pa)) return 1;
+      if (isNaN(pb)) return -1;
+      return ccSort === 'preisAuf' ? pa - pb : pb - pa;
+    });
+    body = `<div class="cc-list">${sorted.map(zeile).join('')}</div>`;
+  } else if (ccSort === 'favs') {
+    body = favs.length
+      ? `<div class="cc-list">${favs.map(zeile).join('')}</div>`
+      : '<div class="status">Noch keine Favoriten. Tippe bei einem Coupon auf den Stern.</div>';
+  } else {
+    body = (d.groups || []).map(g => `
+      <h3 class="gm-h">${esc(g.title)}</h3>
+      <div class="cc-list">${g.items.map(zeile).join('')}</div>`).join('');
+  }
   $('#sheet-content').innerHTML = `
     <div class="offer-head">
       ${brandChipHtml(d.brand || brand)}
@@ -5187,28 +5246,81 @@ async function openCardCoupons(key, brand) {
     </div>
     ${d.validUntil ? `<div class="cc-valid ${abgelaufen ? 'over' : ''}">${icon('clock', 'icon icon-sm')}
       ${abgelaufen ? 'Abgelaufen seit' : 'Gültig bis'} ${dateShort(d.validUntil)}</div>` : ''}
-    ${(d.groups || []).map(g => `
-      <h3 class="gm-h">${esc(g.title)}</h3>
-      <div class="cc-list">${g.items.map(it => `
-        <button class="cc-item" data-cc-item="${esc(it.code)}">
-          ${d.img ? `<img class="cc-img" src="${esc(d.img)}/${esc(it.code)}.jpg" alt="" loading="lazy" onerror="this.remove()">` : ''}
-          <span class="cc-code">${esc(it.code)}</span>
-          <span class="cc-text">
-            <b>${esc(it.name)}</b>
-            ${it.extra ? `<small>${esc(it.extra)}</small>` : ''}
-            ${it.plu ? `<small class="cc-plu">PLU ${esc(it.plu)}</small>` : ''}
-          </span>
-          <span class="cc-price">${esc(it.price)}${/^[\d.,]+$/.test(it.price) ? ' €' : ''}</span>
-        </button>`).join('')}</div>`).join('')}
+    <div class="wallet-filters cc-filters">
+      <button class="chip ${ccSort === 'gruppen' ? 'active' : ''}" data-ccsort="gruppen">Flyer-Reihenfolge</button>
+      <button class="chip ${ccSort === 'preisAuf' ? 'active' : ''}" data-ccsort="preisAuf">Preis aufsteigend</button>
+      <button class="chip ${ccSort === 'preisAb' ? 'active' : ''}" data-ccsort="preisAb">Preis absteigend</button>
+      <button class="chip ${ccSort === 'favs' ? 'active' : ''}" data-ccsort="favs">${icon('star', 'icon icon-sm')} Favoriten${favs.length ? ` (${favs.length})` : ''}</button>
+    </div>
+    ${ccSort !== 'favs' && favs.length ? `
+      <h3 class="gm-h">${icon('star', 'icon icon-sm')} Deine Favoriten</h3>
+      <div class="cc-list">${favs.map(zeile).join('')}</div>` : ''}
+    ${body}
     ${d.note ? `<p class="cc-note">${icon('bulb', 'icon icon-sm')} ${esc(d.note)}</p>` : ''}
     ${state.role === 'admin' ? `<button class="btn btn-small btn-ghost" id="cc-edit" style="margin-top:14px">Coupons pflegen</button>` : ''}`;
   $('#cc-close').onclick = closeSheet;
   $('#cc-edit') && ($('#cc-edit').onclick = () => openCardCouponEditor(key, d));
+  $('#sheet-content').querySelectorAll('[data-ccsort]').forEach(b => b.onclick = () => {
+    ccSort = b.dataset.ccsort;
+    localStorage.setItem('ra.couponSort', ccSort);
+    renderCardCoupons(key, brand, d);
+  });
+  // Stern schaltet den Favoriten um, ohne die große Ansicht zu öffnen
+  $('#sheet-content').querySelectorAll('[data-cc-fav]').forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    ccToggleFav(key, b.dataset.ccFav);
+    buzz(12);
+    renderCardCoupons(key, brand, d);
+  });
   // Antippen zeigt die Nummer groß — an der Kasse muss man sie nur vorzeigen
-  const flat = (d.groups || []).flatMap(g => g.items);
   $('#sheet-content').querySelectorAll('[data-cc-item]').forEach(b => b.onclick = () => {
+    if (Date.now() < ccSwipeSperre) return;
     const it = flat.find(x => x.code === b.dataset.ccItem);
     if (it) showCouponBig({ ...it, imgBase: d.img || '' }, d.brand || brand, d.validUntil);
+  });
+  wireCcSwipe(key, brand, d);
+}
+
+// Nach links ziehen = favorisieren, genau wie bei den Deal-Karten
+let ccSwipeSperre = 0;
+function wireCcSwipe(key, brand, d) {
+  $('#sheet-content').querySelectorAll('.cc-wrap').forEach(wrap => {
+    const card = wrap.querySelector('.cc-item');
+    let sx = 0, sy = 0, dx = 0, aktiv = false, unten = false;
+    wrap.addEventListener('pointerdown', e => {
+      if (e.target.closest('.cc-fav')) return;
+      sx = e.clientX; sy = e.clientY; dx = 0; aktiv = false; unten = true;
+    });
+    wrap.addEventListener('pointermove', e => {
+      if (!unten) return;
+      const x = e.clientX - sx, y = e.clientY - sy;
+      if (!aktiv) {
+        if (Math.abs(x) < 10 || Math.abs(x) < Math.abs(y)) return;
+        aktiv = true;
+        wrap.classList.add('dragging');
+        document.body.classList.add('no-select');
+        try { wrap.setPointerCapture(e.pointerId); } catch { /* synthetische Pointer */ }
+      }
+      dx = Math.min(0, x);
+      card.style.transform = `translateX(${dx}px)`;
+    });
+    const ende = () => {
+      if (!unten) return;
+      unten = false;
+      if (!aktiv) return;
+      aktiv = false;
+      card.style.transform = '';
+      wrap.classList.remove('dragging');
+      document.body.classList.remove('no-select');
+      if (dx < -80) {
+        ccSwipeSperre = Date.now() + 350;
+        ccToggleFav(key, wrap.dataset.ccWrap);
+        buzz(14);
+        renderCardCoupons(key, brand, d);
+      }
+    };
+    wrap.addEventListener('pointerup', ende);
+    wrap.addEventListener('pointercancel', ende);
   });
 }
 function showCouponBig(it, brand, validUntil) {
