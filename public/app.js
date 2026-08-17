@@ -88,8 +88,13 @@ const CARD_APPS = {
     android: 'de.rossmann.app.android', iosId: '1034309353',
     hinweis: 'Der App-Coupon (10 %) ist dreimal im Monat verfügbar.',
   },
-  // AASA listet nur /oauth* — Universal Link unmoeglich, also raus in Safari
-  payback: { url: 'https://www.payback.de/coupons', android: 'de.payback.client.android', iosId: '363126964', keinUniLink: true },
+  payback: {
+    url: 'https://www.payback.de/coupons',
+    // www.payback.de listet nur /oauth*, m.payback.de dagegen /j/* — dort
+    // greift der Universal Link, und ohne App landet man bei PAYBACK selbst
+    iosUrl: 'https://m.payback.de/j/',
+    android: 'de.payback.client.android', iosId: '363126964',
+  },
   dm: { url: 'https://www.dm.de/', android: 'de.dm.meindm.android', iosId: '1186271926', keinUniLink: true },   // AASA nur /applink/*
   rewe: {
     url: 'https://www.rewe.de/angebote/',
@@ -129,9 +134,18 @@ const CARD_APPS = {
   subway: { url: 'https://www.subway.com/de-DE', android: 'com.subway.mobile.emea.germany', iosId: '6479694657' },
   'müller': { url: 'https://www.mueller.de/', android: 'at.helloagain.muellerde', iosId: '1516484066', keinUniLink: true },   // leeres applinks
   mueller: { url: 'https://www.mueller.de/', android: 'at.helloagain.muellerde', iosId: '1516484066', keinUniLink: true },
-  // AASA nur Produktseiten (/*/p0* …) — die Plus-Seite ist nicht dabei
-  lidl: { url: 'https://www.lidl.de/c/lidl-plus/s10007306', android: 'com.lidl.eci.lidlplus', iosId: '1238611143', keinUniLink: true },
-  'lidl plus': { url: 'https://www.lidl.de/c/lidl-plus/s10007306', android: 'com.lidl.eci.lidlplus', iosId: '1238611143', keinUniLink: true },
+  // app.lidlplus.com deckt /* ab und faellt ohne App auf lidlplus.com/home
+  // zurueck; www.lidl.de kann es nicht (dort nur Produktseiten)
+  lidl: {
+    url: 'https://www.lidl.de/c/lidl-plus/s10007306',
+    iosUrl: 'https://app.lidlplus.com/?link=https%3A%2F%2Flidlplus.com%2Fhome',
+    android: 'com.lidl.eci.lidlplus', iosId: '1238611143',
+  },
+  'lidl plus': {
+    url: 'https://www.lidl.de/c/lidl-plus/s10007306',
+    iosUrl: 'https://app.lidlplus.com/?link=https%3A%2F%2Flidlplus.com%2Fhome',
+    android: 'com.lidl.eci.lidlplus', iosId: '1238611143',
+  },
   ikea: {
     url: 'https://www.ikea.com/de/de/ikea-family/',
     iosUrl: 'https://www.ikea.com/de/de/cat/products-products/',      // in der AASA gelistet

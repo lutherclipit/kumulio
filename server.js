@@ -1101,7 +1101,12 @@ async function fillCompareCache(key, query, cached) {
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json' };
 
 function send(res, code, body, type = 'application/json') {
-  const data = type.startsWith('application/json') ? JSON.stringify(body) : body;
+  // Fertige Dateien (Buffer) NIE durch JSON.stringify schicken — sonst kommt
+  // beim Browser {"type":"Buffer","data":[…]} an statt der Datei. Das betraf
+  // jede statische .json, allen voran das PWA-Manifest.
+  const data = type.startsWith('application/json') && !Buffer.isBuffer(body)
+    ? JSON.stringify(body)
+    : body;
   res.writeHead(code, {
     'Content-Type': type,
     'Cache-Control': 'no-store',
