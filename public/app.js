@@ -754,12 +754,29 @@ function renderCoupons(host) {
     || (b.quelle?.cat || '').toLowerCase().includes(q)
     || (b.card?.number || '').toLowerCase().includes(q));
 
+  // Oben in einer Reihe: was man ohne Sparkarte sofort einlösen kann
+  // (Burger King, Netto, McDonald's). Der Rest folgt im Raster darunter.
+  const sofort = marken.filter(b => (b.coupons && b.coupons.open) || /mcdonald/i.test(b.name));
+  const rest = marken.filter(b => !sofort.includes(b));
+
   host.innerHTML = `
-    <h3 class="wallet-h" style="margin-top:0">Deine Karten &amp; Coupons</h3>
+    <h3 class="wallet-h" style="margin-top:0">Sofort einlösbar</h3>
+    <div class="cc-rail">${sofort.map(b => {
+      const gratis = /mcdonald/i.test(b.name) && (mccheapDaten?.items || []).some(x => x.gratis);
+      return `
+      <button class="cc-tile" data-brand="${esc(b.key)}" style="--bc:${brandColor(b.name)}">
+        ${brandChipHtml(b.name)}
+        <b>${esc(b.name)}</b>
+        <small>${esc(brandUntertitel(b))}</small>
+        ${b.coupons?.validUntil ? `<span class="cc-tile-date">bis ${dateShort(b.coupons.validUntil)}</span>` : ''}
+        ${gratis ? '<span class="cc-tile-flag">gratis!</span>' : ''}
+      </button>`;
+    }).join('') || '<div class="status">Gerade nichts ohne Karte verfügbar.</div>'}</div>
+    <h3 class="wallet-h" style="margin-top:14px">Deine Karten &amp; Coupons</h3>
     <input id="coupon-search" class="input" type="search" placeholder="Marke suchen; z.B. Rossmann, Drogerie …" value="${esc(state.couponQuery || '')}">
     <p class="muted grid-hint">Eine Kachel je Händler: Karte, App und Coupons an einem Ort. Gedrückt halten und ziehen zum Sortieren.</p>
     <div class="app-grid" id="coupon-grid">
-      ${marken.map(b => {
+      ${rest.map(b => {
         const gesperrt = b.coupons && !ccBesitzt(b.coupons);
         const gratis = /mcdonald/i.test(b.name) && (mccheapDaten?.items || []).some(x => x.gratis);
         return `
@@ -799,7 +816,7 @@ function renderCoupons(host) {
     again.focus();
     again.setSelectionRange(at, at);
   });
-  makeGridSortable(host.querySelector('#coupon-grid'), '[data-brand]', newOrder => {
+  makeGridSortable(host.querySelector('#coupon-grid'), '#coupon-grid > [data-brand]', newOrder => {
     if ((state.couponQuery || '').trim()) return;
     // Gespeichert werden Namen, nicht Schlüssel — die Reihenfolge gilt markenweit
     const namen = newOrder.map(k => (walletBrands().find(b => b.key === k) || {}).name).filter(Boolean);
