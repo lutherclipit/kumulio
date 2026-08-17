@@ -3414,3 +3414,21 @@ body.kb-open #chat-box { min-height: 120px; }
   font-size: .6rem; font-weight: 800; letter-spacing: .02em;
   border-radius: 999px; padding: 2px 6px;
 }
+
+/* ---- Runde 70: Karten und Coupons in einem Raster ---- */
+/* Marken mit eigener Sparkarte tragen einen grünen Punkt */
+.app-tile.has-card { border-color: rgba(18, 199, 126, .4); }
+.tile-dot {
+  position: absolute; top: 8px; right: 8px; width: 8px; height: 8px;
+  border-radius: 50%; background: var(--accent-strong, #12C77E);
+}
+.tile-lock { position: absolute; top: 6px; right: 6px; color: var(--muted); opacity: .7; }
+.app-tile.has-card .tile-lock { right: 22px; }
+/* Coupons, die noch hinter der Sparkarte liegen */
+.cc-locked {
+  display: flex; align-items: center; gap: 8px; margin-top: 16px;
+  background: var(--surface); border: 1px dashed var(--stroke-light);
+  border-radius: 14px; padding: 12px 13px;
+  font-size: .82rem; color: var(--muted); line-height: 1.4;
+}
+.cc-locked .icon { flex: none; }

@@ -123,27 +123,36 @@ const CARD_APPS = {
   },
   mcdonalds: {
     url: 'https://www.mcdonalds.com/de/de-de.html',
+    // Die AASA von mcdonalds.com nennt nur die US-App (com.mcdonalds.gma) und
+    // nur /deals* und /full-menu* — die deutsche App steht dort nicht drin.
+    // Ein Universal Link ist damit unmoeglich, deshalb gleich ein eigener Tab.
+    keinUniLink: true,
     android: 'de.mcdonalds.mcdonaldsinfoapp', iosId: '524943492',
     alt: { url: 'https://mccheap.tech/', name: 'McCheap.tech' },
   },
   "mcdonald's": {
     url: 'https://www.mcdonalds.com/de/de-de.html',
+    // Die AASA von mcdonalds.com nennt nur die US-App (com.mcdonalds.gma) und
+    // nur /deals* und /full-menu* — die deutsche App steht dort nicht drin.
+    // Ein Universal Link ist damit unmoeglich, deshalb gleich ein eigener Tab.
+    keinUniLink: true,
     android: 'de.mcdonalds.mcdonaldsinfoapp', iosId: '524943492',
     alt: { url: 'https://mccheap.tech/', name: 'McCheap.tech' },
   },
   subway: { url: 'https://www.subway.com/de-DE', android: 'com.subway.mobile.emea.germany', iosId: '6479694657' },
   'müller': { url: 'https://www.mueller.de/', android: 'at.helloagain.muellerde', iosId: '1516484066', keinUniLink: true },   // leeres applinks
   mueller: { url: 'https://www.mueller.de/', android: 'at.helloagain.muellerde', iosId: '1516484066', keinUniLink: true },
-  // app.lidlplus.com deckt /* ab und faellt ohne App auf lidlplus.com/home
-  // zurueck; www.lidl.de kann es nicht (dort nur Produktseiten)
+  // app.lidlplus.com deckt /* ab. /home statt des ?link=-Umwegs: das ist die
+  // Firebase-Weiterleitung, die auf dem Handy kurz als Zwischenseite aufblitzt.
+  // Ohne App landet /home direkt auf der Lidl-Plus-Seite.
   lidl: {
     url: 'https://www.lidl.de/c/lidl-plus/s10007306',
-    iosUrl: 'https://app.lidlplus.com/?link=https%3A%2F%2Flidlplus.com%2Fhome',
+    iosUrl: 'https://app.lidlplus.com/home',
     android: 'com.lidl.eci.lidlplus', iosId: '1238611143',
   },
   'lidl plus': {
     url: 'https://www.lidl.de/c/lidl-plus/s10007306',
-    iosUrl: 'https://app.lidlplus.com/?link=https%3A%2F%2Flidlplus.com%2Fhome',
+    iosUrl: 'https://app.lidlplus.com/home',
     android: 'com.lidl.eci.lidlplus', iosId: '1238611143',
   },
   ikea: {
@@ -733,51 +742,50 @@ function computeOrder() {
   state.orderKey = state.activeChip;
 }
 
-// Coupons (im Wallet): EIN Bereich für alles, was Coupons bringt, darunter GzG.
-// Oben in der Reihe stehen die Marken mit echtem Inhalt (gepflegte Coupon-Sätze,
-// McDonald's mit den McCheap-Funden). Alles andere folgt im Raster. Keine Marke
-// taucht zweimal auf — vorher stand z. B. Rossmann oben UND unten.
+// Karten & Coupons: ein Raster mit allen Marken. Hinter jeder Kachel liegt
+// alles zu diesem Händler — die Sparkarte, der Sprung in seine App und seine
+// Coupons. Darunter die Geld-zurück-Garantien.
 function renderCoupons(host) {
   host = host || $('#coupons-content');
   const gzg = state.deals.filter(d => /geld.?zur(ü|ue)ck|gzg\b/i.test(d.title + ' ' + (d.excerpt || '')));
-
-  const all = [];
-  COUPON_SOURCES.forEach(sec => sec.items.forEach(it => all.push({ ...it, cat: sec.cat })));
-  const order = JSON.parse(localStorage.getItem('ra.couponOrder') || '[]');
-  const pos = n => { const i = order.indexOf(n); return i < 0 ? 999 : i; };
-  all.sort((a, b) => pos(a.name) - pos(b.name));
-
-  // Welche Marken kommen nach oben? Alle mit gepflegten Coupons plus McDonald's
-  const obenKeys = new Set((cardCouponList || []).map(c => c.key));
-  obenKeys.add('mcdonalds');
-  const istOben = n => obenKeys.has(String(n).trim().toLowerCase());
   const q = (state.couponQuery || '').trim().toLowerCase();
-  const passt = it => !q || it.name.toLowerCase().includes(q)
-    || it.cat.toLowerCase().includes(q) || (it.desc || '').toLowerCase().includes(q);
-  const raster = all.filter(it => !istOben(it.name) && passt(it));
+  const marken = walletBrands().filter(b => !q
+    || b.name.toLowerCase().includes(q)
+    || (b.quelle?.cat || '').toLowerCase().includes(q)
+    || (b.card?.number || '').toLowerCase().includes(q));
 
   host.innerHTML = `
-    <h3 class="wallet-h" style="margin-top:0">Coupons</h3>
-    <div id="card-coupon-box"></div>
-    <input id="coupon-search" class="input" type="search" placeholder="Coupons suchen; z.B. Rossmann, Drogerie …" value="${esc(state.couponQuery || '')}">
-    <p class="muted grid-hint">Diese Kacheln springen in die App des Anbieters. Gedrückt halten und ziehen zum Sortieren.</p>
+    <h3 class="wallet-h" style="margin-top:0">Deine Karten &amp; Coupons</h3>
+    <input id="coupon-search" class="input" type="search" placeholder="Marke suchen; z.B. Rossmann, Drogerie …" value="${esc(state.couponQuery || '')}">
+    <p class="muted grid-hint">Eine Kachel je Händler: Karte, App und Coupons an einem Ort. Gedrückt halten und ziehen zum Sortieren.</p>
     <div class="app-grid" id="coupon-grid">
-      ${raster.map(it => `
-      <a class="app-tile" data-cpn="${esc(it.name)}" title="${esc(it.desc || '')}"
-         ${cardApp(it.name) ? appLinkAttrs(it.name)
-           : `href="${esc(it.url)}" target="_blank" rel="noopener noreferrer"`} style="--bc:${brandColor(it.name)}">
-        ${brandChipHtml(it.name)}
-        <span class="app-tile-name">${esc(it.name)}</span>
-        <span class="app-tile-desc">${esc(it.cat)}</span>
-      </a>`).join('')
-      || '<div class="status">Nichts gefunden.</div>'}
+      ${marken.map(b => {
+        const gesperrt = b.coupons && !ccBesitzt(b.coupons);
+        const gratis = /mcdonald/i.test(b.name) && (mccheapDaten?.items || []).some(x => x.gratis);
+        return `
+      <button class="app-tile ${b.card ? 'has-card' : ''}" data-brand="${esc(b.key)}" style="--bc:${brandColor(b.name)}">
+        ${brandChipHtml(b.name)}
+        <span class="app-tile-name">${esc(b.name)}</span>
+        <span class="app-tile-desc">${esc(brandUntertitel(b))}</span>
+        ${b.card ? `<span class="tile-dot" title="Sparkarte in der Wallet"></span>` : ''}
+        ${gesperrt ? `<span class="tile-lock">${icon('lock', 'icon icon-sm')}</span>` : ''}
+        ${gratis ? '<span class="tile-flag">gratis!</span>' : ''}
+      </button>`;
+      }).join('')}
+      <button class="app-tile app-tile-add" data-wadd="card">
+        <span class="app-add-plus">${icon('plus')}</span>
+        <span class="app-tile-name">Karte hinzufügen</span>
+      </button>
     </div>
     <h3 class="wallet-h" style="margin-top:18px">Geld-zurück-Garantien (GzG)</h3>
     ${gzg.length
       ? gzg.map((d, i) => renderOfferCard(d, i, false)).join('')
       : '<div class="status">Aktuelle GzG-Aktionen postet die Redaktion über das Admin-Panel, sie erscheinen dann hier.</div>'}`;
 
-  renderCardCouponBox(host.querySelector('#card-coupon-box'));
+  ladeCouponListe();
+  host.querySelectorAll('[data-brand]').forEach(b =>
+    b.onclick = () => openBrandSheet(b.dataset.brand));
+  host.querySelector('[data-wadd]')?.addEventListener('click', () => openWalletAdd('card'));
   // Einmal nachsehen, ob McCheap gerade etwas Gratis hat — danach steht es im Speicher
   if (!mccheapDaten) ladeMccheap().then(d => {
     if ((d.items || []).some(x => x.gratis) && walletTab === 'coupons') renderCoupons(host);
@@ -791,10 +799,12 @@ function renderCoupons(host) {
     again.focus();
     again.setSelectionRange(at, at);
   });
-  makeGridSortable(host.querySelector('#coupon-grid'), '[data-cpn]', newOrder => {
+  makeGridSortable(host.querySelector('#coupon-grid'), '[data-brand]', newOrder => {
     if ((state.couponQuery || '').trim()) return;
-    localStorage.setItem('ra.couponOrder', JSON.stringify(newOrder));
-  }, el => el.dataset.cpn);
+    // Gespeichert werden Namen, nicht Schlüssel — die Reihenfolge gilt markenweit
+    const namen = newOrder.map(k => (walletBrands().find(b => b.key === k) || {}).name).filter(Boolean);
+    localStorage.setItem('ra.couponOrder', JSON.stringify(namen));
+  }, el => el.dataset.brand);
 }
 
 // McDonald's hat zwei Wege: die eigene App und McCheap.tech, wo Leute die
@@ -806,41 +816,25 @@ async function ladeMccheap() {
   try { mccheapDaten = await api('/api/mccheap'); } catch { mccheapDaten = { items: [] }; }
   return mccheapDaten;
 }
-function openMcdWahl() {
-  const wrap = document.createElement('div');
-  wrap.className = 'overlay';
-  const treffer = (mccheapDaten?.items || []);
-  wrap.innerHTML = `<div class="modal mcd-pick">
-    <button class="fav-remove" id="mcd-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
-    <h3 class="modal-title">McDonald&rsquo;s Coupons</h3>
-    <p class="muted" style="font-size:.82rem">Wo willst du hin?</p>
-    <a class="app-jump" ${appLinkAttrs('McDonalds')} style="--bc:${brandColor('mcdonalds')}">
-      ${brandChipHtml('McDonalds')}
-      <span class="app-jump-txt"><b>McDonald&rsquo;s App</b><small>Offizielle Coupons, direkt einlösbar</small></span>
-      ${icon('arrow-right', 'icon icon-sm')}
-    </a>
+// McDonald's hat zwei Wege: die eigene App und McCheap.tech. Beides steht im
+// Marken-Blatt untereinander, dazu die Ausreisser, die der Server dort findet.
+function mccheapBlockHtml() {
+  const treffer = mccheapDaten?.items || [];
+  return `
     <a class="app-jump" href="https://mccheap.tech/" target="_blank" rel="noopener noreferrer" style="--bc:#12C77E">
       <span class="brand-chip" style="--bc:#12C77E">MC</span>
       <span class="app-jump-txt"><b>McCheap.tech</b><small>Gesammelte Codes, oft günstiger als die App</small></span>
       ${icon('arrow-right', 'icon icon-sm')}
     </a>
     ${treffer.length ? `
-      <h4 class="gm-h" style="margin-top:14px">${icon('bolt', 'icon icon-sm')} Gerade auffällig günstig</h4>
+      <h3 class="gm-h" style="margin-top:16px">${icon('bolt', 'icon icon-sm')} Gerade auffällig günstig</h3>
       <div class="mcd-hits">${treffer.map(t => `
         <div class="mcd-hit ${t.gratis ? 'gratis' : ''}">
           ${t.gratis ? '<b>GRATIS</b> ' : ''}${esc(t.text)}
           ${t.bis ? `<small>${esc(t.bis)}</small>` : ''}
         </div>`).join('')}</div>
       <p class="muted" style="font-size:.72rem; margin-top:8px">Automatisch von McCheap.tech gelesen — ohne Gewähr, prüf den Preis im Laden.</p>`
-      : '<p class="muted" style="font-size:.76rem; margin-top:12px">Aktuell nichts Auffälliges bei McCheap gefunden.</p>'}
-  </div>`;
-  document.body.appendChild(wrap);
-  wrap.addEventListener('click', e => {
-    if (e.target === wrap || e.target.closest('#mcd-close')) {
-      wrap.classList.add('closing');
-      setTimeout(() => wrap.remove(), 280);
-    }
-  });
+      : '<p class="muted" style="font-size:.76rem; margin-top:10px">Aktuell nichts Auffälliges bei McCheap gefunden.</p>'}`;
 }
 
 function renderFeed(reorder = false) {
@@ -1203,7 +1197,7 @@ function openSheetShell() {
 
 function closeSheet() {
   // Die Wisch- und Klick-Handler der Coupon-Liste gelten nur fuer dieses Blatt
-  if (state.sheetMode === 'card-coupons') {
+  if (state.sheetMode === 'card-coupons' || state.sheetMode === 'brand') {
     const sh = $('#sheet-content');
     sh.onpointerdown = sh.onpointermove = sh.onpointerup = sh.onpointercancel = sh.onclick = null;
     ccCtx = null;
@@ -5291,6 +5285,46 @@ function openVoucherSheet(id, animFrom) {
   openSheetShell();
 }
 
+// Eine Marke buendelt alles, was zu einem Haendler gehoert: die Sparkarte in der
+// Wallet, die gepflegten Coupons und den Sprung in die App. Vorher lag das in
+// zwei Tabs verstreut, und dieselbe Marke tauchte doppelt auf.
+function walletBrands() {
+  const map = new Map();
+  const hol = name => {
+    const key = String(name || '').trim().toLowerCase();
+    if (!key) return null;
+    if (!map.has(key)) map.set(key, { key, name: String(name).trim() });
+    return map.get(key);
+  };
+  state.wallet.cards.forEach(c => { const b = hol(c.name); if (b) { b.card = c; b.name = c.name; } });
+  (cardCouponList || []).forEach(c => {
+    const b = hol(c.brand);
+    if (b) { b.coupons = c; b.name = c.brand; }
+  });
+  COUPON_SOURCES.forEach(sec => sec.items.forEach(it => {
+    const b = hol(it.name);
+    if (b) { b.quelle = { ...it, cat: sec.cat }; }
+  }));
+  const order = JSON.parse(localStorage.getItem('ra.couponOrder') || '[]');
+  const pos = n => { const i = order.indexOf(n); return i < 0 ? 999 : i; };
+  // Eigene Karten zuerst, dann Marken mit Coupons, dann der Rest
+  const rang = b => (b.card ? 0 : b.coupons ? 1 : 2);
+  return [...map.values()].sort((a, b) =>
+    rang(a) - rang(b) || pos(a.name) - pos(b.name) || a.name.localeCompare(b.name, 'de'));
+}
+
+// Was steht klein unter dem Markennamen?
+function brandUntertitel(b) {
+  const n = b.coupons && ccBesitzt(b.coupons) ? b.coupons.count : 0;
+  const wort = `${n} Coupon${n === 1 ? '' : 's'}`;
+  if (b.card && n) return `Karte · ${wort}`;
+  if (b.card) return 'Sparkarte';
+  if (n) return wort;
+  if (b.coupons) return 'Karte nötig';
+  if (/mcdonald/i.test(b.name)) return 'App oder McCheap';
+  return b.quelle?.cat || 'In der App';
+}
+
 // ---- Coupons zu Sparkarten: gepflegt von der Redaktion, sichtbar nur mit
 // passender Karte in der Wallet. Geladen wird erst beim Öffnen (nie auf Vorrat).
 // Die Marken-Reihe ist sofort da: sie kommt aus dem Speicher des Geraets und
@@ -5301,57 +5335,20 @@ let ccListGeladen = false;
 const ccBesitzt = c => !!c.open
   || state.wallet.cards.some(x => String(x.name || '').trim().toLowerCase() === c.key);
 
-// Die Reihe oben: Marken mit echtem Inhalt. Erst die gepflegten Coupon-Sätze,
-// dann McDonald's (das hat mit McCheap eine eigene Auswahl statt einer Liste).
-function ccRailHtml(list) {
-  const kacheln = list.map(c => {
-    const owned = ccBesitzt(c);
-    return `
-      <button class="cc-tile ${owned ? '' : 'locked'}" data-cc="${esc(c.key)}" style="--bc:${brandColor(c.brand)}">
-        ${brandChipHtml(c.brand)}
-        <b>${esc(c.brand)}</b>
-        <small>${owned ? `${c.count} Coupons` : 'Karte nötig'}</small>
-        ${c.validUntil && owned ? `<span class="cc-tile-date">bis ${dateShort(c.validUntil)}</span>` : ''}
-        ${owned ? '' : `<span class="cc-tile-lock">${icon('lock', 'icon icon-sm')}</span>`}
-      </button>`;
-  });
-  const gratis = (mccheapDaten?.items || []).some(x => x.gratis);
-  kacheln.push(`
-      <button class="cc-tile" data-cc-mcd="1" style="--bc:${brandColor('mcdonalds')}">
-        ${brandChipHtml('McDonalds')}
-        <b>McDonald&rsquo;s</b>
-        <small>App oder McCheap</small>
-        ${gratis ? '<span class="cc-tile-flag">gratis!</span>' : ''}
-      </button>`);
-  return `<div class="cc-rail">${kacheln.join('')}</div>`;
-}
-
-async function renderCardCouponBox(host) {
-  if (!host) return;
-  const zeichne = () => {
-    host.innerHTML = ccRailHtml(cardCouponList || []);
-    host.querySelectorAll('[data-cc]').forEach(b => b.onclick = () => {
-      const c = cardCouponList.find(x => x.key === b.dataset.cc);
-      if (!ccBesitzt(c)) { openWalletAdd('card', c.brand); return; }
-      openCardCoupons(c.key, c.brand);
-    });
-    host.querySelectorAll('[data-cc-mcd]').forEach(b => b.onclick = () => openMcdWahl());
-  };
-  if (cardCouponList) zeichne();
-  else host.innerHTML = `<div class="cc-rail">${
-    [0, 1, 2].map(() => '<div class="cc-tile cc-skel"></div>').join('')}</div>`;
+// Welche Marken haben gepflegte Coupons? Einmal pro Sitzung beim Server holen,
+// danach steht die Liste im Speicher des Geraets — das Raster ist sofort da.
+async function ladeCouponListe() {
   if (ccListGeladen || !state.token) return;   // Coupon-Sätze brauchen ein Konto
   ccListGeladen = true;
   try {
     const list = (await api('/api/cardcoupons/list')).list || [];
-    // Nur neu zeichnen, wenn sich wirklich etwas geaendert hat — sonst flackert es
     const alt = JSON.stringify(cardCouponList);
     cardCouponList = list;
     localStorage.setItem('ra.ccList', JSON.stringify(list));
-    if (JSON.stringify(list) !== alt) zeichne();
+    // Nur neu zeichnen, wenn sich wirklich etwas geaendert hat — sonst flackert es
+    if (JSON.stringify(list) !== alt && walletTab !== 'gutscheine') renderCoupons();
   } catch {
     ccListGeladen = false;                       // beim naechsten Mal neu versuchen
-    if (!cardCouponList) zeichne();
   }
 }
 function dateShort(iso) {
@@ -5376,40 +5373,42 @@ function ccPreis(p) {
 // Einmal geladene Coupon-Saetze bleiben im Speicher des Geraets: beim naechsten
 // Oeffnen steht die Liste sofort, der Server wird nur noch still nachgefragt.
 const ccCache = JSON.parse(localStorage.getItem('ra.ccData') || '{}');
-async function openCardCoupons(key, brand) {
-  state.sheetMode = 'card-coupons';
+// Die Coupons einer Marke in einen Bereich des Marken-Blatts laden. Aus dem
+// Speicher stehen sie sofort da, der Server wird nur still nachgefragt.
+async function ladeCouponsIn(key, brand, host, gesperrt) {
+  if (!host) return;
+  if (gesperrt) {
+    host.innerHTML = `<div class="cc-locked">${icon('lock', 'icon icon-sm')}
+      Füge die ${esc(brand)}-Karte hinzu, dann erscheinen die Coupons hier.</div>`;
+    return;
+  }
   const gecacht = ccCache[key];
-  if (gecacht) renderCardCoupons(key, brand, gecacht);
-  else $('#sheet-content').innerHTML = `
-    <div class="sheet-title">${esc(brand)}</div>
-    <div class="cc-list">${[0, 1, 2, 3, 4].map(() => '<div class="cc-row-skel"></div>').join('')}</div>`;
-  openSheetShell();
+  if (gecacht) renderCardCoupons(key, brand, gecacht, host);
+  else host.innerHTML = `<h3 class="gm-h">Coupons</h3>
+    <div class="cc-list">${[0, 1, 2, 3].map(() => '<div class="cc-row-skel"></div>').join('')}</div>`;
   let d;
   try { d = await api('/api/cardcoupons?card=' + encodeURIComponent(key)); }
   catch (e) {
-    if (!gecacht) $('#sheet-content').innerHTML = `<div class="sheet-title">${esc(brand)}</div><div class="status">${esc(e.message)}</div>`;
+    if (!gecacht) host.innerHTML = `<div class="status">${esc(e.message)}</div>`;
     return;
   }
   ccCache[key] = d;
   try { localStorage.setItem('ra.ccData', JSON.stringify(ccCache)); } catch { /* Speicher voll */ }
   // Nur neu aufbauen, wenn sich etwas geaendert hat — sonst bleibt die Liste ruhig
-  if (!gecacht || JSON.stringify(gecacht) !== JSON.stringify(d)) renderCardCoupons(key, brand, d);
+  if (!gecacht || JSON.stringify(gecacht) !== JSON.stringify(d)) renderCardCoupons(key, brand, d, host);
 }
+// Alte Aufrufe: eigenes Blatt nur noch als Umleitung auf das Marken-Blatt
+function openCardCoupons(key, brand) { openBrandSheet(key); }
+
 // Der gerade offene Coupon-Satz. Favorisieren aendert nur die betroffenen
 // Zeilen, nie die ganze Liste — sonst reisst es einem den Wisch unter der Hand weg.
 let ccCtx = null;
-function renderCardCoupons(key, brand, d) {
+function renderCardCoupons(key, brand, d, host) {
+  host = host || $('#cc-slot') || $('#sheet-content');
   ccCtx = { key, brand, d, flat: (d.groups || []).flatMap(g => g.items.map(it => ({ ...it, gruppe: g.title }))) };
   const abgelaufen = d.validUntil && new Date(d.validUntil) < new Date(new Date().toDateString());
-  $('#sheet-content').innerHTML = `
-    <div class="offer-head">
-      ${brandChipHtml(d.brand || brand)}
-      <div class="offer-brand">
-        <div class="offer-merchant">${esc(d.brand || brand)}</div>
-        <div class="offer-cat">Coupons der Redaktion</div>
-      </div>
-      <button class="fav-remove" id="cc-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
-    </div>
+  host.innerHTML = `
+    <h3 class="gm-h" style="margin-top:16px">${icon('tag', 'icon icon-sm')} Coupons der Redaktion</h3>
     ${d.validUntil ? `<div class="cc-valid ${abgelaufen ? 'over' : ''}">${icon('clock', 'icon icon-sm')}
       ${abgelaufen ? 'Abgelaufen seit' : 'Gültig bis'} ${dateShort(d.validUntil)}</div>` : ''}
     <div class="wallet-filters cc-filters" id="cc-filters"></div>
@@ -5417,7 +5416,6 @@ function renderCardCoupons(key, brand, d) {
     <div id="cc-body"></div>
     ${d.note ? `<p class="cc-note">${icon('bulb', 'icon icon-sm')} ${esc(d.note)}</p>` : ''}
     ${state.role === 'admin' ? `<button class="btn btn-small btn-ghost" id="cc-edit" style="margin-top:14px">Coupons pflegen</button>` : ''}`;
-  $('#cc-close').onclick = closeSheet;
   $('#cc-edit') && ($('#cc-edit').onclick = () => openCardCouponEditor(key, d));
   ccFilterChips();
   ccBody();
@@ -5587,7 +5585,8 @@ function ccWireSheet() {
     const w = wrap, code = w.dataset.ccWrap, stern = sternZiel;
     const kurz = Date.now() - start < 700;
     const stillGehalten = e && Math.abs(e.clientX - sx) < 10 && Math.abs(e.clientY - sy) < 10;
-    const gewischt = aktiv && dx < -80;
+    const gezogen = aktiv;                    // vor dem Aufräumen sichern
+    const gewischt = gezogen && dx < -80;
     aufraeumen();
     if (gewischt) {
       ccSwipeSperre = Date.now() + 400;
@@ -5596,7 +5595,7 @@ function ccWireSheet() {
       ccFavGeaendert(code);
       return;
     }
-    if (aktiv) { ccSwipeSperre = Date.now() + 400; return; }  // Wisch ohne Auslösen
+    if (gezogen) { ccSwipeSperre = Date.now() + 400; return; }  // Wisch ohne Auslösen
     if (!kurz || !stillGehalten) return;
     // Sauberes Antippen: hier selbst auslösen, der Klick danach wird gesperrt
     ccSwipeSperre = Date.now() + 400;
@@ -5727,7 +5726,8 @@ function openCardCouponEditor(key, data) {
       });
       wrap.remove();
       island(`${r.count} Coupons gespeichert`);
-      openCardCoupons(key, $('#cce-brand').value);
+      delete ccCache[key];
+      openBrandSheet(key);
     } catch (e) {
       const m = $('#cce-msg'); m.className = 'form-msg error'; m.textContent = e.message;
     }
@@ -5838,73 +5838,91 @@ function cardAppBlockHtml(name) {
       </button>` : ''}`;
 }
 
-function openCardSheet(id) {
-  const c = state.wallet.cards.find(x => x.id === id);
-  if (!c) return;
-  state.sheetMode = 'wallet-detail';
+// Ein Blatt je Marke: oben die Sparkarte (Nummer und Barcode fuer die Kasse),
+// darunter der Sprung in die App, darunter die Coupons dieser Marke. Alles, was
+// man beim Einkauf braucht, in einer Reihenfolge.
+function openBrandSheet(key) {
+  const b = walletBrands().find(x => x.key === key);
+  if (!b) return;
+  const c = b.card;
+  state.sheetMode = 'brand';
   $('#sheet-content').innerHTML = `
     <div class="offer-head">
-      <span class="brand-chip" style="--bc:${brandColor(c.name)}">${esc(brandInitials(c.name))}</span>
-      <div class="offer-brand"><div class="offer-merchant">${esc(c.name)}</div><div class="offer-cat">Sparkarte</div></div>
+      <span class="brand-chip" style="--bc:${brandColor(b.name)}">${esc(brandInitials(b.name))}</span>
+      <div class="offer-brand">
+        <div class="offer-merchant">${esc(b.name)}</div>
+        <div class="offer-cat">${esc(brandUntertitel(b))}</div>
+      </div>
       <button class="fav-remove" id="wc-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
     </div>
-    <div class="tx-row" style="margin-top:12px">
-      <span class="wallet-code" style="flex:1">${esc(c.number)}</span>
-      <button class="btn btn-small" data-copy-txt="${esc(c.number)}">Kopieren</button>
-    </div>
-    ${c.codeImg ? `<img class="wallet-code-img" src="${c.codeImg}" alt="Code für die Kasse">`
-      : c.img ? `<img class="wallet-img" src="${c.img}" alt="QR/Barcode">`
-      : '<p class="muted" style="margin-top:10px; font-size:.82rem">Tipp: Screenshot vom Karten-Barcode anhängen (beim Anlegen), dann kannst du ihn an der Kasse scannen lassen.</p>'}
-    <div id="wc-coupon-slot"></div>
-    <div id="wc-app-slot">${cardAppBlockHtml(c.name)}</div>
-    <button class="btn btn-danger" id="wc-del" style="margin-top:18px">Karte löschen</button>`;
+    ${c ? `
+      <div class="tx-row" style="margin-top:12px">
+        <span class="wallet-code" style="flex:1">${esc(c.number)}</span>
+        <button class="btn btn-small" data-copy-txt="${esc(c.number)}">Kopieren</button>
+      </div>
+      ${c.codeImg ? `<img class="wallet-code-img" src="${c.codeImg}" alt="Code für die Kasse">`
+        : c.img ? `<img class="wallet-img" src="${c.img}" alt="QR/Barcode">`
+        : '<p class="muted" style="margin-top:10px; font-size:.82rem">Tipp: Screenshot vom Karten-Barcode anhängen (beim Anlegen), dann kannst du ihn an der Kasse scannen lassen.</p>'}`
+    : cardApp(b.name)?.rotierend ? ''
+    : `<button class="btn btn-block btn-ghost" id="wc-addcard" style="margin-top:12px">
+        ${icon('plus', 'icon icon-sm')} ${esc(b.name)}-Karte hinzufügen</button>`}
+    <div id="wc-app-slot">${cardAppBlockHtml(b.name)}</div>
+    ${/mcdonald/i.test(b.name) ? `<div id="mcd-slot">${mccheapBlockHtml()}</div>` : ''}
+    <div id="cc-slot"></div>
+    ${c ? `<button class="btn btn-danger" id="wc-del" style="margin-top:18px">Karte löschen</button>` : ''}`;
+
+  $('#wc-close').addEventListener('click', closeSheet);
+  $('#sheet-content').querySelectorAll('[data-copy-txt]').forEach(x =>
+    x.addEventListener('click', () => copyText(x.dataset.copyTxt)));
+  $('#wc-addcard')?.addEventListener('click', () => openWalletAdd('card', b.name));
+
   // Wochen-Erinnerung abhaken (IKEA & Co.): danach laeuft der 7-Tage-Timer
-  const wireQuest = () => $('#wc-app-slot').querySelectorAll('[data-quest]').forEach(b => b.onclick = () => {
-    if (questRest(b.dataset.quest)) return;
-    questErledigt(b.dataset.quest);
+  const wireQuest = () => $('#wc-app-slot').querySelectorAll('[data-quest]').forEach(q => q.onclick = () => {
+    if (questRest(q.dataset.quest)) return;
+    questErledigt(q.dataset.quest);
     playSfx('coin'); buzz(18);
     island('Erledigt — in 7 Tagen erinnern wir dich wieder');
-    $('#wc-app-slot').innerHTML = cardAppBlockHtml(c.name);
+    $('#wc-app-slot').innerHTML = cardAppBlockHtml(b.name);
     $('#wc-app-slot').querySelector('.quest-row')?.classList.add('quest-pop');
     wireQuest();
   });
   wireQuest();
-  // Coupons dieser Karte: nur ein Knopf, die Liste kommt erst beim Antippen
-  // Coupons dieser Karte: die Übersicht liegt schon im Speicher, kein Warten
-  {
-    const slot = $('#wc-coupon-slot');
-    const hit = (cardCouponList || []).find(x => x.key === c.name.trim().toLowerCase());
-    if (slot && state.token && hit) {
-      slot.innerHTML = `<button class="btn btn-block cc-open-btn" id="wc-coupons">
-        ${icon('tag', 'icon icon-sm')} ${hit.count} Coupons ansehen${hit.validUntil ? ` · bis ${dateShort(hit.validUntil)}` : ''}</button>`;
-      $('#wc-coupons').onclick = () => openCardCoupons(hit.key, hit.brand);
-    }
+
+  if (c) {
+    $('#wc-del').addEventListener('click', async () => {
+      if (!await askConfirm(`Bist du sicher, dass du die ${esc(b.name)}-Karte löschen willst?`)) return;
+      tombstone(c.id);
+      state.wallet.cards = state.wallet.cards.filter(x => x.id !== c.id);
+      saveWallet(); closeSheet(); island('Karte gelöscht');
+    });
   }
-  $('#sheet-content').querySelectorAll('[data-copy-txt]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copyTxt)));
-  $('#wc-close').addEventListener('click', closeSheet);
-  $('#wc-del').addEventListener('click', async () => {
-    if (!await askConfirm(`Bist du sicher, dass du die ${esc(c.name)}-Karte löschen willst?`)) return;
-    tombstone(id);
-    state.wallet.cards = state.wallet.cards.filter(x => x.id !== id);
-    saveWallet(); closeSheet(); island('Karte gelöscht');
+  // McCheap erst beim Öffnen holen, danach steht es im Speicher
+  if (/mcdonald/i.test(b.name) && !mccheapDaten) ladeMccheap().then(() => {
+    const slot = $('#mcd-slot');
+    if (slot && state.sheetMode === 'brand') slot.innerHTML = mccheapBlockHtml();
   });
+  // Die Coupons dieser Marke direkt darunter — kein zweites Blatt mehr
+  if (b.coupons) ladeCouponsIn(b.coupons.key, b.coupons.brand, $('#cc-slot'), !ccBesitzt(b.coupons));
   openSheetShell();
+}
+// Alte Aufrufe (z. B. aus der Wallet-Liste) landen im selben Blatt
+function openCardSheet(id) {
+  const c = state.wallet.cards.find(x => x.id === id);
+  if (c) openBrandSheet(String(c.name).trim().toLowerCase());
 }
 
 // Drei Wallet-Bereiche: Gutscheine, Sparkarten (App-Raster), Coupons
 let walletTab = 'gutscheine';
 function updateWalletTab(anim) {
-  const coupons = walletTab === 'coupons';
-  const cards = walletTab === 'karten';
+  const coupons = walletTab === 'coupons' || walletTab === 'karten';
   const gated = !state.token && !coupons;
   $('#wallet-gate').classList.toggle('hidden', !gated);
-  $('#wallet-content').classList.toggle('hidden', gated || coupons || cards);
-  $('#cards-content').classList.toggle('hidden', gated || !cards);
+  $('#wallet-content').classList.toggle('hidden', gated || coupons);
   $('#coupons-content').classList.toggle('hidden', !coupons);
   if (coupons) renderCoupons($('#coupons-content'));
   if (!walletTab.startsWith('gutscheine')) $('#wallet-mini')?.classList.remove('show');
   if (anim) {
-    const host = coupons ? $('#coupons-content') : cards ? $('#cards-content') : $('#wallet-content');
+    const host = coupons ? $('#coupons-content') : $('#wallet-content');
     host.classList.remove('tab-in');
     void host.offsetWidth;                       // Animation neu starten
     host.classList.add('tab-in');
@@ -6090,33 +6108,8 @@ function renderWallet() {
     || '<div class="status">Nichts aufgebraucht.</div>';
   $('#used-count').textContent = used.length ? `(${used.length})` : '';
 
-  // Sparkarten als App-Raster mit Logos, eigene Suche, per Ziehen sortierbar
-  const hasPayback = state.wallet.cards.some(c => /payback/i.test(c.name));
-  const cq = (state.cardQuery || '').trim().toLowerCase();
-  const cardsShown = state.wallet.cards.filter(c => !cq
-    || c.name.toLowerCase().includes(cq) || c.number.toLowerCase().includes(cq));
-  $('#cardw-list').innerHTML = cardsShown.map(c => `
-    <button class="app-tile" data-wc="${esc(c.id)}" style="--bc:${brandColor(c.name)}">
-      ${brandChipHtml(c.name)}
-      <span class="app-tile-name">${esc(c.name)}</span>
-    </button>`).join('')
-    + `<button class="app-tile app-tile-add" data-wadd="card">
-      <span class="app-add-plus">${icon('plus')}</span>
-      <span class="app-tile-name">Hinzufügen</span>
-    </button>`
-    + (!hasPayback ? `
-    <button class="app-tile app-tile-add" data-wadd-prefill="Payback" style="--bc:${brandColor('payback')}">
-      ${brandChipHtml('Payback')}
-      <span class="app-tile-name">Payback verbinden</span>
-    </button>` : '');
-  makeGridSortable($('#cardw-list'), '[data-wc]', order => {
-    // Nur ungefiltert umsortieren, sonst würde die Reihenfolge lügen
-    if ((state.cardQuery || '').trim()) return;
-    const pos = id => { const i = order.indexOf(id); return i < 0 ? 999 : i; };
-    state.wallet.cards.sort((a, b) => pos(a.id) - pos(b.id));
-    save('wallet', state.wallet);
-    if (state.token) syncWalletNow();
-  }, el => el.dataset.wc);
+  // Die Sparkarten selbst leben jetzt im Tab "Karten & Coupons" — dort steht
+  // pro Marke Karte, App-Sprung und Coupon-Liste beieinander.
 
   // Mini-Guthaben unten aktualisieren
   const mini = $('#wallet-mini-total');
