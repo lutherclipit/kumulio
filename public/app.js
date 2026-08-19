@@ -6244,7 +6244,8 @@ function openCardSheet(id) {
 function voucherCardHtml(v) {
     const pct = v.amount ? Math.max(0, Math.min(100, Math.round(((v.balance || 0) / v.amount) * 100))) : 100;
     return `
-    <div class="wallet-card has-fill" data-wv="${esc(v.id)}" style="--bc:${brandColor(v.vendor)}; --fill:${pct}%">
+    <div class="wallet-card has-fill${pct < 18 ? ' fast-leer' : ''}" data-wv="${esc(v.id)}"
+      style="--bc:${brandColor(v.vendor)}; --fill:${pct}%">
       <div class="wallet-card-head">
         ${brandChipHtml(v.vendor)}
         <span class="wallet-card-name">${esc(v.vendor)}</span>

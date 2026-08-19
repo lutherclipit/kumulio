@@ -2149,22 +2149,38 @@ html, body { overflow-x: clip; }
 .wallet-card.has-fill > * { position: relative; z-index: 1; }
 .wallet-card.has-fill::after {
   content: ""; position: absolute; top: 0; bottom: 0; right: 0;
-  left: var(--fill, 100%); z-index: 0; pointer-events: none;
-  /* Der ausgegebene Teil wird milchig, nicht weiss uebermalt — die Marke
-     bleibt durchscheinend sichtbar, der Text darauf lesbar */
+  /* Beginnt ein Stueck FRUEHER als der Restbetrag und blendet sich per Maske
+     ein. Ohne die Maske setzt der Filter schlagartig ein und hinterlaesst eine
+     harte senkrechte Kante — genau das sah abgehackt aus. */
+  left: max(0px, calc(var(--fill, 100%) - 34px));
+  z-index: 0; pointer-events: none;
   background: linear-gradient(90deg,
     rgba(255, 255, 255, 0) 0%,
-    rgba(255, 255, 255, .16) 22%,
-    rgba(255, 255, 255, .26) 100%);
-  backdrop-filter: saturate(.45) brightness(1.16) blur(1px);
-  -webkit-backdrop-filter: saturate(.45) brightness(1.16) blur(1px);
+    rgba(255, 255, 255, .10) 48%,
+    rgba(255, 255, 255, .17) 100%);
+  backdrop-filter: saturate(.62) brightness(1.1);
+  -webkit-backdrop-filter: saturate(.62) brightness(1.1);
+  /* Die Maske laesst Farbe UND Filter ueber 64 px weich anlaufen */
+  mask-image: linear-gradient(90deg, transparent 0, #000 64px);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 64px);
   transition: left .6s cubic-bezier(.2, .8, .3, 1);
 }
 :root[data-theme="dark"] .wallet-card.has-fill::after {
   background: linear-gradient(90deg,
-    rgba(10, 13, 17, 0) 0%, rgba(10, 13, 17, .28) 22%, rgba(10, 13, 17, .42) 100%);
-  backdrop-filter: saturate(.5) brightness(.82) blur(1px);
-  -webkit-backdrop-filter: saturate(.5) brightness(.82) blur(1px);
+    rgba(10, 13, 17, 0) 0%, rgba(10, 13, 17, .18) 48%, rgba(10, 13, 17, .3) 100%);
+  backdrop-filter: saturate(.62) brightness(.88);
+  -webkit-backdrop-filter: saturate(.62) brightness(.88);
+}
+/* Sehr kleiner Rest: die Karte wuerde sonst fast vollstaendig matt wirken —
+   dann faellt der Filter weg und nur ein zarter Schleier bleibt */
+.wallet-card.has-fill.fast-leer::after {
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+  background: linear-gradient(90deg,
+    rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, .07) 100%);
+}
+:root[data-theme="dark"] .wallet-card.has-fill.fast-leer::after {
+  background: linear-gradient(90deg,
+    rgba(10, 13, 17, 0) 0%, rgba(10, 13, 17, .16) 100%);
 }
 /* Betrag und Text liegen ueber der Milchglasflaeche und bleiben kontraststark */
 .wallet-card.has-fill .wallet-card-balance,
