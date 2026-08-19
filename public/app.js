@@ -3875,7 +3875,15 @@ function applyMyBorder() {
 // Änderungs-Zeitstempel je Eintrag: bei Konflikten zwischen zwei Geräten gewinnt,
 // wer zuletzt WIRKLICH etwas geändert hat — nicht, wer zufällig zuletzt syncte.
 // Erkennung über einen Inhalts-Hash je Eintrag (mt selbst zählt nicht mit).
-let walletHashes = JSON.parse(localStorage.getItem('ra.walletHashes') || '{}');
+// Bewusst NUR in diesem Tab: der Vergleichsstand darf nicht geteilt werden,
+// sonst haelt ein zweiter Tab seinen veralteten Stand faelschlich fuer neu
+// und ueberschreibt damit die Aenderung des ersten.
+const walletHashes = {};
+(function hashesAusStand() {
+  for (const it of [...(state.wallet.vouchers || []), ...(state.wallet.cards || [])]) {
+    if (it && it.id) walletHashes[it.id] = itemHash(it);
+  }
+})();
 function itemHash(it) {
   const str = JSON.stringify(it, (k, v) => (k === 'mt' ? undefined : v));
   let h = 5381;
@@ -3894,8 +3902,27 @@ function markWalletChanges() {
   for (const id of Object.keys(walletHashes)) {
     if (!alive.has(id)) { delete walletHashes[id]; changed = true; }
   }
-  if (changed) save('walletHashes', walletHashes);
+  return changed;
 }
+
+// Ein anderer Tab hat die Wallet angefasst: Stand uebernehmen, statt mit einer
+// veralteten Fassung weiterzuarbeiten und sie spaeter hochzuladen
+addEventListener('storage', e => {
+  if (e.key !== 'ra.wallet' || !e.newValue) return;
+  try {
+    const neu = JSON.parse(e.newValue);
+    if (!neu || !Array.isArray(neu.vouchers)) return;
+    state.wallet = neu;
+    // Vergleichsstand mitziehen, sonst gilt gleich alles als veraendert
+    Object.keys(walletHashes).forEach(k => delete walletHashes[k]);
+    for (const it of [...neu.vouchers, ...(neu.cards || [])]) {
+      if (it && it.id) walletHashes[it.id] = itemHash(it);
+    }
+    if (state.activeView === 'wallet') renderWallet();
+    // Ein offenes Gutschein-Blatt zeigt sonst einen Stand, den es nicht mehr gibt
+    if (state.sheetMode === 'wallet-detail') closeSheet();
+  } catch { /* kaputter Eintrag — dann eben nicht */ }
+});
 async function syncWalletNow() {
   if (!state.token) return true;
   // Läuft schon ein Upload, hängen sich alle dran, statt sich über Mobilfunk
@@ -4141,15 +4168,30 @@ function openGiftReveal(gift) {
       res.classList.remove('hidden');
       if (!reducedMotion()) res.classList.add('fade-up');
     }, reducedMotion() ? 0 : 430);
-    // Jetzt gilt es als geöffnet: aus dem Vorrat, in die Wallet, sichern, DANN claimen
+    // ERST beim Server abholen, dann gutschreiben. Der Server gibt nur einmal
+    // frei — ein zweiter offener Tab kann dasselbe Geschenk nicht nochmal holen.
     pendingGifts = pendingGifts.filter(g => g.id !== gift.id);
     updateGiftBadges();
-    state.wallet.vouchers.unshift({ ...gift, added: Date.now(), giftSeen: true });
-    ensureWalletDates();
-    saveWallet();
-    syncWalletNow().then(ok => {
-      if (ok) api('/api/gift/claim', { method: 'POST', body: JSON.stringify({ ids: [gift.id] }) }).catch(() => { });
-    });
+    (async () => {
+      let frei = true;
+      try {
+        const r = await api('/api/gift/claim', { method: 'POST', body: JSON.stringify({ ids: [gift.id] }) });
+        frei = Array.isArray(r.claimed) ? r.claimed.includes(String(gift.id)) : true;
+      } catch {
+        // Kein Netz: lieber gutschreiben als verlieren — der Server raeumt
+        // das Geschenk beim naechsten Abgleich ohnehin ab
+        frei = true;
+      }
+      if (!frei) {
+        island('Dieses Geschenk hast du schon geöffnet');
+        renderGiftsPage?.();
+        return;
+      }
+      state.wallet.vouchers.unshift({ ...gift, added: Date.now(), giftSeen: true });
+      ensureWalletDates();
+      saveWallet();
+      syncWalletNow();
+    })();
   });
   wrap.addEventListener('click', e => {
     if (e.target.id === 'gr-done') {
@@ -6324,18 +6366,13 @@ function renderWallet() {
       if (wert) document.documentElement.style.setProperty('--kopf-' + n, wert);
     });
     messeKopfzeile();
-    $('#wallet-rank').textContent = rank.name;
-    const vonEl = $('#rank-von'), bisEl = $('#rank-bis');
-    if (vonEl) vonEl.textContent = euroFmt(rank.min) || '0 €';
-    if (rank.next) {
-      const span = rank.next.min - rank.min;
-      $('#wallet-rank-fill').style.width = Math.round(((total - rank.min) / span) * 100) + '%';
-      $('#wallet-rank-next').textContent = `noch ${euroFmt(rank.next.min - total)}`;
-      if (bisEl) bisEl.textContent = euroFmt(rank.next.min);
-    } else {
-      $('#wallet-rank-fill').style.width = '100%';
-      $('#wallet-rank-next').textContent = 'höchste Stufe';
-      if (bisEl) bisEl.textContent = '';
+    // Der Rang steht klein neben der Gutschein-Zahl, mehr braucht es nicht
+    const rangEl = $('#wallet-rank');
+    if (rangEl) {
+      rangEl.textContent = rank.name;
+      rangEl.title = rank.next
+        ? `Noch ${euroFmt(rank.next.min - total)} bis ${rank.next.name}`
+        : 'Höchste Stufe erreicht';
     }
   }
   // Gutschein-Karte: der Hintergrund füllt sich nach Restguthaben (rechts wird
@@ -6407,6 +6444,8 @@ function renderWallet() {
   // Mini-Guthaben unten aktualisieren
   const mini = $('#wallet-mini-total');
   if (mini) mini.textContent = euroFmt(total) || '0,00 €';
+  // Die kleine Anzeige unten traegt dieselbe Rangfarbe wie der Kopf
+  $('#wallet-mini')?.classList.add('rangfarbe');
   renderSyncBadge();
 
   // Suchergebnisse gleiten gestaffelt herein
@@ -6567,8 +6606,8 @@ function verlaufSvg(felder) {
     const x = i * B + (B - bb * 2 - luecke) / 2;
     const hr = Math.round((f.rein / max) * H), ha = Math.round((f.raus / max) * H);
     return `
-      <rect x="${x}" y="${H - hr}" width="${bb}" height="${Math.max(f.rein ? 2 : 0, hr)}" rx="3" fill="rgba(255,255,255,.92)"/>
-      <rect x="${x + bb + luecke}" y="${H - ha}" width="${bb}" height="${Math.max(f.raus ? 2 : 0, ha)}" rx="3" fill="rgba(255,255,255,.42)"/>
+      <rect x="${x}" y="${H - hr}" width="${bb}" height="${Math.max(f.rein ? 2 : 0, hr)}" rx="3" fill="#EAFBF3"/>
+      <rect x="${x + bb + luecke}" y="${H - ha}" width="${bb}" height="${Math.max(f.raus ? 2 : 0, ha)}" rx="3" fill="#FFB4A8"/>
       <text x="${i * B + B / 2}" y="${H + 13}" text-anchor="middle" font-size="9"
         fill="rgba(255,255,255,.75)" font-family="inherit">${esc(f.label)}</text>`;
   }).join('');
@@ -6591,8 +6630,8 @@ function renderWalletStats(range) {
       </div>
     </div>
     <div class="stat-zahlen">
-      <div><span class="stat-punkt hell"></span>Aufgeladen<b>${euroFmt(s.added) || '0,00 €'}</b></div>
-      <div><span class="stat-punkt matt"></span>Ausgegeben<b>${euroFmt(s.spent) || '0,00 €'}</b></div>
+      <div><span class="stat-punkt rein"></span>Aufgeladen<b>${euroFmt(s.added) || '0,00 €'}</b></div>
+      <div><span class="stat-punkt raus"></span>Ausgegeben<b>${euroFmt(s.spent) || '0,00 €'}</b></div>
     </div>
     ${felder.some(f => f.rein || f.raus)
       ? verlaufSvg(felder)
@@ -6606,7 +6645,8 @@ function renderWalletStats(range) {
 }
 
 // Alle Stufen auf einen Blick — als Liste, wie man sie aus Banking-Apps kennt
-$('#rang-karte')?.addEventListener('click', () => {
+$('#wallet-rank')?.addEventListener('click', e => {
+  e.stopPropagation();
   const total = renderWallet.lastTotal || 0;
   const jetzt = rankFor(total);
   state.sheetMode = 'rang';
@@ -6701,20 +6741,64 @@ let balanceFlipped = false;   // wird von renderWalletStats weiter genutzt
 $('#balance-flip')?.addEventListener('click', () => kopfDrehen());
 $('#wa-statistik')?.addEventListener('click', () => kopfDrehen(true));
 // Verschenken: erst fragen, welcher Gutschein — danach uebernimmt das Geschenk-Fenster
+// Verschenken: nicht alle Gutscheine auf einmal, sondern wie in der Wallet —
+// nach Marke gebuendelt, mit Filter und Sortierung.
+let schenkFilter = '', schenkSort = 'niedrig';
+function renderSchenkAuswahl() {
+  const alle = state.wallet.vouchers.filter(v => v.balance == null || v.balance > 0);
+  const marken = [...new Set(alle.map(v => v.vendor))];
+  let liste = schenkFilter ? alle.filter(v => v.vendor === schenkFilter) : alle;
+  liste = [...liste].sort((a, b) => schenkSort === 'niedrig'
+    ? (a.balance ?? Infinity) - (b.balance ?? Infinity)
+    : (b.balance ?? 0) - (a.balance ?? 0));
+
+  // Ohne Markenfilter zeigt jede Marke nur ihren passendsten Gutschein
+  let inhalt;
+  if (!schenkFilter) {
+    const proMarke = new Map();
+    liste.forEach(v => {
+      if (!proMarke.has(v.vendor)) proMarke.set(v.vendor, []);
+      proMarke.get(v.vendor).push(v);
+    });
+    inhalt = [...proMarke.entries()].map(([marke, vs]) => `
+      <div class="schenk-gruppe">
+        ${voucherCardHtml(vs[0])}
+        ${vs.length > 1 ? `<button class="schenk-mehr" data-schenk-marke="${esc(marke)}">
+          ${vs.length - 1} weitere von ${esc(marke)}</button>` : ''}
+      </div>`).join('');
+  } else {
+    inhalt = liste.map(voucherCardHtml).join('');
+  }
+
+  $('#sheet-content').innerHTML = `
+    <div class="sheet-title">Welchen Gutschein verschenken?</div>
+    <div class="wallet-filters">
+      <button class="chip ${!schenkFilter ? 'active' : ''}" data-sf="">Alle</button>
+      ${marken.map(m => `<button class="chip ${schenkFilter === m ? 'active' : ''}" data-sf="${esc(m)}">
+        ${brandChipHtml(m)}<span class="chip-label">${esc(m)}</span></button>`).join('')}
+    </div>
+    <div class="wallet-filters" style="margin-top:6px">
+      <button class="chip ${schenkSort === 'niedrig' ? 'active' : ''}" data-ss="niedrig">Kleinster Rest</button>
+      <button class="chip ${schenkSort === 'hoch' ? 'active' : ''}" data-ss="hoch">Größter Rest</button>
+    </div>
+    <div class="wallet-list" style="margin-top:12px">${inhalt || '<div class="status">Kein Gutschein mit Guthaben.</div>'}</div>`;
+
+  const host = $('#sheet-content');
+  host.querySelectorAll('[data-sf]').forEach(b => b.onclick = () => { schenkFilter = b.dataset.sf; renderSchenkAuswahl(); });
+  host.querySelectorAll('[data-ss]').forEach(b => b.onclick = () => { schenkSort = b.dataset.ss; renderSchenkAuswahl(); });
+  host.querySelectorAll('[data-schenk-marke]').forEach(b => b.onclick = () => { schenkFilter = b.dataset.schenkMarke; renderSchenkAuswahl(); });
+  host.querySelectorAll('[data-wv]').forEach(el => el.onclick = () => {
+    const v = state.wallet.vouchers.find(x => x.id === el.dataset.wv);
+    if (v) { closeSheet(); setTimeout(() => openGiftPop(v), 240); }
+  });
+}
 $('#wa-schenken')?.addEventListener('click', () => {
   const offen = state.wallet.vouchers.filter(v => v.balance == null || v.balance > 0);
   if (!offen.length) { island('Du hast gerade keinen Gutschein mit Guthaben'); return; }
   buzz(12);
+  schenkFilter = '';
   state.sheetMode = 'gift-pick';
-  $('#sheet-content').innerHTML = `
-    <div class="sheet-title">Welchen Gutschein verschenken?</div>
-    <div class="wallet-list">${[...offen]
-      .sort((a, b) => (a.balance ?? Infinity) - (b.balance ?? Infinity))
-      .map(voucherCardHtml).join('')}</div>`;
-  $('#sheet-content').querySelectorAll('[data-wv]').forEach(el => el.onclick = () => {
-    const v = state.wallet.vouchers.find(x => x.id === el.dataset.wv);
-    if (v) { closeSheet(); setTimeout(() => openGiftPop(v), 240); }
-  });
+  renderSchenkAuswahl();
   openSheetShell();
 });
 

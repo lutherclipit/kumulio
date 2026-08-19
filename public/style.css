@@ -69,6 +69,7 @@ html { color-scheme: light; }
 body {
   --seitengrund: #eef1f5;
   background: #eef1f5;
+  overflow-x: hidden;    /* der Farbgrund reicht bewusst ueber die Inhaltsspalte hinaus */
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable", "Segoe UI", Roboto, sans-serif;
   min-height: 100vh;
@@ -3734,30 +3735,31 @@ a.app-quest .app-quest-txt { flex: 1; min-width: 0; }
   --k2: #12C77E;        /* Hauptton */
   --k3: #23D992;        /* hell: Lichtseite des Verlaufs */
   position: relative;
-  /* Der Kopf reicht bis unter die Kopfzeile und ueber die Seitenraender hinaus.
-     Wichtig: NUR dieses eine Element zeichnet den Verlauf. Zwei Elemente mit
-     synchronisiertem Hintergrund ergeben immer eine sichtbare Naht, sobald die
-     gemessene Hoehe (Safe-Area!) auch nur um ein Pixel danebenliegt. */
+  /* Der Kopf reicht bis unter die Kopfzeile. Den Farbgrund malt das
+     ::before-Element ueber die VOLLE Fensterbreite — die Inhaltsspalte ist am
+     Rechner nur 640 px breit, dort blieb sonst links und rechts alles farblos. */
   margin: calc(-1 * (var(--kopfzeile-h, 64px) + var(--seitenpolster, 20px))) -16px 18px;
   padding: calc(var(--kopfzeile-h, 64px) + 18px) 16px 0;
   color: #fff;
-  background-image: linear-gradient(172deg, var(--k1) 0%, var(--k2) 52%, var(--k3) 100%);
-  background-repeat: no-repeat;
-  transition: background-image .6s ease;
 }
-/* Kein harter Schnitt nach unten: die Farbe laeuft in den Seitenhintergrund aus */
+/* Farbgrund, Auslauf und Lichtbogen in einem Element — drei Ebenen, damit
+   keine zwei Flaechen aneinanderstossen koennen */
 .wallet-kopf::before {
-  content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 46px;
-  background: linear-gradient(to bottom, transparent, var(--seitengrund));
-  pointer-events: none;
-  transition: height .45s cubic-bezier(.22, 1, .32, 1);
-}
-/* Ruhiger Lichtbogen oben rechts — gibt Tiefe ohne Effekthascherei */
-.wallet-kopf::after {
-  content: ''; position: absolute; top: -90px; right: -60px;
-  width: 260px; height: 260px; border-radius: 50%;
-  background: radial-gradient(circle, rgba(255, 255, 255, .18), transparent 70%);
-  pointer-events: none;
+  content: '';
+  position: absolute; top: 0; bottom: -74px;
+  left: 50%; width: 100vw; margin-left: -50vw;
+  z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(circle at 84% 6%, rgba(255, 255, 255, .17), transparent 46%),
+    linear-gradient(to bottom,
+      rgba(0, 0, 0, 0) 0%,
+      rgba(0, 0, 0, 0) 52%,
+      color-mix(in srgb, var(--seitengrund) 22%, transparent) 68%,
+      color-mix(in srgb, var(--seitengrund) 58%, transparent) 82%,
+      color-mix(in srgb, var(--seitengrund) 86%, transparent) 92%,
+      var(--seitengrund) 100%),
+    linear-gradient(172deg, var(--k1) 0%, var(--k2) 52%, var(--k3) 100%);
+  transition: background .6s ease;
 }
 .wallet-kopf-inner { position: relative; z-index: 1; padding-bottom: 30px; }
 
@@ -3895,7 +3897,7 @@ body.wallet-farbe.kopf-weg .topbar .iconbtn {
 }
 .wallet-kopf.nur-tabs .wallet-kopf-inner { padding-bottom: 4px; }
 .wallet-kopf.nur-tabs #wallet-modes { margin-bottom: 0; }
-.wallet-kopf.nur-tabs::before { height: 26px; }
+.wallet-kopf.nur-tabs::before { bottom: -46px; }
 
 @media (max-width: 560px) {
   .wallet-kopf {
@@ -3911,17 +3913,6 @@ body.wallet-farbe.kopf-weg .topbar .iconbtn {
 
 /* ================= Runde 84: Bankkarte, Verlauf, stiller Sync ================ */
 
-/* --- Auslauf nach unten: mehrere Stufen statt einer Geraden. Ein linearer
-       Alpha-Verlauf setzt zu frueh ein und wirkt deshalb wie eine Kante. --- */
-.wallet-kopf::before {
-  height: 92px;
-  background: linear-gradient(to bottom,
-    rgba(0, 0, 0, 0) 0%,
-    color-mix(in srgb, var(--seitengrund) 12%, transparent) 34%,
-    color-mix(in srgb, var(--seitengrund) 38%, transparent) 58%,
-    color-mix(in srgb, var(--seitengrund) 72%, transparent) 78%,
-    var(--seitengrund) 100%);
-}
 
 /* --- Rang: schlichte Zeile statt Chip (C24 zeigt Status als Text) --- */
 .rank-name {
@@ -4141,3 +4132,57 @@ body.gescrollt:not(.wallet-farbe) .topbar {
   border: 1px solid currentColor; border-radius: 999px; padding: 2px 8px;
 }
 .rang-stufe .icon { color: var(--accent-strong, #12C77E); }
+
+/* ================= Runde 86: Web-Breite, ruhige Analyse, dezenter Rang ======= */
+
+/* Die Bereichswahl steht mittig unter dem Betrag */
+.wallet-kopf #wallet-modes { justify-content: center; }
+
+/* Rang klein neben der Gutschein-Zahl statt als eigene Karte */
+.rang-klein {
+  font-weight: 700; opacity: .95; cursor: pointer;
+  border-bottom: 1px dotted rgba(255, 255, 255, .5);
+}
+.rang-trenner { opacity: .6; }
+
+/* --- Analyse: nichts darf springen ---------------------------------------
+   Die Rueckseite hatte je nach Betragslaenge eine andere Hoehe, dadurch
+   wuchs und schrumpfte der ganze Kopf. Feste Hoehen halten ihn ruhig. */
+#kopf-hinten { min-height: 196px; }
+#kopf-vorne { min-height: 196px; }
+.stat-zahlen {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  margin: 12px 0 8px; align-items: center;
+}
+.stat-zahlen div {
+  display: flex; align-items: baseline; gap: 6px;
+  font-size: .74rem; opacity: .95; min-width: 0;
+}
+.stat-zahlen b {
+  font-size: .95rem; margin-left: auto;
+  font-variant-numeric: tabular-nums;   /* Ziffern gleich breit: kein Zappeln */
+}
+.stat-punkt { width: 9px; height: 9px; border-radius: 3px; flex: none; align-self: center; }
+.stat-punkt.rein { background: #EAFBF3; box-shadow: 0 0 0 1px rgba(255, 255, 255, .5); }
+.stat-punkt.raus { background: #FFB4A8; }
+.verlauf-svg { height: 96px; }
+
+/* --- Mini-Guthaben unten in der Rangfarbe --- */
+#wallet-mini.rangfarbe {
+  background: linear-gradient(135deg, var(--kopf-k1, #0E9C64), var(--kopf-k2, #12C77E));
+  color: #fff; border-color: transparent;
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--kopf-k2, #12C77E) 40%, transparent);
+}
+#wallet-mini.rangfarbe #wallet-mini-total { color: #fff; }
+#wallet-mini.rangfarbe .icon { color: #fff; }
+
+/* --- Verschenken: gebuendelt wie in der Wallet --- */
+.schenk-gruppe { margin-bottom: 10px; }
+.schenk-mehr {
+  display: block; width: 100%; margin-top: 6px;
+  background: none; border: 1px dashed var(--stroke-light); border-radius: 12px;
+  padding: 9px; font: inherit; font-size: .78rem; font-weight: 700;
+  color: var(--muted); cursor: pointer;
+  transition: border-color .25s ease, color .25s ease;
+}
+.schenk-mehr:active { border-color: var(--accent-strong, #12C77E); color: var(--accent-strong, #12C77E); }
