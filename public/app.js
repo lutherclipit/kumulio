@@ -6790,8 +6790,9 @@ function passeFarbfeldAn() {
   if (!feld || !kopf) return;
   if (state.activeView !== 'wallet' || !state.token) { feld.style.height = '0px'; return; }
   const unten = kopf.getBoundingClientRect().bottom + window.scrollY;
-  const auslauf = kopf.classList.contains('nur-tabs') ? 46 : 88;
-  feld.style.height = Math.round(unten + auslauf) + 'px';
+  // 300 px Auslauf, in beiden Zustaenden gleich — nur so bleibt die Kurve
+  // flach genug, dass keine Kante sichtbar wird (siehe style.css)
+  feld.style.height = Math.round(unten + 300) + 'px';
 }
 addEventListener('resize', messeKopfzeile);
 addEventListener('orientationchange', () => setTimeout(messeKopfzeile, 250));
