@@ -3734,13 +3734,18 @@ a.app-quest .app-quest-txt { flex: 1; min-width: 0; }
   --k2: #12C77E;        /* Hauptton */
   --k3: #23D992;        /* hell: Lichtseite des Verlaufs */
   position: relative;
-  /* Zieht sich unter den Header und ueber die Seitenraender hinaus. Der obere
-     Rand liegt bewusst hinter der Kopfzeile, damit dort keine Kante steht. */
+  /* Zieht sich unter den Header und ueber die Seitenraender hinaus. */
   margin: -20px -16px 18px;
   padding: 26px 16px 0;
-  background: linear-gradient(155deg, var(--k1) 0%, var(--k2) 46%, var(--k3) 100%);
   color: #fff;
-  transition: background .6s ease;
+  /* EIN Verlauf fuer Kopfzeile und Kopf: beide zeigen denselben, der Kopf
+     nur ab der Hoehe der Kopfzeile. Dadurch laeuft die Farbe durch, statt
+     dass oben ein zweiter Block klebt. */
+  background-image: linear-gradient(172deg, var(--k1) 0%, var(--k2) 52%, var(--k3) 100%);
+  background-size: 100% var(--verlauf-h, 420px);
+  background-position: 0 calc(-1 * var(--kopfzeile-h, 64px));
+  background-repeat: no-repeat;
+  transition: background-image .6s ease;
 }
 /* Kein harter Schnitt nach unten: die Farbe laeuft in den Seitenhintergrund aus */
 .wallet-kopf::before {
@@ -3760,14 +3765,29 @@ a.app-quest .app-quest-txt { flex: 1; min-width: 0; }
 
 /* Die Kopfzeile faerbt sich mit, solange man in der Wallet steht */
 body.wallet-farbe .topbar {
-  background: var(--kopf-k1, #0E9C64);
+  background-color: transparent;
+  background-image: linear-gradient(172deg,
+    var(--kopf-k1, #0E9C64) 0%, var(--kopf-k2, #12C77E) 52%, var(--kopf-k3, #23D992) 100%);
+  background-size: 100% var(--verlauf-h, 420px);
+  background-position: 0 0;
+  background-repeat: no-repeat;
   border-bottom-color: transparent;
   box-shadow: none;
-  transition: background .6s ease;
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+  transition: background-image .6s ease, background-color .35s ease;
 }
-body.wallet-farbe .topbar .brand-name,
-body.wallet-farbe .topbar .iconbtn { color: #fff; }
-body.wallet-farbe .topbar .iconbtn { background: rgba(255, 255, 255, .16); }
+/* Wortmarke und Knoepfe auf farbigem Grund: hell statt Tinte.
+   .k-wordmark setzt seine Farbe selbst ueber --k-ink, deshalb dort ansetzen. */
+body.wallet-farbe .topbar .brand,
+body.wallet-farbe .topbar .brand-name { color: #fff; }
+body.wallet-farbe .topbar .k-wordmark { color: #fff; }
+/* Der Punkt bleibt das Markenzeichen — in der hellsten Stufenfarbe hebt er
+   sich vom dunkleren oberen Verlauf ab, egal ob Gruen, Tuerkis oder Gold */
+body.wallet-farbe .topbar .k-wordmark .k-dot { fill: var(--kopf-k3, #23D992); }
+body.wallet-farbe .topbar .iconbtn {
+  color: #fff; background: rgba(255, 255, 255, .18);
+  border-color: rgba(255, 255, 255, .28);
+}
 
 /* Guthaben */
 .balance-flip-btn {
@@ -3829,6 +3849,22 @@ body.wallet-farbe .topbar .iconbtn { background: rgba(255, 255, 255, .16); }
 .wallet-kopf.tier-3 { --k1: #0A6B78; --k2: #12A8C7; --k3: #36D6E0; }
 .wallet-kopf.tier-4 { --k1: #3B2C8F; --k2: #6C4BD8; --k3: #9B7BFF; }
 .wallet-kopf.tier-5 { --k1: #8A6510; --k2: #C79B12; --k3: #F0CE5A; }
+
+/* Sobald der Kopf weggescrollt ist, wird die Kopfzeile wieder Glas —
+   sonst stuende dort ein Farbblock ohne Anschluss */
+body.wallet-farbe.kopf-weg .topbar {
+  background-image: none; background-color: var(--glass);
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  border-bottom-color: var(--stroke-light);
+}
+body.wallet-farbe.kopf-weg .topbar .brand,
+body.wallet-farbe.kopf-weg .topbar .brand-name { color: var(--text); }
+body.wallet-farbe.kopf-weg .topbar .k-wordmark { color: var(--k-ink); }
+:root[data-theme="dark"] body.wallet-farbe.kopf-weg .topbar .k-wordmark { color: var(--k-paper); }
+body.wallet-farbe.kopf-weg .topbar .k-wordmark .k-dot { fill: var(--k-accent); }
+body.wallet-farbe.kopf-weg .topbar .iconbtn {
+  color: var(--text); background: var(--surface); border-color: var(--stroke-light);
+}
 
 /* Statistik im eigenen Blatt */
 .stats-blatt { margin-top: 4px; }

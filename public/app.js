@@ -390,6 +390,8 @@ function switchView(next, animClass) {
   // Solange die Wallet offen ist, traegt die Kopfzeile ihre Farbe mit —
   // sonst steht oben eine harte Kante zwischen Leiste und farbigem Kopf
   document.body.classList.toggle('wallet-farbe', next === 'wallet' && !!state.token);
+  if (next === 'wallet') requestAnimationFrame(() => { messeKopfzeile(); pruefeKopfzeile(); });
+  else document.body.classList.remove('kopf-weg');
   if (next === 'friends') renderFriendsView();
   if (next === 'inventory') renderInventoryPage();
   if (next === 'shop') renderShopPage();
@@ -6374,9 +6376,14 @@ function renderWallet() {
   const card = $('#wallet-kopf');
   if (card) {
     card.className = 'wallet-kopf tier-' + rank.tier;
-    // Dieselbe dunkle Stufenfarbe bekommt die Kopfzeile oben
-    const k1 = getComputedStyle(card).getPropertyValue('--k1').trim();
-    if (k1) document.documentElement.style.setProperty('--kopf-k1', k1);
+    // Die Kopfzeile zeigt den oberen Ausschnitt DESSELBEN Verlaufs — dafuer
+    // braucht sie alle drei Toene und die eigene Hoehe als Versatz
+    const st = getComputedStyle(card);
+    ['k1', 'k2', 'k3'].forEach(n => {
+      const wert = st.getPropertyValue('--' + n).trim();
+      if (wert) document.documentElement.style.setProperty('--kopf-' + n, wert);
+    });
+    messeKopfzeile();
     $('#wallet-rank').textContent = rank.name;
     if (rank.next) {
       const span = rank.next.min - rank.min;
@@ -6593,6 +6600,29 @@ function renderWalletStats(range) {
     renderWalletStats(b.dataset.strange);
   });
 }
+// Farbige Kopfzeile nur, solange der Kopf darunter noch steht. Sonst haengt
+// oben ein Farbblock ohne Anschluss.
+function pruefeKopfzeile() {
+  const an = state.activeView === 'wallet' && !!state.token && window.scrollY < 90;
+  document.body.classList.toggle('kopf-weg', state.activeView === 'wallet' && !an);
+}
+addEventListener('scroll', pruefeKopfzeile, { passive: true });
+
+// Die Kopfzeile ueberdeckt den oberen Teil des Verlaufs. Ihre echte Hoehe
+// (inklusive Safe-Area) bestimmt, wo der Kopf den Verlauf fortsetzt.
+function messeKopfzeile() {
+  const tb = document.querySelector('.topbar');
+  if (!tb) return;
+  const h = Math.round(tb.getBoundingClientRect().height);
+  document.documentElement.style.setProperty('--kopfzeile-h', h + 'px');
+  // Der Verlauf soll ueber Kopfzeile UND Kopf laufen
+  const kopf = $('#wallet-kopf');
+  const gesamt = h + (kopf ? Math.round(kopf.getBoundingClientRect().height) : 300);
+  document.documentElement.style.setProperty('--verlauf-h', Math.max(320, gesamt) + 'px');
+}
+addEventListener('resize', messeKopfzeile);
+addEventListener('orientationchange', () => setTimeout(messeKopfzeile, 250));
+
 // Die Statistik hat ein eigenes Blatt — im Kopf ist kein Platz fuer eine
 // Rueckseite, und "Analyse" ist ohnehin ein eigener Gedanke.
 let balanceFlipped = false;   // wird von renderWalletStats weiter genutzt
@@ -6633,9 +6663,13 @@ $('#wa-schenken')?.addEventListener('click', () => {
 if ('IntersectionObserver' in window && $('#wallet-kopf')) {
   // Zählt schon als "aus dem Bild", wenn nur noch ein Rest der Karte zu sehen ist
   new IntersectionObserver(([e]) => {
-    const show = state.activeView === 'wallet' && walletTab === 'gutscheine'
+    const inWallet = state.activeView === 'wallet';
+    const show = inWallet && walletTab === 'gutscheine'
       && !!state.token && e.intersectionRatio < 0.25;
     $('#wallet-mini').classList.toggle('show', show);
+    // Zweiter Weg zur Kopfzeilenfarbe: manche Browser melden beim
+    // programmgesteuerten Scrollen kein scroll-Ereignis
+    if (inWallet) document.body.classList.toggle('kopf-weg', e.intersectionRatio < 0.25);
   }, { threshold: [0, 0.25, 0.5] }).observe($('#wallet-kopf'));
 }
 $('#wallet-mini')?.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
