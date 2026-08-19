@@ -6790,8 +6790,10 @@ function passeFarbfeldAn() {
   if (!feld || !kopf) return;
   if (state.activeView !== 'wallet' || !state.token) { feld.style.height = '0px'; return; }
   const unten = kopf.getBoundingClientRect().bottom + window.scrollY;
-  // 300 px Auslauf, in beiden Zustaenden gleich — nur so bleibt die Kurve
-  // flach genug, dass keine Kante sichtbar wird (siehe style.css)
+  // 300 px Auslauf, in beiden Zustaenden gleich. Diese Zahl gehoert mit den
+  // calc(100% - ...px) der Maske in style.css zusammen: nur wenn sie gleich
+  // sind, faengt die Rampe genau an der Kopf-Unterkante an — und genau dort
+  // ist sie in Steigung und Kruemmung null, also unsichtbar.
   feld.style.height = Math.round(unten + 300) + 'px';
 }
 addEventListener('resize', messeKopfzeile);

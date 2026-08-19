@@ -3791,35 +3791,62 @@ body.wallet-farbe #wallet-farbfeld { opacity: 1; }
   background:
     radial-gradient(circle at 84% 6%, rgba(255, 255, 255, .17), transparent 46%),
     linear-gradient(172deg, var(--kopf-k1, #0E9C64) 0%, var(--kopf-k2, #12C77E) 52%, var(--kopf-k3, #23D992) 100%);
-  /* Der Auslauf geht nach ECHTER Transparenz, nicht auf die Grundfarbe zu.
+  /* Der Auslauf geht nach ECHTER Transparenz, nicht auf eine Grundfarbe zu.
      Hinter der Seite liegt ein fester Farbschleier (body::before, z-index -1),
-     der die Flaeche leicht gruen/violett tont. Ein Auslauf, der auf das flache
-     --seitengrund endet, trifft diesen Ton nicht — genau da entstand die
-     sichtbare Linie. Mit der Maske verschwindet die Farbe wirklich, dahinter
-     laeuft der Seitengrund unveraendert weiter: eine Kante ist gar nicht mehr
-     moeglich.
+     der den Grund gruen/violett tont. Ein Auslauf, der auf das flache
+     --seitengrund endet, trifft diesen Ton nie — genau da lag die Linie.
+     Mit der Maske verschwindet die Farbe wirklich, dahinter laeuft der
+     Seitengrund unveraendert weiter.
 
-     Laenge in Pixeln (300), nicht in Prozent — sonst bleibt bei kurzem Kopf zu
-     wenig Strecke (vorher 71 px = 1,85 % Deckkraft pro Pixel; ab etwa 0,4 %
-     sieht das Auge eine Kante). Die Kurve laeuft unten flach aus, dort grenzt
-     sie an die ruhige Flaeche: auf den letzten 19 px nur 0,02 % pro Pixel. */
+     Die Kurve ist ein Smootherstep (6t^5 - 15t^4 + 10t^3). Der ist als
+     einziger einfacher Verlauf an BEIDEN Enden in Steigung UND Kruemmung
+     null. Das ist der Punkt: nicht die Steilheit macht die Kante sichtbar,
+     sondern der KNICK. Vorher lief die Rampe stueckweise gerade und sprang
+     an ihrem Anfang von 0 auf 0,63 % Deckkraft pro Pixel — und ihr Anfang
+     liegt genau auf der Kopf-Unterkante, weil die Feldhoehe unten + 300 ist.
+     Also sass der Knick exakt dort, wo die Kante zu sehen war.
+
+     Jetzt beginnt die Rampe mit Steigung 0,000 % pro Pixel. Ihre steilste
+     Stelle (0,63 %) sitzt in der Mitte, 150 px unter dem Kopf, wo keine
+     Bezugskante daneben steht. Nachgemessen mit einem Center-Surround-Filter
+     ueber dem Helligkeitsprofil: die Antwortspitze faellt auf ein Drittel
+     bis ein Fuenftel und wandert dabei von der Kopf-Unterkante weg ins
+     freie Feld. Im Dunkelmodus war sie am staerksten, dort wirkt es am
+     meisten.
+
+     Die Deckkraft an der Kopf-Unterkante bleibt exakt 1.0 — Chipleiste und
+     weisse Kopfschrift behalten ihren Kontrast.
+
+     ACHTUNG: die 300 hier und die 300 in app.js (Feldhoehe) sind DIESELBE
+     Zahl. Wer sie aendert, muss die Stopps neu abtasten, sonst faellt der
+     Rampenanfang nicht mehr auf die Kopf-Unterkante:
+     alpha = 1 - (6t^5 - 15t^4 + 10t^3), t = k/25, Ort = 100% - (L - L*k/25)px */
   --auslauf: linear-gradient(to bottom,
       rgba(0, 0, 0, 1) calc(100% - 300px),
-      rgba(0, 0, 0, .88) calc(100% - 281px),
-      rgba(0, 0, 0, .77) calc(100% - 262px),
-      rgba(0, 0, 0, .66) calc(100% - 244px),
-      rgba(0, 0, 0, .56) calc(100% - 225px),
-      rgba(0, 0, 0, .47) calc(100% - 206px),
-      rgba(0, 0, 0, .39) calc(100% - 187px),
-      rgba(0, 0, 0, .32) calc(100% - 169px),
-      rgba(0, 0, 0, .25) calc(100% - 150px),
-      rgba(0, 0, 0, .19) calc(100% - 131px),
-      rgba(0, 0, 0, .14) calc(100% - 112px),
-      rgba(0, 0, 0, .10) calc(100% - 94px),
-      rgba(0, 0, 0, .06) calc(100% - 75px),
-      rgba(0, 0, 0, .04) calc(100% - 56px),
-      rgba(0, 0, 0, .02) calc(100% - 37px),
-      rgba(0, 0, 0, .004) calc(100% - 19px),
+      rgba(0, 0, 0, .9994) calc(100% - 288px),
+      rgba(0, 0, 0, .9955) calc(100% - 276px),
+      rgba(0, 0, 0, .9857) calc(100% - 264px),
+      rgba(0, 0, 0, .9682) calc(100% - 252px),
+      rgba(0, 0, 0, .9421) calc(100% - 240px),
+      rgba(0, 0, 0, .9067) calc(100% - 228px),
+      rgba(0, 0, 0, .8624) calc(100% - 216px),
+      rgba(0, 0, 0, .8095) calc(100% - 204px),
+      rgba(0, 0, 0, .7491) calc(100% - 192px),
+      rgba(0, 0, 0, .6826) calc(100% - 180px),
+      rgba(0, 0, 0, .6114) calc(100% - 168px),
+      rgba(0, 0, 0, .5375) calc(100% - 156px),
+      rgba(0, 0, 0, .4625) calc(100% - 144px),
+      rgba(0, 0, 0, .3886) calc(100% - 132px),
+      rgba(0, 0, 0, .3174) calc(100% - 120px),
+      rgba(0, 0, 0, .2509) calc(100% - 108px),
+      rgba(0, 0, 0, .1905) calc(100% - 96px),
+      rgba(0, 0, 0, .1376) calc(100% - 84px),
+      rgba(0, 0, 0, .0933) calc(100% - 72px),
+      rgba(0, 0, 0, .0579) calc(100% - 60px),
+      rgba(0, 0, 0, .0318) calc(100% - 48px),
+      rgba(0, 0, 0, .0143) calc(100% - 36px),
+      rgba(0, 0, 0, .0045) calc(100% - 24px),
+      rgba(0, 0, 0, .0006) calc(100% - 12px),
       rgba(0, 0, 0, 0) 100%);
   mask-image: var(--auslauf);
   -webkit-mask-image: var(--auslauf);
@@ -3836,6 +3863,17 @@ body.wallet-farbe .topbar {
   box-shadow: none;
   backdrop-filter: none; -webkit-backdrop-filter: none;
   transition: background-color .35s ease;
+}
+/* Im Dunkelmodus setzt :root[data-theme="dark"] .topbar (ganz oben) einen
+   dunklen Schleier, und der ist spezifischer als die Regel darueber. Er lag
+   damit als Rechteck ueber dem farbigen Kopf und endete an der Unterkante der
+   Kopfzeile mit einer harten Linie — dasselbe abgeschnittene Gefuehl wie beim
+   Verlauf, nur im Dunkeln. :not(.kopf-weg) laesst den Schleier zurueckkommen,
+   sobald der Kopf weggescrollt ist; dort wird er gebraucht. */
+:root[data-theme="dark"] body.wallet-farbe:not(.kopf-weg) .topbar {
+  background: transparent;
+  border-bottom-color: transparent;
+  box-shadow: none;
 }
 /* Wortmarke und Knoepfe auf farbigem Grund: hell statt Tinte.
    .k-wordmark setzt seine Farbe selbst ueber --k-ink, deshalb dort ansetzen. */
