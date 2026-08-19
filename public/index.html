@@ -90,6 +90,11 @@
     </defs>
   </svg>
 
+  <!-- Der Farbgrund der Wallet. Muss AUSSERHALB von main liegen: main hat
+       overflow-x: clip (fuer die seitlichen View-Wechsel) und wuerde ihn sonst
+       auf die 640 px breite Inhaltsspalte beschneiden. -->
+  <div id="wallet-farbfeld" aria-hidden="true"></div>
+
   <header class="topbar">
     <button class="iconbtn" id="btn-search-top" aria-label="Suche">
       <svg class="icon"><use href="#i-search"/></svg>

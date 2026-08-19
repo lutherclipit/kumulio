@@ -390,6 +390,7 @@ function switchView(next, animClass) {
   // Solange die Wallet offen ist, traegt die Kopfzeile ihre Farbe mit —
   // sonst steht oben eine harte Kante zwischen Leiste und farbigem Kopf
   document.body.classList.toggle('wallet-farbe', next === 'wallet' && !!state.token);
+  passeFarbfeldAn();          // sofort, damit das Farbfeld nicht stehenbleibt
   requestAnimationFrame(() => { messeKopfzeile(); pruefeKopfzeile(); });
   if (next === 'friends') renderFriendsView();
   if (next === 'inventory') renderInventoryPage();
@@ -6258,6 +6259,8 @@ function updateWalletTab(anim) {
   $('#wallet-kopf')?.classList.toggle('nur-tabs', coupons || gated);
   $('#wallet-kopf-geld')?.classList.toggle('zu', coupons || gated);
   if ((coupons || gated) && kopfGedreht) kopfDrehen(false);
+  requestAnimationFrame(passeFarbfeldAn);
+  setTimeout(passeFarbfeldAn, 480);   // nach der Einfahr-Animation nochmal
   $('#coupons-content').classList.toggle('hidden', !coupons);
   if (coupons) renderCoupons($('#coupons-content'));
   if (!walletTab.startsWith('gutscheine')) $('#wallet-mini')?.classList.remove('show');
@@ -6441,6 +6444,7 @@ function renderWallet() {
   // Die Sparkarten selbst leben jetzt im Tab "Karten & Coupons" — dort steht
   // pro Marke Karte, App-Sprung und Coupon-Liste beieinander.
 
+  passeFarbfeldAn();
   // Mini-Guthaben unten aktualisieren
   const mini = $('#wallet-mini-total');
   if (mini) mini.textContent = euroFmt(total) || '0,00 €';
@@ -6727,7 +6731,18 @@ function messeKopfzeile() {
   if (!tb) return;
   const h = Math.round(tb.getBoundingClientRect().height);
   document.documentElement.style.setProperty('--kopfzeile-h', h + 'px');
-
+  passeFarbfeldAn();
+}
+// Das Farbfeld reicht bis zur Unterkante des Kopfes plus Auslauf. Es liegt
+// ausserhalb von main, deshalb muss die Hoehe von Hand gesetzt werden.
+function passeFarbfeldAn() {
+  const feld = $('#wallet-farbfeld');
+  const kopf = $('#wallet-kopf');
+  if (!feld || !kopf) return;
+  if (state.activeView !== 'wallet' || !state.token) { feld.style.height = '0px'; return; }
+  const unten = kopf.getBoundingClientRect().bottom + window.scrollY;
+  const auslauf = kopf.classList.contains('nur-tabs') ? 46 : 88;
+  feld.style.height = Math.round(unten + auslauf) + 'px';
 }
 addEventListener('resize', messeKopfzeile);
 addEventListener('orientationchange', () => setTimeout(messeKopfzeile, 250));
