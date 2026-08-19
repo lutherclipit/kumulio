@@ -5186,7 +5186,97 @@ function showKarteBig(c) {
   });
 }
 
-function openVoucherSheet(id, animFrom) {
+// Gutschein verschenken: eigenes Fenster statt einer aufklappenden Knopfreihe.
+// Freund auswaehlen, Nachricht schreiben (Emotes erlaubt), abschicken.
+function openGiftPop(v) {
+  const freunde = myProfile?.friends || [];
+  const wrap = document.createElement('div');
+  wrap.className = 'overlay';
+  const wert = v.balance != null ? euroFmt(v.balance) : 'Gutschein';
+  // Nur eigene Emotes — dieselbe Regel wie im Chat
+  const meine = new Set([...(gami?.emotes || [])]);
+  const emotes = Object.keys(allEmoteIds())
+    .filter(n => chatEmotes[n] || meine.has((gami?.emotesAll || {})[n]?.id) || meine.has(n))
+    .slice(0, 18);
+
+  wrap.innerHTML = `<div class="modal gift-pop">
+    <button class="fav-remove" id="gp-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
+    <div class="gift-head">
+      ${brandChipHtml(v.vendor)}
+      <div>
+        <h3 class="modal-title" style="margin:0">Gutschein verschenken</h3>
+        <p class="muted" style="font-size:.8rem; margin:2px 0 0">${esc(v.vendor)} · ${wert}</p>
+      </div>
+    </div>
+    ${freunde.length ? `
+      <p class="gift-label">An wen?</p>
+      <div class="gift-freunde">${freunde.map(f => `
+        <button class="gift-freund" data-gift-to="${esc(f)}">
+          <span class="avatar-mini" style="background:${chatColor(f)}">${esc(f[0].toUpperCase())}</span>
+          <span>@${esc(f)}</span>
+        </button>`).join('')}</div>
+      <p class="gift-label">Nachricht dazu <span class="muted">(optional)</span></p>
+      <div class="gift-msg-box">
+        <input id="gp-msg" class="input" maxlength="140" placeholder="Viel Spaß damit!">
+        <div class="gift-emotes">${emotes.map(n =>
+          `<button class="gift-emote" data-emote="${esc(n)}" title="${esc(n)}">${emoteHtml(n)}</button>`).join('')
+          || '<span class="muted" style="font-size:.74rem">Emotes bekommst du aus Kisten im Shop.</span>'}</div>
+      </div>
+      <p class="gift-haftung">${icon('warning', 'icon icon-sm')}
+        <span>Der Gutschein wechselt endgültig den Besitzer. <b>kumulio prüft weder Guthaben
+        noch Gültigkeit</b> und ist an Tausch oder Verkauf nicht beteiligt.
+        <a href="/agb.html#verschenken" target="_blank" rel="noopener">Details in den AGB</a></span></p>
+      <button class="btn btn-block gift-go" id="gp-send" disabled>Wähl zuerst einen Freund</button>`
+    : `<p class="status" style="margin-top:14px">Verschenken geht nur an Freunde — such dir in kumulio erst welche.</p>`}
+  </div>`;
+  document.body.appendChild(wrap);
+
+  let ziel = null;
+  const senden = wrap.querySelector('#gp-send');
+  wrap.querySelectorAll('[data-gift-to]').forEach(b => b.onclick = () => {
+    wrap.querySelectorAll('[data-gift-to]').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    ziel = b.dataset.giftTo;
+    senden.disabled = false;
+    senden.textContent = `An @${ziel} verschenken`;
+    buzz(10);
+  });
+  wrap.querySelectorAll('[data-emote]').forEach(b => b.onclick = () => {
+    const feld = wrap.querySelector('#gp-msg');
+    const rein = (feld.value ? feld.value.trimEnd() + ' ' : '') + b.dataset.emote + ' ';
+    feld.value = rein.slice(0, 140);
+    feld.focus();
+    b.classList.add('tapped');
+    setTimeout(() => b.classList.remove('tapped'), 300);
+  });
+
+  const zu = () => { wrap.classList.add('closing'); setTimeout(() => wrap.remove(), 280); };
+  wrap.addEventListener('click', e => { if (e.target === wrap || e.target.closest('#gp-close')) zu(); });
+
+  senden && (senden.onclick = async () => {
+    if (!ziel) return;
+    if (!await askConfirm(`Deinen ${esc(v.vendor)}-Gutschein${v.balance != null ? ` (${euroFmt(v.balance)})` : ''} an @${esc(ziel)} verschenken? Er verschwindet dann aus deiner Wallet.`,
+      { okLabel: 'Ja, verschenken' })) return;
+    setBtnLoading(senden, true);
+    try {
+      await syncWalletNow();   // erst sichern, damit der Server den Gutschein kennt
+      const msg = (wrap.querySelector('#gp-msg')?.value || '').trim().slice(0, 140);
+      await api('/api/gift/send', { method: 'POST', body: JSON.stringify({ to: ziel, id: v.id, msg }) });
+      tombstone(v.id);
+      state.wallet.vouchers = state.wallet.vouchers.filter(x => x.id !== v.id);
+      save('wallet', state.wallet);
+      renderWallet();
+      zu(); closeSheet();
+      playSfx('kaching'); buzz(35); moneyFlash('green'); billRain(6);
+      island(`Verschenkt an @${ziel}`);
+    } catch (e) {
+      setBtnLoading(senden, false);
+      island(e.message);
+    }
+  });
+}
+
+function openVoucherSheet(id, animFrom, zurueckZu) {
   const v = state.wallet.vouchers.find(x => x.id === id);
   if (!v) return;
   if (v.giftFrom && !v.giftSeen) { v.giftSeen = true; saveWallet(); }
@@ -5195,6 +5285,8 @@ function openVoucherSheet(id, animFrom) {
   // Passende Sparkarte? Dann sitzt oben rechts ihr Logo statt des X — an der
   // Kasse braucht man beides, und raus kommt man per Pfeil oder Runterwischen.
   const karte = karteZuMarke(v.vendor);
+  // Kam man aus dem Marken-Blatt? Dann fuehrt oben ein Weg zurueck.
+  const zurueck = zurueckZu || null;
   $('#sheet-content').innerHTML = `
     <div class="offer-head">
       <span class="brand-chip" style="--bc:${brandColor(v.vendor)}">${esc(brandInitials(v.vendor))}</span>
@@ -5202,11 +5294,20 @@ function openVoucherSheet(id, animFrom) {
         <div class="offer-merchant">${esc(v.vendor)}</div>
         <div class="offer-cat">${v.end ? (expired ? 'abgelaufen' : 'gültig bis ' + new Date(v.end).toLocaleDateString('de-DE')) : 'Gutschein'}</div>
       </div>
-      ${karte ? `<button class="karte-btn" id="wv-karte" style="--bc:${brandColor(v.vendor)}"
-        aria-label="${esc(v.vendor)}-Sparkarte zeigen">
-        ${brandChipHtml(v.vendor)}<span>Karte</span></button>`
-      : `<button class="fav-remove" id="wv-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>`}
+      ${karte
+        ? `<button class="karte-btn" id="wv-karte" style="--bc:${brandColor(v.vendor)}"
+            aria-label="${esc(v.vendor)}-Sparkarte zeigen">
+            ${brandChipHtml(v.vendor)}<span>Karte</span></button>`
+        : `<button class="karte-btn neu" id="wv-addkarte" style="--bc:${brandColor(v.vendor)}"
+            aria-label="${esc(v.vendor)}-Sparkarte hinzufügen">
+            <span class="karte-btn-chip">${brandChipHtml(v.vendor)}<span class="karte-plus">${icon('plus')}</span></span>
+            <span>Karte</span></button>`}
     </div>
+    ${zurueck ? `<button class="zurueck-zeile" id="wv-back">
+      ${icon('arrow-back', 'icon icon-sm')} Zurück zur ${esc(v.vendor)}-Sparkarte</button>` : ''}
+    ${!karte ? `<p class="karte-annot">${icon('bulb', 'icon icon-sm')}
+      Du hast die ${esc(v.vendor)}-Sparkarte noch nicht hinterlegt — oben rechts hinzufügen,
+      dann hast du sie an der Kasse zusammen mit dem Gutschein zur Hand.</p>` : ''}
     ${v.balance != null ? `<div class="balance-big" style="margin-top:12px"><span id="wv-balance">${euroFmt(v.balance)}</span>
       ${v.amount != null && v.amount !== v.balance ? `<span class="stars-count">von ${euroFmt(v.amount)}</span>` : ''}</div>` : ''}
     ${v.code ? `<div class="tx-row" style="margin-top:12px">
@@ -5252,8 +5353,11 @@ function openVoucherSheet(id, animFrom) {
     </div>` : ''}
     ${v.balance != null && v.balance > 0 ? `
     <div class="sheet-section">
-      <button class="btn btn-ghost" id="wv-gift" style="width:100%">${icon('gift', 'icon icon-sm')}&nbsp;An Freund verschenken</button>
-      <div id="wv-gift-pick" class="hidden"></div>
+      <button class="gift-btn" id="wv-gift">
+        <span class="gift-btn-glanz"></span>
+        ${icon('gift', 'icon')}
+        <span>An Freund verschenken</span>
+      </button>
     </div>` : ''}
     ${v.giftFrom ? `<p class="added-line">${icon('gift', 'icon icon-sm')} Geschenk von @${esc(v.giftFrom)}</p>` : ''}
     ${v.added ? `<p class="added-line">Hinzugefügt am ${new Date(v.added).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })} um ${new Date(v.added).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} Uhr</p>` : ''}
@@ -5263,42 +5367,10 @@ function openVoucherSheet(id, animFrom) {
   $('#sheet-content').querySelectorAll('[data-copy-txt]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copyTxt)));
   $('#wv-close')?.addEventListener('click', closeSheet);
   $('#wv-karte')?.addEventListener('click', () => showKarteBig(karte));
-  // Verschenken: Freund auswählen, bestätigen, der Gutschein zieht komplett um
-  $('#wv-gift')?.addEventListener('click', () => {
-    const pick = $('#wv-gift-pick');
-    if (!pick.classList.contains('hidden')) { pick.classList.add('hidden'); return; }
-    const friends = myProfile?.friends || [];
-    if (!friends.length) {
-      pick.innerHTML = '<p class="muted" style="font-size:.82rem; margin-top:8px">Du hast noch keine Freunde in kumulio. Verschenken geht nur an Freunde.</p>';
-      pick.classList.remove('hidden');
-      return;
-    }
-    pick.innerHTML = '<p class="muted" style="font-size:.8rem; margin:8px 0 6px">An wen soll der Gutschein gehen?</p>'
-      + friends.map(f => `<button class="btn btn-small btn-ghost" data-gift-to="${esc(f)}" style="margin:0 6px 6px 0">@${esc(f)}</button>`).join('')
-      + '<input id="wv-gift-msg" class="input" maxlength="140" placeholder="Nachricht dazu? (optional, max. 140 Zeichen)" style="margin-top:6px">';
-    pick.classList.remove('hidden');
-    pick.querySelectorAll('[data-gift-to]').forEach(b => b.addEventListener('click', async () => {
-      const to = b.dataset.giftTo;
-      if (!await askConfirm(`Deinen ${esc(v.vendor)}-Gutschein${v.balance != null ? ` (${euroFmt(v.balance)})` : ''} an @${esc(to)} verschenken? Er verschwindet dann aus deiner Wallet.`, { okLabel: 'Ja, verschenken' })) return;
-      setBtnLoading(b, true);
-      try {
-        // Erst sichern, damit der Server den Gutschein garantiert kennt
-        await syncWalletNow();
-        const msg = ($('#wv-gift-msg')?.value || '').trim().slice(0, 140);
-        await api('/api/gift/send', { method: 'POST', body: JSON.stringify({ to, id: v.id, msg }) });
-        tombstone(v.id);
-        state.wallet.vouchers = state.wallet.vouchers.filter(x => x.id !== v.id);
-        save('wallet', state.wallet);
-        renderWallet();
-        closeSheet();
-        playSfx('kaching'); buzz(35); moneyFlash('green'); billRain(6);
-        island(`Verschenkt an @${to}`);
-      } catch (e) {
-        setBtnLoading(b, false);
-        island(e.message);
-      }
-    }));
-  });
+  $('#wv-addkarte')?.addEventListener('click', () => openWalletAdd('card', v.vendor));
+  $('#wv-back')?.addEventListener('click', () => openBrandSheet(zurueck));
+  // Verschenken laeuft ueber ein eigenes Fenster
+  $('#wv-gift')?.addEventListener('click', () => openGiftPop(v));
   // Löschen gibt es nur bei aufgebrauchten Gutscheinen, immer mit Rückfrage
   wireVoucherImage(v); // Bild tauschen / zuschneiden / nachtraeglich hochladen
   $('#wv-del')?.addEventListener('click', async () => {
@@ -6009,16 +6081,7 @@ function openBrandSheet(key) {
         ${icon('plus', 'icon icon-sm')} ${esc(b.name)}-Karte hinzufügen</button>`}
     ${gutscheine.length ? `
       <h3 class="gm-h" style="margin-top:16px">${icon('tag', 'icon icon-sm')} Damit kannst du hier zahlen</h3>
-      <div class="gs-vorschlag">${gutscheine.map(v => `
-        <button class="gs-zeile" data-gs="${esc(v.id)}" style="--bc:${brandColor(v.name || b.name)}">
-          <span class="gs-wert">${v.balance != null ? euroFmt(v.balance) : 'Gutschein'}</span>
-          <span class="gs-main">
-            <b>${esc(v.code || 'Ohne Code')}</b>
-            <small>${v.amount != null && v.balance != null && v.amount !== v.balance
-              ? `Rest von ${euroFmt(v.amount)}` : 'voll verfügbar'}${v.end ? ' · bis ' + new Date(v.end).toLocaleDateString('de-DE') : ''}</small>
-          </span>
-          ${icon('arrow-right', 'icon icon-sm')}
-        </button>`).join('')}</div>
+      <div class="gs-vorschlag">${gutscheine.map(voucherCardHtml).join('')}</div>
       <p class="muted" style="font-size:.74rem; margin-top:6px">Kleinster Rest zuerst — so bleiben keine Cent-Beträge liegen.</p>`
     : ''}
     <div id="wc-app-slot">${cardAppBlockHtml(b.name)}</div>
@@ -6030,8 +6093,8 @@ function openBrandSheet(key) {
   $('#sheet-content').querySelectorAll('[data-copy-txt]').forEach(x =>
     x.addEventListener('click', () => copyText(x.dataset.copyTxt)));
   $('#wc-addcard')?.addEventListener('click', () => openWalletAdd('card', b.name));
-  $('#sheet-content').querySelectorAll('[data-gs]').forEach(x =>
-    x.addEventListener('click', () => openVoucherSheet(x.dataset.gs)));
+  $('#sheet-content').querySelectorAll('.gs-vorschlag [data-wv]').forEach(x =>
+    x.addEventListener('click', () => openVoucherSheet(x.dataset.wv, null, key)));
 
   // Wochen-Erinnerung abhaken (IKEA & Co.): danach laeuft der 7-Tage-Timer
   // Antippen oeffnet die App (der Link laeuft normal weiter) und hakt nebenbei ab
@@ -6072,6 +6135,29 @@ function openBrandSheet(key) {
 function openCardSheet(id) {
   const c = state.wallet.cards.find(x => x.id === id);
   if (c) openBrandSheet(String(c.name).trim().toLowerCase());
+}
+
+// Die Gutscheinkarte, wie man sie aus der Wallet kennt — auch das Marken-Blatt
+// zeigt genau diese, damit ein Gutschein ueberall gleich aussieht.
+function voucherCardHtml(v) {
+    const pct = v.amount ? Math.max(0, Math.min(100, Math.round(((v.balance || 0) / v.amount) * 100))) : 100;
+    return `
+    <div class="wallet-card has-fill" data-wv="${esc(v.id)}" style="--bc:${brandColor(v.vendor)}; --fill:${pct}%">
+      <div class="wallet-card-head">
+        ${brandChipHtml(v.vendor)}
+        <span class="wallet-card-name">${esc(v.vendor)}</span>
+        ${v.balance != null ? `<span class="wallet-card-balance">${euroFmt(v.balance)}</span>` : ''}
+      </div>
+      <div class="wallet-card-sub">
+        <span>${esc(v.code || 'Ohne Code')}</span>
+        ${v.giftFrom ? `<span class="pill">${icon('gift', 'icon icon-sm')} von @${esc(v.giftFrom)}</span>` : ''}
+        ${v.end ? `<span class="pill">bis ${new Date(v.end).toLocaleDateString('de-DE')}</span>` : ''}
+      </div>
+      ${v.pin ? `<div class="wallet-card-pin">PIN ${esc(v.pin)}</div>` : ''}
+      ${(v.stickers || []).map(voucherStickerHtml).join('')}
+      ${v.giftFrom ? `<span class="gift-corner${v.giftSeen ? '' : ' unopened'}" role="img" aria-label="Geschenk von @${esc(v.giftFrom)}"><img src="/gamification/gift-tag.svg" alt=""></span>` : ''}
+      ${v.added ? `<span class="wallet-card-date">${new Date(v.added).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>` : ''}
+    </div>`;
 }
 
 // Drei Wallet-Bereiche: Gutscheine, Sparkarten (App-Raster), Coupons
@@ -6191,26 +6277,7 @@ function renderWallet() {
   }
   // Gutschein-Karte: der Hintergrund füllt sich nach Restguthaben (rechts wird
   // durchsichtig, was schon ausgegeben ist), PIN steht unter der Kartennummer
-  const vCard = v => {
-    const pct = v.amount ? Math.max(0, Math.min(100, Math.round(((v.balance || 0) / v.amount) * 100))) : 100;
-    return `
-    <div class="wallet-card has-fill" data-wv="${esc(v.id)}" style="--bc:${brandColor(v.vendor)}; --fill:${pct}%">
-      <div class="wallet-card-head">
-        ${brandChipHtml(v.vendor)}
-        <span class="wallet-card-name">${esc(v.vendor)}</span>
-        ${v.balance != null ? `<span class="wallet-card-balance">${euroFmt(v.balance)}</span>` : ''}
-      </div>
-      <div class="wallet-card-sub">
-        <span>${esc(v.code || 'Ohne Code')}</span>
-        ${v.giftFrom ? `<span class="pill">${icon('gift', 'icon icon-sm')} von @${esc(v.giftFrom)}</span>` : ''}
-        ${v.end ? `<span class="pill">bis ${new Date(v.end).toLocaleDateString('de-DE')}</span>` : ''}
-      </div>
-      ${v.pin ? `<div class="wallet-card-pin">PIN ${esc(v.pin)}</div>` : ''}
-      ${(v.stickers || []).map(voucherStickerHtml).join('')}
-      ${v.giftFrom ? `<span class="gift-corner${v.giftSeen ? '' : ' unopened'}" role="img" aria-label="Geschenk von @${esc(v.giftFrom)}"><img src="/gamification/gift-tag.svg" alt=""></span>` : ''}
-      ${v.added ? `<span class="wallet-card-date">${new Date(v.added).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>` : ''}
-    </div>`;
-  };
+  const vCard = voucherCardHtml;
 
   // Kartendeck pro Haendler: viele Gutscheine desselben Shops stapeln sich zu
   // EINER Karte (nur die oberste wird wirklich gerendert). Antippen faechert
