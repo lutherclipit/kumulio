@@ -387,6 +387,9 @@ function switchView(next, animClass) {
   }
   // Wallet immer aufgeräumt betreten: alle Stapel wieder zusammengelegt
   if (next === 'wallet') { restack(); renderWallet(); }
+  // Solange die Wallet offen ist, traegt die Kopfzeile ihre Farbe mit —
+  // sonst steht oben eine harte Kante zwischen Leiste und farbigem Kopf
+  document.body.classList.toggle('wallet-farbe', next === 'wallet' && !!state.token);
   if (next === 'friends') renderFriendsView();
   if (next === 'inventory') renderInventoryPage();
   if (next === 'shop') renderShopPage();
@@ -6266,9 +6269,11 @@ function updateWalletTab(anim) {
   const gated = !state.token && !coupons;
   $('#wallet-gate').classList.toggle('hidden', !gated);
   $('#wallet-content').classList.toggle('hidden', gated || coupons);
-  // Im Coupon-Bereich schrumpft der Kopf auf die Bereichswahl zusammen
+  // Im Coupon-Bereich faehrt der Guthaben-Teil weich ein statt zu verschwinden
+  document.body.classList.toggle('wallet-farbe',
+    state.activeView === 'wallet' && !!state.token);
   $('#wallet-kopf')?.classList.toggle('nur-tabs', coupons || gated);
-  $('#wallet-kopf-geld')?.classList.toggle('hidden', coupons || gated);
+  $('#wallet-kopf-geld')?.classList.toggle('zu', coupons || gated);
   $('#coupons-content').classList.toggle('hidden', !coupons);
   if (coupons) renderCoupons($('#coupons-content'));
   if (!walletTab.startsWith('gutscheine')) $('#wallet-mini')?.classList.remove('show');
@@ -6369,6 +6374,9 @@ function renderWallet() {
   const card = $('#wallet-kopf');
   if (card) {
     card.className = 'wallet-kopf tier-' + rank.tier;
+    // Dieselbe dunkle Stufenfarbe bekommt die Kopfzeile oben
+    const k1 = getComputedStyle(card).getPropertyValue('--k1').trim();
+    if (k1) document.documentElement.style.setProperty('--kopf-k1', k1);
     $('#wallet-rank').textContent = rank.name;
     if (rank.next) {
       const span = rank.next.min - rank.min;

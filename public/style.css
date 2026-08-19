@@ -67,6 +67,7 @@ html { color-scheme: light; }
    Zwei feste Ebenen (hell/dunkel), die beim Theme-Wechsel weich überblenden –
    Verläufe selbst lassen sich nicht animieren, ihre Deckkraft schon. */
 body {
+  --seitengrund: #eef1f5;
   background: #eef1f5;
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable", "Segoe UI", Roboto, sans-serif;
@@ -94,7 +95,7 @@ body::after {
     linear-gradient(180deg, #0e1114, #0b0e12);
   opacity: 0;
 }
-:root[data-theme="dark"] body { background: #0e1114; }
+:root[data-theme="dark"] body { background: #0e1114; --seitengrund: #0e1114; }
 :root[data-theme="dark"] body::before { opacity: 0; }
 :root[data-theme="dark"] body::after { opacity: 1; }
 
@@ -3724,29 +3725,51 @@ a.app-quest .app-quest-txt { flex: 1; min-width: 0; }
 }
 .crop-ok:active { transform: scale(.97); }
 
-/* ================= Runde 80: Wallet-Kopf im Banking-Zuschnitt ================= */
-/* Guthaben gross auf farbigem Grund, darunter vier Handgriffe. Der Kopf zieht
-   sich bis unter den Header und über die Seitenränder hinaus. */
+/* ================= Runde 81: Wallet-Kopf, durchgehend eingefaerbt =============
+   Eine Stufe setzt DREI Farben: der Verlauf oben, die dunkle fuer Text auf
+   Weiss, und der Auslauf nach unten. Damit beisst sich nichts mehr, wenn
+   jemand Gold statt Gruen hat. */
 .wallet-kopf {
+  --k1: #0E9C64;        /* dunkel: Text auf hellem Grund */
+  --k2: #12C77E;        /* Hauptton */
+  --k3: #23D992;        /* hell: Lichtseite des Verlaufs */
   position: relative;
-  /* zieht sich ueber die Seitenraender von main (16px, am Handy 12px) hinaus */
-  margin: -20px -16px 16px;
-  padding: 22px 16px 18px;
-  background: linear-gradient(150deg, #0E9C64 0%, #12C77E 45%, #23D992 100%);
-  border-radius: 0 0 26px 26px;
+  /* Zieht sich unter den Header und ueber die Seitenraender hinaus. Der obere
+     Rand liegt bewusst hinter der Kopfzeile, damit dort keine Kante steht. */
+  margin: -20px -16px 18px;
+  padding: 26px 16px 0;
+  background: linear-gradient(155deg, var(--k1) 0%, var(--k2) 46%, var(--k3) 100%);
   color: #fff;
-  box-shadow: 0 10px 28px rgba(14, 156, 100, .26);
-  overflow: hidden;
-  transition: box-shadow .5s ease, background .6s ease;
+  transition: background .6s ease;
 }
-/* Ein ruhiger Lichtbogen oben rechts — gibt Tiefe ohne Effekthascherei */
+/* Kein harter Schnitt nach unten: die Farbe laeuft in den Seitenhintergrund aus */
+.wallet-kopf::before {
+  content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 46px;
+  background: linear-gradient(to bottom, transparent, var(--seitengrund));
+  pointer-events: none;
+  transition: height .45s cubic-bezier(.22, 1, .32, 1);
+}
+/* Ruhiger Lichtbogen oben rechts — gibt Tiefe ohne Effekthascherei */
 .wallet-kopf::after {
-  content: ''; position: absolute; top: -70px; right: -50px;
-  width: 220px; height: 220px; border-radius: 50%;
-  background: radial-gradient(circle, rgba(255, 255, 255, .16), transparent 70%);
+  content: ''; position: absolute; top: -90px; right: -60px;
+  width: 260px; height: 260px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, .18), transparent 70%);
   pointer-events: none;
 }
-.wallet-kopf-inner { position: relative; z-index: 1; }
+.wallet-kopf-inner { position: relative; z-index: 1; padding-bottom: 30px; }
+
+/* Die Kopfzeile faerbt sich mit, solange man in der Wallet steht */
+body.wallet-farbe .topbar {
+  background: var(--kopf-k1, #0E9C64);
+  border-bottom-color: transparent;
+  box-shadow: none;
+  transition: background .6s ease;
+}
+body.wallet-farbe .topbar .brand-name,
+body.wallet-farbe .topbar .iconbtn { color: #fff; }
+body.wallet-farbe .topbar .iconbtn { background: rgba(255, 255, 255, .16); }
+
+/* Guthaben */
 .balance-flip-btn {
   display: block; width: 100%; background: none; border: none; padding: 0;
   color: inherit; font: inherit; text-align: center; cursor: pointer;
@@ -3754,74 +3777,66 @@ a.app-quest .app-quest-txt { flex: 1; min-width: 0; }
 }
 .balance-flip-btn:active { transform: scale(.97); }
 .wallet-kopf .balance-big {
-  color: #fff; font-size: 2.5rem; font-weight: 800; letter-spacing: -.03em;
-  line-height: 1.1; margin: 0;
+  color: #fff; font-size: 3.1rem; font-weight: 800; letter-spacing: -.035em;
+  line-height: 1.05; margin: 0; text-shadow: 0 2px 14px rgba(0, 0, 0, .16);
 }
-.wallet-kopf-sub { font-size: .82rem; opacity: .85; margin-top: 2px; }
+.wallet-kopf-sub { font-size: .84rem; opacity: .88; margin-top: 4px; }
 
-/* Rang-Leiste im Kopf: heller auf dem farbigen Grund */
-.wallet-kopf .rank-row {
-  display: flex; align-items: center; gap: 9px; margin: 14px 0 0;
-}
+/* Rang-Leiste */
+.wallet-kopf .rank-row { display: flex; align-items: center; gap: 9px; margin: 16px 0 0; }
 .wallet-kopf .rank-chip {
-  background: rgba(255, 255, 255, .22); color: #fff; border: none;
+  background: rgba(255, 255, 255, .24); color: #fff; border: none;
   font-size: .7rem; font-weight: 800; border-radius: 999px; padding: 4px 10px;
 }
 .wallet-kopf .rank-progress {
   flex: 1; height: 5px; border-radius: 999px;
-  background: rgba(255, 255, 255, .25); overflow: hidden;
+  background: rgba(255, 255, 255, .26); overflow: hidden;
 }
 .wallet-kopf .rank-progress-fill { height: 100%; background: #fff; border-radius: 999px; }
-.wallet-kopf .rank-next { font-size: .68rem; opacity: .85; white-space: nowrap; }
+.wallet-kopf .rank-next { font-size: .68rem; opacity: .88; white-space: nowrap; }
 
-/* Die vier Handgriffe */
+/* Die vier Handgriffe: Glasplaettchen mit feiner Kante */
 .wallet-aktionen {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 18px;
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 20px;
 }
 .wa-btn {
-  display: flex; flex-direction: column; align-items: center; gap: 7px;
-  background: none; border: none; padding: 4px 0;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  background: none; border: none; padding: 0;
   font: inherit; font-size: .72rem; font-weight: 700; color: #fff;
   cursor: pointer; touch-action: manipulation;
   transition: transform .25s var(--spring);
 }
-.wa-btn:active { transform: scale(.92); }
+.wa-btn span:last-child { text-shadow: 0 1px 6px rgba(0, 0, 0, .18); }
+.wa-btn:active { transform: translateY(2px) scale(.94); }
 .wa-kreis {
-  width: 46px; height: 46px; border-radius: 15px;
-  background: rgba(255, 255, 255, .2);
+  position: relative; overflow: hidden;
+  width: 52px; height: 52px; border-radius: 17px;
+  background: rgba(255, 255, 255, .17);
+  border: 1px solid rgba(255, 255, 255, .3);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .14), inset 0 1px 0 rgba(255, 255, 255, .45);
   display: flex; align-items: center; justify-content: center;
-  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
-  transition: background .25s ease;
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  transition: background .25s ease, box-shadow .25s ease;
 }
-.wa-btn:active .wa-kreis { background: rgba(255, 255, 255, .32); }
-.wa-kreis .icon { width: 21px; height: 21px; color: #fff; }
+.wa-btn:active .wa-kreis {
+  background: rgba(255, 255, 255, .3);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .18), inset 0 1px 0 rgba(255, 255, 255, .5);
+}
+.wa-kreis .icon { width: 22px; height: 22px; color: #fff; }
 
-/* Rang-Stufen faerben den Kopf, statt nur zu leuchten */
-.wallet-kopf.tier-2 { background: linear-gradient(150deg, #0B7F52 0%, #12C77E 50%, #2FE09C 100%); }
-.wallet-kopf.tier-3 { background: linear-gradient(150deg, #0A6B6B 0%, #12A8C7 50%, #36D6E0 100%); }
-.wallet-kopf.tier-4 { background: linear-gradient(150deg, #3B2C8F 0%, #6C4BD8 50%, #9B7BFF 100%); }
-.wallet-kopf.tier-5 {
-  background: linear-gradient(150deg, #6E4A00 0%, #C79B12 45%, #F0CE5A 100%);
-  box-shadow: 0 12px 34px rgba(199, 155, 18, .35);
-}
+/* Rang-Stufen setzen alle drei Farben — Text und Chips ziehen automatisch mit */
+.wallet-kopf.tier-2 { --k1: #0B7F52; --k2: #12C77E; --k3: #2FE09C; }
+.wallet-kopf.tier-3 { --k1: #0A6B78; --k2: #12A8C7; --k3: #36D6E0; }
+.wallet-kopf.tier-4 { --k1: #3B2C8F; --k2: #6C4BD8; --k3: #9B7BFF; }
+.wallet-kopf.tier-5 { --k1: #8A6510; --k2: #C79B12; --k3: #F0CE5A; }
 
 /* Statistik im eigenen Blatt */
 .stats-blatt { margin-top: 4px; }
 .stats-blatt .flip-hint { display: none; }
 
-/* Auf dem Handy darf der Kopf die volle Breite nehmen */
-@media (max-width: 560px) {
-  .wallet-kopf { margin: -16px -12px 14px; padding: 18px 12px 16px; border-radius: 0 0 22px 22px; }
-  .wallet-kopf .balance-big { font-size: 2.2rem; }
-  .wa-kreis { width: 44px; height: 44px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .wallet-kopf { transition: none; }
-}
-
 /* Bereichswahl sitzt im farbigen Kopf */
 .wallet-kopf #wallet-modes {
-  display: flex; gap: 8px; margin: 0 0 16px; padding: 0; overflow-x: auto;
+  display: flex; gap: 8px; margin: 0 0 18px; padding: 0; overflow-x: auto;
   scrollbar-width: none;
 }
 .wallet-kopf #wallet-modes::-webkit-scrollbar { display: none; }
@@ -3830,9 +3845,33 @@ a.app-quest .app-quest-txt { flex: 1; min-width: 0; }
   font-weight: 700; white-space: nowrap;
 }
 .wallet-kopf #wallet-modes .chip.active {
-  background: #fff !important; color: #0E9C64 !important; border-color: transparent !important;
-  box-shadow: 0 3px 12px rgba(10, 14, 18, .18);
+  background: #fff !important;
+  color: var(--k1) !important;          /* zieht die Stufenfarbe mit */
+  border-color: transparent !important;
+  box-shadow: 0 3px 12px rgba(10, 14, 18, .2);
 }
-/* Ohne Guthaben-Teil braucht der Kopf weniger Platz */
-.wallet-kopf.nur-tabs { padding-bottom: 14px; }
+/* Ohne Guthaben-Teil schrumpft der Kopf — die Hoehe wird mitanimiert */
+/* Hoehe ueber Grid statt max-height: kein geratener Maximalwert, und der
+   Uebergang laeuft auch dann sauber, wenn der Inhalt mal groesser wird */
+#wallet-kopf-geld {
+  display: grid; grid-template-rows: 1fr;
+  transition: grid-template-rows .45s cubic-bezier(.22, 1, .32, 1),
+              opacity .32s ease, transform .45s cubic-bezier(.22, 1, .32, 1);
+  opacity: 1; transform: none;
+}
+#wallet-kopf-geld > .kopf-geld-inner { overflow: hidden; min-height: 0; }
+#wallet-kopf-geld.zu {
+  grid-template-rows: 0fr; opacity: 0; transform: translateY(-10px);
+}
+.wallet-kopf.nur-tabs .wallet-kopf-inner { padding-bottom: 4px; }
 .wallet-kopf.nur-tabs #wallet-modes { margin-bottom: 0; }
+.wallet-kopf.nur-tabs::before { height: 26px; }
+
+@media (max-width: 560px) {
+  .wallet-kopf { margin: -16px -12px 16px; padding: 22px 12px 0; }
+  .wallet-kopf .balance-big { font-size: 2.7rem; }
+  .wa-kreis { width: 50px; height: 50px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wallet-kopf, #wallet-kopf-geld, body.wallet-farbe .topbar { transition: none; }
+}
