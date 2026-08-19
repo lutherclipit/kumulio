@@ -3783,7 +3783,7 @@ a.app-quest .app-quest-txt { flex: 1; min-width: 0; }
 #wallet-farbfeld {
   position: absolute; top: 0; left: 0; right: 0; height: 0;
   z-index: 0; pointer-events: none; opacity: 0;
-  transition: opacity .35s ease, height .45s cubic-bezier(.22, 1, .32, 1);
+  transition: opacity .35s ease;
 }
 body.wallet-farbe #wallet-farbfeld { opacity: 1; }
 #wallet-farbfeld::after {
@@ -4283,7 +4283,7 @@ body.wallet-farbe .topbar::after { content: none; }
               opacity .26s ease;
 }
 #wallet-kopf-geld.zu { transform: none; }   /* kein zusaetzliches Verschieben */
-#wallet-farbfeld { transition: opacity .3s ease, height .42s cubic-bezier(.22, 1, .32, 1); }
+#wallet-farbfeld { transition: opacity .3s ease; }   /* Hoehe folgt live, siehe farbfeldMitziehen */
 .bereich-zeile { display: flex; align-items: center; gap: 10px; margin: 24px 0 12px; }
 .bereich-zeile .bereich-titel { flex: none; }
 
@@ -4423,3 +4423,89 @@ body.wallet-farbe .topbar::after { content: none; }
   background: linear-gradient(140deg,
     var(--bc) 0%, color-mix(in srgb, var(--bc) 82%, #000 18%) 100%);
 }
+
+/* ================= Runde 91: Marken als Bankkarten ========================== */
+/* Das Raster traegt jetzt Karten im Querformat statt hochkantiger Kacheln */
+#coupon-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px; margin-top: 12px;
+}
+.marken-karte { position: relative; perspective: 1100px; cursor: pointer; }
+.marken-karte .debitkarte { max-width: none; }
+/* Karten ohne hinterlegte Sparkarte zeigen nur die Vorderseite */
+.debitkarte.leer { transform: none; }
+.debitkarte.leer .dk-vorne { justify-content: space-between; }
+.debitkarte.leer .dk-unten { margin-top: auto; opacity: .85; }
+/* Der Pfeil oeffnet das Marken-Blatt, ohne die Karte zu drehen */
+.marken-info {
+  position: absolute; right: 8px; top: 8px; z-index: 3;
+  width: 30px; height: 30px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, .22); border: 1px solid rgba(255, 255, 255, .3);
+  color: #fff; cursor: pointer; padding: 0;
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  transition: transform .2s var(--spring), background .2s ease;
+}
+.marken-info:active { transform: scale(.88); background: rgba(255, 255, 255, .34); }
+.marken-info .icon { transform: rotate(-90deg); }
+.marken-karte .tile-flag { top: 8px; right: 44px; z-index: 3; }
+/* Hinzufuegen bleibt schlicht, im selben Format */
+.marken-add {
+  aspect-ratio: 1.586 / 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  background: none; border: 2px dashed color-mix(in srgb, var(--muted) 35%, transparent);
+  border-radius: 16px; font: inherit; font-size: .8rem; font-weight: 700;
+  color: var(--muted);
+}
+.marken-add:active { transform: scale(.97); }
+
+/* --- Rueckseite: der Code nutzt die Flaeche, statt darin zu schwimmen --- */
+.dk-hinten { padding: 0; }
+.dk-streifen { top: 13px; height: 30px; }
+.dk-code, .dk-code-ersatz {
+  margin-top: 48px; width: 88%; max-width: none; max-height: none;
+  background: #fff; border-radius: 7px; padding: 7px;
+}
+.dk-code { object-fit: contain; height: auto; }
+.dk-code-ersatz .ean { width: 100%; height: auto; display: block; }
+.dk-hinten-marke {
+  position: absolute; bottom: 8px; left: 0; right: 0; text-align: center;
+  font-size: .6rem; letter-spacing: .1em; text-transform: uppercase;
+  color: rgba(255, 255, 255, .5);
+}
+/* In der Miniatur bleibt die Rueckseite schlicht */
+.debitkarte.mini .dk-hinten-marke { display: none; }
+.debitkarte.mini .dk-code, .debitkarte.mini .dk-code-ersatz { margin-top: 20px; width: 82%; padding: 3px; }
+
+/* ================= Chat: Abzeichen sitzen beim Namen ======================== */
+/* Rang-Bild und Badge standen als eigene Elemente VOR der Namenszeile und
+   verschoben dadurch jede Blase unterschiedlich weit. Jetzt bilden sie mit
+   dem Namen eine Zeile fester Hoehe. */
+.chat-msg {
+  display: flex; flex-direction: column; align-items: flex-start;
+}
+.chat-msg.own { align-items: flex-end; }
+.chat-kopf, .chat-msg > .chat-user {
+  display: flex; align-items: center; gap: 5px;
+  min-height: 18px; margin-bottom: 3px;
+}
+.chat-msg .rank-badge, .chat-msg .chat-badge {
+  flex: none; width: 15px; height: 15px; vertical-align: middle;
+}
+.chat-msg .chat-text { align-self: stretch; }
+.chat-msg.own .chat-text { text-align: right; }
+
+/* --- Hinweise im Marken-Blatt: eine Handschrift statt drei Banner-Stile --- */
+.karte-fehlt, .app-hinweis, .cc-locked {
+  display: flex; align-items: flex-start; gap: 10px; margin-top: 14px;
+  background: none;
+  border: none; border-left: 3px solid color-mix(in srgb, var(--muted) 35%, transparent);
+  border-radius: 0; padding: 2px 0 2px 12px;
+  font-size: .8rem; line-height: 1.5; color: var(--muted);
+}
+.karte-fehlt .icon, .app-hinweis .icon, .cc-locked .icon {
+  flex: none; margin-top: 2px; color: var(--muted);
+}
+.app-hinweis { border-left-color: #E0B33A; }
+.app-hinweis b { display: block; margin-bottom: 2px; color: var(--text); }
+.cc-locked { border-left-color: color-mix(in srgb, var(--accent-strong, #12C77E) 55%, transparent); }

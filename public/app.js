@@ -806,7 +806,7 @@ function renderCoupons(host) {
   const rest = marken.filter(b => !sofort.includes(b));
 
   host.innerHTML = `
-    <h2 class="bereich-titel">Sofort einlösbar<small>ohne Sparkarte, direkt an der Kasse</small></h2>
+    <h2 class="bereich-titel">Sofort einlösbar</h2>
     <div class="cc-cards">${sofort.map(b => {
       const gratis = /mcdonald/i.test(b.name) && (mccheapDaten?.items || []).some(x => x.gratis);
       const n = b.coupons ? b.coupons.count : 0;
@@ -823,47 +823,67 @@ function renderCoupons(host) {
         ${icon('arrow-right', 'icon icon-sm')}
       </button>`;
     }).join('') || '<div class="status">Gerade nichts ohne Karte verfügbar.</div>'}</div>
-    <h2 class="bereich-titel">Deine Karten<small>Sparkarte, App und Coupons je Händler</small></h2>
-    <p class="bereich-hint">Karte, App und Coupons je Händler an einem Ort. Gedrückt halten und ziehen zum Sortieren.</p>
+    <h2 class="bereich-titel">Deine Karten</h2>
     <div class="app-grid" id="coupon-grid">
       ${rest.map(b => {
         const gesperrt = b.coupons && !ccBesitzt(b.coupons);
         const gratis = /mcdonald/i.test(b.name) && (mccheapDaten?.items || []).some(x => x.gratis);
         return `
-      <button class="app-tile ${b.card ? 'has-card' : ''} ${brandHelligkeit(brandColor(b.name)) > 0.62 ? 'hell' : ''}"
-        data-brand="${esc(b.key)}" style="--bc:${brandColor(b.name)}; --tc:${brandTextColor(b.name)}">
-        ${brandChipHtml(b.name)}
-        <span class="app-tile-name">${esc(b.name)}</span>
-        <span class="app-tile-desc">${esc(brandUntertitel(b))}</span>
-        ${b.card ? `<span class="tile-dot" title="Sparkarte in der Wallet"></span>` : ''}
-        ${gesperrt ? `<span class="tile-lock">${icon('lock', 'icon icon-sm')}</span>` : ''}
+      <div class="marken-karte ${b.card ? 'hat-karte' : ''}" data-marke="${esc(b.key)}">
+        ${b.card
+          ? sparkarteHtml(b.card)
+          : `<div class="debitkarte leer" style="--bc:${brandColor(b.name)}; --tc:${brandTextColor(b.name)}">
+              <div class="dk-flaeche dk-vorne">
+                <div class="dk-oben">${brandChipHtml(b.name)}<span class="dk-marke">${esc(b.name)}</span></div>
+                <div class="dk-unten">
+                  <span>${esc(brandUntertitel(b))}</span>
+                  ${gesperrt ? icon('lock', 'icon icon-sm') : icon('arrow-right', 'icon icon-sm')}
+                </div>
+              </div>
+            </div>`}
         ${gratis ? '<span class="tile-flag">gratis!</span>' : ''}
-      </button>`;
+        <button class="marken-info" data-brand="${esc(b.key)}" aria-label="${esc(b.name)} öffnen">
+          ${icon('chevron', 'icon icon-sm')}
+        </button>
+      </div>`;
       }).join('')}
-      <button class="app-tile app-tile-add" data-wadd="card">
+      <button class="marken-karte marken-add" data-wadd="card">
         <span class="app-add-plus">${icon('plus')}</span>
-        <span class="app-tile-name">Karte hinzufügen</span>
+        <span>Karte hinzufügen</span>
       </button>
     </div>
-    <h2 class="bereich-titel">Geld zurück<small>Aktionen, bei denen du den Kaufpreis erstattet bekommst</small></h2>
+    <h2 class="bereich-titel">Geld zurück</h2>
     ${gzg.length
       ? gzg.map((d, i) => renderOfferCard(d, i, false)).join('')
       : '<div class="status">Aktuelle GzG-Aktionen postet die Redaktion über das Admin-Panel, sie erscheinen dann hier.</div>'}`;
 
   ladeCouponListe();
-  host.querySelectorAll('[data-brand]').forEach(b =>
-    b.onclick = () => openBrandSheet(b.dataset.brand));
+  // Zeilen oben und der Pfeil an der Karte fuehren ins Marken-Blatt
+  host.querySelectorAll('[data-brand]').forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    openBrandSheet(b.dataset.brand);
+  });
+  // Die Karte selbst dreht sich, wenn eine Sparkarte hinterlegt ist
+  host.querySelectorAll('.marken-karte.hat-karte').forEach(el => el.onclick = () => {
+    const k = el.querySelector('.debitkarte');
+    if (!k) return;
+    k.classList.toggle('gedreht');
+    buzz(10);
+  });
+  // Ohne Sparkarte gibt es nichts zu drehen — dann direkt ins Blatt
+  host.querySelectorAll('.marken-karte:not(.hat-karte):not(.marken-add)').forEach(el => el.onclick = () =>
+    openBrandSheet(el.dataset.marke));
   host.querySelector('[data-wadd]')?.addEventListener('click', () => openWalletAdd('card'));
   // Einmal nachsehen, ob McCheap gerade etwas Gratis hat — danach steht es im Speicher
   if (!mccheapDaten) ladeMccheap().then(d => {
     if ((d.items || []).some(x => x.gratis) && walletTab === 'coupons') renderCoupons(host);
   });
-  makeGridSortable(host.querySelector('#coupon-grid'), '#coupon-grid > [data-brand]', newOrder => {
+  makeGridSortable(host.querySelector('#coupon-grid'), '#coupon-grid > [data-marke]', newOrder => {
     if ((state.couponQuery || '').trim()) return;
     // Gespeichert werden Namen, nicht Schlüssel — die Reihenfolge gilt markenweit
     const namen = newOrder.map(k => (walletBrands().find(b => b.key === k) || {}).name).filter(Boolean);
     localStorage.setItem('ra.couponOrder', JSON.stringify(namen));
-  }, el => el.dataset.brand);
+  }, el => el.dataset.marke);
 }
 
 // McDonald's hat zwei Wege: die eigene App und McCheap.tech, wo Leute die
@@ -5341,6 +5361,7 @@ function sparkarteHtml(c, klein) {
           : nummer
             ? `<div class="dk-code-ersatz">${ean13Svg(nummer) || `<span>${esc(gruppiert)}</span>`}</div>`
             : `<p class="dk-hinweis">Häng ein Foto vom Barcode an, dann kannst du ihn hier scannen lassen.</p>`}
+        <span class="dk-hinten-marke">${esc(c.name)}</span>
       </div>
     </div>`;
 }
@@ -6276,8 +6297,7 @@ function updateWalletTab(anim) {
   $('#wallet-kopf')?.classList.toggle('nur-tabs', coupons || gated);
   $('#wallet-kopf-geld')?.classList.toggle('zu', coupons || gated);
   if ((coupons || gated) && kopfGedreht) kopfDrehen(false);
-  requestAnimationFrame(passeFarbfeldAn);
-  setTimeout(passeFarbfeldAn, 480);   // nach der Einfahr-Animation nochmal
+  farbfeldMitziehen();   // folgt der Kopfhoehe, solange sie sich bewegt
   $('#coupons-content').classList.toggle('hidden', !coupons);
   if (coupons) renderCoupons($('#coupons-content'));
   if (!walletTab.startsWith('gutscheine')) $('#wallet-mini')?.classList.remove('show');
@@ -6750,6 +6770,18 @@ function messeKopfzeile() {
   document.documentElement.style.setProperty('--kopfzeile-h', h + 'px');
   passeFarbfeldAn();
 }
+// Solange der Kopf sich bewegt (auf- oder zuklappen), zieht das Farbfeld Bild
+// fuer Bild mit. Eine eigene Transition wuerde hinterherhinken und ruckeln.
+let farbfeldLaeuft = 0;
+function farbfeldMitziehen(dauer = 560) {
+  const bis = performance.now() + dauer;
+  if (farbfeldLaeuft) cancelAnimationFrame(farbfeldLaeuft);
+  const schritt = () => {
+    passeFarbfeldAn();
+    farbfeldLaeuft = performance.now() < bis ? requestAnimationFrame(schritt) : 0;
+  };
+  farbfeldLaeuft = requestAnimationFrame(schritt);
+}
 // Das Farbfeld reicht bis zur Unterkante des Kopfes plus Auslauf. Es liegt
 // ausserhalb von main, deshalb muss die Hoehe von Hand gesetzt werden.
 function passeFarbfeldAn() {
@@ -7145,7 +7177,7 @@ function msgMenuHtml(own, id) {
 function chatMsgHtml(m) {
   if (m.deleted) {
     return `<div class="chat-msg" data-mid="${esc(m.id)}">
-      <span class="chat-user" style="color:${chatColor(m.user)}">${esc(m.user)}</span>
+      <span class="chat-kopf"><span class="chat-user" style="color:${chatColor(m.user)}">${esc(m.user)}</span></span>
       <span class="chat-text chat-deleted">Nachricht gelöscht</span>
     </div>`;
   }
@@ -7167,7 +7199,9 @@ function chatMsgHtml(m) {
   let body = chatBodyHtml(m.text);
   if (!body.startsWith('<button class="deal-chip')) body = body.replace(/@([A-Za-z0-9_.-]{3,24})/g, '<button class="mention" data-user="$1">@$1</button>');
   return `<div class="chat-msg ${m.user === state.userName ? 'own' : ''}" data-mid="${esc(m.id)}">
-    ${rankImg}${insignia}<span class="chat-user${ns.cls}" style="${ns.style}">${esc(m.user)}</span>
+    <span class="chat-kopf">
+      ${rankImg}${insignia}<span class="chat-user${ns.cls}" style="${ns.style}">${esc(m.user)}</span>
+    </span>
     <span class="chat-text">${body}</span>
     ${msgMenuHtml(m.user === state.userName, m.id)}
   </div>`;
@@ -7228,7 +7262,7 @@ function renderPinbar(pinned) {
 function dmMsgHtml(m) {
   if (m.deleted) {
     return `<div class="chat-msg" data-mid="${esc(m.id)}">
-      <span class="chat-user" style="color:${chatColor(m.from)}">${esc(m.from)}</span>
+      <span class="chat-kopf"><span class="chat-user" style="color:${chatColor(m.from)}">${esc(m.from)}</span></span>
       <span class="chat-text chat-deleted">Nachricht gelöscht</span>
     </div>`;
   }
@@ -7245,7 +7279,9 @@ function dmMsgHtml(m) {
     : '';
   const ns = nameStyleOf(m.from, m.paint);
   return `<div class="chat-msg dm-${own ? 'me' : 'them'} ${own ? 'own' : ''}" data-mid="${esc(m.id)}">
-    ${rankImg}${badge || role}<span class="chat-user${ns.cls}" style="${ns.style}">${esc(m.from)}</span>
+    <span class="chat-kopf">
+      ${rankImg}${badge || role}<span class="chat-user${ns.cls}" style="${ns.style}">${esc(m.from)}</span>
+    </span>
     <span class="chat-text">${chatBodyHtml(m.text)}</span>
     ${msgMenuHtml(own, m.id)}
   </div>`;
