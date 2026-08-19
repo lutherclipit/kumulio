@@ -2179,6 +2179,10 @@ html, body { overflow-x: clip; }
     rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, .07) 100%);
 }
 :root[data-theme="dark"] .wallet-card.has-fill.fast-leer::after {
+  /* backdrop-filter muss hier mit stehen: die dunkle Grundregel weiter oben
+     ist spezifischer als die helle Ausnahme und wuerde ihn sonst wieder
+     setzen — die fast leere Karte saehe im Dunkeln matt aus. */
+  backdrop-filter: none; -webkit-backdrop-filter: none;
   background: linear-gradient(90deg,
     rgba(10, 13, 17, 0) 0%, rgba(10, 13, 17, .16) 100%);
 }
@@ -3777,14 +3781,41 @@ a.app-quest .app-quest-txt { flex: 1; min-width: 0; }
   margin: calc(-1 * (var(--kopfzeile-h, 64px) + var(--seitenpolster, 20px))) -16px 18px;
   padding: calc(var(--kopfzeile-h, 64px) + 18px) 16px 0;
   color: #fff;
+  /* Die Kopfzeile ist ueber dem Kopf durchsichtig — sonst laege dort ein
+     Milchglas-Rechteck ueber der vollen Farbe. Damit der Betrag beim Scrollen
+     nicht durch die Wortmarke laeuft, loest der Kopfinhalt sich auf, kurz
+     bevor er die Unterkante der Leiste erreicht. --kopf-maske ist genau diese
+     Unterkante, gemessen vom oberen Rand des Kopfes (siehe pruefeKopfzeile). */
+  --kopf-maske: 0px;
+  mask-image: linear-gradient(to bottom,
+    transparent calc(var(--kopf-maske) - 18px), #000 calc(var(--kopf-maske) + 12px));
+  -webkit-mask-image: linear-gradient(to bottom,
+    transparent calc(var(--kopf-maske) - 18px), #000 calc(var(--kopf-maske) + 12px));
 }
 /* Der Farbgrund liegt in #wallet-farbfeld (ausserhalb von main), damit ihn
    nichts beschneidet. Er traegt Farbe, Auslauf und Lichtbogen in drei Ebenen. */
-#wallet-farbfeld {
-  position: absolute; top: 0; left: 0; right: 0; height: 0;
-  z-index: 0; pointer-events: none; opacity: 0;
-  transition: opacity .35s ease;
+/* --kopf-unten ist angemeldet, damit CSS es weich fahren kann. Unangemeldete
+   Variablen springen in der Mitte einer Ueberblendung um — das waere genau der
+   Ruck, den wir loswerden wollen. */
+@property --kopf-unten {
+  syntax: '<length>'; inherits: true; initial-value: 0px;
 }
+#wallet-farbfeld {
+  position: absolute; top: 0; left: 0; right: 0;
+  /* Hoehe UND Maske haengen an derselben Zahl. Vorher setzte JavaScript die
+     Hoehe Bild fuer Bild und die Maske war an dieser Hoehe aufgehaengt: fiel
+     ein Bild aus, sass der steile Teil der Kurve ploetzlich direkt unter den
+     Tabs — der Strich, den man beim Umschalten sah. Jetzt ist beides
+     dieselbe Groesse, ein Auseinanderlaufen ist nicht mehr moeglich. */
+  height: calc(var(--kopf-unten) + 300px);
+  z-index: 0; pointer-events: none; opacity: 0;
+  transition: opacity .35s ease,
+              --kopf-unten .45s cubic-bezier(.22, 1, .32, 1);
+}
+/* Beim Messen der Zielhoehe darf nichts laufen (siehe kopfZielUnten in app.js) */
+body.misst #wallet-farbfeld,
+body.misst #wallet-kopf-geld,
+body.misst .wallet-kopf { transition: none !important; }
 body.wallet-farbe #wallet-farbfeld { opacity: 1; }
 #wallet-farbfeld::after {
   content: ''; position: absolute; inset: 0;
@@ -3803,8 +3834,8 @@ body.wallet-farbe #wallet-farbfeld { opacity: 1; }
      null. Das ist der Punkt: nicht die Steilheit macht die Kante sichtbar,
      sondern der KNICK. Vorher lief die Rampe stueckweise gerade und sprang
      an ihrem Anfang von 0 auf 0,63 % Deckkraft pro Pixel — und ihr Anfang
-     liegt genau auf der Kopf-Unterkante, weil die Feldhoehe unten + 300 ist.
-     Also sass der Knick exakt dort, wo die Kante zu sehen war.
+     liegt genau auf der Kopf-Unterkante. Also sass der Knick exakt dort, wo
+     die Kante zu sehen war.
 
      Jetzt beginnt die Rampe mit Steigung 0,000 % pro Pixel. Ihre steilste
      Stelle (0,63 %) sitzt in der Mitte, 150 px unter dem Kopf, wo keine
@@ -3817,37 +3848,39 @@ body.wallet-farbe #wallet-farbfeld { opacity: 1; }
      Die Deckkraft an der Kopf-Unterkante bleibt exakt 1.0 — Chipleiste und
      weisse Kopfschrift behalten ihren Kontrast.
 
-     ACHTUNG: die 300 hier und die 300 in app.js (Feldhoehe) sind DIESELBE
-     Zahl. Wer sie aendert, muss die Stopps neu abtasten, sonst faellt der
-     Rampenanfang nicht mehr auf die Kopf-Unterkante:
-     alpha = 1 - (6t^5 - 15t^4 + 10t^3), t = k/25, Ort = 100% - (L - L*k/25)px */
+     Aufgehaengt ist alles an --kopf-unten, der Unterkante des Kopfes. Die
+     Feldhoehe oben rechnet mit derselben Variablen, deshalb koennen Maske und
+     Flaeche nicht mehr auseinanderlaufen — auch nicht, wenn waehrend der
+     Animation ein Bild ausfaellt. Wer die 300 aendert, muss die Stopps neu
+     abtasten und die Feldhoehe mitziehen:
+     alpha = 1 - (6t^5 - 15t^4 + 10t^3), t = k/25, Ort = --kopf-unten + L*k/25 */
   --auslauf: linear-gradient(to bottom,
-      rgba(0, 0, 0, 1) calc(100% - 300px),
-      rgba(0, 0, 0, .9994) calc(100% - 288px),
-      rgba(0, 0, 0, .9955) calc(100% - 276px),
-      rgba(0, 0, 0, .9857) calc(100% - 264px),
-      rgba(0, 0, 0, .9682) calc(100% - 252px),
-      rgba(0, 0, 0, .9421) calc(100% - 240px),
-      rgba(0, 0, 0, .9067) calc(100% - 228px),
-      rgba(0, 0, 0, .8624) calc(100% - 216px),
-      rgba(0, 0, 0, .8095) calc(100% - 204px),
-      rgba(0, 0, 0, .7491) calc(100% - 192px),
-      rgba(0, 0, 0, .6826) calc(100% - 180px),
-      rgba(0, 0, 0, .6114) calc(100% - 168px),
-      rgba(0, 0, 0, .5375) calc(100% - 156px),
-      rgba(0, 0, 0, .4625) calc(100% - 144px),
-      rgba(0, 0, 0, .3886) calc(100% - 132px),
-      rgba(0, 0, 0, .3174) calc(100% - 120px),
-      rgba(0, 0, 0, .2509) calc(100% - 108px),
-      rgba(0, 0, 0, .1905) calc(100% - 96px),
-      rgba(0, 0, 0, .1376) calc(100% - 84px),
-      rgba(0, 0, 0, .0933) calc(100% - 72px),
-      rgba(0, 0, 0, .0579) calc(100% - 60px),
-      rgba(0, 0, 0, .0318) calc(100% - 48px),
-      rgba(0, 0, 0, .0143) calc(100% - 36px),
-      rgba(0, 0, 0, .0045) calc(100% - 24px),
-      rgba(0, 0, 0, .0006) calc(100% - 12px),
-      rgba(0, 0, 0, 0) 100%);
+      rgba(0, 0, 0, 1) var(--kopf-unten),
+      rgba(0, 0, 0, .9994) calc(var(--kopf-unten) + 12px),
+      rgba(0, 0, 0, .9955) calc(var(--kopf-unten) + 24px),
+      rgba(0, 0, 0, .9857) calc(var(--kopf-unten) + 36px),
+      rgba(0, 0, 0, .9682) calc(var(--kopf-unten) + 48px),
+      rgba(0, 0, 0, .9421) calc(var(--kopf-unten) + 60px),
+      rgba(0, 0, 0, .9067) calc(var(--kopf-unten) + 72px),
+      rgba(0, 0, 0, .8624) calc(var(--kopf-unten) + 84px),
+      rgba(0, 0, 0, .8095) calc(var(--kopf-unten) + 96px),
+      rgba(0, 0, 0, .7491) calc(var(--kopf-unten) + 108px),
+      rgba(0, 0, 0, .6826) calc(var(--kopf-unten) + 120px),
+      rgba(0, 0, 0, .6114) calc(var(--kopf-unten) + 132px),
+      rgba(0, 0, 0, .5375) calc(var(--kopf-unten) + 144px),
+      rgba(0, 0, 0, .4625) calc(var(--kopf-unten) + 156px),
+      rgba(0, 0, 0, .3886) calc(var(--kopf-unten) + 168px),
+      rgba(0, 0, 0, .3174) calc(var(--kopf-unten) + 180px),
+      rgba(0, 0, 0, .2509) calc(var(--kopf-unten) + 192px),
+      rgba(0, 0, 0, .1905) calc(var(--kopf-unten) + 204px),
+      rgba(0, 0, 0, .1376) calc(var(--kopf-unten) + 216px),
+      rgba(0, 0, 0, .0933) calc(var(--kopf-unten) + 228px),
+      rgba(0, 0, 0, .0579) calc(var(--kopf-unten) + 240px),
+      rgba(0, 0, 0, .0318) calc(var(--kopf-unten) + 252px),
+      rgba(0, 0, 0, .0143) calc(var(--kopf-unten) + 264px),
+      rgba(0, 0, 0, .0045) calc(var(--kopf-unten) + 276px),
+      rgba(0, 0, 0, .0006) calc(var(--kopf-unten) + 288px),
+      rgba(0, 0, 0, 0) calc(var(--kopf-unten) + 300px));
   mask-image: var(--auslauf);
   -webkit-mask-image: var(--auslauf);
   transition: background .6s ease;
@@ -4146,7 +4179,8 @@ body.wallet-farbe.kopf-weg .topbar .iconbtn {
 /* --- Kopfzeile fliesst immer in die Seite, auf jedem Tab --- */
 .topbar {
   transition: padding .3s cubic-bezier(.22, 1, .32, 1),
-              background-color .35s ease, border-color .35s ease;
+              background-color .35s ease, border-color .35s ease,
+              backdrop-filter .35s ease, -webkit-backdrop-filter .35s ease;
 }
 /* Ohne farbigen Kopf darunter: kein Trennstrich, nur ein weicher Auslauf */
 body:not(.wallet-farbe) .topbar {
@@ -4346,7 +4380,11 @@ body.wallet-farbe .topbar::after { content: none; }
               opacity .26s ease;
 }
 #wallet-kopf-geld.zu { transform: none; }   /* kein zusaetzliches Verschieben */
-#wallet-farbfeld { transition: opacity .3s ease; }   /* Hoehe folgt live, siehe farbfeldMitziehen */
+/* Hoehe und Maske folgen --kopf-unten, deshalb muss die Ueberblendung dieser
+   Variablen hier mitgenannt werden — sonst faellt sie unter den Tisch. */
+#wallet-farbfeld {
+  transition: opacity .3s ease, --kopf-unten .45s cubic-bezier(.22, 1, .32, 1);
+}
 .bereich-zeile { display: flex; align-items: center; gap: 10px; margin: 24px 0 12px; }
 .bereich-zeile .bereich-titel { flex: none; }
 

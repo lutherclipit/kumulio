@@ -53,6 +53,23 @@ function applyTheme(t, animate = false) {
   localStorage.setItem('ra.theme', t);
   const sw = document.getElementById('sw-theme');
   if (sw) sw.checked = t === 'dark';
+  setzeLeistenfarbe();
+}
+
+// Die Statusleiste der installierten App traegt die Farbe aus <meta theme-color>.
+// Die stand fest auf Gruen — bei einer anderen Wallet-Stufe (Gold, Violett)
+// klebte darueber ein gruener Streifen, der aussah wie eine zweite Kopfzeile.
+// Jetzt traegt sie dieselbe Farbe wie der obere Rand des Kopfes, und ausserhalb
+// der Wallet den Seitengrund.
+function setzeLeistenfarbe() {
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (!meta) return;
+  const st = getComputedStyle(document.documentElement);
+  const inWallet = document.body.classList.contains('wallet-farbe');
+  const farbe = inWallet
+    ? (st.getPropertyValue('--kopf-k1').trim() || '#0E9C64')
+    : (getComputedStyle(document.body).backgroundColor || '#EEF1F5');
+  if (meta.content !== farbe) meta.content = farbe;
 }
 applyTheme(localStorage.getItem('ra.theme')
   || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
@@ -413,6 +430,7 @@ function switchView(next, animClass) {
   // sonst steht oben eine harte Kante zwischen Leiste und farbigem Kopf
   document.body.classList.toggle('wallet-farbe', next === 'wallet' && !!state.token);
   passeFarbfeldAn();          // sofort, damit das Farbfeld nicht stehenbleibt
+  setzeLeistenfarbe();
   requestAnimationFrame(() => { messeKopfzeile(); pruefeKopfzeile(); });
   if (next === 'friends') renderFriendsView();
   if (next === 'inventory') renderInventoryPage();
@@ -6294,10 +6312,13 @@ function updateWalletTab(anim) {
   // Im Coupon-Bereich faehrt der Guthaben-Teil weich ein statt zu verschwinden
   document.body.classList.toggle('wallet-farbe',
     state.activeView === 'wallet' && !!state.token);
+  // Erst das Ziel messen, dann umschalten — so faehrt das Farbfeld von Anfang
+  // an auf den richtigen Wert zu und nicht hinter dem Kopf her.
+  const kopfZiel = kopfZielUnten(coupons || gated);
   $('#wallet-kopf')?.classList.toggle('nur-tabs', coupons || gated);
   $('#wallet-kopf-geld')?.classList.toggle('zu', coupons || gated);
   if ((coupons || gated) && kopfGedreht) kopfDrehen(false);
-  farbfeldMitziehen();   // folgt der Kopfhoehe, solange sie sich bewegt
+  passeFarbfeldAn(kopfZiel, !anim);   // CSS faehrt den Rest, kein Bild-fuer-Bild mehr
   $('#coupons-content').classList.toggle('hidden', !coupons);
   if (coupons) renderCoupons($('#coupons-content'));
   if (!walletTab.startsWith('gutscheine')) $('#wallet-mini')?.classList.remove('show');
@@ -6405,6 +6426,7 @@ function renderWallet() {
       const wert = st.getPropertyValue('--' + n).trim();
       if (wert) document.documentElement.style.setProperty('--kopf-' + n, wert);
     });
+    setzeLeistenfarbe();   // Statusleiste traegt die Stufenfarbe mit
     messeKopfzeile();
     // Der Rang steht klein neben der Gutschein-Zahl, mehr braucht es nicht
     const rangEl = $('#wallet-rank');
@@ -6725,6 +6747,10 @@ function kopfDrehen(zu) {
   const tausch = () => {
     vorne.classList.toggle('hidden', ziel);
     hinten.classList.toggle('hidden', !ziel);
+    // Vorder- und Rueckseite sind unterschiedlich hoch — ohne das hier bliebe
+    // der Maskenanfang auf der Hoehe der anderen Seite stehen
+    passeFarbfeldAn();
+    pruefeKopfzeile();
   };
   if (reducedMotion() || !geld.animate) { tausch(); return; }
   kopfDrehtGerade = true;
@@ -6754,8 +6780,33 @@ function kopfDrehen(zu) {
 // oben ein Farbblock ohne Anschluss.
 function pruefeKopfzeile() {
   const oben = window.scrollY < 90;
-  const an = state.activeView === 'wallet' && !!state.token && oben;
-  document.body.classList.toggle('kopf-weg', state.activeView === 'wallet' && !an);
+  // Frueher stand hier dieselbe 90 auch fuer die Kopfzeilenfarbe. Der Kopf
+  // reicht aber rund 262 px weit — dazwischen lag die Leiste als Milchglas-
+  // bzw. dunkles Rechteck ueber der vollen Farbe und endete mit einer harten
+  // Linie. Das war der Balken, den man auf dem Handy oben immer sah.
+  // Jetzt wird gemessen: die Leiste wird erst wieder Glas, wenn der Kopf
+  // wirklich hinter ihr verschwunden ist. Die Kopfhoehe haengt an der
+  // Safe-Area, am Tab und am Kartendreh — raten geht da nicht.
+  const kopf = $('#wallet-kopf'), tb = document.querySelector('.topbar');
+  const inWallet = state.activeView === 'wallet' && !!state.token;
+  const kr = kopf?.getBoundingClientRect(), lr = tb?.getBoundingClientRect();
+  const verdeckt = kr && lr ? kr.bottom <= lr.bottom + 1 : !oben;
+  if (kr && lr) {
+    // Wo endet die Leiste, vom oberen Rand des Kopfes aus gerechnet? Genau da
+    // muss der Kopfinhalt verschwunden sein. Sobald der Kopf ganz hinter der
+    // Leiste liegt, braucht es das nicht mehr — und genau dann wird lange
+    // gescrollt, da soll nichts unnoetig neu gezeichnet werden.
+    if (!verdeckt) kopf.style.setProperty('--kopf-maske', Math.round(lr.bottom - kr.top) + 'px');
+    // Die Leiste wird beim Scrollen flacher. Wer das nicht nachmisst, rechnet
+    // den Kopf mit der alten Hoehe — dann sitzt oben ein Streifen daneben.
+    const h = Math.round(lr.height);
+    if (h && h !== messeKopfzeile.zuletzt) {
+      messeKopfzeile.zuletzt = h;
+      document.documentElement.style.setProperty('--kopfzeile-h', h + 'px');
+    }
+  }
+  document.body.classList.toggle('kopf-weg',
+    state.activeView === 'wallet' && (!inWallet || verdeckt));
   // Gilt fuer jeden Tab: beim Scrollen ruecken Leiste und Logo zusammen
   document.body.classList.toggle('gescrollt', !oben);
 }
@@ -6767,34 +6818,65 @@ function messeKopfzeile() {
   const tb = document.querySelector('.topbar');
   if (!tb) return;
   const h = Math.round(tb.getBoundingClientRect().height);
+  messeKopfzeile.zuletzt = h;
   document.documentElement.style.setProperty('--kopfzeile-h', h + 'px');
   passeFarbfeldAn();
+  // Setzt auch --kopf-maske, damit der Kopfinhalt von Anfang an weiss, wo die
+  // Leiste endet — sonst greift die Aufloesung erst beim ersten Scrollen.
+  pruefeKopfzeile();
 }
-// Solange der Kopf sich bewegt (auf- oder zuklappen), zieht das Farbfeld Bild
-// fuer Bild mit. Eine eigene Transition wuerde hinterherhinken und ruckeln.
-let farbfeldLaeuft = 0;
-function farbfeldMitziehen(dauer = 560) {
-  const bis = performance.now() + dauer;
-  if (farbfeldLaeuft) cancelAnimationFrame(farbfeldLaeuft);
-  const schritt = () => {
-    passeFarbfeldAn();
-    farbfeldLaeuft = performance.now() < bis ? requestAnimationFrame(schritt) : 0;
-  };
-  farbfeldLaeuft = requestAnimationFrame(schritt);
-}
-// Das Farbfeld reicht bis zur Unterkante des Kopfes plus Auslauf. Es liegt
-// ausserhalb von main, deshalb muss die Hoehe von Hand gesetzt werden.
-function passeFarbfeldAn() {
+// Das Farbfeld haengt an einer einzigen Zahl: --kopf-unten, der Unterkante des
+// Kopfes. Hoehe und Maske leiten sich in CSS beide daraus ab, und CSS faehrt
+// sie weich (siehe @property in style.css).
+//
+// Vorher lief hier ein rAF-Band, das die Hoehe Bild fuer Bild neu setzte und
+// dafuer jedes Mal die Seite neu vermessen liess. Das war teuer genug, um auf
+// dem Handy Bilder fallen zu lassen — und wenn ein Bild ausfiel, hinkte die
+// Feldhoehe der Kopfhoehe hinterher. Weil die Maske an der Feldhoehe hing, sass
+// der steile Teil der Kurve dann mitten unter den Tabs: der Strich, den man
+// beim Umschalten sah. Ruckeln und Strich waren derselbe Fehler.
+function passeFarbfeldAn(zielUnten, sofort = zielUnten === undefined) {
   const feld = $('#wallet-farbfeld');
   const kopf = $('#wallet-kopf');
   if (!feld || !kopf) return;
-  if (state.activeView !== 'wallet' || !state.token) { feld.style.height = '0px'; return; }
+  if (state.activeView !== 'wallet' || !state.token) {
+    feld.style.setProperty('--kopf-unten', '0px');
+    return;
+  }
+  const unten = zielUnten ?? (kopf.getBoundingClientRect().bottom + window.scrollY);
+  const wert = Math.round(unten) + 'px';
+  // Nur beim Tabwechsel soll die Farbe fahren. Beim Betreten der Wallet, beim
+  // Kartendreh oder nach einem Groessenwechsel soll sie einfach sitzen —
+  // sonst waechst der Farbgrund beim Aufmachen sichtbar von oben herein.
+  if (sofort) {
+    document.body.classList.add('misst');
+    feld.style.setProperty('--kopf-unten', wert);
+    void feld.offsetHeight;
+    document.body.classList.remove('misst');
+  } else {
+    feld.style.setProperty('--kopf-unten', wert);
+  }
+}
+
+// Wo endet der Kopf, NACHDEM er auf- oder zugeklappt ist? Wir schalten kurz um,
+// messen und schalten zurueck — alles innerhalb eines Bildes und mit
+// abgeschalteten Uebergaengen, damit der Zwischenzustand nie gemalt wird.
+// Zwei erzwungene Vermessungen pro Tabwechsel statt vierunddreissig.
+function kopfZielUnten(zu) {
+  const kopf = $('#wallet-kopf');
+  const geld = $('#wallet-kopf-geld');
+  if (!kopf) return 0;
+  const warTabs = kopf.classList.contains('nur-tabs');
+  const warZu = geld?.classList.contains('zu');
+  document.body.classList.add('misst');
+  kopf.classList.toggle('nur-tabs', zu);
+  geld?.classList.toggle('zu', zu);
   const unten = kopf.getBoundingClientRect().bottom + window.scrollY;
-  // 300 px Auslauf, in beiden Zustaenden gleich. Diese Zahl gehoert mit den
-  // calc(100% - ...px) der Maske in style.css zusammen: nur wenn sie gleich
-  // sind, faengt die Rampe genau an der Kopf-Unterkante an — und genau dort
-  // ist sie in Steigung und Kruemmung null, also unsichtbar.
-  feld.style.height = Math.round(unten + 300) + 'px';
+  kopf.classList.toggle('nur-tabs', warTabs);
+  geld?.classList.toggle('zu', !!warZu);
+  kopf.getBoundingClientRect();          // Layout wirklich zurueckdrehen
+  document.body.classList.remove('misst');
+  return unten;
 }
 addEventListener('resize', messeKopfzeile);
 addEventListener('orientationchange', () => setTimeout(messeKopfzeile, 250));
@@ -6878,8 +6960,11 @@ if ('IntersectionObserver' in window && $('#wallet-kopf')) {
       && !!state.token && e.intersectionRatio < 0.25;
     $('#wallet-mini').classList.toggle('show', show);
     // Zweiter Weg zur Kopfzeilenfarbe: manche Browser melden beim
-    // programmgesteuerten Scrollen kein scroll-Ereignis
-    if (inWallet) document.body.classList.toggle('kopf-weg', e.intersectionRatio < 0.25);
+    // programmgesteuerten Scrollen kein scroll-Ereignis. Er ruft dieselbe
+    // Pruefung auf — zwei verschiedene Schwellen haben sich frueher
+    // gegenseitig ueberschrieben, und die Leiste sprang im selben Scrollzug
+    // hin und her.
+    if (inWallet) pruefeKopfzeile();
   }, { threshold: [0, 0.25, 0.5] }).observe($('#wallet-kopf'));
 }
 $('#wallet-mini')?.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
