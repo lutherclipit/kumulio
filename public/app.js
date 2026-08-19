@@ -25,7 +25,16 @@ const state = {
   token: localStorage.getItem('ra.token') || '',
   featured: [],
   notif: JSON.parse(localStorage.getItem('ra.notif') || '{"msgs":true,"mention":true,"reminder":true}'),
+  // Wallet-Filter bleiben eingestellt, bis man sie selbst wieder aendert
+  ...JSON.parse(localStorage.getItem('ra.walletFilter') || '{"walletFilter":"","walletSort":"","walletVal":0}'),
 };
+function saveWalletFilter() {
+  localStorage.setItem('ra.walletFilter', JSON.stringify({
+    walletFilter: state.walletFilter || '',
+    walletSort: state.walletSort || '',
+    walletVal: state.walletVal || 0,
+  }));
+}
 
 // ---------------- Dark Mode ----------------
 
@@ -1041,52 +1050,108 @@ function wireVoucherImage(v) {
 }
 function openImgCrop(src, onDone) {
   const wrap = document.createElement('div');
-  wrap.className = 'overlay';
+  wrap.className = 'overlay crop-overlay';
   wrap.innerHTML = `<div class="modal crop-modal">
-    <h2 class="card-h">Bild zuschneiden</h2>
-    <p class="muted" style="font-size:.8rem">Bild verschieben und zoomen, der Rahmen wird übernommen.</p>
-    <div class="crop-stage" id="crop-stage"><img id="crop-src" src="${src}" alt="" draggable="false"></div>
-    <input type="range" id="crop-zoom" min="100" max="320" value="100" aria-label="Zoom">
-    <div class="form-row" style="justify-content:center; margin-top:10px">
-      <button class="btn btn-small" id="crop-ok">Übernehmen</button>
-      <button class="btn btn-small btn-ghost" id="crop-full">Ganzes Bild</button>
+    <h2 class="card-h">Zuschneiden</h2>
+    <p class="muted" style="font-size:.78rem">Ziehen zum Verschieben, zwei Finger zum Zoomen.
+      Was im Rahmen liegt, wird gespeichert.</p>
+    <div class="crop-stage" id="crop-stage">
+      <img id="crop-src" src="${src}" alt="" draggable="false">
+      <div class="crop-gitter" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+      <div class="crop-ecken" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    </div>
+    <div class="crop-zoomrow">
+      ${icon('search', 'icon icon-sm')}
+      <input type="range" id="crop-zoom" min="100" max="400" value="100" aria-label="Zoom">
+    </div>
+    <div class="crop-actions">
       <button class="btn btn-small btn-ghost" id="crop-cancel">Abbrechen</button>
+      <button class="btn btn-small btn-ghost" id="crop-full">Ganzes Bild</button>
+      <button class="btn crop-ok" id="crop-ok">Fertig</button>
     </div>
   </div>`;
   document.body.appendChild(wrap);
   const stage = wrap.querySelector('#crop-stage');
   const img = wrap.querySelector('#crop-src');
+  const regler = wrap.querySelector('#crop-zoom');
   let zoom = 1, offX = 0, offY = 0, baseScale = 1;
   const applyT = () => { img.style.transform = `translate(${offX}px, ${offY}px) scale(${zoom})`; };
-  img.onload = () => {
-    baseScale = stage.clientWidth / img.naturalWidth;
-    img.style.width = stage.clientWidth + 'px';
-    // vertikal mittig starten
-    offY = (stage.clientHeight - img.naturalHeight * baseScale) / 2;
-    applyT();
-  };
-  if (img.complete) img.onload();
-  // Ein-Finger-Drag
-  let drag = null;
-  stage.addEventListener('pointerdown', e => { drag = { x: e.clientX - offX, y: e.clientY - offY }; stage.setPointerCapture(e.pointerId); });
-  stage.addEventListener('pointermove', e => { if (!drag) return; offX = e.clientX - drag.x; offY = e.clientY - drag.y; applyT(); });
-  stage.addEventListener('pointerup', () => { drag = null; });
-  wrap.querySelector('#crop-zoom').addEventListener('input', e => {
-    const nz = Number(e.target.value) / 100;
-    // um die Stage-Mitte zoomen
-    const cx = stage.clientWidth / 2, cy = stage.clientHeight / 2;
+  const setzeZoom = (nz, cx, cy) => {
+    nz = Math.max(1, Math.min(4, nz));
     offX = cx - (cx - offX) * (nz / zoom);
     offY = cy - (cy - offY) * (nz / zoom);
     zoom = nz;
+    regler.value = Math.round(zoom * 100);
     applyT();
+  };
+  const grundstellung = () => {
+    baseScale = stage.clientWidth / img.naturalWidth;
+    img.style.width = stage.clientWidth + 'px';
+    zoom = 1; offX = 0;
+    offY = (stage.clientHeight - img.naturalHeight * baseScale) / 2;
+    regler.value = 100;
+    applyT();
+  };
+  img.onload = grundstellung;
+  if (img.complete && img.naturalWidth) grundstellung();
+
+  // Ein Finger schiebt, zwei Finger zoomen — wie in der Foto-App
+  const finger = new Map();
+  let start = null;
+  stage.addEventListener('pointerdown', e => {
+    finger.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    // Der zweite Finger laesst sich nicht immer einfangen — das darf den
+    // Rest des Handlers nicht abbrechen
+    try { stage.setPointerCapture(e.pointerId); } catch { /* egal */ }
+    if (finger.size === 1) start = { x: e.clientX - offX, y: e.clientY - offY };
+    if (finger.size === 2) {
+      const [a, b] = [...finger.values()];
+      start = { abstand: Math.hypot(a.x - b.x, a.y - b.y), zoom,
+                mx: (a.x + b.x) / 2 - stage.getBoundingClientRect().left,
+                my: (a.y + b.y) / 2 - stage.getBoundingClientRect().top };
+    }
   });
-  const finish = out => { wrap.remove(); if (out) onDone(out); };
+  stage.addEventListener('pointermove', e => {
+    if (!finger.has(e.pointerId)) return;
+    finger.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (finger.size === 1 && start) {
+      offX = e.clientX - start.x; offY = e.clientY - start.y; applyT();
+    } else if (finger.size === 2 && start?.abstand) {
+      const [a, b] = [...finger.values()];
+      const jetzt = Math.hypot(a.x - b.x, a.y - b.y);
+      setzeZoom(start.zoom * (jetzt / start.abstand), start.mx, start.my);
+    }
+  });
+  const fingerWeg = e => {
+    finger.delete(e.pointerId);
+    start = finger.size === 1
+      ? { x: [...finger.values()][0].x - offX, y: [...finger.values()][0].y - offY }
+      : null;
+  };
+  stage.addEventListener('pointerup', fingerWeg);
+  stage.addEventListener('pointercancel', fingerWeg);
+  // Doppeltippen setzt zurück
+  let letzterTipp = 0;
+  stage.addEventListener('pointerup', () => {
+    const jetzt = Date.now();
+    if (jetzt - letzterTipp < 320) grundstellung();
+    letzterTipp = jetzt;
+  });
+  regler.addEventListener('input', e =>
+    setzeZoom(Number(e.target.value) / 100, stage.clientWidth / 2, stage.clientHeight / 2));
+
+  const finish = out => {
+    wrap.classList.add('closing');
+    setTimeout(() => wrap.remove(), 240);
+    if (out) onDone(out);
+  };
   wrap.querySelector('#crop-cancel').onclick = () => finish(null);
+  wrap.addEventListener('click', e => { if (e.target === wrap) finish(null); });
   wrap.querySelector('#crop-full').onclick = () => {
     // Original unveraendert uebernehmen (nur kompakt als JPEG)
     const c = document.createElement('canvas');
-    const s = Math.min(1, 1400 / Math.max(img.naturalWidth, img.naturalHeight));
-    c.width = Math.round(img.naturalWidth * s); c.height = Math.round(img.naturalHeight * s);
+    const s2 = Math.min(1, 1400 / Math.max(img.naturalWidth, img.naturalHeight));
+    c.width = Math.round(img.naturalWidth * s2); c.height = Math.round(img.naturalHeight * s2);
     c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
     finish(c.toDataURL('image/jpeg', 0.86));
   };
@@ -1215,15 +1280,26 @@ setInterval(checkReminders, 30 * 1000);
 
 // ---------------- Sheet (generisch) ----------------
 
-function openSheetShell() {
+function openSheetShell(richtung) {
   // Formulare (Hinzufügen) kompakt statt Vollbild, kein leerer Swipe-Raum
   $('#sheet').classList.toggle('compact', state.sheetMode === 'wallet-add');
+  const schonOffen = $('#sheet').classList.contains('open');
   $('#sheet-backdrop').classList.remove('hidden');
   requestAnimationFrame(() => {
     $('#sheet-backdrop').classList.add('show');
     $('#sheet').classList.add('open');
   });
-  $('#sheet-content').scrollTop = 0;
+  const inhalt = $('#sheet-content');
+  inhalt.scrollTop = 0;
+  // Nur beim Wechsel im schon offenen Blatt gleiten — beim ersten Öffnen
+  // animiert ohnehin das Blatt selbst von unten herein
+  if (schonOffen && richtung && !reducedMotion()) {
+    inhalt.classList.remove('blatt-vor', 'blatt-zurueck');
+    void inhalt.offsetWidth;
+    inhalt.classList.add(richtung === 'zurueck' ? 'blatt-zurueck' : 'blatt-vor');
+    inhalt.addEventListener('animationend',
+      () => inhalt.classList.remove('blatt-vor', 'blatt-zurueck'), { once: true });
+  }
 }
 
 function closeSheet() {
@@ -2481,7 +2557,9 @@ function openCaseModal(box) {
     $('#case-qty').classList.add('hidden');
   }
   $('#case-skip').classList.add('hidden');
-  $('#case-backdrop').classList.remove('case-dark');
+  $('#case-backdrop').classList.remove('case-dark', 'case-darker');
+  const wrapReset = $('#case-img-wrap');
+  if (wrapReset) { wrapReset.style.transform = ''; wrapReset.style.top = ''; wrapReset.style.transition = ''; }
   // Chancen kommen 1:1 aus der Server-Tabelle des Container-Typs — die Anzeige
   // kann von der echten Ziehung nicht mehr abweichen
   const odds = gami?.containers?.[box.type]?.odds || {};
@@ -2669,11 +2747,15 @@ async function startCaseOpen() {
   // Die Kiste gleitet weich in die Buehnenmitte; Schuetteln, Aufplatzen und
   // Walze passieren dann dort
   const stage = document.querySelector('#case-backdrop .case-modal').getBoundingClientRect();
+  const rahmen = $('#case-img-wrap') || img;
   const ib = img.getBoundingClientRect();
   const dy = (stage.top + stage.height / 2) - (ib.top + ib.height / 2);
-  img.style.position = 'relative';
-  img.style.transition = 'top .55s cubic-bezier(.3, 1, .4, 1)';
-  img.style.top = dy + 'px';
+  // Der Rahmen traegt Weg und Zoom, das Bild darin schuettelt und platzt —
+  // sonst wuerden sich beide um dieselbe transform-Eigenschaft streiten
+  rahmen.style.position = 'relative';
+  rahmen.style.transition = 'top .8s cubic-bezier(.3, 1, .4, 1), transform 1.9s cubic-bezier(.4, 0, .3, 1)';
+  rahmen.style.top = dy + 'px';
+  requestAnimationFrame(() => { rahmen.style.transform = 'scale(1.35)'; });
   $('#case-skip').classList.remove('hidden');
   caseCtx.timers.push(setTimeout(() => {
     img.classList.add('case-shake');
@@ -2682,14 +2764,22 @@ async function startCaseOpen() {
     caseCtx.timers.push(setTimeout(() => {
       img.classList.remove('case-shake');
       img.classList.add('case-burst');
+      // Das Licht bricht dort auf, wo die Kiste steht — vorher klebte es oben
       const flash = document.createElement('div');
       flash.className = 'case-flash';
       flash.style.setProperty('--rc', col);
-      img.parentElement.insertBefore(flash, img);
-      setTimeout(() => flash.remove(), 700);
+      const eltern = rahmen.parentElement;
+      const kb = img.getBoundingClientRect();
+      const eb = eltern.getBoundingClientRect();
+      flash.style.top = (kb.top + kb.height / 2 - eb.top) + 'px';
+      eltern.insertBefore(flash, rahmen);
+      // Im Moment des Aufplatzens wird der Raum noch dunkler
+      $('#case-backdrop').classList.add('case-darker');
+      setTimeout(() => flash.remove(), 800);
       // Jetzt die Walze: Gewinn liegt fest auf Index 60, alles andere ist Show
       caseCtx.timers.push(setTimeout(() => {
         img.classList.add('hidden');
+        rahmen.style.transform = '';
         const stufen = Object.keys(gami?.containers?.[box.type]?.odds || {});
         const topRar = stufen[stufen.length - 1];
         // Fueller enthalten die Top-Stufe NIE: das goldene ? taucht nur auf,
@@ -4717,8 +4807,10 @@ function openWalletAdd(type, prefillName) {
       </button>`).join('')}
     </div>
     <input id="wa-cname" class="input ${addPrefill && !CARD_GRID.includes(addPrefill) ? '' : 'hidden'}" maxlength="30" placeholder="Kartenname eintippen" value="${esc(addPrefill && !CARD_GRID.includes(addPrefill) ? addPrefill : '')}">
-    <label class="f-label">Kartennummer <span class="req">*</span></label>
-    <input id="wa-cnumber" class="input" maxlength="30" placeholder="Nummer auf der Karte">
+    <label class="f-label">Kartennummer <span class="opt">(optional)</span></label>
+    <input id="wa-cnumber" class="input" maxlength="30" placeholder="Falls die Karte eine hat">
+    <p class="muted" style="font-size:.74rem; margin:4px 0 0">Manche Karten haben gar keine Nummer —
+      dann reicht ein Foto vom Barcode, oder du legst sie einfach ohne an.</p>
     ` : `
     <label class="f-label">Shop <span class="req">*</span></label>
     <div class="vendor-grid" id="wa-vendor-grid">
@@ -5086,9 +5178,9 @@ function openWalletAdd(type, prefillName) {
         number: $('#wa-cnumber').value.trim().slice(0, 30),
         img: addCodeImg ? '' : addImg, codeImg: addCodeImg, added: Date.now(),
       };
-      $('#wa-cnumber').classList.toggle('err', !c.number);
+      // Nur die Marke ist Pflicht — REWE etwa hat gar keine Kartennummer
       $('#wa-card-grid')?.classList.toggle('err', !c.name);
-      if (!c.name || !c.number) { msg.className = 'form-msg error'; msg.textContent = !c.name ? 'Bitte eine Karte auswählen.' : 'Bitte die Kartennummer eintragen.'; return; }
+      if (!c.name) { msg.className = 'form-msg error'; msg.textContent = 'Bitte eine Karte auswählen.'; return; }
       state.wallet.cards.unshift(c);
       savedItem = c; savedList = state.wallet.cards;
     }
@@ -5169,10 +5261,12 @@ function showKarteBig(c) {
     <button class="fav-remove" id="kb-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
     <div class="cc-big-brand">${esc(c.name)}</div>
     ${bild ? `<img class="cc-big-barcode" src="${esc(bild)}" alt="Karte für die Kasse">`
-      : `<div class="karte-big-nr">${esc(c.number)}</div>`}
-    ${bild ? `<div class="cc-big-code small">${esc(c.number)}</div>` : ''}
+      : c.number ? `<div class="karte-big-nr">${esc(c.number)}</div>`
+      : `<p class="status">Für diese Karte ist noch kein Barcode hinterlegt.
+          Häng beim Bearbeiten ein Foto an, dann kannst du ihn hier scannen lassen.</p>`}
+    ${bild && c.number ? `<div class="cc-big-code small">${esc(c.number)}</div>` : ''}
     <div class="cc-big-name">Sparkarte vorzeigen</div>
-    <button class="btn btn-small btn-ghost" data-copy-txt="${esc(c.number)}" style="margin-top:10px">Nummer kopieren</button>
+    ${c.number ? `<button class="btn btn-small btn-ghost" data-copy-txt="${esc(c.number)}" style="margin-top:10px">Nummer kopieren</button>` : ''}
   </div>`;
   document.body.appendChild(wrap);
   buzz(12);
@@ -5276,7 +5370,7 @@ function openGiftPop(v) {
   });
 }
 
-function openVoucherSheet(id, animFrom, zurueckZu) {
+function openVoucherSheet(id, animFrom, zurueckZu, richtung) {
   const v = state.wallet.vouchers.find(x => x.id === id);
   if (!v) return;
   if (v.giftFrom && !v.giftSeen) { v.giftSeen = true; saveWallet(); }
@@ -5296,15 +5390,17 @@ function openVoucherSheet(id, animFrom, zurueckZu) {
       </div>
       ${karte
         ? `<button class="karte-btn" id="wv-karte" style="--bc:${brandColor(v.vendor)}"
-            aria-label="${esc(v.vendor)}-Sparkarte zeigen">
-            ${brandChipHtml(v.vendor)}<span>Karte</span></button>`
+            title="${esc(v.vendor)}-Sparkarte zeigen" aria-label="${esc(v.vendor)}-Sparkarte zeigen">
+            ${brandChipHtml(v.vendor)}</button>`
         : `<button class="karte-btn neu" id="wv-addkarte" style="--bc:${brandColor(v.vendor)}"
-            aria-label="${esc(v.vendor)}-Sparkarte hinzufügen">
+            title="${esc(v.vendor)}-Sparkarte hinzufügen" aria-label="${esc(v.vendor)}-Sparkarte hinzufügen">
             <span class="karte-btn-chip">${brandChipHtml(v.vendor)}<span class="karte-plus">${icon('plus')}</span></span>
-            <span>Karte</span></button>`}
+          </button>`}
     </div>
     ${zurueck ? `<button class="zurueck-zeile" id="wv-back">
       ${icon('arrow-back', 'icon icon-sm')} Zurück zur ${esc(v.vendor)}-Sparkarte</button>` : ''}
+    ${karte ? `<p class="karte-annot">${icon('bulb', 'icon icon-sm')}
+      Oben rechts liegt deine ${esc(v.vendor)}-Sparkarte — antippen und an der Kasse zeigen.</p>` : ''}
     ${!karte ? `<p class="karte-annot">${icon('bulb', 'icon icon-sm')}
       Du hast die ${esc(v.vendor)}-Sparkarte noch nicht hinterlegt — oben rechts hinzufügen,
       dann hast du sie an der Kasse zusammen mit dem Gutschein zur Hand.</p>` : ''}
@@ -5318,10 +5414,14 @@ function openVoucherSheet(id, animFrom, zurueckZu) {
       <button class="btn btn-small btn-ghost" data-copy-txt="${esc(v.pin)}">PIN kopieren</button></div>` : ''}
     ${v.codeImg ? `<img class="wallet-code-img" src="${v.codeImg}" alt="Code für die Kasse">`
       : v.img ? `<img class="wallet-img" src="${v.img}" alt="QR/Barcode">` : ''}
-    <div class="form-row wv-img-actions">
-      <label class="btn btn-small btn-ghost" style="cursor:pointer">${v.codeImg || v.img ? 'Bild tauschen' : 'Bild hochladen'}
-        <input type="file" id="wv-img-file" accept="image/*" style="display:none"></label>
-      ${v.codeImg || v.img ? `<button class="btn btn-small btn-ghost" id="wv-img-crop">Zuschneiden</button>` : ''}
+    <div class="bild-aktionen">
+      <label class="bild-btn">
+        ${icon(v.codeImg || v.img ? 'wand' : 'plus', 'icon')}
+        <span>${v.codeImg || v.img ? 'Bild tauschen' : 'Bild hochladen'}</span>
+        <input type="file" id="wv-img-file" accept="image/*" style="display:none">
+      </label>
+      ${v.codeImg || v.img ? `<button class="bild-btn" id="wv-img-crop">
+        ${icon('sliders', 'icon')}<span>Zuschneiden</span></button>` : ''}
     </div>
     ${v.balance != null ? `
     <div class="sheet-section">
@@ -5367,7 +5467,7 @@ function openVoucherSheet(id, animFrom, zurueckZu) {
   $('#wv-close')?.addEventListener('click', closeSheet);
   $('#wv-karte')?.addEventListener('click', () => showKarteBig(karte));
   $('#wv-addkarte')?.addEventListener('click', () => openWalletAdd('card', v.vendor));
-  $('#wv-back')?.addEventListener('click', () => openBrandSheet(zurueck));
+  $('#wv-back')?.addEventListener('click', () => openBrandSheet(zurueck, 'zurueck'));
   // Verschenken laeuft ueber ein eigenes Fenster
   $('#wv-gift')?.addEventListener('click', () => openGiftPop(v));
   // Löschen gibt es nur bei aufgebrauchten Gutscheinen, immer mit Rückfrage
@@ -5436,7 +5536,7 @@ function openVoucherSheet(id, animFrom, zurueckZu) {
     openVoucherSheet(id, before);
     island('Buchung rückgängig gemacht');
   }));
-  openSheetShell();
+  openSheetShell(richtung);
 }
 
 // EAN-13 als SVG zeichnen. Muss sein, weil die Netto-Codes jede Woche wechseln —
@@ -6047,7 +6147,7 @@ function cardAppBlockHtml(name) {
 // Ein Blatt je Marke: oben die Sparkarte (Nummer und Barcode fuer die Kasse),
 // darunter der Sprung in die App, darunter die Coupons dieser Marke. Alles, was
 // man beim Einkauf braucht, in einer Reihenfolge.
-function openBrandSheet(key) {
+function openBrandSheet(key, richtung) {
   const b = walletBrands().find(x => x.key === key);
   if (!b) return;
   const c = b.card;
@@ -6064,10 +6164,10 @@ function openBrandSheet(key) {
       <button class="fav-remove" id="wc-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
     </div>
     ${c ? `
-      <div class="tx-row" style="margin-top:12px">
+      ${c.number ? `<div class="tx-row" style="margin-top:12px">
         <span class="wallet-code" style="flex:1">${esc(c.number)}</span>
         <button class="btn btn-small" data-copy-txt="${esc(c.number)}">Kopieren</button>
-      </div>
+      </div>` : ''}
       ${c.codeImg ? `<img class="wallet-code-img" src="${c.codeImg}" alt="Code für die Kasse">`
         : c.img ? `<img class="wallet-img" src="${c.img}" alt="QR/Barcode">`
         : '<p class="muted" style="margin-top:10px; font-size:.82rem">Tipp: Screenshot vom Karten-Barcode anhängen (beim Anlegen), dann kannst du ihn an der Kasse scannen lassen.</p>'}`
@@ -6093,7 +6193,7 @@ function openBrandSheet(key) {
     x.addEventListener('click', () => copyText(x.dataset.copyTxt)));
   $('#wc-addcard')?.addEventListener('click', () => openWalletAdd('card', b.name));
   $('#sheet-content').querySelectorAll('.gs-vorschlag [data-wv]').forEach(x =>
-    x.addEventListener('click', () => openVoucherSheet(x.dataset.wv, null, key)));
+    x.addEventListener('click', () => openVoucherSheet(x.dataset.wv, null, key, 'vor')));
 
   // Wochen-Erinnerung abhaken (IKEA & Co.): danach laeuft der 7-Tage-Timer
   // Antippen oeffnet die App (der Link laeuft normal weiter) und hakt nebenbei ab
@@ -6128,7 +6228,7 @@ function openBrandSheet(key) {
   });
   // Die Coupons dieser Marke direkt darunter — kein zweites Blatt mehr
   if (b.coupons) ladeCouponsIn(b.coupons.key, b.coupons.brand, $('#cc-slot'), !ccBesitzt(b.coupons));
-  openSheetShell();
+  openSheetShell(richtung);
 }
 // Alte Aufrufe (z. B. aus der Wallet-Liste) landen im selben Blatt
 function openCardSheet(id) {
@@ -6230,6 +6330,7 @@ function renderWallet() {
     valHost.querySelectorAll('[data-wval]').forEach(b => b.onclick = () => {
       const n = Number(b.dataset.wval);
       state.walletVal = state.walletVal === n ? 0 : n;
+      saveWalletFilter();
       restack();
       renderWallet();
     });
@@ -6246,6 +6347,7 @@ function renderWallet() {
     vf.querySelectorAll('[data-wvf]').forEach(b => b.onclick = () => {
       state.walletFilter = b.dataset.wvf === 'alle' ? '' : b.dataset.wvf;
       state.walletVal = 0;
+      saveWalletFilter();
       restack();          // anderer Filter = frischer Blick, alles wieder gestapelt
       renderWallet();
     });
@@ -6541,6 +6643,7 @@ $('#wallet-sort-btn')?.addEventListener('click', () => {
   menu.classList.remove('hidden');
   menu.querySelectorAll('[data-wsort]').forEach(x => x.onclick = () => {
     state.walletSort = x.dataset.wsort;
+    saveWalletFilter();
     menu.classList.add('hidden');
     renderWallet();
   });

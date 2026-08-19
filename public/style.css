@@ -1860,15 +1860,23 @@ input[type="date"].input {
   15%, 45%, 75% { transform: rotate(-7deg) scale(1.02); }
   30%, 60%, 90% { transform: rotate(7deg) scale(1.04); }
 }
-.case-burst { animation: caseBurst .45s ease forwards; }
-@keyframes caseBurst { to { transform: scale(1.7); opacity: 0; filter: brightness(2); } }
+@keyframes caseBurst { to { transform: scale(1.9); opacity: 0; filter: brightness(2.4); } }
 .case-flash {
-  position: absolute; left: 50%; top: 70px; width: 10px; height: 10px;
-  border-radius: 999px; pointer-events: none;
+  position: absolute; left: 50%; width: 10px; height: 10px;
+  margin: -5px 0 0 -5px;                 /* Mitte auf den gesetzten Punkt legen */
+  border-radius: 999px; pointer-events: none; z-index: 2;
   background: radial-gradient(circle, var(--rc), transparent 70%);
-  animation: caseFlash .6s ease-out forwards;
+  animation: caseFlash .75s cubic-bezier(.2, .7, .3, 1) forwards;
 }
-@keyframes caseFlash { to { transform: scale(38); opacity: 0; } }
+@keyframes caseFlash {
+  0%   { transform: scale(1); opacity: .95; }
+  55%  { opacity: .8; }
+  100% { transform: scale(42); opacity: 0; }
+}
+/* Der Rahmen traegt den langsamen Zoom, das Bild darin schuettelt */
+#case-img-wrap { display: inline-block; transform-origin: center center; will-change: transform; }
+/* Bersten etwas weicher und laenger, damit es zum Zoom passt */
+.case-burst { animation: caseBurst .6s cubic-bezier(.3, .8, .4, 1) forwards; }
 .case-win.v2 { position: relative; }
 .case-win-visual {
   position: relative; overflow: hidden; border-radius: 18px;
@@ -2654,8 +2662,9 @@ body:has(.sheet.open) {
 /* ================= Runde 49 ================= */
 
 /* Beim Oeffnen eines Containers dunkelt die Buehne weich ab */
-#case-backdrop { transition: background .55s ease; }
+#case-backdrop { transition: background .9s ease; }
 #case-backdrop.case-dark { background: rgba(8, 11, 15, .78); }
+#case-backdrop.case-darker { background: rgba(4, 6, 9, .93); }
 
 /* Rang-Info sitzt oben rechts in der Karte */
 #gami-card { position: relative; }
@@ -2707,7 +2716,8 @@ body:has(.sheet.open) {
   display: flex; flex-direction: column;
   overflow: hidden;
 }
-.case-modal #case-img { align-self: center; }
+.case-modal #case-img-wrap { align-self: center; }
+.case-modal #case-img { display: block; }
 /* Waehrend die Walze laeuft, sitzt sie mittig statt oben unterm Titel */
 .case-modal #reel-wrap:not(.hidden) { margin-top: auto; }
 .case-modal #reel-wrap:not(.hidden) ~ .form-row { margin-bottom: auto; }
@@ -3493,16 +3503,17 @@ a.app-quest .app-quest-txt { flex: 1; min-width: 0; }
 /* ---- Runde 76: Sparkarte und Gutschein verweisen aufeinander ---- */
 /* Oben rechts im Gutschein: die passende Sparkarte statt eines X */
 .karte-btn {
-  display: flex; align-items: center; gap: 6px; flex: none;
+  display: flex; align-items: center; justify-content: center; flex: none;
+  width: 44px; height: 44px; padding: 0;
   background: var(--surface); border: 1px solid var(--stroke-light);
-  border-radius: 999px; padding: 5px 12px 5px 6px;
-  font: inherit; font-size: .74rem; font-weight: 800; color: inherit;
+  border-radius: 50%;
+  font: inherit; color: inherit;
   cursor: pointer; touch-action: manipulation;
   transition: transform .25s var(--spring), box-shadow .25s ease;
   box-shadow: 0 2px 10px rgba(10, 14, 18, .1);
 }
 .karte-btn:active { transform: scale(.94); }
-.karte-btn .brand-chip { width: 26px; height: 26px; font-size: .62rem; }
+.karte-btn .brand-chip { width: 30px; height: 30px; font-size: .66rem; }
 
 /* Kartennummer gross, wenn kein Barcode-Bild hinterlegt ist */
 .karte-big-nr {
@@ -3648,3 +3659,67 @@ a.app-quest .app-quest-txt { flex: 1; min-width: 0; }
 /* Emote-Knöpfe behalten ihre Größe, auch solange das Bild noch lädt */
 .gift-emote { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; }
 .gift-emote .emote { height: 26px; max-width: 30px; object-fit: contain; }
+
+/* --- Wechsel innerhalb des offenen Blatts: der Inhalt gleitet mit --- */
+@keyframes blattVor {
+  from { opacity: 0; transform: translate3d(26px, 0, 0); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes blattZurueck {
+  from { opacity: 0; transform: translate3d(-26px, 0, 0); }
+  to   { opacity: 1; transform: none; }
+}
+#sheet-content.blatt-vor { animation: blattVor .32s cubic-bezier(.22, 1.05, .32, 1) both; }
+#sheet-content.blatt-zurueck { animation: blattZurueck .32s cubic-bezier(.22, 1.05, .32, 1) both; }
+@media (prefers-reduced-motion: reduce) {
+  #sheet-content.blatt-vor, #sheet-content.blatt-zurueck { animation: none; }
+}
+
+/* --- Bild-Knöpfe im Gutschein: sichtbar statt versteckt --- */
+.bild-aktionen { display: flex; gap: 8px; margin-top: 10px; }
+.bild-btn {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px;
+  background: var(--surface); border: 1px solid var(--stroke-light);
+  border-radius: 13px; padding: 11px 10px;
+  font: inherit; font-size: .82rem; font-weight: 700; color: inherit;
+  cursor: pointer; touch-action: manipulation;
+  transition: transform .25s var(--spring), border-color .25s ease;
+}
+.bild-btn:active { transform: scale(.97); border-color: var(--accent-strong, #12C77E); }
+.bild-btn .icon { width: 17px; height: 17px; color: var(--muted); }
+
+/* --- Zuschneiden wie in der Foto-App --- */
+.crop-overlay .crop-modal { max-width: 440px; }
+.crop-stage {
+  position: relative; overflow: hidden; touch-action: none;
+  background: #111; border-radius: 12px; margin-top: 10px;
+  aspect-ratio: 4 / 3; width: 100%;
+  cursor: grab;
+}
+.crop-stage:active { cursor: grabbing; }
+.crop-stage img { position: absolute; top: 0; left: 0; transform-origin: 0 0; user-select: none; }
+/* Drittel-Raster */
+.crop-gitter { position: absolute; inset: 0; pointer-events: none; }
+.crop-gitter span { position: absolute; background: rgba(255, 255, 255, .3); }
+.crop-gitter span:nth-child(1) { left: 33.33%; top: 0; bottom: 0; width: 1px; }
+.crop-gitter span:nth-child(2) { left: 66.66%; top: 0; bottom: 0; width: 1px; }
+.crop-gitter span:nth-child(3) { top: 33.33%; left: 0; right: 0; height: 1px; }
+.crop-gitter span:nth-child(4) { top: 66.66%; left: 0; right: 0; height: 1px; }
+/* Ecken-Winkel */
+.crop-ecken { position: absolute; inset: 0; pointer-events: none; }
+.crop-ecken i { position: absolute; width: 22px; height: 22px; border: 3px solid #fff; }
+.crop-ecken i:nth-child(1) { top: 0; left: 0; border-right: none; border-bottom: none; border-top-left-radius: 4px; }
+.crop-ecken i:nth-child(2) { top: 0; right: 0; border-left: none; border-bottom: none; border-top-right-radius: 4px; }
+.crop-ecken i:nth-child(3) { bottom: 0; left: 0; border-right: none; border-top: none; border-bottom-left-radius: 4px; }
+.crop-ecken i:nth-child(4) { bottom: 0; right: 0; border-left: none; border-top: none; border-bottom-right-radius: 4px; }
+.crop-zoomrow { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.crop-zoomrow .icon { flex: none; color: var(--muted); }
+.crop-zoomrow input { flex: 1; }
+.crop-actions { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
+.crop-actions .btn-ghost { flex: none; }
+.crop-ok {
+  flex: 1; background: var(--accent-strong, #12C77E); color: #fff;
+  font-weight: 800; border-radius: 13px; padding: 12px;
+  transition: transform .25s var(--spring);
+}
+.crop-ok:active { transform: scale(.97); }
