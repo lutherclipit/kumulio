@@ -3489,3 +3489,45 @@ a.app-quest .app-quest-txt { flex: 1; min-width: 0; }
 .app-hinweis b { display: block; margin-bottom: 2px; }
 /* Der Stern darf nicht in die Wisch-Erkennung geraten */
 .cc-fav { touch-action: manipulation; }
+
+/* ---- Runde 76: Sparkarte und Gutschein verweisen aufeinander ---- */
+/* Oben rechts im Gutschein: die passende Sparkarte statt eines X */
+.karte-btn {
+  display: flex; align-items: center; gap: 6px; flex: none;
+  background: var(--surface); border: 1px solid var(--stroke-light);
+  border-radius: 999px; padding: 5px 12px 5px 6px;
+  font: inherit; font-size: .74rem; font-weight: 800; color: inherit;
+  cursor: pointer; touch-action: manipulation;
+  transition: transform .25s var(--spring), box-shadow .25s ease;
+  box-shadow: 0 2px 10px rgba(10, 14, 18, .1);
+}
+.karte-btn:active { transform: scale(.94); }
+.karte-btn .brand-chip { width: 26px; height: 26px; font-size: .62rem; }
+
+/* Kartennummer gross, wenn kein Barcode-Bild hinterlegt ist */
+.karte-big-nr {
+  font-family: ui-monospace, monospace; font-size: 1.5rem; font-weight: 800;
+  letter-spacing: .08em; word-break: break-all; line-height: 1.35;
+  background: #fff; color: #111; border-radius: 12px; padding: 16px 12px;
+  margin: 4px 0 8px; text-align: center;
+}
+
+/* Gutschein-Vorschlaege im Sparkarten-Blatt */
+.gs-vorschlag { display: flex; flex-direction: column; gap: 8px; }
+.gs-zeile {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  background: var(--surface); border: 1px solid var(--stroke-light);
+  border-left: 4px solid var(--bc, var(--accent-strong, #12C77E));
+  border-radius: 14px; padding: 11px 13px;
+  font: inherit; color: inherit; text-align: left; cursor: pointer;
+  transition: transform .25s var(--spring);
+}
+.gs-zeile:active { transform: scale(.99); }
+.gs-wert {
+  flex: none; font-size: 1.05rem; font-weight: 900; letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums; color: var(--accent-strong, #12C77E);
+}
+.gs-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.gs-main b { font-size: .85rem; font-family: ui-monospace, monospace; word-break: break-all; }
+.gs-main small { font-size: .72rem; color: var(--muted); }
+.gs-zeile .icon { flex: none; color: var(--muted); }

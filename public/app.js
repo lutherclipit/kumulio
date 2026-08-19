@@ -5141,12 +5141,60 @@ function openWalletAdd(type, prefillName) {
 }
 
 // ---- Detail: Guthaben, Abbuchen/Aufladen mit Notiz, Verlauf mit Revert
+// An der Kasse gehoeren Sparkarte und Gutschein zusammen: erst die Karte
+// scannen lassen, dann mit dem Gutschein zahlen. Diese beiden Helfer
+// verknuepfen die Wallet quer — vom Gutschein zur Karte und zurueck.
+function karteZuMarke(vendor) {
+  const k = String(vendor || '').trim().toLowerCase();
+  return state.wallet.cards.find(c => String(c.name || '').trim().toLowerCase() === k) || null;
+}
+// Gutscheine derselben Marke mit Restguthaben — kleinster zuerst, damit man
+// erst die Reste aufbraucht statt einen vollen Gutschein anzubrechen
+function gutscheineZuMarke(name, max = 3) {
+  const k = String(name || '').trim().toLowerCase();
+  return state.wallet.vouchers
+    .filter(v => String(v.vendor || '').trim().toLowerCase() === k)
+    .filter(v => v.balance == null || v.balance > 0)
+    .sort((a, b) => (a.balance ?? Infinity) - (b.balance ?? Infinity))
+    .slice(0, max);
+}
+
+// Die Sparkarte gross auf den Schirm — zum Vorzeigen an der Kasse
+function showKarteBig(c) {
+  if (!c) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'overlay';
+  const bild = c.codeImg || c.img;
+  wrap.innerHTML = `<div class="modal cc-big cc-big-bc">
+    <button class="fav-remove" id="kb-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
+    <div class="cc-big-brand">${esc(c.name)}</div>
+    ${bild ? `<img class="cc-big-barcode" src="${esc(bild)}" alt="Karte für die Kasse">`
+      : `<div class="karte-big-nr">${esc(c.number)}</div>`}
+    ${bild ? `<div class="cc-big-code small">${esc(c.number)}</div>` : ''}
+    <div class="cc-big-name">Sparkarte vorzeigen</div>
+    <button class="btn btn-small btn-ghost" data-copy-txt="${esc(c.number)}" style="margin-top:10px">Nummer kopieren</button>
+  </div>`;
+  document.body.appendChild(wrap);
+  buzz(12);
+  wrap.querySelectorAll('[data-copy-txt]').forEach(b =>
+    b.addEventListener('click', e => { e.stopPropagation(); copyText(b.dataset.copyTxt); }));
+  wrap.addEventListener('click', e => {
+    if (e.target === wrap || e.target.closest('#kb-close')) {
+      wrap.classList.add('closing');
+      setTimeout(() => wrap.remove(), 280);
+    }
+  });
+}
+
 function openVoucherSheet(id, animFrom) {
   const v = state.wallet.vouchers.find(x => x.id === id);
   if (!v) return;
   if (v.giftFrom && !v.giftSeen) { v.giftSeen = true; saveWallet(); }
   state.sheetMode = 'wallet-detail';
   const expired = v.end && Date.parse(v.end + 'T23:59:59') < Date.now();
+  // Passende Sparkarte? Dann sitzt oben rechts ihr Logo statt des X — an der
+  // Kasse braucht man beides, und raus kommt man per Pfeil oder Runterwischen.
+  const karte = karteZuMarke(v.vendor);
   $('#sheet-content').innerHTML = `
     <div class="offer-head">
       <span class="brand-chip" style="--bc:${brandColor(v.vendor)}">${esc(brandInitials(v.vendor))}</span>
@@ -5154,7 +5202,10 @@ function openVoucherSheet(id, animFrom) {
         <div class="offer-merchant">${esc(v.vendor)}</div>
         <div class="offer-cat">${v.end ? (expired ? 'abgelaufen' : 'gültig bis ' + new Date(v.end).toLocaleDateString('de-DE')) : 'Gutschein'}</div>
       </div>
-      <button class="fav-remove" id="wv-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
+      ${karte ? `<button class="karte-btn" id="wv-karte" style="--bc:${brandColor(v.vendor)}"
+        aria-label="${esc(v.vendor)}-Sparkarte zeigen">
+        ${brandChipHtml(v.vendor)}<span>Karte</span></button>`
+      : `<button class="fav-remove" id="wv-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>`}
     </div>
     ${v.balance != null ? `<div class="balance-big" style="margin-top:12px"><span id="wv-balance">${euroFmt(v.balance)}</span>
       ${v.amount != null && v.amount !== v.balance ? `<span class="stars-count">von ${euroFmt(v.amount)}</span>` : ''}</div>` : ''}
@@ -5210,7 +5261,8 @@ function openVoucherSheet(id, animFrom) {
       ? '<button class="btn btn-danger" id="wv-del" style="margin-top:14px">Gutschein löschen</button>' : ''}`;
 
   $('#sheet-content').querySelectorAll('[data-copy-txt]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copyTxt)));
-  $('#wv-close').addEventListener('click', closeSheet);
+  $('#wv-close')?.addEventListener('click', closeSheet);
+  $('#wv-karte')?.addEventListener('click', () => showKarteBig(karte));
   // Verschenken: Freund auswählen, bestätigen, der Gutschein zieht komplett um
   $('#wv-gift')?.addEventListener('click', () => {
     const pick = $('#wv-gift-pick');
@@ -5928,6 +5980,8 @@ function openBrandSheet(key) {
   const b = walletBrands().find(x => x.key === key);
   if (!b) return;
   const c = b.card;
+  // Passende Gutscheine: kleinster Rest zuerst, damit man die Reste aufbraucht
+  const gutscheine = gutscheineZuMarke(b.name);
   state.sheetMode = 'brand';
   $('#sheet-content').innerHTML = `
     <div class="offer-head">
@@ -5953,6 +6007,20 @@ function openBrandSheet(key) {
       </div>
       <button class="btn btn-block btn-ghost" id="wc-addcard" style="margin-top:8px">
         ${icon('plus', 'icon icon-sm')} ${esc(b.name)}-Karte hinzufügen</button>`}
+    ${gutscheine.length ? `
+      <h3 class="gm-h" style="margin-top:16px">${icon('tag', 'icon icon-sm')} Damit kannst du hier zahlen</h3>
+      <div class="gs-vorschlag">${gutscheine.map(v => `
+        <button class="gs-zeile" data-gs="${esc(v.id)}" style="--bc:${brandColor(v.name || b.name)}">
+          <span class="gs-wert">${v.balance != null ? euroFmt(v.balance) : 'Gutschein'}</span>
+          <span class="gs-main">
+            <b>${esc(v.code || 'Ohne Code')}</b>
+            <small>${v.amount != null && v.balance != null && v.amount !== v.balance
+              ? `Rest von ${euroFmt(v.amount)}` : 'voll verfügbar'}${v.end ? ' · bis ' + new Date(v.end).toLocaleDateString('de-DE') : ''}</small>
+          </span>
+          ${icon('arrow-right', 'icon icon-sm')}
+        </button>`).join('')}</div>
+      <p class="muted" style="font-size:.74rem; margin-top:6px">Kleinster Rest zuerst — so bleiben keine Cent-Beträge liegen.</p>`
+    : ''}
     <div id="wc-app-slot">${cardAppBlockHtml(b.name)}</div>
     ${/mcdonald/i.test(b.name) ? `<div id="mcd-slot">${mccheapBlockHtml()}</div>` : ''}
     <div id="cc-slot"></div>
@@ -5962,6 +6030,8 @@ function openBrandSheet(key) {
   $('#sheet-content').querySelectorAll('[data-copy-txt]').forEach(x =>
     x.addEventListener('click', () => copyText(x.dataset.copyTxt)));
   $('#wc-addcard')?.addEventListener('click', () => openWalletAdd('card', b.name));
+  $('#sheet-content').querySelectorAll('[data-gs]').forEach(x =>
+    x.addEventListener('click', () => openVoucherSheet(x.dataset.gs)));
 
   // Wochen-Erinnerung abhaken (IKEA & Co.): danach laeuft der 7-Tage-Timer
   // Antippen oeffnet die App (der Link laeuft normal weiter) und hakt nebenbei ab
