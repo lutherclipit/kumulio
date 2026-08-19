@@ -3908,3 +3908,181 @@ body.wallet-farbe.kopf-weg .topbar .iconbtn {
 @media (prefers-reduced-motion: reduce) {
   .wallet-kopf, #wallet-kopf-geld, body.wallet-farbe .topbar { transition: none; }
 }
+
+/* ================= Runde 84: Bankkarte, Verlauf, stiller Sync ================ */
+
+/* --- Auslauf nach unten: mehrere Stufen statt einer Geraden. Ein linearer
+       Alpha-Verlauf setzt zu frueh ein und wirkt deshalb wie eine Kante. --- */
+.wallet-kopf::before {
+  height: 92px;
+  background: linear-gradient(to bottom,
+    rgba(0, 0, 0, 0) 0%,
+    color-mix(in srgb, var(--seitengrund) 12%, transparent) 34%,
+    color-mix(in srgb, var(--seitengrund) 38%, transparent) 58%,
+    color-mix(in srgb, var(--seitengrund) 72%, transparent) 78%,
+    var(--seitengrund) 100%);
+}
+
+/* --- Rang: schlichte Zeile statt Chip (C24 zeigt Status als Text) --- */
+.rank-name {
+  font-size: .74rem; font-weight: 700; letter-spacing: .01em;
+  opacity: .95; white-space: nowrap;
+}
+.wallet-kopf .rank-row { gap: 10px; margin-top: 18px; }
+.wallet-kopf .rank-progress { height: 3px; background: rgba(255, 255, 255, .3); }
+
+/* --- Sichern laeuft still: kleiner Punkt neben der Gutschein-Zahl --- */
+.wallet-kopf-sub { display: inline-flex; align-items: center; gap: 7px; }
+.sync-punkt { width: 12px; height: 12px; display: inline-block; opacity: 0; transition: opacity .3s ease; }
+.sync-punkt.laeuft, .sync-punkt.fertig, .sync-punkt.offen { opacity: .9; }
+.sync-punkt.laeuft {
+  border: 2px solid rgba(255, 255, 255, .4); border-top-color: #fff;
+  border-radius: 50%; animation: syncDreh .7s linear infinite;
+}
+@keyframes syncDreh { to { transform: rotate(360deg); } }
+.sync-punkt.fertig {
+  border: none; position: relative;
+}
+.sync-punkt.fertig::after {
+  content: ''; position: absolute; left: 3px; top: 0;
+  width: 5px; height: 9px; border: 2px solid #fff; border-top: 0; border-left: 0;
+  transform: rotate(42deg); animation: hakenAn .28s cubic-bezier(.3, 1.4, .5, 1) both;
+}
+@keyframes hakenAn { from { transform: rotate(42deg) scale(.4); opacity: 0; } to { transform: rotate(42deg) scale(1); opacity: 1; } }
+.sync-punkt.offen { border: 2px dashed rgba(255, 255, 255, .55); border-radius: 50%; }
+
+/* --- Verlauf auf der Rueckseite --- */
+.stat-kopf { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.stat-ranges { display: flex; gap: 5px; }
+.stat-ranges .chip {
+  background: rgba(255, 255, 255, .18); border-color: transparent; color: #fff;
+  font-size: .68rem; padding: 4px 9px;
+}
+.stat-ranges .chip.active { background: #fff !important; color: var(--k1) !important; }
+.stat-zahlen { display: flex; gap: 18px; margin: 12px 0 6px; }
+.stat-zahlen div { display: flex; align-items: center; gap: 6px; font-size: .76rem; opacity: .92; }
+.stat-zahlen b { font-size: .95rem; margin-left: 2px; }
+.stat-punkt { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+.stat-punkt.hell { background: rgba(255, 255, 255, .92); }
+.stat-punkt.matt { background: rgba(255, 255, 255, .42); }
+.verlauf-svg { display: block; width: 100%; margin-top: 4px; }
+.stat-zurueck {
+  display: flex; align-items: center; gap: 6px; margin: 12px auto 0;
+  background: rgba(255, 255, 255, .16); border: none; border-radius: 999px;
+  padding: 7px 14px; font: inherit; font-size: .74rem; font-weight: 700; color: #fff;
+  cursor: pointer; transition: transform .25s var(--spring);
+}
+.stat-zurueck:active { transform: scale(.94); }
+#wallet-kopf-geld { transform-origin: center top; }
+
+/* --- Sparkarte als Bankkarte --- */
+.karte-buehne { perspective: 1100px; }
+.debitkarte {
+  position: relative; width: 100%; max-width: 340px; margin: 0 auto;
+  aspect-ratio: 1.586 / 1;          /* echtes Kartenformat */
+  transform-style: preserve-3d;
+  transition: transform .6s cubic-bezier(.22, 1, .32, 1);
+  cursor: pointer;
+}
+.debitkarte.gedreht { transform: rotateY(180deg); }
+.dk-flaeche {
+  position: absolute; inset: 0; border-radius: 16px;
+  backface-visibility: hidden; -webkit-backface-visibility: hidden;
+  padding: 14px 16px; display: flex; flex-direction: column;
+  box-shadow: 0 8px 24px rgba(10, 14, 18, .28);
+  overflow: hidden;
+}
+.dk-vorne {
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--bc) 92%, #000 20%) 0%,
+    var(--bc) 52%,
+    color-mix(in srgb, var(--bc) 70%, #fff 30%) 100%);
+  color: #fff;
+}
+/* Feiner Lichtstreifen wie auf einer echten Karte */
+.dk-vorne::after {
+  content: ''; position: absolute; top: -40%; left: -20%;
+  width: 60%; height: 200%; transform: rotate(18deg);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .13), transparent);
+  pointer-events: none;
+}
+.dk-oben { display: flex; align-items: center; gap: 8px; }
+.dk-oben .brand-chip { width: 34px; height: 34px; background: rgba(255, 255, 255, .92); }
+.dk-marke { font-size: .84rem; font-weight: 800; letter-spacing: .01em; }
+.dk-chip {
+  width: 34px; height: 25px; border-radius: 5px; margin-top: auto;
+  background: linear-gradient(135deg, #E8C766, #C9A227 55%, #F2DE96);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .16);
+}
+.dk-nummer {
+  font-family: ui-monospace, monospace; font-size: .92rem; font-weight: 700;
+  letter-spacing: .08em; margin-top: 8px; text-shadow: 0 1px 4px rgba(0, 0, 0, .2);
+}
+.dk-unten {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: .64rem; text-transform: uppercase; letter-spacing: .08em;
+  opacity: .8; margin-top: 4px;
+}
+.dk-dreh { display: flex; align-items: center; gap: 4px; text-transform: none; letter-spacing: 0; }
+.dk-hinten {
+  transform: rotateY(180deg); background: #1B2027; color: #fff;
+  padding: 0; justify-content: center; align-items: center;
+}
+.dk-streifen { position: absolute; top: 16px; left: 0; right: 0; height: 34px; background: #0B0E12; }
+.dk-code { max-width: 84%; max-height: 54%; margin-top: 34px; background: #fff; border-radius: 6px; padding: 5px; }
+.dk-code-ersatz { margin-top: 34px; width: 84%; background: #fff; border-radius: 6px; padding: 6px; }
+.dk-code-ersatz .ean { width: 100%; height: auto; }
+.dk-code-ersatz span { color: #111; font-family: ui-monospace, monospace; font-size: .8rem; }
+.dk-hinweis { margin-top: 40px; padding: 0 18px; font-size: .74rem; text-align: center; opacity: .8; }
+
+/* Miniatur oben rechts im Gutschein */
+.karte-btn { width: auto; height: auto; border-radius: 12px; padding: 0; border: none; background: none; box-shadow: none; }
+.debitkarte.mini { width: 62px; max-width: none; margin: 0; pointer-events: none; }
+.debitkarte.mini .dk-flaeche { border-radius: 8px; padding: 5px 6px; box-shadow: 0 3px 10px rgba(10, 14, 18, .3); }
+.debitkarte.mini .dk-oben .brand-chip { width: 17px; height: 17px; font-size: .46rem; }
+.debitkarte.mini .dk-marke, .debitkarte.mini .dk-nummer, .debitkarte.mini .dk-unten { display: none; }
+.debitkarte.mini .dk-chip { width: 15px; height: 11px; border-radius: 2px; margin-top: auto; }
+.karte-modal { max-width: 400px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .debitkarte { transition: none; }
+  .sync-punkt.laeuft { animation: none; }
+}
+
+/* --- Kopfzeile fliesst immer in die Seite, auf jedem Tab --- */
+.topbar {
+  transition: padding .3s cubic-bezier(.22, 1, .32, 1),
+              background-color .35s ease, border-color .35s ease;
+}
+/* Ohne farbigen Kopf darunter: kein Trennstrich, nur ein weicher Auslauf */
+body:not(.wallet-farbe) .topbar {
+  border-bottom-color: transparent;
+  box-shadow: none;
+}
+body:not(.wallet-farbe) .topbar::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: -14px; height: 14px;
+  background: linear-gradient(to bottom, var(--glass), transparent);
+  pointer-events: none;
+}
+/* Beim Scrollen ruecken Leiste und Logo zusammen */
+body.gescrollt .topbar { padding-top: calc(7px + env(safe-area-inset-top, 0px)); padding-bottom: 7px; }
+body.gescrollt .topbar .k-wordmark { height: 21px; transition: height .3s cubic-bezier(.22, 1, .32, 1); }
+.topbar .k-wordmark { transition: height .3s cubic-bezier(.22, 1, .32, 1); }
+body.gescrollt:not(.wallet-farbe) .topbar {
+  background-color: var(--glass);
+  border-bottom-color: var(--stroke-light);
+}
+
+/* --- Marken-Kacheln: nichts mehr abschneiden --- */
+.app-tile {
+  min-height: 118px; padding: 12px 8px 11px;
+  justify-content: flex-start; gap: 7px;
+}
+.app-tile-name {
+  font-size: .78rem; line-height: 1.2; text-align: center;
+  overflow-wrap: anywhere; hyphens: auto;
+}
+.app-tile-desc {
+  font-size: .66rem; line-height: 1.25; text-align: center;
+  overflow-wrap: anywhere;
+}

@@ -390,8 +390,7 @@ function switchView(next, animClass) {
   // Solange die Wallet offen ist, traegt die Kopfzeile ihre Farbe mit —
   // sonst steht oben eine harte Kante zwischen Leiste und farbigem Kopf
   document.body.classList.toggle('wallet-farbe', next === 'wallet' && !!state.token);
-  if (next === 'wallet') requestAnimationFrame(() => { messeKopfzeile(); pruefeKopfzeile(); });
-  else document.body.classList.remove('kopf-weg');
+  requestAnimationFrame(() => { messeKopfzeile(); pruefeKopfzeile(); });
   if (next === 'friends') renderFriendsView();
   if (next === 'inventory') renderInventoryPage();
   if (next === 'shop') renderShopPage();
@@ -3975,28 +3974,28 @@ setInterval(syncIfDirty, 15000);
 
 // Sicherungs-Ampel in der Wallet: zeigt ehrlich, ob alles beim Konto gesichert
 // ist; antippen stößt die Sicherung sofort an
+// Sichern laeuft still: ein kleiner Punkt neben der Gutschein-Zahl dreht sich,
+// wird zum Haken und verblasst. Ein Banner braucht dafuer niemand.
 function renderSyncBadge() {
-  const el = $('#wallet-sync-badge');
+  const el = $('#sync-punkt');
   if (!el) return;
-  if (!state.token) { el.classList.add('hidden'); return; }
-  el.classList.remove('hidden');
+  if (!state.token) { el.className = 'sync-punkt'; return; }
   if (walletSyncInFlight) {
-    el.className = 'sync-badge syncing';
-    el.innerHTML = `${icon('clock', 'icon icon-sm')} Sichere am Konto …`;
+    el.className = 'sync-punkt laeuft';
+    el.title = 'Sichere am Konto …';
   } else if (localStorage.getItem('ra.walletDirty')) {
-    el.className = 'sync-badge dirty';
-    el.innerHTML = `${icon('warning', 'icon icon-sm')} Noch nicht gesichert, antippen zum Sichern`;
+    el.className = 'sync-punkt offen';
+    el.title = 'Noch nicht gesichert';
+  } else if (el.classList.contains('laeuft')) {
+    // Nur direkt nach einem Sicherungslauf den Haken zeigen, dann ausblenden
+    el.className = 'sync-punkt fertig';
+    el.title = 'Gesichert';
+    setTimeout(() => { if (el.classList.contains('fertig')) el.className = 'sync-punkt'; }, 1800);
   } else {
-    el.className = 'sync-badge ok';
-    el.innerHTML = `${icon('check', 'icon icon-sm')} Alles am Konto gesichert`;
+    el.className = 'sync-punkt';
+    el.title = '';
   }
 }
-$('#wallet-sync-badge')?.addEventListener('click', async () => {
-  if (walletSyncInFlight || !localStorage.getItem('ra.walletDirty')) return;
-  renderSyncBadge();
-  const ok = await syncWalletNow();
-  island(ok ? 'Alles gesichert' : 'Sichern fehlgeschlagen: ' + (walletSyncError || 'Server nicht erreichbar'));
-});
 async function pullWallet() {
   if (!state.token) return;
   try {
@@ -5256,121 +5255,60 @@ function gutscheineZuMarke(name, max = 3) {
     .slice(0, max);
 }
 
-// Die Sparkarte gross auf den Schirm — zum Vorzeigen an der Kasse
+// Die Sparkarte sieht ueberall gleich aus: eine Bankkarte im Markenton.
+// Vorderseite Logo und Nummer, Rueckseite der Code fuer die Kasse.
+function sparkarteHtml(c, klein) {
+  const marke = brandColor(c.name);
+  const nummer = c.number ? String(c.number) : '';
+  const gruppiert = nummer.replace(/(.{4})/g, '$1 ').trim();
+  return `
+    <div class="debitkarte ${klein ? 'mini' : ''}" style="--bc:${marke}" data-karte="${esc(c.id)}">
+      <div class="dk-flaeche dk-vorne">
+        <div class="dk-oben">
+          ${brandChipHtml(c.name)}
+          <span class="dk-marke">${esc(c.name)}</span>
+        </div>
+        <div class="dk-chip" aria-hidden="true"></div>
+        <div class="dk-nummer">${esc(gruppiert || 'Sparkarte')}</div>
+        <div class="dk-unten">
+          <span>Sparkarte</span>
+          ${!klein ? `<span class="dk-dreh">${icon('arrow-out', 'icon icon-sm')} antippen</span>` : ''}
+        </div>
+      </div>
+      <div class="dk-flaeche dk-hinten">
+        <div class="dk-streifen" aria-hidden="true"></div>
+        ${c.codeImg || c.img
+          ? `<img class="dk-code" src="${esc(c.codeImg || c.img)}" alt="Code für die Kasse">`
+          : nummer
+            ? `<div class="dk-code-ersatz">${ean13Svg(nummer) || `<span>${esc(gruppiert)}</span>`}</div>`
+            : `<p class="dk-hinweis">Häng ein Foto vom Barcode an, dann kannst du ihn hier scannen lassen.</p>`}
+      </div>
+    </div>`;
+}
+
+// Antippen dreht die Karte — gross im eigenen Fenster
 function showKarteBig(c) {
   if (!c) return;
   const wrap = document.createElement('div');
   wrap.className = 'overlay';
-  const bild = c.codeImg || c.img;
-  wrap.innerHTML = `<div class="modal cc-big cc-big-bc">
+  wrap.innerHTML = `<div class="modal karte-modal">
     <button class="fav-remove" id="kb-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
-    <div class="cc-big-brand">${esc(c.name)}</div>
-    ${bild ? `<img class="cc-big-barcode" src="${esc(bild)}" alt="Karte für die Kasse">`
-      : c.number ? `<div class="karte-big-nr">${esc(c.number)}</div>`
-      : `<p class="status">Für diese Karte ist noch kein Barcode hinterlegt.
-          Häng beim Bearbeiten ein Foto an, dann kannst du ihn hier scannen lassen.</p>`}
-    ${bild && c.number ? `<div class="cc-big-code small">${esc(c.number)}</div>` : ''}
-    <div class="cc-big-name">Sparkarte vorzeigen</div>
-    ${c.number ? `<button class="btn btn-small btn-ghost" data-copy-txt="${esc(c.number)}" style="margin-top:10px">Nummer kopieren</button>` : ''}
+    <div class="karte-buehne" id="karte-buehne">${sparkarteHtml(c)}</div>
+    <p class="muted" style="font-size:.78rem; text-align:center; margin-top:12px">
+      Antippen dreht die Karte um</p>
+    ${c.number ? `<button class="btn btn-small btn-ghost" data-copy-txt="${esc(c.number)}"
+      style="margin:10px auto 0; display:block">Nummer kopieren</button>` : ''}
   </div>`;
   document.body.appendChild(wrap);
   buzz(12);
+  const karte = wrap.querySelector('.debitkarte');
+  karte.addEventListener('click', () => { karte.classList.toggle('gedreht'); buzz(10); });
   wrap.querySelectorAll('[data-copy-txt]').forEach(b =>
     b.addEventListener('click', e => { e.stopPropagation(); copyText(b.dataset.copyTxt); }));
   wrap.addEventListener('click', e => {
     if (e.target === wrap || e.target.closest('#kb-close')) {
       wrap.classList.add('closing');
       setTimeout(() => wrap.remove(), 280);
-    }
-  });
-}
-
-// Gutschein verschenken: eigenes Fenster statt einer aufklappenden Knopfreihe.
-// Freund auswaehlen, Nachricht schreiben (Emotes erlaubt), abschicken.
-function openGiftPop(v) {
-  const freunde = myProfile?.friends || [];
-  const wrap = document.createElement('div');
-  wrap.className = 'overlay';
-  const wert = v.balance != null ? euroFmt(v.balance) : 'Gutschein';
-  // Nur eigene Emotes — dieselbe Regel wie im Chat
-  const meine = new Set([...(gami?.emotes || [])]);
-  const emotes = Object.keys(allEmoteIds())
-    .filter(n => chatEmotes[n] || meine.has((gami?.emotesAll || {})[n]?.id) || meine.has(n))
-    .slice(0, 18);
-
-  wrap.innerHTML = `<div class="modal gift-pop">
-    <button class="fav-remove" id="gp-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
-    <div class="gift-head">
-      ${brandChipHtml(v.vendor)}
-      <div>
-        <h3 class="modal-title" style="margin:0">Gutschein verschenken</h3>
-        <p class="muted" style="font-size:.8rem; margin:2px 0 0">${esc(v.vendor)} · ${wert}</p>
-      </div>
-    </div>
-    ${freunde.length ? `
-      <p class="gift-label">An wen?</p>
-      <div class="gift-freunde">${freunde.map(f => `
-        <button class="gift-freund" data-gift-to="${esc(f)}">
-          <span class="avatar-mini" style="background:${chatColor(f)}">${esc(f[0].toUpperCase())}</span>
-          <span>@${esc(f)}</span>
-        </button>`).join('')}</div>
-      <p class="gift-label">Nachricht dazu <span class="muted">(optional)</span></p>
-      <div class="gift-msg-box">
-        <input id="gp-msg" class="input" maxlength="140" placeholder="Viel Spaß damit!">
-        <div class="gift-emotes">${emotes.map(n =>
-          `<button class="gift-emote" data-emote="${esc(n)}" title="${esc(n)}">${emoteHtml(n)}</button>`).join('')
-          || '<span class="muted" style="font-size:.74rem">Emotes bekommst du aus Kisten im Shop.</span>'}</div>
-      </div>
-      <p class="gift-haftung">${icon('warning', 'icon icon-sm')}
-        <span>Der Gutschein wechselt endgültig den Besitzer. <b>kumulio prüft weder Guthaben
-        noch Gültigkeit</b> und ist an Tausch oder Verkauf nicht beteiligt.
-        <a href="/agb.html#verschenken" target="_blank" rel="noopener">Details in den AGB</a></span></p>
-      <button class="btn btn-block gift-go" id="gp-send" disabled>Wähl zuerst einen Freund</button>`
-    : `<p class="status" style="margin-top:14px">Verschenken geht nur an Freunde — such dir in kumulio erst welche.</p>`}
-  </div>`;
-  document.body.appendChild(wrap);
-
-  let ziel = null;
-  const senden = wrap.querySelector('#gp-send');
-  wrap.querySelectorAll('[data-gift-to]').forEach(b => b.onclick = () => {
-    wrap.querySelectorAll('[data-gift-to]').forEach(x => x.classList.remove('on'));
-    b.classList.add('on');
-    ziel = b.dataset.giftTo;
-    senden.disabled = false;
-    senden.textContent = `An @${ziel} verschenken`;
-    buzz(10);
-  });
-  wrap.querySelectorAll('[data-emote]').forEach(b => b.onclick = () => {
-    const feld = wrap.querySelector('#gp-msg');
-    const rein = (feld.value ? feld.value.trimEnd() + ' ' : '') + b.dataset.emote + ' ';
-    feld.value = rein.slice(0, 140);
-    feld.focus();
-    b.classList.add('tapped');
-    setTimeout(() => b.classList.remove('tapped'), 300);
-  });
-
-  const zu = () => { wrap.classList.add('closing'); setTimeout(() => wrap.remove(), 280); };
-  wrap.addEventListener('click', e => { if (e.target === wrap || e.target.closest('#gp-close')) zu(); });
-
-  senden && (senden.onclick = async () => {
-    if (!ziel) return;
-    if (!await askConfirm(`Deinen ${esc(v.vendor)}-Gutschein${v.balance != null ? ` (${euroFmt(v.balance)})` : ''} an @${esc(ziel)} verschenken? Er verschwindet dann aus deiner Wallet.`,
-      { okLabel: 'Ja, verschenken' })) return;
-    setBtnLoading(senden, true);
-    try {
-      await syncWalletNow();   // erst sichern, damit der Server den Gutschein kennt
-      const msg = (wrap.querySelector('#gp-msg')?.value || '').trim().slice(0, 140);
-      await api('/api/gift/send', { method: 'POST', body: JSON.stringify({ to: ziel, id: v.id, msg }) });
-      tombstone(v.id);
-      state.wallet.vouchers = state.wallet.vouchers.filter(x => x.id !== v.id);
-      save('wallet', state.wallet);
-      renderWallet();
-      zu(); closeSheet();
-      playSfx('kaching'); buzz(35); moneyFlash('green'); billRain(6);
-      island(`Verschenkt an @${ziel}`);
-    } catch (e) {
-      setBtnLoading(senden, false);
-      island(e.message);
     }
   });
 }
@@ -5396,7 +5334,7 @@ function openVoucherSheet(id, animFrom, zurueckZu, richtung) {
       ${karte
         ? `<button class="karte-btn" id="wv-karte" style="--bc:${brandColor(v.vendor)}"
             title="${esc(v.vendor)}-Sparkarte zeigen" aria-label="${esc(v.vendor)}-Sparkarte zeigen">
-            ${brandChipHtml(v.vendor)}</button>`
+            ${sparkarteHtml(karte, true)}</button>`
         : `<button class="karte-btn neu" id="wv-addkarte" style="--bc:${brandColor(v.vendor)}"
             title="${esc(v.vendor)}-Sparkarte hinzufügen" aria-label="${esc(v.vendor)}-Sparkarte hinzufügen">
             <span class="karte-btn-chip">${brandChipHtml(v.vendor)}<span class="karte-plus">${icon('plus')}</span></span>
@@ -6169,13 +6107,12 @@ function openBrandSheet(key, richtung) {
       <button class="fav-remove" id="wc-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
     </div>
     ${c ? `
-      ${c.number ? `<div class="tx-row" style="margin-top:12px">
+      <div class="karte-buehne" style="margin-top:14px">${sparkarteHtml(c)}</div>
+      <p class="muted" style="font-size:.76rem; text-align:center; margin-top:8px">Antippen dreht die Karte zum Code</p>
+      ${c.number ? `<div class="tx-row" style="margin-top:10px">
         <span class="wallet-code" style="flex:1">${esc(c.number)}</span>
         <button class="btn btn-small" data-copy-txt="${esc(c.number)}">Kopieren</button>
-      </div>` : ''}
-      ${c.codeImg ? `<img class="wallet-code-img" src="${c.codeImg}" alt="Code für die Kasse">`
-        : c.img ? `<img class="wallet-img" src="${c.img}" alt="QR/Barcode">`
-        : '<p class="muted" style="margin-top:10px; font-size:.82rem">Tipp: Screenshot vom Karten-Barcode anhängen (beim Anlegen), dann kannst du ihn an der Kasse scannen lassen.</p>'}`
+      </div>` : ''}`
     : cardApp(b.name)?.ohneKarte ? ''
     : `<div class="karte-fehlt">
         ${icon('bulb', 'icon icon-sm')}
@@ -6197,6 +6134,8 @@ function openBrandSheet(key, richtung) {
   $('#sheet-content').querySelectorAll('[data-copy-txt]').forEach(x =>
     x.addEventListener('click', () => copyText(x.dataset.copyTxt)));
   $('#wc-addcard')?.addEventListener('click', () => openWalletAdd('card', b.name));
+  $('#sheet-content').querySelectorAll('.karte-buehne .debitkarte').forEach(k =>
+    k.addEventListener('click', () => { k.classList.toggle('gedreht'); buzz(10); }));
   $('#sheet-content').querySelectorAll('.gs-vorschlag [data-wv]').forEach(x =>
     x.addEventListener('click', () => openVoucherSheet(x.dataset.wv, null, key, 'vor')));
 
@@ -6276,6 +6215,7 @@ function updateWalletTab(anim) {
     state.activeView === 'wallet' && !!state.token);
   $('#wallet-kopf')?.classList.toggle('nur-tabs', coupons || gated);
   $('#wallet-kopf-geld')?.classList.toggle('zu', coupons || gated);
+  if ((coupons || gated) && kopfGedreht) kopfDrehen(false);
   $('#coupons-content').classList.toggle('hidden', !coupons);
   if (coupons) renderCoupons($('#coupons-content'));
   if (!walletTab.startsWith('gutscheine')) $('#wallet-mini')?.classList.remove('show');
@@ -6574,37 +6514,141 @@ function walletStats(range) {
     return true;
   };
   let added = 0, spent = 0;
+  const zahl = x => (Number.isFinite(Number(x)) ? Number(x) : 0);
   state.wallet.vouchers.forEach(v => {
-    if (v.amount != null && inRange(v.added)) added += v.amount;
+    if (v.amount != null && inRange(v.added)) added += zahl(v.amount);
     (v.tx || []).forEach(t => {
       if (t.reverted || !inRange(t.ts)) return;
-      if (t.amt > 0) added += t.amt; else spent += -t.amt;
+      const a = zahl(t.amt);
+      if (a > 0) added += a; else spent += -a;
     });
   });
   return { added: Math.round(added * 100) / 100, spent: Math.round(spent * 100) / 100 };
 }
+// Monatsverlauf: was kam rein, was ging raus. Reine Zahlen aus der Wallet,
+// nichts geschaetzt — Monate ohne Bewegung bleiben leer.
+function walletVerlauf(monate = 6) {
+  const jetzt = new Date();
+  const felder = [];
+  for (let i = monate - 1; i >= 0; i--) {
+    const d = new Date(jetzt.getFullYear(), jetzt.getMonth() - i, 1);
+    felder.push({ jahr: d.getFullYear(), monat: d.getMonth(), rein: 0, raus: 0,
+      label: d.toLocaleDateString('de-DE', { month: 'short' }) });
+  }
+  const treffer = ts => {
+    if (!ts) return null;
+    const d = new Date(ts);
+    return felder.find(f => f.jahr === d.getFullYear() && f.monat === d.getMonth()) || null;
+  };
+  const zahl = x => (Number.isFinite(Number(x)) ? Number(x) : 0);
+  state.wallet.vouchers.forEach(v => {
+    if (v.amount != null) { const f = treffer(v.added); if (f) f.rein += zahl(v.amount); }
+    (v.tx || []).forEach(t => {
+      if (t.reverted) return;
+      const f = treffer(t.ts);
+      if (!f) return;
+      const a = zahl(t.amt);
+      if (a > 0) f.rein += a; else f.raus += -a;
+    });
+  });
+  return felder;
+}
+
+// Balkenpaare als SVG — leicht genug fuer jedes Handy, kein Diagramm-Paket
+function verlaufSvg(felder) {
+  const max = Math.max(1, ...felder.map(f => Math.max(f.rein, f.raus)));
+  const B = 44, H = 78, luecke = 5, bb = 13;
+  const w = felder.length * B;
+  const balken = felder.map((f, i) => {
+    const x = i * B + (B - bb * 2 - luecke) / 2;
+    const hr = Math.round((f.rein / max) * H), ha = Math.round((f.raus / max) * H);
+    return `
+      <rect x="${x}" y="${H - hr}" width="${bb}" height="${Math.max(f.rein ? 2 : 0, hr)}" rx="3" fill="rgba(255,255,255,.92)"/>
+      <rect x="${x + bb + luecke}" y="${H - ha}" width="${bb}" height="${Math.max(f.raus ? 2 : 0, ha)}" rx="3" fill="rgba(255,255,255,.42)"/>
+      <text x="${i * B + B / 2}" y="${H + 13}" text-anchor="middle" font-size="9"
+        fill="rgba(255,255,255,.75)" font-family="inherit">${esc(f.label)}</text>`;
+  }).join('');
+  return `<svg class="verlauf-svg" viewBox="0 0 ${w} ${H + 18}" width="100%" height="${H + 18}"
+    preserveAspectRatio="none" role="img" aria-label="Verlauf der letzten Monate">${balken}</svg>`;
+}
+
 function renderWalletStats(range) {
   statsRange = range;
   const s = walletStats(range);
-  $('#balance-back').innerHTML = `
-    <div class="offer-cat">Statistik</div>
-    <div class="stat-ranges">
-      ${[['monat', 'Monat'], ['jahr', 'Jahr'], ['gesamt', 'Gesamt']].map(([r, l]) =>
-        `<button class="chip ${r === range ? 'active' : ''}" data-strange="${r}">${l}</button>`).join('')}
+  const felder = walletVerlauf(6);
+  const host = $('#kopf-hinten');
+  if (!host) return;
+  host.innerHTML = `
+    <div class="stat-kopf">
+      <span class="wallet-kopf-sub">Rein und raus</span>
+      <div class="stat-ranges">
+        ${[['monat', 'Monat'], ['jahr', 'Jahr'], ['gesamt', 'Gesamt']].map(([r, l]) =>
+          `<button class="chip ${r === range ? 'active' : ''}" data-strange="${r}">${l}</button>`).join('')}
+      </div>
     </div>
-    <div class="stat-row"><span>Guthaben hinzugefügt</span><b class="tx-amt plus">+${euroFmt(s.added) || '0,00 €'}</b></div>
-    <div class="stat-row"><span>Ausgegeben</span><b class="tx-amt minus">−${euroFmt(s.spent) || '0,00 €'}</b></div>
-    `;
-  $('#balance-back').querySelectorAll('[data-strange]').forEach(b => b.onclick = e => {
+    <div class="stat-zahlen">
+      <div><span class="stat-punkt hell"></span>Aufgeladen<b>${euroFmt(s.added) || '0,00 €'}</b></div>
+      <div><span class="stat-punkt matt"></span>Ausgegeben<b>${euroFmt(s.spent) || '0,00 €'}</b></div>
+    </div>
+    ${felder.some(f => f.rein || f.raus)
+      ? verlaufSvg(felder)
+      : `<p class="wallet-kopf-sub" style="margin-top:10px">Noch keine Bewegungen — buch etwas ab, dann füllt sich der Verlauf.</p>`}
+    <button class="stat-zurueck" id="stat-zurueck">${icon('arrow-back', 'icon icon-sm')} Zurück zum Guthaben</button>`;
+  host.querySelectorAll('[data-strange]').forEach(b => b.onclick = e => {
     e.stopPropagation();
     renderWalletStats(b.dataset.strange);
   });
+  host.querySelector('#stat-zurueck').onclick = e => { e.stopPropagation(); kopfDrehen(false); };
 }
+
+// Der Kopf dreht sich wie eine Karte — Vorderseite Guthaben, Rueckseite Verlauf
+let kopfGedreht = false, kopfDrehtGerade = false;
+function kopfDrehen(zu) {
+  const geld = $('#wallet-kopf-geld');
+  const vorne = $('#kopf-vorne'), hinten = $('#kopf-hinten');
+  if (!geld || !vorne || !hinten || kopfDrehtGerade) return;
+  const ziel = zu === undefined ? !kopfGedreht : zu;
+  if (ziel === kopfGedreht) return;
+  kopfGedreht = ziel;
+  balanceFlipped = ziel;
+  if (ziel) renderWalletStats(statsRange);
+  buzz(14);
+  const tausch = () => {
+    vorne.classList.toggle('hidden', ziel);
+    hinten.classList.toggle('hidden', !ziel);
+  };
+  if (reducedMotion() || !geld.animate) { tausch(); return; }
+  kopfDrehtGerade = true;
+  let getauscht = false;
+  const einmalTauschen = () => { if (!getauscht) { getauscht = true; tausch(); } };
+  const a1 = geld.animate(
+    [{ transform: 'perspective(900px) rotateX(0deg)', opacity: 1 },
+     { transform: 'perspective(900px) rotateX(-84deg)', opacity: .5 }],
+    { duration: 210, easing: 'cubic-bezier(.55,0,.8,.5)', fill: 'forwards' });
+  const weiter = () => {
+    einmalTauschen();
+    const a2 = geld.animate(
+      [{ transform: 'perspective(900px) rotateX(84deg)', opacity: .5 },
+       { transform: 'perspective(900px) rotateX(0deg)', opacity: 1 }],
+      { duration: 330, easing: 'cubic-bezier(.16,.6,.3,1)', fill: 'forwards' });
+    const fertig = () => { a1.cancel(); a2.cancel(); kopfDrehtGerade = false; };
+    a2.onfinish = fertig;
+    setTimeout(fertig, 420);   // Sicherheitsnetz
+  };
+  a1.onfinish = weiter;
+  // Manche Umgebungen halten Animationen an (versteckter Tab, gedrosselte
+  // Wiedergabe) — dann kaeme onfinish nie und die Seite bliebe stehen
+  setTimeout(weiter, 260);
+}
+
 // Farbige Kopfzeile nur, solange der Kopf darunter noch steht. Sonst haengt
 // oben ein Farbblock ohne Anschluss.
 function pruefeKopfzeile() {
-  const an = state.activeView === 'wallet' && !!state.token && window.scrollY < 90;
+  const oben = window.scrollY < 90;
+  const an = state.activeView === 'wallet' && !!state.token && oben;
   document.body.classList.toggle('kopf-weg', state.activeView === 'wallet' && !an);
+  // Gilt fuer jeden Tab: beim Scrollen ruecken Leiste und Logo zusammen
+  document.body.classList.toggle('gescrollt', !oben);
 }
 addEventListener('scroll', pruefeKopfzeile, { passive: true });
 
@@ -6624,24 +6668,10 @@ addEventListener('orientationchange', () => setTimeout(messeKopfzeile, 250));
 messeKopfzeile();
 addEventListener('load', messeKopfzeile);
 
-// Die Statistik hat ein eigenes Blatt — im Kopf ist kein Platz fuer eine
-// Rueckseite, und "Analyse" ist ohnehin ein eigener Gedanke.
 let balanceFlipped = false;   // wird von renderWalletStats weiter genutzt
-function openStatsSheet() {
-  balanceFlipped = true;
-  state.sheetMode = 'wallet-stats';
-  $('#sheet-content').innerHTML = `
-    <div class="sheet-title">Deine Wallet in Zahlen</div>
-    <div id="balance-back" class="stats-blatt"></div>`;
-  renderWalletStats(statsRange);
-  openSheetShell();
-}
-$('#balance-flip')?.addEventListener('click', () => { buzz(12); openStatsSheet(); });
-$('#wa-statistik')?.addEventListener('click', () => { buzz(12); openStatsSheet(); });
-$('#wa-karten')?.addEventListener('click', () => {
-  buzz(12);
-  document.querySelector('[data-wtab="coupons"]')?.click();
-});
+// Antippen des Guthabens oder "Analyse" dreht den Kopf zur Verlaufsseite
+$('#balance-flip')?.addEventListener('click', () => kopfDrehen());
+$('#wa-statistik')?.addEventListener('click', () => kopfDrehen(true));
 // Verschenken: erst fragen, welcher Gutschein — danach uebernimmt das Geschenk-Fenster
 $('#wa-schenken')?.addEventListener('click', () => {
   const offen = state.wallet.vouchers.filter(v => v.balance == null || v.balance > 0);

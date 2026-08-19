@@ -477,13 +477,16 @@
             <button class="chip active" data-wtab="gutscheine">Gutscheine</button>
             <button class="chip" data-wtab="coupons">Karten &amp; Coupons</button>
           </div>
-          <div id="wallet-kopf-geld"><div class="kopf-geld-inner">
+          <div id="wallet-kopf-geld"><div class="kopf-geld-inner" id="kopf-vorne">
             <button class="balance-flip-btn" id="balance-flip">
               <div class="balance-big" id="wallet-total">0,00 €</div>
-              <div class="wallet-kopf-sub" id="wallet-total-sub"></div>
+              <div class="wallet-kopf-sub">
+                <span id="wallet-total-sub"></span>
+                <span class="sync-punkt" id="sync-punkt" aria-hidden="true"></span>
+              </div>
             </button>
             <div class="rank-row">
-              <span class="rank-chip" id="wallet-rank"></span>
+              <span class="rank-name" id="wallet-rank"></span>
               <div class="rank-progress"><div class="rank-progress-fill" id="wallet-rank-fill"></div></div>
               <span class="rank-next" id="wallet-rank-next"></span>
             </div>
@@ -496,21 +499,16 @@
                 <span class="wa-kreis"><svg class="icon"><use href="#i-gift"/></svg></span>
                 <span>Verschenken</span>
               </button>
-              <button class="wa-btn" id="wa-karten">
-                <span class="wa-kreis"><svg class="icon"><use href="#i-tag"/></svg></span>
-                <span>Coupons</span>
-              </button>
               <button class="wa-btn" id="wa-statistik">
                 <span class="wa-kreis"><svg class="icon"><use href="#i-chart"/></svg></span>
                 <span>Analyse</span>
               </button>
             </div>
-          </div></div>
+          </div>
+          <div class="kopf-geld-inner hidden" id="kopf-hinten"></div></div>
         </div>
       </div>
       <div id="wallet-content">
-        <!-- Sicherungs-Ampel: ist alles am Konto gesichert? Antippen = sofort sichern -->
-        <button id="wallet-sync-badge" class="sync-badge ok hidden"></button>
         <div class="wallet-tools">
           <input id="wallet-search" class="input" type="search" placeholder="Shop; z.B. REWE, Amazon; PIN, Notiz …">
           <div class="wallet-filters" id="wallet-vendor-filters"></div>
