@@ -784,7 +784,7 @@ function renderCoupons(host) {
   const rest = marken.filter(b => !sofort.includes(b));
 
   host.innerHTML = `
-    <h3 class="wallet-h" style="margin-top:0">Sofort einlösbar</h3>
+    <h2 class="bereich-titel">Sofort einlösbar<small>ohne Sparkarte, direkt an der Kasse</small></h2>
     <div class="cc-cards">${sofort.map(b => {
       const gratis = /mcdonald/i.test(b.name) && (mccheapDaten?.items || []).some(x => x.gratis);
       const n = b.coupons ? b.coupons.count : 0;
@@ -800,9 +800,8 @@ function renderCoupons(host) {
         ${icon('arrow-right', 'icon icon-sm')}
       </button>`;
     }).join('') || '<div class="status">Gerade nichts ohne Karte verfügbar.</div>'}</div>
-    <h3 class="wallet-h" style="margin-top:14px">Deine Karten &amp; Coupons</h3>
-    <input id="coupon-search" class="input" type="search" placeholder="Marke suchen; z.B. Rossmann, Drogerie …" value="${esc(state.couponQuery || '')}">
-    <p class="muted grid-hint">Eine Kachel je Händler: Karte, App und Coupons an einem Ort. Gedrückt halten und ziehen zum Sortieren.</p>
+    <h2 class="bereich-titel">Deine Karten<small>Sparkarte, App und Coupons je Händler</small></h2>
+    <p class="bereich-hint">Karte, App und Coupons je Händler an einem Ort. Gedrückt halten und ziehen zum Sortieren.</p>
     <div class="app-grid" id="coupon-grid">
       ${rest.map(b => {
         const gesperrt = b.coupons && !ccBesitzt(b.coupons);
@@ -822,7 +821,7 @@ function renderCoupons(host) {
         <span class="app-tile-name">Karte hinzufügen</span>
       </button>
     </div>
-    <h3 class="wallet-h" style="margin-top:18px">Geld-zurück-Garantien (GzG)</h3>
+    <h2 class="bereich-titel">Geld zurück<small>Aktionen, bei denen du den Kaufpreis erstattet bekommst</small></h2>
     ${gzg.length
       ? gzg.map((d, i) => renderOfferCard(d, i, false)).join('')
       : '<div class="status">Aktuelle GzG-Aktionen postet die Redaktion über das Admin-Panel, sie erscheinen dann hier.</div>'}`;
@@ -834,15 +833,6 @@ function renderCoupons(host) {
   // Einmal nachsehen, ob McCheap gerade etwas Gratis hat — danach steht es im Speicher
   if (!mccheapDaten) ladeMccheap().then(d => {
     if ((d.items || []).some(x => x.gratis) && walletTab === 'coupons') renderCoupons(host);
-  });
-  const cs = host.querySelector('#coupon-search');
-  cs.addEventListener('input', () => {
-    state.couponQuery = cs.value;
-    const at = cs.selectionStart;
-    renderCoupons(host);
-    const again = host.querySelector('#coupon-search');
-    again.focus();
-    again.setSelectionRange(at, at);
   });
   makeGridSortable(host.querySelector('#coupon-grid'), '#coupon-grid > [data-brand]', newOrder => {
     if ((state.couponQuery || '').trim()) return;
@@ -4805,7 +4795,9 @@ function brandChipHtml(name) {
   const logo = domain
     ? `<img class="brand-logo" src="https://www.google.com/s2/favicons?domain=${domain}&sz=64" alt="" loading="lazy" onerror="this.remove()">`
     : '';
-  return `<span class="brand-chip" style="--bc:${brandColor(name)}">${logo}${esc(brandInitials(name))}</span>`;
+  // Mit Logo traegt der Chip Weiss statt Markenfarbe — sonst blitzt an den
+  // Rundungen ein farbiger Rand um das Bild
+  return `<span class="brand-chip${logo ? ' hat-logo' : ''}" style="--bc:${brandColor(name)}">${logo}${esc(brandInitials(name))}</span>`;
 }
 
 function openWalletAdd(type, prefillName) {

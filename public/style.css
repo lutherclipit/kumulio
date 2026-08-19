@@ -1522,7 +1522,13 @@ input, textarea, select, button { touch-action: manipulation; }
 .brand-chip { position: relative; overflow: hidden; }
 .brand-chip .brand-logo {
   position: absolute; inset: 0; width: 100%; height: 100%;
-  object-fit: contain; padding: 4px; background: #fff; border-radius: inherit;
+  object-fit: contain; padding: 5px; background: #fff; border-radius: inherit;
+}
+/* Mit Logo traegt der Chip selbst Weiss — sonst blitzt an den Rundungen
+   die Markenfarbe als Rand durch */
+.brand-chip.hat-logo {
+  background: #fff;
+  box-shadow: inset 0 0 0 1px rgba(10, 14, 18, .08);
 }
 .vendor-tile .brand-chip { width: 34px; height: 34px; }
 
@@ -2144,11 +2150,26 @@ html, body { overflow-x: clip; }
 .wallet-card.has-fill::after {
   content: ""; position: absolute; top: 0; bottom: 0; right: 0;
   left: var(--fill, 100%); z-index: 0; pointer-events: none;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .34) 18%, rgba(255, 255, 255, .5));
+  /* Der ausgegebene Teil wird milchig, nicht weiss uebermalt — die Marke
+     bleibt durchscheinend sichtbar, der Text darauf lesbar */
+  background: linear-gradient(90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, .16) 22%,
+    rgba(255, 255, 255, .26) 100%);
+  backdrop-filter: saturate(.45) brightness(1.16) blur(1px);
+  -webkit-backdrop-filter: saturate(.45) brightness(1.16) blur(1px);
   transition: left .6s cubic-bezier(.2, .8, .3, 1);
 }
 :root[data-theme="dark"] .wallet-card.has-fill::after {
-  background: linear-gradient(90deg, transparent, rgba(10, 13, 17, .4) 18%, rgba(10, 13, 17, .62));
+  background: linear-gradient(90deg,
+    rgba(10, 13, 17, 0) 0%, rgba(10, 13, 17, .28) 22%, rgba(10, 13, 17, .42) 100%);
+  backdrop-filter: saturate(.5) brightness(.82) blur(1px);
+  -webkit-backdrop-filter: saturate(.5) brightness(.82) blur(1px);
+}
+/* Betrag und Text liegen ueber der Milchglasflaeche und bleiben kontraststark */
+.wallet-card.has-fill .wallet-card-balance,
+.wallet-card.has-fill .wallet-card-name {
+  text-shadow: 0 1px 8px rgba(10, 14, 18, .45);
 }
 .wallet-card-pin {
   margin-top: 4px; font-size: .76rem; font-weight: 700; opacity: .9;
@@ -3816,7 +3837,7 @@ body.wallet-farbe .topbar .iconbtn {
 
 /* Die vier Handgriffe: Glasplaettchen mit feiner Kante */
 .wallet-aktionen {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 20px;
+  display: flex; justify-content: center; gap: 26px; margin-top: 22px;
 }
 .wa-btn {
   display: flex; flex-direction: column; align-items: center; gap: 8px;
@@ -4170,14 +4191,9 @@ body.gescrollt:not(.wallet-farbe) .topbar {
 .stat-punkt.raus { background: #FFB4A8; }
 .verlauf-svg { height: 96px; }
 
-/* --- Mini-Guthaben unten in der Rangfarbe --- */
-#wallet-mini.rangfarbe {
-  background: linear-gradient(135deg, var(--kopf-k1, #0E9C64), var(--kopf-k2, #12C77E));
-  color: #fff; border-color: transparent;
-  box-shadow: 0 6px 18px color-mix(in srgb, var(--kopf-k2, #12C77E) 40%, transparent);
-}
-#wallet-mini.rangfarbe #wallet-mini-total { color: #fff; }
-#wallet-mini.rangfarbe .icon { color: #fff; }
+/* Das Mini-Guthaben bleibt neutral — die Menueleiste soll nicht mitfaerben.
+   Nur der Betrag selbst traegt einen Hauch der Rangfarbe. */
+#wallet-mini.rangfarbe #wallet-mini-total { color: var(--kopf-k1, #0E9C64); }
 
 /* --- Verschenken: gebuendelt wie in der Wallet --- */
 .schenk-gruppe { margin-bottom: 10px; }
@@ -4189,3 +4205,125 @@ body.gescrollt:not(.wallet-farbe) .topbar {
   transition: border-color .25s ease, color .25s ease;
 }
 .schenk-mehr:active { border-color: var(--accent-strong, #12C77E); color: var(--accent-strong, #12C77E); }
+
+/* ================= Runde 88: Ruhige Bereiche, klare Titel ==================== */
+
+/* --- Bereichstitel: gehoeren zur Seite, nicht als Etikett davor --- */
+.bereich-titel {
+  display: flex; flex-direction: column; gap: 2px;
+  margin: 26px 0 12px; font-size: 1.28rem; font-weight: 800;
+  letter-spacing: -.025em; line-height: 1.15;
+}
+.bereich-titel:first-child { margin-top: 4px; }
+.bereich-titel small {
+  font-size: .78rem; font-weight: 500; letter-spacing: 0;
+  color: var(--muted); line-height: 1.35;
+}
+.bereich-hint { font-size: .74rem; color: var(--muted); margin: -4px 0 12px; line-height: 1.4; }
+
+/* --- Suche und Filter: gleicher Rhythmus, klare Kanten --- */
+.wallet-tools { margin-top: 4px; }
+.wallet-tools .input { margin-bottom: 10px; }
+.wallet-filters { display: flex; gap: 8px; flex-wrap: wrap; }
+/* Chips heben sich vom hellen Grund ab, statt darin zu verschwinden */
+.wallet-filters .chip {
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--muted) 30%, transparent);
+  box-shadow: 0 1px 3px rgba(10, 14, 18, .05);
+  padding: 7px 14px 7px 7px; gap: 7px;
+}
+.wallet-filters .chip:not(:has(.brand-chip)) { padding: 7px 14px; }
+.wallet-filters .chip .brand-chip { width: 24px; height: 24px; border-radius: 8px; font-size: .58rem; }
+.wallet-filters .chip.active {
+  border-color: transparent;
+  box-shadow: 0 3px 10px rgba(10, 14, 18, .18);
+}
+.wallet-h-row { margin-top: 20px; }
+
+/* --- Kopfzeile: auf JEDER Seite ohne harte Kante ------------------------
+   Vorher stand ueberall ausser in der Wallet ein Trennstrich. Jetzt traegt
+   die Leiste denselben Milchglasgrund wie die Seite und laeuft nach unten
+   weich aus. */
+.topbar { border-bottom: none !important; box-shadow: none !important; }
+body:not(.wallet-farbe) .topbar::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: -18px; height: 18px;
+  background: linear-gradient(to bottom,
+    color-mix(in srgb, var(--seitengrund) 82%, transparent),
+    transparent);
+  pointer-events: none;
+}
+body.wallet-farbe .topbar::after { content: none; }
+
+/* --- Wechsel zwischen Gutscheinen und Karten: ruhiger --- */
+#wallet-content.tab-in, #coupons-content.tab-in {
+  animation: tabSanft .38s cubic-bezier(.22, 1, .32, 1) both;
+}
+@keyframes tabSanft {
+  from { opacity: 0; transform: translate3d(0, 10px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+#wallet-kopf-geld {
+  transition: grid-template-rows .42s cubic-bezier(.22, 1, .32, 1),
+              opacity .26s ease;
+}
+#wallet-kopf-geld.zu { transform: none; }   /* kein zusaetzliches Verschieben */
+#wallet-farbfeld { transition: opacity .3s ease, height .42s cubic-bezier(.22, 1, .32, 1); }
+.bereich-zeile { display: flex; align-items: center; gap: 10px; margin: 24px 0 12px; }
+.bereich-zeile .bereich-titel { flex: none; }
+
+/* ================= Runde 88b: Chat ohne Kasten ==============================
+   Der Chat lag in einer umrandeten Box mitten auf der Seite — das wirkte
+   aufgeklebt. Jetzt fliesst er in die Seite: kein Rahmen, Nachrichten als
+   Blasen, eigene rechts, und die Eingabe schwebt unten in Milchglas. */
+#chat-box {
+  background: none; border: none; box-shadow: none;
+  border-radius: 0; padding: 6px 0 4px;
+}
+#chat-modes {
+  gap: 8px; margin-bottom: 14px;
+}
+#chat-list { display: flex; flex-direction: column; gap: 3px; }
+
+/* Eine Nachricht ist eine Blase, kein Textabsatz */
+.chat-msg {
+  position: relative; align-self: flex-start; max-width: 84%;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--muted) 16%, transparent);
+  border-radius: 16px 16px 16px 5px;
+  padding: 8px 12px 9px; margin: 0;
+  font-size: .9rem; line-height: 1.45;
+  box-shadow: 0 1px 3px rgba(10, 14, 18, .05);
+}
+/* Eigene Nachrichten stehen rechts und tragen den Akzent */
+.chat-msg.own, .chat-msg.dm-me {
+  align-self: flex-end;
+  background: color-mix(in srgb, var(--accent-strong, #12C77E) 14%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent-strong, #12C77E) 28%, transparent);
+  border-radius: 16px 16px 5px 16px;
+}
+.chat-msg .chat-user {
+  display: block; font-size: .72rem; font-weight: 800;
+  margin: 0 0 2px; letter-spacing: -.01em;
+}
+.chat-msg.own .chat-user { text-align: right; }
+.chat-text { display: block; }
+/* Der Menue-Punkt sitzt in der Ecke der Blase */
+.chat-msg { padding-right: 12px; }
+.chat-msg .msg-menu { top: 5px; right: 5px; }
+.chat-msg.own .msg-menu { right: auto; left: 5px; }
+
+/* Eingabe schwebt unten, statt in einer Zeile zu kleben */
+#chat-input-row {
+  gap: 8px; margin-top: 12px; padding: 8px;
+  background: var(--glass);
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  border: 1px solid color-mix(in srgb, var(--muted) 14%, transparent);
+  border-radius: 18px;
+  box-shadow: 0 6px 20px rgba(10, 14, 18, .08);
+}
+#chat-input-row .input {
+  background: none; border: none; box-shadow: none; padding: 8px 6px;
+}
+#chat-pinbar { border-radius: 14px; }
+/* Zusammenhaengende Nachrichten derselben Person ruecken zusammen */
+.chat-msg + .chat-msg { margin-top: 1px; }
