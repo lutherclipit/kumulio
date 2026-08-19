@@ -5354,7 +5354,6 @@ function openVoucherSheet(id, animFrom, zurueckZu) {
     ${v.balance != null && v.balance > 0 ? `
     <div class="sheet-section">
       <button class="gift-btn" id="wv-gift">
-        <span class="gift-btn-glanz"></span>
         ${icon('gift', 'icon')}
         <span>An Freund verschenken</span>
       </button>

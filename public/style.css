@@ -3534,33 +3534,22 @@ a.app-quest .app-quest-txt { flex: 1; min-width: 0; }
 
 /* ================= Runde 77: Verschenken und Karten-Verweise ================= */
 
-/* --- "An Freund verschenken": geschliffener Knopf mit wanderndem Glanz --- */
+/* --- "An Freund verschenken": ruhiger Metall-Knopf, Bewegung nur beim Drücken --- */
 .gift-btn {
   position: relative; overflow: hidden; width: 100%;
   display: flex; align-items: center; justify-content: center; gap: 10px;
   border: none; border-radius: 16px; padding: 15px 18px;
   font: inherit; font-size: .95rem; font-weight: 800; color: #fff;
   background: linear-gradient(135deg, #2C3440 0%, #4A5768 38%, #8794A6 50%, #4A5768 62%, #222A34 100%);
-  background-size: 220% 100%; background-position: 0 0;
+  background-size: 100% 100%;
   box-shadow: 0 6px 20px rgba(10, 14, 18, .28), inset 0 1px 0 rgba(255, 255, 255, .28);
   cursor: pointer; touch-action: manipulation;
-  transition: transform .3s var(--spring), box-shadow .3s ease, background-position .6s ease;
+  transition: transform .3s var(--spring), box-shadow .3s ease;
 }
 .gift-btn .icon { width: 21px; height: 21px; }
-.gift-btn:hover { background-position: 100% 0; }
 .gift-btn:active {
   transform: scale(.965);
   box-shadow: 0 2px 10px rgba(10, 14, 18, .32), inset 0 1px 0 rgba(255, 255, 255, .2);
-}
-/* Ein Lichtreflex laeuft langsam durch — sparsam, nicht blinkend */
-.gift-btn-glanz {
-  position: absolute; top: 0; left: -60%; width: 45%; height: 100%;
-  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, .32), transparent);
-  animation: glanzLauf 5.5s ease-in-out infinite;
-}
-@keyframes glanzLauf {
-  0%, 62% { left: -60%; }
-  88%, 100% { left: 120%; }
 }
 
 /* --- Verschenk-Fenster --- */
@@ -3653,7 +3642,7 @@ a.app-quest .app-quest-txt { flex: 1; min-width: 0; }
 .gs-vorschlag .wallet-card { margin: 0; }
 
 @media (prefers-reduced-motion: reduce) {
-  .gift-btn-glanz, .karte-plus { animation: none; }
+  .karte-plus { animation: none; }
 }
 .gift-haftung a { color: var(--accent-strong, #12C77E); font-weight: 700; white-space: nowrap; }
 /* Emote-Knöpfe behalten ihre Größe, auch solange das Bild noch lädt */
