@@ -198,7 +198,7 @@ html.theme-anim, html.theme-anim *, html.theme-anim *::before, html.theme-anim *
 .island.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 
 /* ---------- Layout + View-Übergänge ---------- */
-main { max-width: 640px; margin: 0 auto; padding: 20px 16px 110px; position: relative; }
+main { --seitenpolster: 20px; max-width: 640px; margin: 0 auto; padding: var(--seitenpolster) 16px 110px; position: relative; }
 /* Wechsel ohne Überlappung: die alte View verschwindet sofort, nur die neue
    animiert herein – so kann nichts springen, doppelt erscheinen oder verrutschen. */
 .view { will-change: transform, opacity; }
@@ -1233,7 +1233,7 @@ body.no-select { user-select: none; -webkit-user-select: none; }
 }
 
 @media (max-width: 520px) {
-  main { padding: 16px 12px 104px; }
+  main { --seitenpolster: 16px; padding: var(--seitenpolster) 12px 104px; }
   .deal-img { flex-basis: 66px; width: 66px; height: 66px; }
   .onboarding-grid { grid-template-columns: 1fr; }
 }
@@ -3734,16 +3734,14 @@ a.app-quest .app-quest-txt { flex: 1; min-width: 0; }
   --k2: #12C77E;        /* Hauptton */
   --k3: #23D992;        /* hell: Lichtseite des Verlaufs */
   position: relative;
-  /* Zieht sich unter den Header und ueber die Seitenraender hinaus. */
-  margin: -20px -16px 18px;
-  padding: 26px 16px 0;
+  /* Der Kopf reicht bis unter die Kopfzeile und ueber die Seitenraender hinaus.
+     Wichtig: NUR dieses eine Element zeichnet den Verlauf. Zwei Elemente mit
+     synchronisiertem Hintergrund ergeben immer eine sichtbare Naht, sobald die
+     gemessene Hoehe (Safe-Area!) auch nur um ein Pixel danebenliegt. */
+  margin: calc(-1 * (var(--kopfzeile-h, 64px) + var(--seitenpolster, 20px))) -16px 18px;
+  padding: calc(var(--kopfzeile-h, 64px) + 18px) 16px 0;
   color: #fff;
-  /* EIN Verlauf fuer Kopfzeile und Kopf: beide zeigen denselben, der Kopf
-     nur ab der Hoehe der Kopfzeile. Dadurch laeuft die Farbe durch, statt
-     dass oben ein zweiter Block klebt. */
   background-image: linear-gradient(172deg, var(--k1) 0%, var(--k2) 52%, var(--k3) 100%);
-  background-size: 100% var(--verlauf-h, 420px);
-  background-position: 0 calc(-1 * var(--kopfzeile-h, 64px));
   background-repeat: no-repeat;
   transition: background-image .6s ease;
 }
@@ -3765,16 +3763,12 @@ a.app-quest .app-quest-txt { flex: 1; min-width: 0; }
 
 /* Die Kopfzeile faerbt sich mit, solange man in der Wallet steht */
 body.wallet-farbe .topbar {
-  background-color: transparent;
-  background-image: linear-gradient(172deg,
-    var(--kopf-k1, #0E9C64) 0%, var(--kopf-k2, #12C77E) 52%, var(--kopf-k3, #23D992) 100%);
-  background-size: 100% var(--verlauf-h, 420px);
-  background-position: 0 0;
-  background-repeat: no-repeat;
+  /* Voellig durchsichtig: den Grund malt der Kopf, der bis hier hochreicht */
+  background: transparent;
   border-bottom-color: transparent;
   box-shadow: none;
   backdrop-filter: none; -webkit-backdrop-filter: none;
-  transition: background-image .6s ease, background-color .35s ease;
+  transition: background-color .35s ease;
 }
 /* Wortmarke und Knoepfe auf farbigem Grund: hell statt Tinte.
    .k-wordmark setzt seine Farbe selbst ueber --k-ink, deshalb dort ansetzen. */
@@ -3853,7 +3847,7 @@ body.wallet-farbe .topbar .iconbtn {
 /* Sobald der Kopf weggescrollt ist, wird die Kopfzeile wieder Glas —
    sonst stuende dort ein Farbblock ohne Anschluss */
 body.wallet-farbe.kopf-weg .topbar {
-  background-image: none; background-color: var(--glass);
+  background: var(--glass);
   backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
   border-bottom-color: var(--stroke-light);
 }
@@ -3904,7 +3898,10 @@ body.wallet-farbe.kopf-weg .topbar .iconbtn {
 .wallet-kopf.nur-tabs::before { height: 26px; }
 
 @media (max-width: 560px) {
-  .wallet-kopf { margin: -16px -12px 16px; padding: 22px 12px 0; }
+  .wallet-kopf {
+    margin: calc(-1 * (var(--kopfzeile-h, 64px) + var(--seitenpolster, 16px))) -12px 16px;
+    padding: calc(var(--kopfzeile-h, 64px) + 14px) 12px 0;
+  }
   .wallet-kopf .balance-big { font-size: 2.7rem; }
   .wa-kreis { width: 50px; height: 50px; }
 }

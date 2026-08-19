@@ -6615,13 +6615,14 @@ function messeKopfzeile() {
   if (!tb) return;
   const h = Math.round(tb.getBoundingClientRect().height);
   document.documentElement.style.setProperty('--kopfzeile-h', h + 'px');
-  // Der Verlauf soll ueber Kopfzeile UND Kopf laufen
-  const kopf = $('#wallet-kopf');
-  const gesamt = h + (kopf ? Math.round(kopf.getBoundingClientRect().height) : 300);
-  document.documentElement.style.setProperty('--verlauf-h', Math.max(320, gesamt) + 'px');
+
 }
 addEventListener('resize', messeKopfzeile);
 addEventListener('orientationchange', () => setTimeout(messeKopfzeile, 250));
+// Sofort messen: der Kopf richtet sein Polster danach aus, und die Safe-Area
+// eines iPhones macht die Kopfzeile deutlich hoeher als der Vorgabewert
+messeKopfzeile();
+addEventListener('load', messeKopfzeile);
 
 // Die Statistik hat ein eigenes Blatt — im Kopf ist kein Platz fuer eine
 // Rueckseite, und "Analyse" ist ohnehin ein eigener Gedanke.
