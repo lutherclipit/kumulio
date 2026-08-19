@@ -221,6 +221,28 @@ function brandColor(name) {
   for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) % 360;
   return `hsl(${h}, 45%, 42%)`;
 }
+// Wie hell ist eine Markenfarbe? Danach richtet sich, ob heller oder dunkler
+// Text darauf lesbar ist (EDEKA-Gelb und McDonald's-Gelb tragen kein Weiss).
+function brandHelligkeit(farbe) {
+  const c = String(farbe || '').trim();
+  let r = 0, g = 0, b = 0;
+  if (c.startsWith('#')) {
+    const h = c.length === 4
+      ? c.slice(1).split('').map(x => x + x).join('')
+      : c.slice(1);
+    r = parseInt(h.slice(0, 2), 16); g = parseInt(h.slice(2, 4), 16); b = parseInt(h.slice(4, 6), 16);
+  } else {
+    const m = c.match(/hsl\(\s*(\d+)[,\s]+(\d+)%[,\s]+(\d+)%/i);
+    if (m) return Number(m[3]) / 100;      // Helligkeit steht direkt drin
+    return 0.4;
+  }
+  // Wahrgenommene Helligkeit, Gruen zaehlt am staerksten
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+}
+// Textfarbe fuer eine Markenflaeche: dunkles Anthrazit auf hellen Toenen
+function brandTextColor(name) {
+  return brandHelligkeit(brandColor(name)) > 0.62 ? '#14171B' : '#FFFFFF';
+}
 function brandInitials(name) {
   const parts = (name || '?').trim().split(/\s+/);
   return (parts.length > 1 ? parts[0][0] + parts[1][0] : (name || '?').slice(0, 2)).toUpperCase();
@@ -789,7 +811,8 @@ function renderCoupons(host) {
       const gratis = /mcdonald/i.test(b.name) && (mccheapDaten?.items || []).some(x => x.gratis);
       const n = b.coupons ? b.coupons.count : 0;
       return `
-      <button class="cc-card" data-brand="${esc(b.key)}" style="--bc:${brandColor(b.name)}">
+      <button class="cc-card ${brandHelligkeit(brandColor(b.name)) > 0.62 ? 'hell' : ''}"
+        data-brand="${esc(b.key)}" style="--bc:${brandColor(b.name)}; --tc:${brandTextColor(b.name)}">
         ${brandChipHtml(b.name)}
         <span class="cc-card-main">
           <b>${esc(b.name)}</b>
@@ -807,7 +830,8 @@ function renderCoupons(host) {
         const gesperrt = b.coupons && !ccBesitzt(b.coupons);
         const gratis = /mcdonald/i.test(b.name) && (mccheapDaten?.items || []).some(x => x.gratis);
         return `
-      <button class="app-tile ${b.card ? 'has-card' : ''}" data-brand="${esc(b.key)}" style="--bc:${brandColor(b.name)}">
+      <button class="app-tile ${b.card ? 'has-card' : ''} ${brandHelligkeit(brandColor(b.name)) > 0.62 ? 'hell' : ''}"
+        data-brand="${esc(b.key)}" style="--bc:${brandColor(b.name)}; --tc:${brandTextColor(b.name)}">
         ${brandChipHtml(b.name)}
         <span class="app-tile-name">${esc(b.name)}</span>
         <span class="app-tile-desc">${esc(brandUntertitel(b))}</span>

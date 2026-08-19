@@ -4327,3 +4327,83 @@ body.wallet-farbe .topbar::after { content: none; }
 #chat-pinbar { border-radius: 14px; }
 /* Zusammenhaengende Nachrichten derselben Person ruecken zusammen */
 .chat-msg + .chat-msg { margin-top: 1px; }
+
+/* ================= Runde 89: Marken-Kacheln im Karten-Look ==================
+   Die Kacheln waren weisse Quadrate mit Logo — austauschbar und beliebig.
+   Jetzt tragen sie die Farbe ihrer Marke wie die Gutscheinkarten, damit man
+   REWE, Rossmann oder Netto schon am Farbton erkennt. */
+#coupon-grid .app-tile {
+  aspect-ratio: auto; min-height: 132px;
+  justify-content: flex-start; align-items: flex-start; gap: 8px;
+  padding: 12px 12px 11px;
+  color: var(--tc, #fff); text-align: left;
+  background: linear-gradient(140deg,
+    color-mix(in srgb, var(--bc, #4a5560) 86%, #000 14%) 0%,
+    color-mix(in srgb, var(--bc, #4a5560) 62%, #000 38%) 100%);
+  border: 1px solid rgba(255, 255, 255, .22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), 0 6px 16px rgba(10, 14, 18, .14);
+  overflow: hidden;
+}
+/* Feiner Lichtstreifen wie auf der Gutscheinkarte */
+#coupon-grid .app-tile::before {
+  content: ''; position: absolute; top: -50%; left: -25%;
+  width: 55%; height: 200%; transform: rotate(20deg);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .1), transparent);
+  pointer-events: none;
+}
+#coupon-grid .app-tile > * { position: relative; z-index: 1; }
+#coupon-grid .app-tile .brand-chip { width: 38px; height: 38px; border-radius: 12px; }
+#coupon-grid .app-tile-name {
+  font-size: .84rem; font-weight: 800; letter-spacing: -.015em;
+  text-align: left; white-space: normal; margin-top: auto; line-height: 1.2;
+}
+#coupon-grid .app-tile-desc {
+  font-size: .66rem; opacity: .82; font-weight: 600; text-align: left;
+  line-height: 1.25;
+}
+/* Marken mit eigener Karte tragen einen hellen Streifen statt eines Punkts */
+#coupon-grid .app-tile.has-card { border-color: rgba(255, 255, 255, .5); }
+#coupon-grid .app-tile.has-card .tile-dot {
+  top: 11px; right: 11px; width: 7px; height: 7px;
+  background: currentColor; box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 25%, transparent);
+}
+#coupon-grid .app-tile .tile-lock { color: currentColor; opacity: .85; top: 10px; right: 10px; }
+#coupon-grid .app-tile.has-card .tile-lock { right: 26px; }
+/* Hinzufuegen bleibt bewusst schlicht — es ist kein Haendler */
+#coupon-grid .app-tile-add {
+  background: none; color: var(--muted);
+  border: 2px dashed color-mix(in srgb, var(--muted) 35%, transparent);
+  box-shadow: none; align-items: center; justify-content: center;
+}
+#coupon-grid .app-tile-add::before { content: none; }
+#coupon-grid .app-tile-add .app-tile-name { text-align: center; margin-top: 0; }
+
+/* --- "Sofort einloesbar": dieselbe Handschrift, als breite Karte --- */
+.cc-card {
+  border-left: none; color: var(--tc, #fff); overflow: hidden;
+  background: linear-gradient(120deg,
+    color-mix(in srgb, var(--bc, #4a5560) 86%, #000 14%) 0%,
+    color-mix(in srgb, var(--bc, #4a5560) 62%, #000 38%) 100%);
+  border: 1px solid rgba(255, 255, 255, .22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), 0 5px 16px rgba(10, 14, 18, .14);
+  padding: 14px 15px;
+}
+.cc-card::before {
+  content: ''; position: absolute; top: -50%; right: -10%;
+  width: 45%; height: 200%; transform: rotate(20deg);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .1), transparent);
+  pointer-events: none;
+}
+.cc-card { position: relative; }
+.cc-card > * { position: relative; z-index: 1; }
+.cc-card .brand-chip { width: 40px; height: 40px; }
+.cc-card-main b { font-size: 1rem; letter-spacing: -.015em; }
+.cc-card-main small { color: currentColor; opacity: .8; }
+.cc-card .icon { color: currentColor; opacity: .8; }
+.cc-card-flag { background: #fff; color: var(--bc, #12C77E); }
+
+/* Helle Marken (Gelb) behalten ihren Ton, dort steht dunkler Text darauf */
+#coupon-grid .app-tile.hell, .cc-card.hell {
+  background: linear-gradient(140deg,
+    var(--bc) 0%, color-mix(in srgb, var(--bc) 82%, #000 18%) 100%);
+}
