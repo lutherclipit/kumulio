@@ -3723,3 +3723,116 @@ a.app-quest .app-quest-txt { flex: 1; min-width: 0; }
   transition: transform .25s var(--spring);
 }
 .crop-ok:active { transform: scale(.97); }
+
+/* ================= Runde 80: Wallet-Kopf im Banking-Zuschnitt ================= */
+/* Guthaben gross auf farbigem Grund, darunter vier Handgriffe. Der Kopf zieht
+   sich bis unter den Header und über die Seitenränder hinaus. */
+.wallet-kopf {
+  position: relative;
+  /* zieht sich ueber die Seitenraender von main (16px, am Handy 12px) hinaus */
+  margin: -20px -16px 16px;
+  padding: 22px 16px 18px;
+  background: linear-gradient(150deg, #0E9C64 0%, #12C77E 45%, #23D992 100%);
+  border-radius: 0 0 26px 26px;
+  color: #fff;
+  box-shadow: 0 10px 28px rgba(14, 156, 100, .26);
+  overflow: hidden;
+  transition: box-shadow .5s ease, background .6s ease;
+}
+/* Ein ruhiger Lichtbogen oben rechts — gibt Tiefe ohne Effekthascherei */
+.wallet-kopf::after {
+  content: ''; position: absolute; top: -70px; right: -50px;
+  width: 220px; height: 220px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, .16), transparent 70%);
+  pointer-events: none;
+}
+.wallet-kopf-inner { position: relative; z-index: 1; }
+.balance-flip-btn {
+  display: block; width: 100%; background: none; border: none; padding: 0;
+  color: inherit; font: inherit; text-align: center; cursor: pointer;
+  transition: transform .25s var(--spring);
+}
+.balance-flip-btn:active { transform: scale(.97); }
+.wallet-kopf .balance-big {
+  color: #fff; font-size: 2.5rem; font-weight: 800; letter-spacing: -.03em;
+  line-height: 1.1; margin: 0;
+}
+.wallet-kopf-sub { font-size: .82rem; opacity: .85; margin-top: 2px; }
+
+/* Rang-Leiste im Kopf: heller auf dem farbigen Grund */
+.wallet-kopf .rank-row {
+  display: flex; align-items: center; gap: 9px; margin: 14px 0 0;
+}
+.wallet-kopf .rank-chip {
+  background: rgba(255, 255, 255, .22); color: #fff; border: none;
+  font-size: .7rem; font-weight: 800; border-radius: 999px; padding: 4px 10px;
+}
+.wallet-kopf .rank-progress {
+  flex: 1; height: 5px; border-radius: 999px;
+  background: rgba(255, 255, 255, .25); overflow: hidden;
+}
+.wallet-kopf .rank-progress-fill { height: 100%; background: #fff; border-radius: 999px; }
+.wallet-kopf .rank-next { font-size: .68rem; opacity: .85; white-space: nowrap; }
+
+/* Die vier Handgriffe */
+.wallet-aktionen {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 18px;
+}
+.wa-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+  background: none; border: none; padding: 4px 0;
+  font: inherit; font-size: .72rem; font-weight: 700; color: #fff;
+  cursor: pointer; touch-action: manipulation;
+  transition: transform .25s var(--spring);
+}
+.wa-btn:active { transform: scale(.92); }
+.wa-kreis {
+  width: 46px; height: 46px; border-radius: 15px;
+  background: rgba(255, 255, 255, .2);
+  display: flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  transition: background .25s ease;
+}
+.wa-btn:active .wa-kreis { background: rgba(255, 255, 255, .32); }
+.wa-kreis .icon { width: 21px; height: 21px; color: #fff; }
+
+/* Rang-Stufen faerben den Kopf, statt nur zu leuchten */
+.wallet-kopf.tier-2 { background: linear-gradient(150deg, #0B7F52 0%, #12C77E 50%, #2FE09C 100%); }
+.wallet-kopf.tier-3 { background: linear-gradient(150deg, #0A6B6B 0%, #12A8C7 50%, #36D6E0 100%); }
+.wallet-kopf.tier-4 { background: linear-gradient(150deg, #3B2C8F 0%, #6C4BD8 50%, #9B7BFF 100%); }
+.wallet-kopf.tier-5 {
+  background: linear-gradient(150deg, #6E4A00 0%, #C79B12 45%, #F0CE5A 100%);
+  box-shadow: 0 12px 34px rgba(199, 155, 18, .35);
+}
+
+/* Statistik im eigenen Blatt */
+.stats-blatt { margin-top: 4px; }
+.stats-blatt .flip-hint { display: none; }
+
+/* Auf dem Handy darf der Kopf die volle Breite nehmen */
+@media (max-width: 560px) {
+  .wallet-kopf { margin: -16px -12px 14px; padding: 18px 12px 16px; border-radius: 0 0 22px 22px; }
+  .wallet-kopf .balance-big { font-size: 2.2rem; }
+  .wa-kreis { width: 44px; height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wallet-kopf { transition: none; }
+}
+
+/* Bereichswahl sitzt im farbigen Kopf */
+.wallet-kopf #wallet-modes {
+  display: flex; gap: 8px; margin: 0 0 16px; padding: 0; overflow-x: auto;
+  scrollbar-width: none;
+}
+.wallet-kopf #wallet-modes::-webkit-scrollbar { display: none; }
+.wallet-kopf #wallet-modes .chip {
+  background: rgba(255, 255, 255, .18); border-color: transparent; color: #fff;
+  font-weight: 700; white-space: nowrap;
+}
+.wallet-kopf #wallet-modes .chip.active {
+  background: #fff !important; color: #0E9C64 !important; border-color: transparent !important;
+  box-shadow: 0 3px 12px rgba(10, 14, 18, .18);
+}
+/* Ohne Guthaben-Teil braucht der Kopf weniger Platz */
+.wallet-kopf.nur-tabs { padding-bottom: 14px; }
+.wallet-kopf.nur-tabs #wallet-modes { margin-bottom: 0; }

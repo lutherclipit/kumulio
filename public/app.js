@@ -6266,6 +6266,9 @@ function updateWalletTab(anim) {
   const gated = !state.token && !coupons;
   $('#wallet-gate').classList.toggle('hidden', !gated);
   $('#wallet-content').classList.toggle('hidden', gated || coupons);
+  // Im Coupon-Bereich schrumpft der Kopf auf die Bereichswahl zusammen
+  $('#wallet-kopf')?.classList.toggle('nur-tabs', coupons || gated);
+  $('#wallet-kopf-geld')?.classList.toggle('hidden', coupons || gated);
   $('#coupons-content').classList.toggle('hidden', !coupons);
   if (coupons) renderCoupons($('#coupons-content'));
   if (!walletTab.startsWith('gutscheine')) $('#wallet-mini')?.classList.remove('show');
@@ -6363,9 +6366,9 @@ function renderWallet() {
 
   // Spar-Rang: je mehr Guthaben, desto edler die Karte + Fortschritt zur nächsten Stufe
   const rank = rankFor(total);
-  const card = $('#balance-card');
+  const card = $('#wallet-kopf');
   if (card) {
-    card.className = 'card balance-card tier-' + rank.tier;
+    card.className = 'wallet-kopf tier-' + rank.tier;
     $('#wallet-rank').textContent = rank.name;
     if (rank.next) {
       const span = rank.next.min - rank.min;
@@ -6576,58 +6579,56 @@ function renderWalletStats(range) {
     </div>
     <div class="stat-row"><span>Guthaben hinzugefügt</span><b class="tx-amt plus">+${euroFmt(s.added) || '0,00 €'}</b></div>
     <div class="stat-row"><span>Ausgegeben</span><b class="tx-amt minus">−${euroFmt(s.spent) || '0,00 €'}</b></div>
-    <div class="flip-hint">${icon('arrow-back', 'icon icon-sm')} Antippen zum Zurückdrehen</div>`;
+    `;
   $('#balance-back').querySelectorAll('[data-strange]').forEach(b => b.onclick = e => {
     e.stopPropagation();
     renderWalletStats(b.dataset.strange);
   });
 }
-let balanceFlipped = false;
-let flipBusy = false;
-$('#balance-flip')?.addEventListener('click', () => {
-  if (flipBusy) return;
-  balanceFlipped = !balanceFlipped;
-  if (balanceFlipped) renderWalletStats(statsRange);
-  buzz(15);
-  const swap = () => {
-    $('#balance-card').classList.toggle('hidden', balanceFlipped);
-    $('#balance-back').classList.toggle('hidden', !balanceFlipped);
-  };
-  if (reducedMotion() || !$('#flip-inner').animate) { swap(); return; }
-  // Eine DURCHGEHENDE Drehung: bis 90° beschleunigen, Seite tauschen, von -90°
-  // in derselben Richtung weiterdrehen und weich ausrollen. Die Container-Höhe
-  // wird mitanimiert, damit beim Seitenwechsel nichts springt.
-  flipBusy = true;
-  const inner = $('#flip-inner');
-  const flip = $('#balance-flip');
-  flip.style.height = flip.offsetHeight + 'px';
-  const a1 = inner.animate(
-    [{ transform: 'perspective(900px) rotateY(0deg)' }, { transform: 'perspective(900px) rotateY(90deg)' }],
-    { duration: 230, easing: 'cubic-bezier(.55, 0, .8, .5)', fill: 'forwards' });
-  a1.onfinish = () => {
-    swap();
-    const target = balanceFlipped ? $('#balance-back') : $('#balance-card');
-    flip.style.transition = 'height .32s cubic-bezier(.2, .8, .3, 1)';
-    flip.style.height = target.offsetHeight + 'px';
-    const a2 = inner.animate(
-      [{ transform: 'perspective(900px) rotateY(-90deg)' }, { transform: 'perspective(900px) rotateY(0deg)' }],
-      { duration: 340, easing: 'cubic-bezier(.16, .6, .3, 1)', fill: 'forwards' });
-    a2.onfinish = () => {
-      a1.cancel(); a2.cancel();
-      flip.style.transition = ''; flip.style.height = '';
-      flipBusy = false;
-    };
-  };
+// Die Statistik hat ein eigenes Blatt — im Kopf ist kein Platz fuer eine
+// Rueckseite, und "Analyse" ist ohnehin ein eigener Gedanke.
+let balanceFlipped = false;   // wird von renderWalletStats weiter genutzt
+function openStatsSheet() {
+  balanceFlipped = true;
+  state.sheetMode = 'wallet-stats';
+  $('#sheet-content').innerHTML = `
+    <div class="sheet-title">Deine Wallet in Zahlen</div>
+    <div id="balance-back" class="stats-blatt"></div>`;
+  renderWalletStats(statsRange);
+  openSheetShell();
+}
+$('#balance-flip')?.addEventListener('click', () => { buzz(12); openStatsSheet(); });
+$('#wa-statistik')?.addEventListener('click', () => { buzz(12); openStatsSheet(); });
+$('#wa-karten')?.addEventListener('click', () => {
+  buzz(12);
+  document.querySelector('[data-wtab="coupons"]')?.click();
+});
+// Verschenken: erst fragen, welcher Gutschein — danach uebernimmt das Geschenk-Fenster
+$('#wa-schenken')?.addEventListener('click', () => {
+  const offen = state.wallet.vouchers.filter(v => v.balance == null || v.balance > 0);
+  if (!offen.length) { island('Du hast gerade keinen Gutschein mit Guthaben'); return; }
+  buzz(12);
+  state.sheetMode = 'gift-pick';
+  $('#sheet-content').innerHTML = `
+    <div class="sheet-title">Welchen Gutschein verschenken?</div>
+    <div class="wallet-list">${[...offen]
+      .sort((a, b) => (a.balance ?? Infinity) - (b.balance ?? Infinity))
+      .map(voucherCardHtml).join('')}</div>`;
+  $('#sheet-content').querySelectorAll('[data-wv]').forEach(el => el.onclick = () => {
+    const v = state.wallet.vouchers.find(x => x.id === el.dataset.wv);
+    if (v) { closeSheet(); setTimeout(() => openGiftPop(v), 240); }
+  });
+  openSheetShell();
 });
 
 // ---- Mini-Guthaben: erscheint über dem Menü, sobald die große Karte aus dem Bild ist
-if ('IntersectionObserver' in window && $('#balance-flip')) {
+if ('IntersectionObserver' in window && $('#wallet-kopf')) {
   // Zählt schon als "aus dem Bild", wenn nur noch ein Rest der Karte zu sehen ist
   new IntersectionObserver(([e]) => {
     const show = state.activeView === 'wallet' && walletTab === 'gutscheine'
       && !!state.token && e.intersectionRatio < 0.25;
     $('#wallet-mini').classList.toggle('show', show);
-  }, { threshold: [0, 0.25, 0.5] }).observe($('#balance-flip'));
+  }, { threshold: [0, 0.25, 0.5] }).observe($('#wallet-kopf'));
 }
 $('#wallet-mini')?.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
 $('#wallet-sort-btn')?.addEventListener('click', () => {
