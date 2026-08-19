@@ -4086,3 +4086,58 @@ body.gescrollt:not(.wallet-farbe) .topbar {
   font-size: .66rem; line-height: 1.25; text-align: center;
   overflow-wrap: anywhere;
 }
+
+/* ================= Runde 85: Status als eigene Karte ========================
+   Wie in einer Banking-App: Titel links, "Details" rechts, darunter Wert und
+   ein flacher Fortschrittsbalken mit Skala. Kein Aufkleber im Farbkopf. */
+.info-karte {
+  display: block; width: 100%; text-align: left;
+  background: var(--surface); border: 1px solid var(--stroke-light);
+  border-radius: var(--r-lg); padding: 14px 16px; margin-bottom: 14px;
+  font: inherit; color: inherit; cursor: pointer;
+  transition: transform .25s var(--spring), border-color .25s ease;
+}
+.info-karte:active { transform: scale(.99); border-color: var(--accent-strong, #12C77E); }
+.ik-kopf { display: flex; align-items: baseline; justify-content: space-between; }
+.ik-titel { font-size: .84rem; font-weight: 800; }
+.ik-details { font-size: .76rem; font-weight: 700; color: var(--accent-strong, #12C77E); }
+.ik-zeile { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 8px; }
+.ik-wert { font-size: 1.15rem; font-weight: 800; letter-spacing: -.02em; }
+.ik-neben { font-size: .78rem; color: var(--muted); white-space: nowrap; }
+.ik-balken {
+  height: 6px; border-radius: 999px; margin-top: 9px; overflow: hidden;
+  background: color-mix(in srgb, var(--muted) 20%, transparent);
+}
+.ik-balken-fill {
+  height: 100%; border-radius: 999px; width: 0;
+  background: linear-gradient(90deg, var(--kopf-k1, #0E9C64), var(--kopf-k3, #23D992));
+  transition: width .7s cubic-bezier(.22, 1, .32, 1);
+}
+.ik-skala {
+  display: flex; justify-content: space-between; margin-top: 5px;
+  font-size: .68rem; color: var(--muted);
+}
+
+/* Stufenliste im Blatt */
+.rang-liste { display: flex; flex-direction: column; }
+.rang-stufe {
+  display: flex; align-items: center; gap: 12px; padding: 11px 2px;
+  border-bottom: 1px solid var(--stroke-light); opacity: .5;
+}
+.rang-stufe:last-child { border-bottom: none; }
+.rang-stufe.erreicht { opacity: 1; }
+.rang-stufe.aktuell { opacity: 1; }
+.rang-punkt { width: 11px; height: 11px; border-radius: 50%; flex: none; background: var(--muted); }
+.rang-punkt.tier-1 { background: #12C77E; }
+.rang-punkt.tier-2 { background: #12C77E; }
+.rang-punkt.tier-3 { background: #12A8C7; }
+.rang-punkt.tier-4 { background: #6C4BD8; }
+.rang-punkt.tier-5 { background: #C79B12; }
+.rang-text { flex: 1; display: flex; flex-direction: column; }
+.rang-text b { font-size: .9rem; }
+.rang-text small { font-size: .74rem; color: var(--muted); }
+.rang-jetzt {
+  font-size: .68rem; font-weight: 800; color: var(--accent-strong, #12C77E);
+  border: 1px solid currentColor; border-radius: 999px; padding: 2px 8px;
+}
+.rang-stufe .icon { color: var(--accent-strong, #12C77E); }

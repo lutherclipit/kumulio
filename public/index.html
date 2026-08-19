@@ -485,11 +485,6 @@
                 <span class="sync-punkt" id="sync-punkt" aria-hidden="true"></span>
               </div>
             </button>
-            <div class="rank-row">
-              <span class="rank-name" id="wallet-rank"></span>
-              <div class="rank-progress"><div class="rank-progress-fill" id="wallet-rank-fill"></div></div>
-              <span class="rank-next" id="wallet-rank-next"></span>
-            </div>
             <div class="wallet-aktionen">
               <button class="wa-btn" id="wallet-add-top">
                 <span class="wa-kreis"><svg class="icon"><use href="#i-plus"/></svg></span>
@@ -509,6 +504,22 @@
         </div>
       </div>
       <div id="wallet-content">
+        <!-- Spar-Rang als eigene Karte, nicht als Aufkleber im Kopf -->
+        <button class="info-karte" id="rang-karte">
+          <div class="ik-kopf">
+            <span class="ik-titel">Spar-Rang</span>
+            <span class="ik-details">Details</span>
+          </div>
+          <div class="ik-zeile">
+            <span class="ik-wert" id="wallet-rank"></span>
+            <span class="ik-neben" id="wallet-rank-next"></span>
+          </div>
+          <div class="ik-balken"><div class="ik-balken-fill" id="wallet-rank-fill"></div></div>
+          <div class="ik-skala">
+            <span id="rank-von">0 €</span>
+            <span id="rank-bis"></span>
+          </div>
+        </button>
         <div class="wallet-tools">
           <input id="wallet-search" class="input" type="search" placeholder="Shop; z.B. REWE, Amazon; PIN, Notiz …">
           <div class="wallet-filters" id="wallet-vendor-filters"></div>

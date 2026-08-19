@@ -6325,13 +6325,17 @@ function renderWallet() {
     });
     messeKopfzeile();
     $('#wallet-rank').textContent = rank.name;
+    const vonEl = $('#rank-von'), bisEl = $('#rank-bis');
+    if (vonEl) vonEl.textContent = euroFmt(rank.min) || '0 €';
     if (rank.next) {
       const span = rank.next.min - rank.min;
       $('#wallet-rank-fill').style.width = Math.round(((total - rank.min) / span) * 100) + '%';
-      $('#wallet-rank-next').textContent = `${euroFmt(rank.next.min - total)} bis ${rank.next.name}`;
+      $('#wallet-rank-next').textContent = `noch ${euroFmt(rank.next.min - total)}`;
+      if (bisEl) bisEl.textContent = euroFmt(rank.next.min);
     } else {
       $('#wallet-rank-fill').style.width = '100%';
-      $('#wallet-rank-next').textContent = 'Höchste Stufe erreicht';
+      $('#wallet-rank-next').textContent = 'höchste Stufe';
+      if (bisEl) bisEl.textContent = '';
     }
   }
   // Gutschein-Karte: der Hintergrund füllt sich nach Restguthaben (rechts wird
@@ -6600,6 +6604,30 @@ function renderWalletStats(range) {
   });
   host.querySelector('#stat-zurueck').onclick = e => { e.stopPropagation(); kopfDrehen(false); };
 }
+
+// Alle Stufen auf einen Blick — als Liste, wie man sie aus Banking-Apps kennt
+$('#rang-karte')?.addEventListener('click', () => {
+  const total = renderWallet.lastTotal || 0;
+  const jetzt = rankFor(total);
+  state.sheetMode = 'rang';
+  $('#sheet-content').innerHTML = `
+    <div class="sheet-title">Spar-Rang</div>
+    <p class="muted" style="font-size:.84rem; margin-bottom:14px">
+      Dein Rang richtet sich nach dem Guthaben, das in deiner Wallet liegt.
+      Er ist reine Spielerei — auf Gutscheine und Coupons hat er keinen Einfluss.</p>
+    <div class="rang-liste">${RANKS.map(r => {
+      const erreicht = total >= r.min;
+      const aktuell = r.name === jetzt.name;
+      return `
+      <div class="rang-stufe ${erreicht ? 'erreicht' : ''} ${aktuell ? 'aktuell' : ''}">
+        <span class="rang-punkt tier-${r.tier}"></span>
+        <span class="rang-text"><b>${esc(r.name)}</b><small>ab ${euroFmt(r.min) || '0 €'}</small></span>
+        ${aktuell ? '<span class="rang-jetzt">jetzt</span>'
+          : erreicht ? icon('check', 'icon icon-sm') : ''}
+      </div>`;
+    }).join('')}</div>`;
+  openSheetShell();
+});
 
 // Der Kopf dreht sich wie eine Karte — Vorderseite Guthaben, Rueckseite Verlauf
 let kopfGedreht = false, kopfDrehtGerade = false;
