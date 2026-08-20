@@ -208,7 +208,11 @@ main {
 }
 /* Wechsel ohne Überlappung: die alte View verschwindet sofort, nur die neue
    animiert herein – so kann nichts springen, doppelt erscheinen oder verrutschen. */
-.view { will-change: transform, opacity; }
+/* will-change stand hier dauerhaft — auf allen dreizehn Ansichten, also auch
+   auf den zwoelf gerade versteckten. Der Browser haelt dafuer Ebenen vor, die
+   nie gebraucht werden, und auf dem Handy ist Speicher fuer Ebenen knapp. Es
+   gehoert nur dorthin, wo gerade wirklich etwas einblendet. */
+.view.enter-right, .view.enter-left, .view.enter-drop { will-change: transform, opacity; }
 .view.enter-right { animation: enterRight .32s cubic-bezier(.2,.8,.3,1) backwards; }
 .view.enter-left { animation: enterLeft .32s cubic-bezier(.2,.8,.3,1) backwards; }
 @keyframes enterRight { from { opacity: 0; transform: translateX(22px); } to { opacity: 1; transform: none; } }
@@ -2338,7 +2342,8 @@ html, body { overflow-x: clip; }
   backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
   box-shadow: var(--glass-edge), var(--shadow);
 }
-#view-chat.emotes-open #chat-box { height: calc(var(--vvh, 100dvh) - 300px - env(safe-area-inset-top, 0px)); }
+/* Die letzte feste Zahl von hier ist raus: die Emote-Leiste schwebt ueber der
+   Liste (position: absolute) und nimmt ihr keinen Platz weg. */
 #chat-cmds {
   position: absolute; left: 0; right: 0; bottom: 56px; z-index: 8; margin: 0;
   background: var(--glass-strong);
@@ -3012,7 +3017,12 @@ body:has(.sheet.open) {
 
 /* Milchglas auf Touch-Geraeten guenstiger: halber Blur sieht praktisch gleich
    aus, spart aber massiv GPU-Zeit (vor allem das 30px-Sheet) */
+/* Auf Beruehrungsgeraeten ist der Weichzeichner deutlich kleiner: der
+   eingelesene Bereich waechst mit dem Radius, 22 px liest rund 2,5-mal so viel
+   Flaeche ein wie 14 px. Zu sehen ist der Unterschied kaum, zu spueren schon. */
 @media (hover: none) and (pointer: coarse) {
+  :root { --blur: blur(14px) saturate(1.5); }
+
   .sheet {
     backdrop-filter: blur(14px) saturate(1.6);
     -webkit-backdrop-filter: blur(14px) saturate(1.6);
@@ -3450,7 +3460,6 @@ body.kb-open #chat-input-row { margin-top: 6px; }
 body.kb-open #chat-cmds { display: none !important; }
 /* Tastatur offen: noch dichter ran. Kopfzeile, Tabs und Eingabe zusammen
    brauchen ~150px — der Rest gehört dem Verlauf. */
-body.kb-open #view-chat .chat-tabs { margin-bottom: 4px; }
 /* Mit offener Tastatur darf die Liste beliebig klein werden. Die feste
    Mindesthoehe hat die Spalte hoeher gemacht als der sichtbare Ausschnitt —
    dann rutschte die Eingabezeile aus dem Bild und lag optisch ueber dem
@@ -3462,7 +3471,11 @@ body.kb-open #view-chat { min-height: 0; }
    solange ganz — auch, weil body.style.transform (der Ausgleich fuer den
    iOS-Versatz) fixierte Elemente an den Body haengt und sie sonst an der
    falschen Stelle stehen. */
-body.kb-open main { --menue-luft: 10px; }
+/* Tastatur offen: die Menueleiste haengt als position:fixed am Layout-Viewport
+   und liegt damit UNTER der Tastatur — man sieht sie nicht und kommt nicht
+   heran. Ihren Platz weiter abzuziehen kostete auf einem iPhone 130 px und
+   schob die Eingabezeile genau so weit von der Tastaturkante weg. */
+body.kb-open #view-chat { --chat-boden: var(--seitenpolster, 16px); }
 body.kb-open .tabbar,
 body.kb-open #bottom-fade,
 body.kb-open #wallet-mini { display: none; }
@@ -3800,27 +3813,64 @@ a.app-quest .app-quest-txt { flex: 1; min-width: 0; }
     transparent calc(var(--kopf-maske) - 18px), #000 calc(var(--kopf-maske) + 12px));
 }
 /* Der Farbgrund liegt in #wallet-farbfeld (ausserhalb von main), damit ihn
-   nichts beschneidet. Er traegt Farbe, Auslauf und Lichtbogen in drei Ebenen. */
-/* --kopf-unten ist angemeldet, damit CSS es weich fahren kann. Unangemeldete
-   Variablen springen in der Mitte einer Ueberblendung um — das waere genau der
-   Ruck, den wir loswerden wollen. */
-@property --kopf-unten {
-  syntax: '<length>'; inherits: true; initial-value: 0px;
-}
+   nichts beschneidet.
+
+   Runde 100 — warum das hier so umstaendlich aussieht: vorher hingen Hoehe UND
+   Maske an einer animierten Laenge. Jede der 26 Maskenstufen stand als
+   calc(var(--kopf-unten) + Npx) da, also musste der Verlauf in JEDEM Bild der
+   Ueberblendung neu erzeugt werden — bildschirmbreit, gemessen rund 1,8
+   Millionen Geraetepixel pro Bild auf einem Handy mit dreifacher Aufloesung.
+   Auf dem Rechner faellt das nicht auf, auf dem Handy sind das genau die
+   fehlenden Bilder.
+
+   Jetzt bewegt sich gar nichts mehr im Zeichnen: Hoehe und Maske sind fest,
+   nur VERSCHOBEN wird. Die Flaeche faehrt um --ff-versatz nach oben, die Farbe
+   darin um denselben Betrag nach unten — so wandert die weiche Kante mit dem
+   Kopf, waehrend der Farbverlauf stehen bleibt. Zwei Verschiebungen laufen auf
+   der Grafikkarte und kosten kein Neuzeichnen. */
 #wallet-farbfeld {
   position: absolute; top: 0; left: 0; right: 0;
-  /* Hoehe UND Maske haengen an derselben Zahl. Vorher setzte JavaScript die
-     Hoehe Bild fuer Bild und die Maske war an dieser Hoehe aufgehaengt: fiel
-     ein Bild aus, sass der steile Teil der Kurve ploetzlich direkt unter den
-     Tabs — der Strich, den man beim Umschalten sah. Jetzt ist beides
-     dieselbe Groesse, ein Auseinanderlaufen ist nicht mehr moeglich. */
-  height: calc(var(--kopf-unten) + 300px);
+  height: var(--ff-hoehe, 0px);
   z-index: 0; pointer-events: none; opacity: 0;
+  transform: translate3d(0, calc(-1 * var(--ff-versatz, 0px)), 0);
+  /* Die Stufen stehen relativ zu --ff-kopf, und das aendert sich nur bei
+     Groessenwechsel — waehrend der Ueberblendung bleibt der Verlauf derselbe
+     und kann zwischengespeichert werden. */
+  --auslauf: linear-gradient(to bottom,
+      rgba(0, 0, 0, 1) var(--ff-kopf, 0px),
+      rgba(0, 0, 0, .9994) calc(var(--ff-kopf, 0px) + 12px),
+      rgba(0, 0, 0, .9955) calc(var(--ff-kopf, 0px) + 24px),
+      rgba(0, 0, 0, .9857) calc(var(--ff-kopf, 0px) + 36px),
+      rgba(0, 0, 0, .9682) calc(var(--ff-kopf, 0px) + 48px),
+      rgba(0, 0, 0, .9421) calc(var(--ff-kopf, 0px) + 60px),
+      rgba(0, 0, 0, .9067) calc(var(--ff-kopf, 0px) + 72px),
+      rgba(0, 0, 0, .8624) calc(var(--ff-kopf, 0px) + 84px),
+      rgba(0, 0, 0, .8095) calc(var(--ff-kopf, 0px) + 96px),
+      rgba(0, 0, 0, .7491) calc(var(--ff-kopf, 0px) + 108px),
+      rgba(0, 0, 0, .6826) calc(var(--ff-kopf, 0px) + 120px),
+      rgba(0, 0, 0, .6114) calc(var(--ff-kopf, 0px) + 132px),
+      rgba(0, 0, 0, .5375) calc(var(--ff-kopf, 0px) + 144px),
+      rgba(0, 0, 0, .4625) calc(var(--ff-kopf, 0px) + 156px),
+      rgba(0, 0, 0, .3886) calc(var(--ff-kopf, 0px) + 168px),
+      rgba(0, 0, 0, .3174) calc(var(--ff-kopf, 0px) + 180px),
+      rgba(0, 0, 0, .2509) calc(var(--ff-kopf, 0px) + 192px),
+      rgba(0, 0, 0, .1905) calc(var(--ff-kopf, 0px) + 204px),
+      rgba(0, 0, 0, .1376) calc(var(--ff-kopf, 0px) + 216px),
+      rgba(0, 0, 0, .0933) calc(var(--ff-kopf, 0px) + 228px),
+      rgba(0, 0, 0, .0579) calc(var(--ff-kopf, 0px) + 240px),
+      rgba(0, 0, 0, .0318) calc(var(--ff-kopf, 0px) + 252px),
+      rgba(0, 0, 0, .0143) calc(var(--ff-kopf, 0px) + 264px),
+      rgba(0, 0, 0, .0045) calc(var(--ff-kopf, 0px) + 276px),
+      rgba(0, 0, 0, .0006) calc(var(--ff-kopf, 0px) + 288px),
+      rgba(0, 0, 0, 0) calc(var(--ff-kopf, 0px) + 300px));
+  mask-image: var(--auslauf);
+  -webkit-mask-image: var(--auslauf);
   transition: opacity .35s ease,
-              --kopf-unten .45s cubic-bezier(.22, 1, .32, 1);
+              transform .46s cubic-bezier(.22, 1, .32, 1);
 }
 /* Beim Messen der Zielhoehe darf nichts laufen (siehe kopfZielUnten in app.js) */
 body.misst #wallet-farbfeld,
+body.misst #wallet-farbfeld::after,
 body.misst #wallet-kopf-geld,
 body.misst .wallet-kopf { transition: none !important; }
 body.wallet-farbe #wallet-farbfeld { opacity: 1; }
@@ -3829,68 +3879,9 @@ body.wallet-farbe #wallet-farbfeld { opacity: 1; }
   background:
     radial-gradient(circle at 84% 6%, rgba(255, 255, 255, .17), transparent 46%),
     linear-gradient(172deg, var(--kopf-k1, #0E9C64) 0%, var(--kopf-k2, #12C77E) 52%, var(--kopf-k3, #23D992) 100%);
-  /* Der Auslauf geht nach ECHTER Transparenz, nicht auf eine Grundfarbe zu.
-     Hinter der Seite liegt ein fester Farbschleier (body::before, z-index -1),
-     der den Grund gruen/violett tont. Ein Auslauf, der auf das flache
-     --seitengrund endet, trifft diesen Ton nie — genau da lag die Linie.
-     Mit der Maske verschwindet die Farbe wirklich, dahinter laeuft der
-     Seitengrund unveraendert weiter.
-
-     Die Kurve ist ein Smootherstep (6t^5 - 15t^4 + 10t^3). Der ist als
-     einziger einfacher Verlauf an BEIDEN Enden in Steigung UND Kruemmung
-     null. Das ist der Punkt: nicht die Steilheit macht die Kante sichtbar,
-     sondern der KNICK. Vorher lief die Rampe stueckweise gerade und sprang
-     an ihrem Anfang von 0 auf 0,63 % Deckkraft pro Pixel — und ihr Anfang
-     liegt genau auf der Kopf-Unterkante. Also sass der Knick exakt dort, wo
-     die Kante zu sehen war.
-
-     Jetzt beginnt die Rampe mit Steigung 0,000 % pro Pixel. Ihre steilste
-     Stelle (0,63 %) sitzt in der Mitte, 150 px unter dem Kopf, wo keine
-     Bezugskante daneben steht. Nachgemessen mit einem Center-Surround-Filter
-     ueber dem Helligkeitsprofil: die Antwortspitze faellt auf ein Drittel
-     bis ein Fuenftel und wandert dabei von der Kopf-Unterkante weg ins
-     freie Feld. Im Dunkelmodus war sie am staerksten, dort wirkt es am
-     meisten.
-
-     Die Deckkraft an der Kopf-Unterkante bleibt exakt 1.0 — Chipleiste und
-     weisse Kopfschrift behalten ihren Kontrast.
-
-     Aufgehaengt ist alles an --kopf-unten, der Unterkante des Kopfes. Die
-     Feldhoehe oben rechnet mit derselben Variablen, deshalb koennen Maske und
-     Flaeche nicht mehr auseinanderlaufen — auch nicht, wenn waehrend der
-     Animation ein Bild ausfaellt. Wer die 300 aendert, muss die Stopps neu
-     abtasten und die Feldhoehe mitziehen:
-     alpha = 1 - (6t^5 - 15t^4 + 10t^3), t = k/25, Ort = --kopf-unten + L*k/25 */
-  --auslauf: linear-gradient(to bottom,
-      rgba(0, 0, 0, 1) var(--kopf-unten),
-      rgba(0, 0, 0, .9994) calc(var(--kopf-unten) + 12px),
-      rgba(0, 0, 0, .9955) calc(var(--kopf-unten) + 24px),
-      rgba(0, 0, 0, .9857) calc(var(--kopf-unten) + 36px),
-      rgba(0, 0, 0, .9682) calc(var(--kopf-unten) + 48px),
-      rgba(0, 0, 0, .9421) calc(var(--kopf-unten) + 60px),
-      rgba(0, 0, 0, .9067) calc(var(--kopf-unten) + 72px),
-      rgba(0, 0, 0, .8624) calc(var(--kopf-unten) + 84px),
-      rgba(0, 0, 0, .8095) calc(var(--kopf-unten) + 96px),
-      rgba(0, 0, 0, .7491) calc(var(--kopf-unten) + 108px),
-      rgba(0, 0, 0, .6826) calc(var(--kopf-unten) + 120px),
-      rgba(0, 0, 0, .6114) calc(var(--kopf-unten) + 132px),
-      rgba(0, 0, 0, .5375) calc(var(--kopf-unten) + 144px),
-      rgba(0, 0, 0, .4625) calc(var(--kopf-unten) + 156px),
-      rgba(0, 0, 0, .3886) calc(var(--kopf-unten) + 168px),
-      rgba(0, 0, 0, .3174) calc(var(--kopf-unten) + 180px),
-      rgba(0, 0, 0, .2509) calc(var(--kopf-unten) + 192px),
-      rgba(0, 0, 0, .1905) calc(var(--kopf-unten) + 204px),
-      rgba(0, 0, 0, .1376) calc(var(--kopf-unten) + 216px),
-      rgba(0, 0, 0, .0933) calc(var(--kopf-unten) + 228px),
-      rgba(0, 0, 0, .0579) calc(var(--kopf-unten) + 240px),
-      rgba(0, 0, 0, .0318) calc(var(--kopf-unten) + 252px),
-      rgba(0, 0, 0, .0143) calc(var(--kopf-unten) + 264px),
-      rgba(0, 0, 0, .0045) calc(var(--kopf-unten) + 276px),
-      rgba(0, 0, 0, .0006) calc(var(--kopf-unten) + 288px),
-      rgba(0, 0, 0, 0) calc(var(--kopf-unten) + 300px));
-  mask-image: var(--auslauf);
-  -webkit-mask-image: var(--auslauf);
-  transition: background .6s ease;
+  /* Gegenbewegung: die Flaeche faehrt hoch, die Farbe bleibt stehen */
+  transform: translate3d(0, var(--ff-versatz, 0px), 0);
+  transition: transform .46s cubic-bezier(.22, 1, .32, 1), background .6s ease;
 }
 main { position: relative; z-index: 1; }
 .wallet-kopf-inner { position: relative; z-index: 1; padding-bottom: 16px; }
@@ -4416,7 +4407,10 @@ body.gescrollt:not(.wallet-farbe) .topbar::before { opacity: 1; }
 
 /* --- Wechsel zwischen Gutscheinen und Karten: ruhiger --- */
 #wallet-content.tab-in, #coupons-content.tab-in {
-  animation: tabSanft .38s cubic-bezier(.22, 1, .32, 1) both;
+  /* Kuerzer als vorher: die Ebene muss fuer die Einblendung in voller Groesse
+     gerastert werden (351x730 mit 19 Schatten), und das faellt ins erste Bild
+     der Kopfbewegung. Je kuerzer, desto weniger Bilder teilen sich die Last. */
+  animation: tabSanft .26s cubic-bezier(.22, 1, .32, 1) both;
 }
 @keyframes tabSanft {
   from { opacity: 0; transform: translate3d(0, 10px, 0); }
@@ -4427,10 +4421,10 @@ body.gescrollt:not(.wallet-farbe) .topbar::before { opacity: 1; }
               opacity .26s ease;
 }
 #wallet-kopf-geld.zu { transform: none; }   /* kein zusaetzliches Verschieben */
-/* Hoehe und Maske folgen --kopf-unten, deshalb muss die Ueberblendung dieser
-   Variablen hier mitgenannt werden — sonst faellt sie unter den Tisch. */
+/* Diese Regel steht nach der oberen und muss die Ueberblendung deshalb
+   wiederholen — sonst faellt sie unter den Tisch. */
 #wallet-farbfeld {
-  transition: opacity .3s ease, --kopf-unten .45s cubic-bezier(.22, 1, .32, 1);
+  transition: opacity .3s ease, transform .46s cubic-bezier(.22, 1, .32, 1);
 }
 .bereich-zeile { display: flex; align-items: center; gap: 10px; margin: 24px 0 12px; }
 .bereich-zeile .bereich-titel { flex: none; }
@@ -4796,11 +4790,13 @@ body.gescrollt:not(.wallet-farbe) .topbar::before { opacity: 1; }
      aufgeht — dann gilt es. Haengt es aus irgendeinem Grund hinterher und ist
      zu gross, faengt 100dvh das ab. So kann die Spalte nie hoeher werden als
      der Bildschirm, egal welcher Wert veraltet ist. */
+  /* Was unten frei bleiben muss, steht als EIN Wert da — dann laesst es sich in
+     einem Zug abraeumen, sobald die Menueleiste weg ist. */
+  --chat-boden: calc(var(--menue-luft, 96px) + env(safe-area-inset-bottom, 0px));
   height: calc(min(var(--vvh, 100dvh), 100dvh)
     - var(--kopfzeile-h, 62px)
     - var(--seitenpolster, 20px)
-    - var(--menue-luft, 96px)
-    - env(safe-area-inset-bottom, 0px));
+    - var(--chat-boden));
   /* Klein genug, dass die Spalte auf einem quer gedrehten Handy (Hoehe um die
      360 px) nicht ueber den Bildschirm hinauswaechst und die Eingabezeile unter
      die Menueleiste schiebt. */

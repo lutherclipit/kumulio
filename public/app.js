@@ -5643,6 +5643,13 @@ function packAnimation(kartenEl, richtung = 'ein') {
 }
 
 
+// Hoechstens eine Lupe ist offen — hier steht die, die gerade laeuft.
+// (Diese Zeile ist beim Umbau in Runde 99 verlorengegangen. Ohne sie warf
+// gleich die erste Zeile von zeigeKarteGross einen ReferenceError, die
+// Funktion brach ab, bevor ueberhaupt ein Element entstand — deshalb passierte
+// beim Tippen auf die Sparkarte gar nichts.)
+let lupeOffen = null;
+
 // Der Kern: eine Karte gross in die Mitte holen, den Rest unscharf, und den
 // Weg dorthin aus der Kachel heraus rechnen statt zu raten. Beide Wege in die
 // Lupe (Marken-Raster und Gutschein-Blatt) benutzen dieselbe Funktion — sonst
@@ -7194,7 +7201,7 @@ function kopfDrehen(zu) {
       clearTimeout(kopfHoeheTimer);
       kopfHoeheTimer = setTimeout(() => {
         geld.style.gridTemplateRows = '';
-        passeFarbfeldAn();
+        setzeFarbfeldNeu();   // andere Seite, andere Kopfhoehe
       }, 430);
     }
     passeFarbfeldAn();
@@ -7284,38 +7291,64 @@ function messeKopfzeile() {
   // Leiste endet — sonst greift die Aufloesung erst beim ersten Scrollen.
   pruefeKopfzeile();
 }
-// Das Farbfeld haengt an einer einzigen Zahl: --kopf-unten, der Unterkante des
-// Kopfes. Hoehe und Maske leiten sich in CSS beide daraus ab, und CSS faehrt
-// sie weich (siehe @property in style.css).
+// Das Farbfeld wird nicht mehr neu gezeichnet, sondern nur noch verschoben.
 //
-// Vorher lief hier ein rAF-Band, das die Hoehe Bild fuer Bild neu setzte und
-// dafuer jedes Mal die Seite neu vermessen liess. Das war teuer genug, um auf
-// dem Handy Bilder fallen zu lassen — und wenn ein Bild ausfiel, hinkte die
-// Feldhoehe der Kopfhoehe hinterher. Weil die Maske an der Feldhoehe hing, sass
-// der steile Teil der Kurve dann mitten unter den Tabs: der Strich, den man
-// beim Umschalten sah. Ruckeln und Strich waren derselbe Fehler.
+// Drei Werte steuern es (siehe style.css):
+//   --ff-kopf    wo die weiche Kante anfaengt, gemessen am AUFGEKLAPPTEN Kopf
+//   --ff-hoehe   Gesamthoehe, also --ff-kopf plus 300 px Auslauf
+//   --ff-versatz wie weit die Flaeche gerade nach oben gefahren ist
+// Die ersten beiden aendern sich nur bei einem Groessenwechsel, deshalb bleibt
+// der 26-stufige Verlauf waehrend der Ueberblendung derselbe und muss nicht in
+// jedem Bild neu erzeugt werden. Bewegt wird nur --ff-versatz, und das ist eine
+// reine Verschiebung auf der Grafikkarte.
+//
+// Davor: Hoehe UND Maske hingen an einer animierten Laenge. Gemessen waren das
+// rund 1,8 Millionen Geraetepixel Verlauf pro Bild auf einem Handy — der Grund
+// fuer die niedrige Bildrate beim Umschalten.
+let ffKopfMax = 0;
 function passeFarbfeldAn(zielUnten, sofort = zielUnten === undefined) {
   const feld = $('#wallet-farbfeld');
   const kopf = $('#wallet-kopf');
   if (!feld || !kopf) return;
   if (state.activeView !== 'wallet' || !state.token) {
-    feld.style.setProperty('--kopf-unten', '0px');
+    feld.style.setProperty('--ff-versatz', '0px');
     return;
   }
   const unten = zielUnten ?? (kopf.getBoundingClientRect().bottom + window.scrollY);
-  const wert = Math.round(unten) + 'px';
+  // Der aufgeklappte Kopf ist der Bezugspunkt. Er wird einmal gemessen und nur
+  // dann neu, wenn er sich wirklich geaendert hat (Drehung, Groessenwechsel).
+  // Wichtig: gleich beim ersten Mal den AUFGEKLAPPTEN Wert nehmen, auch wenn
+  // man in der Coupon-Ansicht einsteigt — sonst waechst der Bezugspunkt beim
+  // ersten Wechsel nach oben und die Flaeche springt einmal.
+  if (!ffKopfMax) ffKopfMax = Math.round(kopfZielUnten(false));
+  const max = Math.max(ffKopfMax, Math.round(unten));
+  // Auch schreiben, wenn der Wert gleich bleibt, aber noch nie gesetzt wurde —
+  // sonst rechnet das Feld mit der Vorgabe 0 und bleibt unsichtbar.
+  if (max !== ffKopfMax || !feld.style.getPropertyValue('--ff-kopf')) {
+    ffKopfMax = max;
+    feld.style.setProperty('--ff-kopf', max + 'px');
+    feld.style.setProperty('--ff-hoehe', (max + 300) + 'px');
+  }
+  const versatz = Math.max(0, ffKopfMax - Math.round(unten)) + 'px';
   // Nur beim Tabwechsel soll die Farbe fahren. Beim Betreten der Wallet, beim
-  // Kartendreh oder nach einem Groessenwechsel soll sie einfach sitzen —
-  // sonst waechst der Farbgrund beim Aufmachen sichtbar von oben herein.
+  // Seitenwechsel oder nach einem Groessenwechsel soll sie einfach sitzen.
   if (sofort) {
     document.body.classList.add('misst');
-    feld.style.setProperty('--kopf-unten', wert);
+    feld.style.setProperty('--ff-versatz', versatz);
     void feld.offsetHeight;
     document.body.classList.remove('misst');
   } else {
-    feld.style.setProperty('--kopf-unten', wert);
+    feld.style.setProperty('--ff-versatz', versatz);
   }
 }
+
+// Wenn der Kopf hoeher wird (Analyse-Seite, Groessenwechsel), muss der
+// Bezugspunkt neu gesetzt werden — sonst fiele der Auslauf mitten in den Kopf.
+function setzeFarbfeldNeu() {
+  ffKopfMax = 0;
+  passeFarbfeldAn();
+}
+addEventListener('orientationchange', () => setTimeout(setzeFarbfeldNeu, 300));
 
 // Wo endet der Kopf, NACHDEM er auf- oder zugeklappt ist? Wir schalten kurz um,
 // messen und schalten zurueck — alles innerhalb eines Bildes und mit
@@ -7337,7 +7370,7 @@ function kopfZielUnten(zu) {
   document.body.classList.remove('misst');
   return unten;
 }
-addEventListener('resize', messeKopfzeile);
+addEventListener('resize', () => { ffKopfMax = 0; messeKopfzeile(); });
 addEventListener('orientationchange', () => setTimeout(messeKopfzeile, 250));
 // Sofort messen: der Kopf richtet sein Polster danach aus, und die Safe-Area
 // eines iPhones macht die Kopfzeile deutlich hoeher als der Vorgabewert
@@ -8514,6 +8547,11 @@ if (window.visualViewport) {
   let vvBaseH = 0;
   const applyVV = () => {
     const vv = window.visualViewport;
+    // Beim ersten Lauf meldet visualViewport gelegentlich die Hoehe 0. Wird die
+    // uebernommen, rechnet der Chat mit min(0px, 100dvh) = 0 und faellt auf
+    // seine Mindesthoehe zurueck — der Verlauf war dann zehn Pixel hoch. Ein
+    // einziger Nullwert legt so den ganzen Chat lahm; deshalb wird er verworfen.
+    if (!(vv.height > 0)) return;
     document.documentElement.style.setProperty('--vvh', vv.height + 'px');
     // Tastatur offen? Referenz ist die groesste je gesehene Hoehe — dann darf
     // der Chat-Puffer schrumpfen (die Tabbar-Zone liegt eh unter der Tastatur)
