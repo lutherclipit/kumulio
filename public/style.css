@@ -1953,9 +1953,14 @@ body { -webkit-user-select: none; user-select: none; }
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 24;
   height: calc(96px + env(safe-area-inset-bottom, 0px));
   pointer-events: none;
-  backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
-  mask-image: linear-gradient(180deg, transparent 0, #000 78%);
-  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 78%);
+  /* Frueher ein Weichzeichner ueber die ganze Breite. Der musste bei JEDER
+     Aenderung dahinter neu gerechnet werden — also auch in jedem Bild einer
+     Bewegung. Fuers Auge tut ein Verlauf dasselbe: der Inhalt laeuft nach
+     unten aus, bevor die Menueleiste kommt. Nur kostet er nichts. */
+  background: linear-gradient(180deg,
+    transparent 0,
+    color-mix(in srgb, var(--seitengrund) 55%, transparent) 52%,
+    color-mix(in srgb, var(--seitengrund) 88%, transparent) 100%);
 }
 
 /* Achievements: dezent unten rechts überm Menü, mit Blur */
@@ -2039,12 +2044,18 @@ body { -webkit-user-select: none; user-select: none; }
 #wallet-vendor-filters .chip { display: inline-flex; align-items: center; gap: 6px; }
 #wallet-vendor-filters .brand-chip { width: 20px; height: 20px; font-size: .5rem; }
 
-/* Boden-Blur weicher ausblenden */
+/* Boden: weicher Auslauf statt Weichzeichner. Diese zweite Regel hatte den
+   Weichzeichner wieder eingeschaltet — sie steht spaeter in der Datei als die
+   erste und gewann deshalb. Jetzt beide ohne. */
 #bottom-fade {
   height: calc(130px + env(safe-area-inset-bottom, 0px));
-  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-  mask-image: linear-gradient(180deg, transparent 0, rgba(0,0,0,.35) 45%, rgba(0,0,0,.8) 75%, #000 100%);
-  -webkit-mask-image: linear-gradient(180deg, transparent 0, rgba(0,0,0,.35) 45%, rgba(0,0,0,.8) 75%, #000 100%);
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+  background: linear-gradient(180deg,
+    transparent 0,
+    color-mix(in srgb, var(--seitengrund) 42%, transparent) 45%,
+    color-mix(in srgb, var(--seitengrund) 78%, transparent) 75%,
+    color-mix(in srgb, var(--seitengrund) 92%, transparent) 100%);
+  mask-image: none; -webkit-mask-image: none;
 }
 
 /* Chat: kompakt, fix, Tastatur-sicher (sichtbare Höhe als Variable) */
@@ -4318,7 +4329,6 @@ body.gescrollt:not(.wallet-farbe) .topbar { border-bottom-color: transparent; }
 /* --- Analyse: nichts darf springen ---------------------------------------
    Die Rueckseite hatte je nach Betragslaenge eine andere Hoehe, dadurch
    wuchs und schrumpfte der ganze Kopf. Feste Hoehen halten ihn ruhig. */
-#kopf-hinten { min-height: 196px; }
 #kopf-vorne { min-height: 196px; }
 .stat-zahlen {
   display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
@@ -4416,15 +4426,13 @@ body.gescrollt:not(.wallet-farbe) .topbar::before { opacity: 1; }
 
 /* --- Wechsel zwischen Gutscheinen und Karten: ruhiger --- */
 #wallet-content.tab-in, #coupons-content.tab-in {
-  /* Kuerzer als vorher: die Ebene muss fuer die Einblendung in voller Groesse
-     gerastert werden (351x730 mit 19 Schatten), und das faellt ins erste Bild
-     der Kopfbewegung. Je kuerzer, desto weniger Bilder teilen sich die Last. */
-  animation: tabSanft .26s cubic-bezier(.22, 1, .32, 1) both;
+  /* Fuer die Einblendung muss die ganze Flaeche (351x730 mit Verlaeufen und
+     Schatten) vorab gerastert werden, und das faellt ins erste Bild der
+     Kopfbewegung. Deshalb kurz und ohne Verschiebung — eine reine
+     Deckkraft-Blende braucht keine zweite Ebene fuer die Bewegung. */
+  animation: tabSanft .2s ease-out both;
 }
-@keyframes tabSanft {
-  from { opacity: 0; transform: translate3d(0, 10px, 0); }
-  to   { opacity: 1; transform: none; }
-}
+@keyframes tabSanft { from { opacity: 0; } to { opacity: 1; } }
 #wallet-kopf-geld {
   transition: grid-template-rows .3s cubic-bezier(.22, 1, .32, 1),
               opacity .26s ease;
@@ -4996,11 +5004,11 @@ body.wallet-farbe main { padding-bottom: calc(var(--menue-luft) + 34px + env(saf
 #wallet-mini:not(.show) {
   backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
 }
-/* Waehrend der Wallet-Umschaltung ruht auch der Boden-Weichzeichner. Er liegt
-   unter der Menueleiste, ist reine Deko und faellt in den 500 ms niemandem auf. */
-body.wallet-wechsel #bottom-fade {
-  backdrop-filter: none; -webkit-backdrop-filter: none;
-}
+/* Hier wurde der Boden-Weichzeichner waehrend der Umschaltung abgeschaltet —
+   auch das ein Eigentor: an- und ausschalten heisst, die Ebene zweimal pro
+   Umschaltung neu aufzubauen. Stattdessen ist er jetzt dauerhaft ohne
+   Weichzeichner (siehe #bottom-fade weiter oben): ein Verlauf tut dasselbe
+   fuers Auge und kostet nichts. */
 
 
 /* ============ Runde 100: weniger Neuzeichnen beim Umschalten =============== */
@@ -5008,10 +5016,11 @@ body.wallet-wechsel #bottom-fade {
    der Browser diese Flaeche (351x730 mit Verlaeufen und Schatten) in jedem
    Bild neu; mit eigener Ebene wird sie nur verschoben. Der Hinweis steht nur
    waehrend der halben Sekunde an — dauerhaft kostet er Speicher. */
-body.wallet-wechsel #wallet-content,
-body.wallet-wechsel #coupons-content,
-body.wallet-wechsel #wallet-modes,
-body.wallet-wechsel .wallet-kopf-inner { will-change: transform; }
+/* Hier stand ein will-change, das erst beim Start der Bewegung gesetzt wurde.
+   Das ist ein Eigentor: der Browser legt in genau diesem Moment neue Ebenen an
+   und muss sie sofort fuellen — die Kosten fallen in dasselbe Bild, das man
+   entlasten wollte. Auf einem Handy mit knappem Speicher ist das schlimmer als
+   der Fehler, den es beheben sollte. Weg damit. */
 /* Beim Tabwechsel faellt die Hoehe in EINEM Schritt (siehe kopfUmschalten in
    app.js). Die Ueberblendung hier gilt weiter fuer den Analyse-Wechsel, wo die
    Hoehe sich ohnehin nur einmal aendert. */
@@ -5030,3 +5039,30 @@ body.wallet-wechsel .pfb-plasma { animation-play-state: paused; }
 body.versteckt .pfb-neonpink, body.versteckt .pfb-eisring,
 body.versteckt .pfb-regenbogen, body.versteckt .pfb-plasma,
 body.versteckt .pn-anim { animation-play-state: paused; }
+
+
+/* ============ Runde 100: Analyse im eigenen Blatt ========================== */
+.stat-uebertitel {
+  display: block; font-size: .8rem; font-weight: 800;
+  color: var(--muted); margin-bottom: 10px;
+}
+#sheet-content .stat-kopf { margin-bottom: 6px; }
+#sheet-content .stat-ranges { display: flex; gap: 8px; }
+#sheet-content .stat-zahlen { margin: 14px 0 6px; }
+
+/* Die Analyse lag frueher auf dem farbigen Kopf, deshalb war alles weiss. Im
+   Blatt steht sie auf hellem Grund — also die Farben, die man erwartet:
+   Aufgeladen gruen, Ausgegeben rot. */
+#sheet-content {
+  --stat-rein: var(--accent-strong, #0E9C64);
+  --stat-raus: #E23D2E;
+  --stat-achse: var(--muted);
+}
+#sheet-content .stat-punkt.rein { background: var(--stat-rein); box-shadow: none; }
+#sheet-content .stat-punkt.raus { background: var(--stat-raus); box-shadow: none; }
+#sheet-content .stat-zahlen div { color: var(--text); opacity: 1; }
+#sheet-content .stat-zahlen b { color: var(--text); }
+#sheet-content .stat-ranges .chip.active {
+  background: var(--chip-active-bg, #1a1e24) !important;
+  color: var(--chip-active-fg, #fff) !important;
+}
