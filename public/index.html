@@ -544,9 +544,14 @@
 
     <!-- ================= GLOBAL-CHAT (Vollbild bis zum Header) ================= -->
     <section id="view-chat" class="view hidden">
-      <div id="chat-modes">
-        <button class="chip active" data-cmode="global">Global</button>
-        <button class="chip" data-cmode="dmlist">Freunde <span id="dm-unread" class="pill hidden"></span></button>
+      <!-- Zwei Titel, links und rechts, dahinter gleitet die Flaeche.
+           Frueher waren das zwei Chips in der Mitte — die sahen aus wie
+           Filter, obwohl sie zwei getrennte Ansichten umschalten. -->
+      <div id="chat-modes" role="tablist">
+        <span class="cm-flaeche" aria-hidden="true"></span>
+        <button class="cm-titel active" data-cmode="global" role="tab" aria-selected="true">Global</button>
+        <button class="cm-titel" data-cmode="dmlist" role="tab" aria-selected="false">
+          Freunde <span id="dm-unread" class="pill hidden"></span></button>
       </div>
       <div id="dm-head" class="hidden">
         <button class="iconbtn back-btn" id="dm-back" aria-label="Zurück">

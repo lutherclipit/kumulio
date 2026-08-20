@@ -4272,8 +4272,9 @@ body.gescrollt:not(.wallet-farbe) .topbar { border-bottom-color: transparent; }
 
 /* Rang klein neben der Gutschein-Zahl statt als eigene Karte */
 .rang-klein {
-  font-weight: 700; opacity: .95; cursor: pointer;
-  border-bottom: 1px dotted rgba(255, 255, 255, .5);
+  /* Frueher gepunktet unterstrichen. Das las sich wie ein Link mitten im
+     Satz; der Rang ist aber einfach eine Angabe. Antippbar bleibt er. */
+  font-weight: 800; opacity: .95; cursor: pointer;
 }
 .rang-trenner { opacity: .6; }
 
@@ -4797,3 +4798,128 @@ body.wallet-farbe main { padding-bottom: calc(var(--menue-luft) + 34px + env(saf
   font-family: inherit; font-size: .84rem; font-weight: 700;
   letter-spacing: .01em; opacity: .92;
 }
+
+
+/* ============ Runde 99: Filterwechsel gleitet ============================== */
+/* Der aktive Filter wird nicht mehr eingefaerbt — dahinter gleitet eine Pille
+   an ihren Platz. Nur transform und Groesse, also billig genug fuers Handy. */
+.wallet-filters { position: relative; }
+.filter-pille {
+  position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 0;
+  border-radius: 999px; opacity: 0; pointer-events: none;
+  background: var(--chip-active-bg, #1a1e24);
+  box-shadow: 0 3px 10px rgba(10, 14, 18, .18);
+  transition: transform .42s cubic-bezier(.3, 1.2, .45, 1),
+              width .42s cubic-bezier(.3, 1.2, .45, 1),
+              height .3s ease, opacity .25s ease;
+}
+.wallet-filters .chip.active {
+  /* Den Grund malt die Pille — der Chip traegt nur noch die Schrift */
+  background: transparent; box-shadow: none; border-color: transparent;
+  color: var(--chip-active-fg, #fff);
+}
+@media (prefers-reduced-motion: reduce) { .filter-pille { transition: opacity .2s ease; } }
+
+/* ============ Runde 99: Chat-Umschalter und Fluester-Liste ================= */
+/* Zwei Titel, links Global, rechts Freunde. Dahinter gleitet eine Flaeche
+   herueber — nur transform, also billig. Die Chips davor sahen aus wie
+   Filter, dabei schalten sie zwei getrennte Ansichten um. */
+#chat-modes {
+  position: relative; display: grid; grid-template-columns: 1fr 1fr;
+  gap: 0; margin-bottom: 14px; padding: 5px;
+  background: var(--surface); border: 1px solid var(--stroke-light);
+  border-radius: 16px; box-shadow: var(--glass-edge);
+  overflow: visible;
+}
+.cm-flaeche {
+  position: absolute; left: 5px; top: 5px; bottom: 5px; width: calc(50% - 5px);
+  border-radius: 12px; background: var(--chip-active-bg, #1a1e24);
+  box-shadow: 0 3px 12px rgba(10, 14, 18, .2);
+  transition: transform .42s cubic-bezier(.3, 1.2, .45, 1);
+  z-index: 0;
+}
+#chat-modes.rechts .cm-flaeche { transform: translateX(100%); }
+.cm-titel {
+  position: relative; z-index: 1;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  background: none; border: none; padding: 11px 8px;
+  font: inherit; font-size: 1rem; font-weight: 800; letter-spacing: -.01em;
+  color: var(--muted); cursor: pointer;
+  transition: color .32s ease, transform .2s var(--spring);
+}
+.cm-titel.active { color: var(--chip-active-fg, #fff); }
+.cm-titel:active { transform: scale(.97); }
+.cm-titel .pill { font-size: .64rem; padding: 1px 6px; }
+
+/* Die Liste schiebt in die Richtung herein, in die getippt wurde */
+#chat-box.kommt-rechts #chat-list { animation: chatVonRechts .34s cubic-bezier(.22, 1, .32, 1) both; }
+#chat-box.kommt-links #chat-list { animation: chatVonLinks .34s cubic-bezier(.22, 1, .32, 1) both; }
+@keyframes chatVonRechts { from { opacity: 0; transform: translate3d(26px, 0, 0); } }
+@keyframes chatVonLinks  { from { opacity: 0; transform: translate3d(-26px, 0, 0); } }
+
+/* --- Fluester-Liste: Zeilen statt Knopfreihe ------------------------------
+   Vorher klebten die Zeilen aneinander und waren so hoch wie ein Chip. Jetzt
+   haben sie Luft, ein groesseres Bild und eine feine Trennlinie. */
+.dm-row {
+  display: flex; align-items: center; gap: 13px; width: 100%;
+  padding: 13px 14px; border: none; border-radius: 16px;
+  background: var(--surface); color: var(--text); font: inherit;
+  text-align: left; cursor: pointer;
+  transition: background .2s ease, transform .18s var(--spring);
+}
+.dm-row + .dm-row { margin-top: 8px; }
+.dm-row:active { transform: scale(.985); background: var(--surface-2); }
+.dm-row .avatar-mini { width: 46px; height: 46px; font-size: 1.02rem; flex: 0 0 auto; }
+.dm-row-name { font-size: 1rem; font-weight: 800; letter-spacing: -.01em; }
+.dm-row-last {
+  font-size: .84rem; color: var(--muted); margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dm-unread-pill {
+  flex: 0 0 auto; min-width: 22px; height: 22px; padding: 0 7px;
+  display: grid; place-items: center; border-radius: 999px;
+  background: var(--k-accent, #12C77E); color: #fff;
+  font-size: .72rem; font-weight: 800;
+}
+/* Ueberschrift ueber den Freunden ohne Chat */
+.dm-trenner {
+  margin: 18px 0 8px; padding: 0 4px;
+  font-size: .76rem; font-weight: 800; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--muted);
+}
+#chat-list:has(.dm-row) { gap: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .cm-flaeche { transition: none; }
+  #chat-box.kommt-rechts #chat-list, #chat-box.kommt-links #chat-list { animation: none; }
+}
+
+/* ============ Runde 99: Verschenken im Blatt, Ein- und Auspacken =========== */
+.schenk-kopf {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
+}
+.schenk-kopf .back-btn { flex: 0 0 auto; }
+/* Der Gutschein bleibt oben stehen, waehrend man den Freund waehlt — man soll
+   die ganze Zeit sehen, was da gerade weggeht. */
+.schenk-karte { margin-bottom: 4px; pointer-events: none; }
+.schenk-karte .wallet-card { margin: 0; }
+
+/* Die Buehne fuers Ein- und Auspacken liegt ueber allem, faengt aber nichts ab */
+.pack-buehne {
+  position: fixed; inset: 0; z-index: 200; pointer-events: none;
+  display: grid; place-items: center;
+}
+.pack-karte {
+  position: fixed; margin: 0; will-change: transform, opacity;
+}
+.pack-karte .wallet-card { margin: 0; width: 100%; height: 100%; }
+.pack-box { position: relative; z-index: 1; image-rendering: auto; will-change: transform; }
+.pack-blitz {
+  position: absolute; width: 190px; height: 190px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, .9) 0%,
+              rgba(255, 220, 130, .55) 42%, transparent 70%);
+  opacity: 0; will-change: transform, opacity;
+}
+.auspack-karte { margin: 12px 0 6px; }
+
+@media (prefers-reduced-motion: reduce) { .pack-buehne { display: none; } }
