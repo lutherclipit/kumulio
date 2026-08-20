@@ -6727,16 +6727,18 @@ function updateWalletTab(anim) {
 
 const walletDeckOpen = new Set();
 const walletDeckShown = {};
-let walletFlatShown = 12;
-// Wie viele Gutscheinkarten hoechstens gleichzeitig im Baum stehen duerfen
-let walletSicht = 14;
+let walletFlatShown = 10;
+// Wie viele Gutscheinkarten hoechstens gleichzeitig im Baum stehen duerfen.
+// Zehn am Anfang, zehn pro Schritt — nachgeladen wird nur auf Tastendruck.
+const SICHT_SCHRITT = 10;
+let walletSicht = SICHT_SCHRITT;
 // Alles wieder einklappen — beim Betreten der Wallet, bei Filter- und Sortierwechsel.
 // So sieht man immer erst die aufgeraeumten Stapel, nie eine Wand aus Karten.
 function restack() {
   walletDeckOpen.clear();
   Object.keys(walletDeckShown).forEach(k => delete walletDeckShown[k]);
-  walletFlatShown = 12;
-  walletSicht = 14;
+  walletFlatShown = SICHT_SCHRITT;
+  walletSicht = SICHT_SCHRITT;
 }
 // Die Pille hinter dem aktiven Filter. Sie liegt in der Leiste und wird nur
 // verschoben und in der Groesse gesetzt — kein Neuaufbau, deshalb gleitet der
@@ -6872,8 +6874,9 @@ function renderWallet() {
   // EINER Karte (nur die oberste wird wirklich gerendert). Antippen faechert
   // auf, und auch dann kommen die Karten portionsweise — die Wallet bleibt
   // leicht, egal wie viele REWE-Gutscheine man hortet.
-  const DECK_MIN = 3, DECK_CHUNK = 6;
-  const moreBtn = (key, n) => `<button class="deck-more" data-deck-more="${esc(key)}">${n} weitere anzeigen</button>`;
+  const DECK_MIN = 3, DECK_CHUNK = SICHT_SCHRITT;
+  const moreBtn = (key, n) => `<button class="deck-more" data-deck-more="${esc(key)}">
+      Weitere anzeigen<small>noch ${n}</small></button>`;
   // Nur die Volltextsuche zeigt eine flache Liste — da sucht man ja gezielt.
   // Filter und Sortierung behalten Stapel, nur die Gruppierung wechselt:
   // ohne Markenfilter nach Händler, sonst nach Wert (REWE 25 €, REWE 50 € …).
@@ -6942,9 +6945,22 @@ function renderWallet() {
     }
     voucherHtml = teile.join('') + (rest > 0 ? moreBtn('__sicht', rest) : '');
   }
-  $('#voucher-list').innerHTML = voucherHtml;
+  const liste = $('#voucher-list');
+  const vorher = renderWallet.letzteListe || '';
+  const knopfAb = vorher.lastIndexOf('<button class="deck-more"');
+  const vorherOhneKnopf = knopfAb >= 0 ? vorher.slice(0, knopfAb) : vorher;
+  if (vorher && liste.firstElementChild && vorherOhneKnopf && voucherHtml.startsWith(vorherOhneKnopf)) {
+    // Nur nachgewachsen: den alten Knopf wegnehmen und den Rest anhaengen.
+    // So bleiben die schon gezeichneten Karten stehen, die Seite springt nicht,
+    // und man verliert beim Nachladen nicht die Stelle, an der man war.
+    liste.querySelectorAll('[data-deck-more]').forEach(b => b.remove());
+    liste.insertAdjacentHTML('beforeend', voucherHtml.slice(vorherOhneKnopf.length));
+  } else {
+    liste.innerHTML = voucherHtml;
+  }
+  renderWallet.letzteListe = voucherHtml;
   // Aufgebrauchte: nur die ersten 12 rendern, Rest auf Wunsch
-  const usedLim = 12;
+  const usedLim = walletDeckShown.__used || SICHT_SCHRITT;
   $('#voucher-used').innerHTML = (used.slice(0, usedLim).map(vCard).join('')
     + (used.length > usedLim ? moreBtn('__used', used.length - usedLim) : ''))
     || '<div class="status">Nichts aufgebraucht.</div>';
@@ -6983,18 +6999,20 @@ function renderWallet() {
   $('#view-wallet').querySelectorAll('[data-deck-more]').forEach(el => {
     const key = el.dataset.deckMore;
     el.onclick = () => {
-      if (key === '__flat') walletFlatShown += 12;
-      else if (key === '__sicht') walletSicht += 14;
-      else if (key === '__used') { /* einmal alles */ walletDeckShown[key] = 9999; }
-      else { walletDeckShown[key] = (walletDeckShown[key] || 6) + 8; walletSicht += 8; }
+      if (key === '__flat') walletFlatShown += SICHT_SCHRITT;
+      else if (key === '__sicht') walletSicht += SICHT_SCHRITT;
+      else if (key === '__used') walletDeckShown[key] = (walletDeckShown[key] || 10) + SICHT_SCHRITT;
+      else {
+        walletDeckShown[key] = (walletDeckShown[key] || DECK_CHUNK) + SICHT_SCHRITT;
+        walletSicht += SICHT_SCHRITT;
+      }
       renderWallet();
     };
-    // Beim Runterscrollen laedt der Knopf sich selbst nach
-    if ('IntersectionObserver' in window) {
-      new IntersectionObserver((es, io) => {
-        if (es[0].isIntersecting) { io.disconnect(); el.click(); }
-      }, { rootMargin: '120px' }).observe(el);
-    }
+    // Frueher hat der Knopf sich beim Runterscrollen selbst gedrueckt. Das war
+    // gleich doppelt schlecht: die Liste wurde beim Scrollen staendig neu
+    // aufgebaut (die Karten "verschwanden" kurz), und antippen liess er sich
+    // gar nicht mehr — er hatte sich schon selbst ausgeloest und war ersetzt,
+    // bevor der Finger ankam. Jetzt passiert nur etwas, wenn man ihn drueckt.
   });
   $('#view-wallet').querySelectorAll('[data-wc]').forEach(el => el.onclick = () => openCardSheet(el.dataset.wc));
   $('#view-wallet').querySelectorAll('[data-wadd]').forEach(el => el.onclick = () => openWalletAdd(el.dataset.wadd));

@@ -3074,12 +3074,18 @@ body:has(.sheet.open) {
 .deck-head-name { display: flex; align-items: center; gap: 8px; font-size: .95rem; }
 .deck-head-name small { color: var(--muted); font-weight: 600; }
 .deck-more {
-  display: block; width: 100%; margin: 2px 0 12px;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; margin: 2px 0 12px;
   background: var(--surface); border: 1px dashed var(--stroke-light);
-  border-radius: 14px; padding: 11px; font: inherit; font-size: .84rem;
-  font-weight: 700; color: var(--muted); cursor: pointer;
+  border-radius: 14px; padding: 13px 11px; font: inherit; font-size: .88rem;
+  font-weight: 800; color: var(--text); cursor: pointer;
+  transition: transform .18s var(--spring), background .2s ease;
 }
-.deck-more:active { transform: scale(.98); }
+/* Die Zahl daneben sagt, wie viel noch kommt — der Knopf selbst zeigt immer
+   zehn weitere. Frueher stand die Restzahl AUF dem Knopf, was versprach, dass
+   ein Druck alle 46 laedt. */
+.deck-more small { font-weight: 700; color: var(--muted); font-size: .78rem; }
+.deck-more:active { transform: scale(.98); background: var(--surface-2); }
 
 /* Chat: Aeltere-Nachrichten-Knopf am Listenanfang */
 .chat-older {
