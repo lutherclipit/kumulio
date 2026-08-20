@@ -3807,6 +3807,13 @@ a.app-quest .app-quest-txt { flex: 1; min-width: 0; }
      bevor er die Unterkante der Leiste erreicht. --kopf-maske ist genau diese
      Unterkante, gemessen vom oberen Rand des Kopfes (siehe pruefeKopfzeile). */
   --kopf-maske: 0px;
+}
+/* Nur beim Scrollen. Ungescrollt steht kein Inhalt unter der Leiste, es gaebe
+   also nichts aufzuloesen — die Maske wuerde nur kosten. Und waehrend der
+   Umschaltung ist sie ganz aus: der Kopf aendert dabei seine Hoehe, und eine
+   Maske auf einer wachsenden Flaeche muss in JEDEM Bild neu aufgetragen
+   werden, ueber den ganzen Kopf hinweg. */
+body.gescrollt:not(.wallet-wechsel) .wallet-kopf {
   mask-image: linear-gradient(to bottom,
     transparent calc(var(--kopf-maske) - 18px), #000 calc(var(--kopf-maske) + 12px));
   -webkit-mask-image: linear-gradient(to bottom,
@@ -3866,7 +3873,7 @@ a.app-quest .app-quest-txt { flex: 1; min-width: 0; }
   mask-image: var(--auslauf);
   -webkit-mask-image: var(--auslauf);
   transition: opacity .35s ease,
-              transform .46s cubic-bezier(.22, 1, .32, 1);
+              transform .32s cubic-bezier(.22, 1, .32, 1);
 }
 /* Beim Messen der Zielhoehe darf nichts laufen (siehe kopfZielUnten in app.js) */
 body.misst #wallet-farbfeld,
@@ -3881,7 +3888,7 @@ body.wallet-farbe #wallet-farbfeld { opacity: 1; }
     linear-gradient(172deg, var(--kopf-k1, #0E9C64) 0%, var(--kopf-k2, #12C77E) 52%, var(--kopf-k3, #23D992) 100%);
   /* Gegenbewegung: die Flaeche faehrt hoch, die Farbe bleibt stehen */
   transform: translate3d(0, var(--ff-versatz, 0px), 0);
-  transition: transform .46s cubic-bezier(.22, 1, .32, 1), background .6s ease;
+  transition: transform .32s cubic-bezier(.22, 1, .32, 1), background .6s ease;
 }
 main { position: relative; z-index: 1; }
 .wallet-kopf-inner { position: relative; z-index: 1; padding-bottom: 16px; }
@@ -4043,8 +4050,10 @@ body.wallet-farbe.kopf-weg .topbar .iconbtn {
    Uebergang laeuft auch dann sauber, wenn der Inhalt mal groesser wird */
 #wallet-kopf-geld {
   display: grid; grid-template-rows: 1fr;
-  transition: grid-template-rows .45s cubic-bezier(.22, 1, .32, 1),
-              opacity .32s ease, transform .45s cubic-bezier(.22, 1, .32, 1);
+  /* Kuerzer als vorher (.45s): die Hoehenaenderung ist der einzige Teil des
+     Wechsels, der wirklich Layout kostet — je weniger Bilder, desto besser. */
+  transition: grid-template-rows .3s cubic-bezier(.22, 1, .32, 1),
+              opacity .24s ease, transform .3s cubic-bezier(.22, 1, .32, 1);
   opacity: 1; transform: none;
 }
 #wallet-kopf-geld > .kopf-geld-inner { overflow: hidden; min-height: 0; }
@@ -4417,14 +4426,14 @@ body.gescrollt:not(.wallet-farbe) .topbar::before { opacity: 1; }
   to   { opacity: 1; transform: none; }
 }
 #wallet-kopf-geld {
-  transition: grid-template-rows .42s cubic-bezier(.22, 1, .32, 1),
+  transition: grid-template-rows .3s cubic-bezier(.22, 1, .32, 1),
               opacity .26s ease;
 }
 #wallet-kopf-geld.zu { transform: none; }   /* kein zusaetzliches Verschieben */
 /* Diese Regel steht nach der oberen und muss die Ueberblendung deshalb
    wiederholen — sonst faellt sie unter den Tisch. */
 #wallet-farbfeld {
-  transition: opacity .3s ease, transform .46s cubic-bezier(.22, 1, .32, 1);
+  transition: opacity .3s ease, transform .32s cubic-bezier(.22, 1, .32, 1);
 }
 .bereich-zeile { display: flex; align-items: center; gap: 10px; margin: 24px 0 12px; }
 .bereich-zeile .bereich-titel { flex: none; }
@@ -4992,3 +5001,32 @@ body.wallet-farbe main { padding-bottom: calc(var(--menue-luft) + 34px + env(saf
 body.wallet-wechsel #bottom-fade {
   backdrop-filter: none; -webkit-backdrop-filter: none;
 }
+
+
+/* ============ Runde 100: weniger Neuzeichnen beim Umschalten =============== */
+/* Der Kopf schrumpft, alles darunter rueckt nach. Ohne eigene Ebene zeichnet
+   der Browser diese Flaeche (351x730 mit Verlaeufen und Schatten) in jedem
+   Bild neu; mit eigener Ebene wird sie nur verschoben. Der Hinweis steht nur
+   waehrend der halben Sekunde an — dauerhaft kostet er Speicher. */
+body.wallet-wechsel #wallet-content,
+body.wallet-wechsel #coupons-content,
+body.wallet-wechsel #wallet-modes,
+body.wallet-wechsel .wallet-kopf-inner { will-change: transform; }
+/* Beim Tabwechsel faellt die Hoehe in EINEM Schritt (siehe kopfUmschalten in
+   app.js). Die Ueberblendung hier gilt weiter fuer den Analyse-Wechsel, wo die
+   Hoehe sich ohnehin nur einmal aendert. */
+body.wallet-wechsel #wallet-kopf-geld { transition: none; }
+
+/* Die vier belebten Profilrahmen fahren eine Endlos-Animation auf box-shadow —
+   und box-shadow ist eine Zeichen-Eigenschaft, laeuft also nicht auf der
+   Grafikkarte, sondern malt jedes Bild neu. Einzeln ist die Flaeche klein, im
+   Chat stehen aber schnell zwanzig davon untereinander. Waehrend der
+   Umschaltung stehen sie still; da zaehlt jedes Bild. */
+body.wallet-wechsel .pfb-neonpink,
+body.wallet-wechsel .pfb-eisring,
+body.wallet-wechsel .pfb-regenbogen,
+body.wallet-wechsel .pfb-plasma { animation-play-state: paused; }
+/* Und wenn die Seite gar nicht zu sehen ist, braucht dort nichts zu laufen. */
+body.versteckt .pfb-neonpink, body.versteckt .pfb-eisring,
+body.versteckt .pfb-regenbogen, body.versteckt .pfb-plasma,
+body.versteckt .pn-anim { animation-play-state: paused; }

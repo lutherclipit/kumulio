@@ -6690,15 +6690,13 @@ function updateWalletTab(anim) {
     document.body.classList.add('wallet-wechsel');
     clearTimeout(updateWalletTab.ruheTimer);
     updateWalletTab.ruheTimer = setTimeout(
-      () => document.body.classList.remove('wallet-wechsel'), 560);
+      () => document.body.classList.remove('wallet-wechsel'), 420);
   }
   $('#wallet-modes')?.classList.toggle('rechts', coupons);
   document.querySelectorAll('[data-wtab]').forEach(b =>
     b.setAttribute('aria-selected', b.classList.contains('active') ? 'true' : 'false'));
-  $('#wallet-kopf')?.classList.toggle('nur-tabs', coupons || gated);
-  $('#wallet-kopf-geld')?.classList.toggle('zu', coupons || gated);
   if ((coupons || gated) && kopfGedreht) kopfDrehen(false);
-  passeFarbfeldAn(kopfZiel, !anim);   // CSS faehrt den Rest, kein Bild-fuer-Bild mehr
+  kopfUmschalten(coupons || gated, anim, kopfZiel);
   $('#coupons-content').classList.toggle('hidden', !coupons);
   if (coupons) renderCoupons($('#coupons-content'));
   if (!walletTab.startsWith('gutscheine')) $('#wallet-mini')?.classList.remove('show');
@@ -7349,6 +7347,69 @@ function setzeFarbfeldNeu() {
   passeFarbfeldAn();
 }
 addEventListener('orientationchange', () => setTimeout(setzeFarbfeldNeu, 300));
+
+// Den Kopf auf- oder zuklappen — ohne Hoehenanimation.
+//
+// Vorher fuhr #wallet-kopf-geld seine Grid-Zeile von 1fr auf 0fr. Eine Hoehe zu
+// animieren heisst: in JEDEM Bild Layout rechnen und den Kopf neu zeichnen, und
+// alles darunter rueckt mit. Das war nach den anderen Aufraeumarbeiten der
+// letzte Posten, der ueberhaupt noch neu gezeichnet hat.
+//
+// Jetzt in zwei Schritten: der Guthaben-Block blendet aus (Deckkraft, laeuft
+// auf der Grafikkarte), dann faellt die Hoehe in EINEM Schritt, und was
+// darunter liegt, startet an seiner alten Stelle und faehrt per Verschiebung an
+// die neue. Ein einziges Layout pro Umschaltung statt achtzehn.
+let kopfGeldHoehe = 0;
+function kopfUmschalten(zu, anim, kopfZiel) {
+  const geld = $('#wallet-kopf-geld'), kopf = $('#wallet-kopf'), modes = $('#wallet-modes');
+  if (!geld || !kopf) return;
+  const warZu = geld.classList.contains('zu');
+  const setzen = () => {
+    kopf.classList.toggle('nur-tabs', zu);
+    geld.classList.toggle('zu', zu);
+  };
+
+  if (!anim || warZu === zu || reducedMotion() || !geld.animate) {
+    setzen();
+    passeFarbfeldAn(kopfZiel, true);
+    return;
+  }
+
+  // Wie weit rueckt alles? Beim Zuklappen die aktuelle Hoehe, beim Aufklappen
+  // die gemerkte — im zugeklappten Zustand ist sie null und nicht messbar.
+  const h = zu
+    ? Math.round(geld.getBoundingClientRect().height)
+    : (kopfGeldHoehe || Math.round(geld.querySelector('.kopf-geld-inner:not(.hidden)')?.scrollHeight || 0));
+  if (zu && h) kopfGeldHoehe = h;
+
+  const nachziehen = () => {
+    setzen();
+    // Das Farbfeld faehrt ab demselben Moment los wie die Bereichswahl, sonst
+    // liefe die weiche Kante der Leiste davon.
+    passeFarbfeldAn(kopfZiel, false);
+    if (h && modes?.animate) {
+      const a = modes.animate(
+        [{ transform: `translate3d(0, ${zu ? h : -h}px, 0)` }, { transform: 'translate3d(0, 0, 0)' }],
+        { duration: 300, easing: 'cubic-bezier(.22, 1, .32, 1)' });
+      // Sicherheitsnetz: haelt die Umgebung Animationen an (Tab im Hintergrund,
+      // gedrosselte Wiedergabe), bliebe die Bereichswahl sonst verschoben stehen.
+      setTimeout(() => a.cancel(), 400);
+    }
+  };
+
+  if (zu) {
+    let getan = false;
+    const einmal = () => { if (!getan) { getan = true; nachziehen(); } };
+    const a = geld.animate([{ opacity: 1 }, { opacity: 0 }],
+      { duration: 130, easing: 'cubic-bezier(.4, 0, .9, .4)', fill: 'forwards' });
+    a.onfinish = () => { a.cancel(); einmal(); };
+    setTimeout(einmal, 170);   // Sicherheitsnetz, falls onfinish ausbleibt
+  } else {
+    nachziehen();
+    geld.animate([{ opacity: 0 }, { opacity: 1 }],
+      { duration: 240, delay: 80, easing: 'cubic-bezier(.22, 1, .32, 1)' });
+  }
+}
 
 // Wo endet der Kopf, NACHDEM er auf- oder zugeklappt ist? Wir schalten kurz um,
 // messen und schalten zurueck — alles innerhalb eines Bildes und mit
@@ -8580,6 +8641,12 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener('scroll', applyVV);
   applyVV();
 }
+
+// Liegt die App im Hintergrund, braucht keine Dauer-Animation zu laufen.
+// Der Browser drosselt zwar, haelt aber nicht alles an — und auf dem Handy
+// zaehlt jedes gesparte Bild.
+document.addEventListener('visibilitychange', () =>
+  document.body.classList.toggle('versteckt', document.hidden));
 
 // Als Home-Bildschirm-App: Pinch-Zoom (iOS-Geste) komplett blocken –
 // Doppeltipp-Zoom verhindert touch-action in style.css
