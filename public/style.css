@@ -4022,10 +4022,14 @@ body.wallet-farbe .topbar .iconbtn {
 
 /* Sobald der Kopf weggescrollt ist, wird die Kopfzeile wieder Glas —
    sonst stuende dort ein Farbblock ohne Anschluss */
-body.wallet-farbe.kopf-weg .topbar {
-  background: var(--glass);
-  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
-  border-bottom-color: var(--stroke-light);
+/* Auch hier traegt nicht die Leiste selbst das Milchglas, sondern die Ebene
+   dahinter, die weiter reicht und weich ausgeht (siehe .topbar::before weiter
+   unten). Vorher malte die Leiste es selbst und endete mit einer harten Kante —
+   der Schnitt, den es ausserhalb der Wallet laengst nicht mehr gab. */
+:root body.wallet-farbe.kopf-weg .topbar {
+  background: transparent;
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+  border-bottom-color: transparent;
 }
 body.wallet-farbe.kopf-weg .topbar .brand,
 body.wallet-farbe.kopf-weg .topbar .brand-name { color: var(--text); }
@@ -4423,7 +4427,8 @@ body.wallet-farbe .topbar::after { content: none; }
   background: transparent;
   backdrop-filter: none; -webkit-backdrop-filter: none;
 }
-:root body:not(.wallet-farbe) .topbar::before {
+:root body:not(.wallet-farbe) .topbar::before,
+:root body.wallet-farbe.kopf-weg .topbar::before {
   content: ''; position: absolute; left: 0; right: 0; top: 0; bottom: -24px;
   z-index: -1; pointer-events: none;
   background: var(--glass);
@@ -4433,7 +4438,10 @@ body.wallet-farbe .topbar::after { content: none; }
   /* Ganz oben braucht es den Grund nicht — da ist noch nichts druntergerutscht */
   opacity: 0; transition: opacity .35s ease;
 }
-body.gescrollt:not(.wallet-farbe) .topbar::before { opacity: 1; }
+/* :root davor, weil die Grundregel oben es ebenfalls traegt — ohne das
+   verliert das Einblenden das Rennen und die Ebene bliebe unsichtbar. */
+:root body.gescrollt:not(.wallet-farbe) .topbar::before,
+:root body.wallet-farbe.kopf-weg .topbar::before { opacity: 1; }
 
 /* --- Wechsel zwischen Gutscheinen und Karten: ruhiger --- */
 #wallet-content.tab-in, #coupons-content.tab-in {
