@@ -1353,7 +1353,14 @@ function openSheetShell(richtung) {
   }
 }
 
+// Haelt die Animation, mit der das Blatt beim Verschenken kleiner faehrt.
+// Steht hier oben, weil closeSheet sie loesen muss (siehe dort).
+let blattSchrumpf = null;
 function closeSheet() {
+  // Falls die Verschenk-Animation das Blatt kleiner gefahren hat: loesen, sonst
+  // haelt ihr fill:'forwards' das Blatt an Ort und Stelle fest und es liesse
+  // sich nicht mehr wegschieben.
+  if (blattSchrumpf) { blattSchrumpf.cancel(); blattSchrumpf = null; }
   // Die Wisch- und Klick-Handler der Coupon-Liste gelten nur fuer dieses Blatt
   if (state.sheetMode === 'card-coupons' || state.sheetMode === 'brand') {
     const sh = $('#sheet-content');
@@ -5539,6 +5546,9 @@ function zeigeSchenkSchritt(v, richtung = 'vor', zurueck) {
       // noch das ganze Menue drumherum und alles ging in einem Rutsch vorbei.
       await blattAufDieKarte(host);
       await packAnimation($('#schenk-karte'), 'ein');
+      // Erst loesen, dann schliessen — sonst haelt die Animation das Blatt fest
+      blattSchrumpf?.cancel();
+      blattSchrumpf = null;
       closeSheet();
       renderWallet();
       island(`An @${anWen} verschenkt`); playSfx('plop'); buzz([12, 40, 18]);
@@ -5568,10 +5578,13 @@ function blattAufDieKarte(host) {
     setTimeout(() => {
       // Das Blatt zieht sich zusammen — die Karte bleibt, wo sie ist
       const blatt = $('#sheet');
-      blatt?.animate(
+      // Merken! Eine Animation mit fill:'forwards' ueberschreibt die CSS-Regel
+      // dauerhaft — ohne das Loesen weiter unten koennte closeSheet das Blatt
+      // hinterher nicht mehr wegschieben und es bliebe stehen.
+      blattSchrumpf = blatt?.animate(
         [{ transform: 'translateX(-50%) scale(1)' },
          { transform: 'translateX(-50%) scale(.955)' }],
-        { duration: 320, easing: 'cubic-bezier(.22,1,.32,1)', fill: 'forwards' });
+        { duration: 320, easing: 'cubic-bezier(.22,1,.32,1)', fill: 'forwards' }) || null;
       setTimeout(fertig, 300);
     }, ende + 60);
   });
@@ -6688,6 +6701,7 @@ function updateWalletTab(anim) {
   const kopfZiel = kopfZielUnten(coupons || gated);
   // Fuer die Dauer der Umschaltung ruhen die teuren Weichzeichner (siehe CSS)
   if (anim) {
+    pruefeBildrate();   // das Geraet misst sich selbst, siehe oben
     document.body.classList.add('wallet-wechsel');
     clearTimeout(updateWalletTab.ruheTimer);
     updateWalletTab.ruheTimer = setTimeout(
@@ -7294,6 +7308,82 @@ function setzeFarbfeldNeu() {
 }
 addEventListener('orientationchange', () => setTimeout(setzeFarbfeldNeu, 300));
 
+// ---- Bildraten-Wache -------------------------------------------------------
+// Ich kann kein fremdes Handy ausmessen — also misst es sich selbst. Bei den
+// ersten Umschaltvorgaengen einer Sitzung werden die Bildabstaende
+// aufgezeichnet. Sind zu viele Bilder zu lang, schaltet das Geraet dauerhaft in
+// den sparsamen Modus: dann bewegt sich beim Umschalten gar nichts mehr, die
+// Menueleiste verzichtet auf ihren Weichzeichner und die belebten Profilrahmen
+// stehen still. Die Entscheidung faellt auf dem Geraet, nicht nach Gefuehl.
+//
+// Die Messung laesst sich ansehen: /?fps zeigt sie als kleine Anzeige.
+const SPARSAM = 'ra.sparsam';
+let fpsProben = 0;
+let letzteFps = null;
+try { letzteFps = JSON.parse(localStorage.getItem('ra.fps') || 'null'); } catch { /* egal */ }
+if (localStorage.getItem(SPARSAM) === '1') document.body.classList.add('sparsam');
+
+function messeBildabstaende(dauer = 450) {
+  return new Promise(fertig => {
+    if (!window.requestAnimationFrame) return fertig(null);
+    const t = [];
+    let vor = performance.now();
+    const bis = vor + dauer;
+    const tick = () => {
+      const jetzt = performance.now();
+      t.push(jetzt - vor); vor = jetzt;
+      if (jetzt < bis) requestAnimationFrame(tick); else fertig(t);
+    };
+    requestAnimationFrame(tick);
+  });
+}
+
+function pruefeBildrate() {
+  if (document.body.classList.contains('sparsam') || fpsProben >= 3) return;
+  fpsProben++;
+  messeBildabstaende().then(t => {
+    if (!t || t.length < 6) return;
+    const sortiert = [...t].sort((a, b) => a - b);
+    const median = sortiert[Math.floor(sortiert.length / 2)];
+    const schnellstes = sortiert[0];
+    // Als "lang" zaehlt ein Bild, das mehr als das Doppelte des schnellsten
+    // Bildes gebraucht hat — so ist die Messung unabhaengig davon, ob der
+    // Bildschirm mit 60, 90 oder 120 Hz laeuft.
+    const lang = t.filter(x => x > Math.max(24, schnellstes * 2.2)).length;
+    letzteFps = { median: +median.toFixed(1), schnellstes: +schnellstes.toFixed(1),
+                  lang, bilder: t.length, zeit: Date.now() };
+    try { localStorage.setItem('ra.fps', JSON.stringify(letzteFps)); } catch { /* egal */ }
+    zeigeFpsAnzeige();
+    if (lang >= 4) {
+      try { localStorage.setItem(SPARSAM, '1'); } catch { /* egal */ }
+      document.body.classList.add('sparsam');
+    }
+  });
+}
+
+// Kleine Anzeige, nur mit /?fps in der Adresse — damit man die Messung des
+// eigenen Geraets ablesen kann, statt sie zu erraten.
+function zeigeFpsAnzeige() {
+  if (!/[?&]fps\b/.test(location.search)) return;
+  let el = $('#fps-anzeige');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'fps-anzeige';
+    document.body.appendChild(el);
+    el.onclick = () => {
+      try { localStorage.removeItem(SPARSAM); localStorage.removeItem('ra.fps'); } catch { /* egal */ }
+      document.body.classList.remove('sparsam');
+      fpsProben = 0; letzteFps = null;
+      el.textContent = 'zurueckgesetzt — nochmal umschalten';
+    };
+  }
+  el.textContent = letzteFps
+    ? `Umschalten: ${letzteFps.median} ms im Mittel, ${letzteFps.lang} lange Bilder von ${letzteFps.bilder}`
+      + (document.body.classList.contains('sparsam') ? ' · sparsam an' : ' · normal')
+    : 'einmal umschalten zum Messen';
+}
+addEventListener('load', () => setTimeout(zeigeFpsAnzeige, 800));
+
 // Den Kopf auf- oder zuklappen — ohne Hoehenanimation.
 //
 // Vorher fuhr #wallet-kopf-geld seine Grid-Zeile von 1fr auf 0fr. Eine Hoehe zu
@@ -7318,7 +7408,8 @@ function kopfUmschalten(zu, anim, kopfZiel) {
   // Auf dem Handy in einem Schritt: kein Ausblenden, kein Nachschieben, keine
   // grosse Flaeche, die sich bewegt. Der Schieber oben zeigt den Wechsel an,
   // der Rest springt gemeinsam an seinen Platz.
-  const hart = matchMedia('(hover: none) and (pointer: coarse)').matches;
+  const hart = matchMedia('(hover: none) and (pointer: coarse)').matches
+    || document.body.classList.contains('sparsam');
   if (!anim || warZu === zu || hart || reducedMotion() || !geld.animate) {
     setzen();
     passeFarbfeldAn(kopfZiel, true);

@@ -1959,8 +1959,8 @@ body { -webkit-user-select: none; user-select: none; }
      unten aus, bevor die Menueleiste kommt. Nur kostet er nichts. */
   background: linear-gradient(180deg,
     transparent 0,
-    color-mix(in srgb, var(--seitengrund) 55%, transparent) 52%,
-    color-mix(in srgb, var(--seitengrund) 88%, transparent) 100%);
+    color-mix(in srgb, var(--seitengrund) 18%, transparent) 62%,
+    color-mix(in srgb, var(--seitengrund) 46%, transparent) 100%);
 }
 
 /* Achievements: dezent unten rechts überm Menü, mit Blur */
@@ -2050,11 +2050,15 @@ body { -webkit-user-select: none; user-select: none; }
 #bottom-fade {
   height: calc(130px + env(safe-area-inset-bottom, 0px));
   backdrop-filter: none; -webkit-backdrop-filter: none;
+  /* Nur ein Hauch, und erst kurz vor der Menueleiste. Vorher lag hier ein
+     Verlauf mit bis zu 92 Prozent Deckkraft — der hat die Gutscheinkarten beim
+     Runterscrollen ausradiert, bevor sie unten ankamen. Der Weichzeichner
+     davor liess den Inhalt sichtbar; ein Verlauf muss deshalb viel zarter
+     sein, um dasselbe zu leisten. */
   background: linear-gradient(180deg,
     transparent 0,
-    color-mix(in srgb, var(--seitengrund) 42%, transparent) 45%,
-    color-mix(in srgb, var(--seitengrund) 78%, transparent) 75%,
-    color-mix(in srgb, var(--seitengrund) 92%, transparent) 100%);
+    color-mix(in srgb, var(--seitengrund) 14%, transparent) 58%,
+    color-mix(in srgb, var(--seitengrund) 40%, transparent) 100%);
   mask-image: none; -webkit-mask-image: none;
 }
 
@@ -5094,4 +5098,31 @@ body.versteckt .pn-anim { animation-play-state: paused; }
      Moment des Umschaltens. Ohne sie bleibt keine grosse Flaeche mehr uebrig,
      die sich beim Wechsel bewegt: nur noch der Schieber mit 6.500 Bildpunkten. */
   #coupons-content.tab-in, #wallet-content.tab-in { animation: none; }
+}
+
+/* ============ Runde 100: sparsamer Modus, vom Geraet selbst gewaehlt ========
+   Stellt die Bildraten-Wache in app.js zu lange Bilder fest, schaltet sie
+   dauerhaft hierher um. Dann bewegt sich beim Umschalten gar nichts mehr, die
+   Menueleiste verzichtet auf ihren Weichzeichner und die belebten Profilrahmen
+   stehen still. Lieber schlicht und fluessig als huebsch und hakelig. */
+body.sparsam #wallet-farbfeld { transition: opacity .25s ease; }
+body.sparsam #wallet-farbfeld::after { transition: none; }
+body.sparsam #coupons-content.tab-in,
+body.sparsam #wallet-content.tab-in { animation: none; }
+body.sparsam .tabbar { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--glass-strong); }
+body.sparsam .pfb-neonpink, body.sparsam .pfb-eisring,
+body.sparsam .pfb-regenbogen, body.sparsam .pfb-plasma,
+body.sparsam .pn-anim { animation: none; }
+body.sparsam .cm-flaeche, body.sparsam .wm-flaeche, body.sparsam .filter-pille {
+  transition: transform .2s ease;
+}
+
+/* Ablesbare Messung mit /?fps — antippen setzt sie zurueck */
+#fps-anzeige {
+  position: fixed; left: 8px; bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+  z-index: 60; max-width: calc(100vw - 16px);
+  background: rgba(16, 20, 25, .9); color: #fff;
+  border-radius: 10px; padding: 7px 11px;
+  font-size: .72rem; font-weight: 700; line-height: 1.3;
+  font-variant-numeric: tabular-nums; cursor: pointer;
 }
