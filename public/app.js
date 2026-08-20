@@ -6874,7 +6874,7 @@ function renderWallet() {
   // EINER Karte (nur die oberste wird wirklich gerendert). Antippen faechert
   // auf, und auch dann kommen die Karten portionsweise — die Wallet bleibt
   // leicht, egal wie viele REWE-Gutscheine man hortet.
-  const DECK_MIN = 3, DECK_CHUNK = SICHT_SCHRITT;
+  const DECK_MIN = 3;
   const moreBtn = (key, n) => `<button class="deck-more" data-deck-more="${esc(key)}">
       Weitere anzeigen<small>noch ${n}</small></button>`;
   // Nur die Volltextsuche zeigt eine flache Liste — da sucht man ja gezielt.
@@ -6933,7 +6933,10 @@ function renderWallet() {
         </div>`);
         continue;
       }
-      const shown = Math.min(walletDeckShown[key] || DECK_CHUNK, budget);
+      // Nur EINE Grenze: das Gesamtbudget. Vorher hatte der Stapel zusaetzlich
+      // seine eigene (DECK_CHUNK), die der Nachlade-Knopf nicht angehoben hat —
+      // ab dem zweiten Druck passierte deshalb nichts mehr.
+      const shown = Math.min(list.length, budget);
       budget -= shown;
       rest += list.length - shown;
       teile.push(`
@@ -7000,12 +7003,8 @@ function renderWallet() {
     const key = el.dataset.deckMore;
     el.onclick = () => {
       if (key === '__flat') walletFlatShown += SICHT_SCHRITT;
-      else if (key === '__sicht') walletSicht += SICHT_SCHRITT;
-      else if (key === '__used') walletDeckShown[key] = (walletDeckShown[key] || 10) + SICHT_SCHRITT;
-      else {
-        walletDeckShown[key] = (walletDeckShown[key] || DECK_CHUNK) + SICHT_SCHRITT;
-        walletSicht += SICHT_SCHRITT;
-      }
+      else if (key === '__used') walletDeckShown.__used = (walletDeckShown.__used || SICHT_SCHRITT) + SICHT_SCHRITT;
+      else walletSicht += SICHT_SCHRITT;   // '__sicht' und alles andere
       renderWallet();
     };
     // Frueher hat der Knopf sich beim Runterscrollen selbst gedrueckt. Das war
