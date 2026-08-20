@@ -5066,3 +5066,32 @@ body.versteckt .pn-anim { animation-play-state: paused; }
   background: var(--chip-active-bg, #1a1e24) !important;
   color: var(--chip-active-fg, #fff) !important;
 }
+
+
+/* ============ Runde 100: auf dem Handy schaltet die Wallet hart um ==========
+   Die Bewegung beim Wechsel Gutscheine <-> Karten & Coupons bewegt zwei grosse
+   Flaechen: den Farbgrund (375 x 627, mit Maske) und die Inhaltsflaeche
+   (351 x 730). Beides laeuft ueber transform und opacity, ist also
+   grundsaetzlich billig — aber jede dieser Flaechen muss dafuer erst einmal
+   als eigene Ebene angelegt und gefuellt werden, und auf einem Handy mit
+   dreifacher Aufloesung sind das je rund zwei Millionen Bildpunkte. Diese
+   einmalige Fuellung faellt genau in den Moment des Umschaltens.
+
+   Auf einem Rechner faellt das nicht auf. Auf dem Handy ist es genau der Ruck,
+   den man sieht. Deshalb: dort schaltet die Wallet hart um. Kopf, Farbgrund und
+   Inhalt springen gemeinsam in EINEM Bild an ihren neuen Platz — das wirkt wie
+   ein Reiterwechsel und nicht wie eine hakelige Animation. Was bleibt, ist der
+   Schieber selbst: eine 351 x 44 grosse Flaeche, die sich weiterhin weich
+   verschiebt, weil man genau daran sieht, dass man umgeschaltet hat.
+
+   Am Rechner bleibt alles, wie es war. */
+@media (hover: none) and (pointer: coarse) {
+  #wallet-farbfeld { transition: opacity .3s ease; }
+  #wallet-farbfeld::after { transition: background .6s ease; }
+  /* Auch die Einblendung faellt weg. Fuer eine Deckkraft-Blende muss die ganze
+     Flaeche (351 x 730, auf dem Handy ueber zwei Millionen Bildpunkte) vorab
+     als eigene Ebene gefuellt werden — und genau diese Fuellung faellt in den
+     Moment des Umschaltens. Ohne sie bleibt keine grosse Flaeche mehr uebrig,
+     die sich beim Wechsel bewegt: nur noch der Schieber mit 6.500 Bildpunkten. */
+  #coupons-content.tab-in, #wallet-content.tab-in { animation: none; }
+}

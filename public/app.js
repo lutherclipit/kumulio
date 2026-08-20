@@ -7315,7 +7315,11 @@ function kopfUmschalten(zu, anim, kopfZiel) {
     geld.classList.toggle('zu', zu);
   };
 
-  if (!anim || warZu === zu || reducedMotion() || !geld.animate) {
+  // Auf dem Handy in einem Schritt: kein Ausblenden, kein Nachschieben, keine
+  // grosse Flaeche, die sich bewegt. Der Schieber oben zeigt den Wechsel an,
+  // der Rest springt gemeinsam an seinen Platz.
+  const hart = matchMedia('(hover: none) and (pointer: coarse)').matches;
+  if (!anim || warZu === zu || hart || reducedMotion() || !geld.animate) {
     setzen();
     passeFarbfeldAn(kopfZiel, true);
     return;
