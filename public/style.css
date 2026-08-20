@@ -950,6 +950,14 @@ textarea.input { resize: vertical; }
   -webkit-tap-highlight-color: transparent;
 }
 .tabbtn.active { color: #fff; }
+/* Chrome malt beim Antippen von Haus aus ein graues Rechteck ueber das Element.
+   Das lag bisher nur hier ab — ueberall sonst hat es die eigene Druck-
+   Animation verdeckt, weshalb ein Tipp auf das Logo oder auf Hinzufuegen/
+   Verschenken/Analyse nach einem grauen Kasten aussah statt nach einer
+   Bewegung. Jetzt ist es ueberall aus. */
+html, body, button, a, [role="button"], summary, label, input, .chip, .card {
+  -webkit-tap-highlight-color: transparent;
+}
 .tabbtn .icon { width: 19px; height: 19px; }
 
 /* "+"-Button: neuen Deal/Post erstellen */
@@ -3443,7 +3451,21 @@ body.kb-open #chat-cmds { display: none !important; }
 /* Tastatur offen: noch dichter ran. Kopfzeile, Tabs und Eingabe zusammen
    brauchen ~150px — der Rest gehört dem Verlauf. */
 body.kb-open #view-chat .chat-tabs { margin-bottom: 4px; }
-body.kb-open #chat-box { min-height: 120px; }
+/* Mit offener Tastatur darf die Liste beliebig klein werden. Die feste
+   Mindesthoehe hat die Spalte hoeher gemacht als der sichtbare Ausschnitt —
+   dann rutschte die Eingabezeile aus dem Bild und lag optisch ueber dem
+   Verlauf. Der Umbruch soll hier schrumpfen duerfen, nicht ueberlaufen. */
+body.kb-open #chat-box { min-height: 0; }
+body.kb-open #view-chat { min-height: 0; }
+/* Der Platz fuer die Menueleiste wird nicht mehr abgezogen: die Leiste liegt
+   mit offener Tastatur ohnehin darunter und ist unerreichbar. Sie verschwindet
+   solange ganz — auch, weil body.style.transform (der Ausgleich fuer den
+   iOS-Versatz) fixierte Elemente an den Body haengt und sie sonst an der
+   falschen Stelle stehen. */
+body.kb-open main { --menue-luft: 10px; }
+body.kb-open .tabbar,
+body.kb-open #bottom-fade,
+body.kb-open #wallet-mini { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
   #wallet-content.tab-in, #cards-content.tab-in, #coupons-content.tab-in,
@@ -3952,7 +3974,9 @@ body.wallet-farbe .topbar .iconbtn {
   transition: transform .25s var(--spring);
 }
 .wa-btn span:last-child { text-shadow: 0 1px 6px rgba(0, 0, 0, .18); }
-.wa-btn:active { transform: translateY(2px) scale(.94); }
+.wa-btn span:last-child { transition: opacity .2s ease; }
+.wa-btn:active .wa-kreis { transform: scale(.88); background: rgba(255, 255, 255, .32); }
+.wa-btn:active span:last-child { opacity: .75; }
 .wa-kreis {
   position: relative; overflow: hidden;
   width: 52px; height: 52px; border-radius: 17px;
@@ -3960,8 +3984,10 @@ body.wallet-farbe .topbar .iconbtn {
   border: 1px solid rgba(255, 255, 255, .3);
   box-shadow: 0 6px 16px rgba(0, 0, 0, .14), inset 0 1px 0 rgba(255, 255, 255, .45);
   display: flex; align-items: center; justify-content: center;
-  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-  transition: background .25s ease, box-shadow .25s ease;
+  /* Kein backdrop-filter: dahinter liegt ein glatter Farbverlauf, den
+     Weichzeichnen nicht veraendert. Er kostete aber in jedem Bild der
+     Einklapp-Animation Rechenzeit — dreimal, mitten im bewegten Bereich. */
+  transition: background .22s ease, box-shadow .22s ease, transform .22s var(--spring);
 }
 .wa-btn:active .wa-kreis {
   background: rgba(255, 255, 255, .3);
@@ -3996,22 +4022,31 @@ body.wallet-farbe.kopf-weg .topbar .iconbtn {
 .stats-blatt .flip-hint { display: none; }
 
 /* Bereichswahl sitzt im farbigen Kopf */
+/* Bereichswahl als Schieber — derselbe Aufbau wie im Chat, nur in den Farben
+   des Kopfes. Zwei Titel, dahinter gleitet die weisse Flaeche herueber. */
 .wallet-kopf #wallet-modes {
-  /* Steht jetzt unter dem Betrag, also Abstand nach OBEN statt nach unten */
-  display: flex; gap: 8px; margin: 22px 0 0; padding: 0; overflow-x: auto;
-  scrollbar-width: none;
+  position: relative; display: grid; grid-template-columns: 1fr 1fr;
+  margin: 22px 0 0; padding: 4px; overflow: visible;
+  background: rgba(255, 255, 255, .16);
+  border: 1px solid rgba(255, 255, 255, .22);
+  border-radius: 16px;
 }
-.wallet-kopf #wallet-modes::-webkit-scrollbar { display: none; }
-.wallet-kopf #wallet-modes .chip {
-  background: rgba(255, 255, 255, .18); border-color: transparent; color: #fff;
-  font-weight: 700; white-space: nowrap;
-}
-.wallet-kopf #wallet-modes .chip.active {
-  background: #fff !important;
-  color: var(--k1) !important;          /* zieht die Stufenfarbe mit */
-  border-color: transparent !important;
+.wm-flaeche {
+  position: absolute; left: 4px; top: 4px; bottom: 4px; width: calc(50% - 4px);
+  border-radius: 12px; background: #fff; z-index: 0;
   box-shadow: 0 3px 12px rgba(10, 14, 18, .2);
+  transition: transform .42s cubic-bezier(.3, 1.2, .45, 1);
 }
+#wallet-modes.rechts .wm-flaeche { transform: translateX(100%); }
+.wm-titel {
+  position: relative; z-index: 1;
+  display: flex; align-items: center; justify-content: center;
+  background: none; border: none; padding: 9px 6px;
+  font: inherit; font-size: .92rem; font-weight: 800; letter-spacing: -.01em;
+  color: rgba(255, 255, 255, .82); cursor: pointer; white-space: nowrap;
+  transition: color .32s ease;
+}
+.wm-titel.active { color: var(--k1); }
 /* Ohne Guthaben-Teil schrumpft der Kopf — die Hoehe wird mitanimiert */
 /* Hoehe ueber Grid statt max-height: kein geratener Maximalwert, und der
    Uebergang laeuft auch dann sauber, wenn der Inhalt mal groesser wird */
@@ -4099,6 +4134,8 @@ body.wallet-farbe.kopf-weg .topbar .iconbtn {
 }
 .stat-zurueck:active { transform: scale(.94); }
 #wallet-kopf-geld { transform-origin: center top; }
+/* Die beiden Seiten schieben seitwaerts — kein 3D mehr, nur Verschiebung */
+.kopf-geld-inner { will-change: auto; }
 
 /* --- Sparkarte als Bankkarte --- */
 .karte-buehne { perspective: 1100px; }
@@ -4923,3 +4960,39 @@ body.wallet-farbe main { padding-bottom: calc(var(--menue-luft) + 34px + env(saf
 .auspack-karte { margin: 12px 0 6px; }
 
 @media (prefers-reduced-motion: reduce) { .pack-buehne { display: none; } }
+
+
+/* ============ Runde 100: Hinzufuegen in der Mitte ========================== */
+/* Verschenken links, Hinzufuegen mittig, Analyse rechts. Der mittlere Griff
+   ist der, den man am oeftesten braucht — er bekommt etwas mehr Gewicht. */
+.wa-haupt .wa-kreis {
+  background: rgba(255, 255, 255, .28);
+  border-color: rgba(255, 255, 255, .45);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, .18), inset 0 1px 0 rgba(255, 255, 255, .55);
+}
+.wa-haupt .wa-kreis .icon { width: 25px; height: 25px; }
+
+/* Der Kopf des Fluesterchats kommt mit derselben Bewegung herein */
+#dm-head:not(.hidden) { animation: dmKopfRein .3s cubic-bezier(.22, 1, .32, 1) both; }
+@keyframes dmKopfRein { from { opacity: 0; transform: translate3d(18px, 0, 0); } }
+@media (prefers-reduced-motion: reduce) { #dm-head:not(.hidden) { animation: none; } }
+
+/* ============ Runde 100: keine Weichzeichner fuer Unsichtbares ============= */
+/* Diese drei Ebenen sind fast immer da, aber fast nie zu sehen: das Blatt steht
+   unten ausserhalb des Bildes, Toast und Mini-Guthaben sind weggeschoben.
+   Versteckt werden sie per transform — sie bleiben also im Bild-Aufbau, und
+   ihr backdrop-filter zwingt den Browser, bei JEDER Aenderung dahinter eine
+   bildschirmgrosse Flaeche neu weichzuzeichnen. Gemessen waren das zusammen
+   rund 313.000 Bildpunkte, die nie jemand sieht. Auf dem Rechner faellt das
+   nicht auf, auf dem Handy kostet es genau die Bilder, die beim Umschalten
+   fehlen. */
+.sheet:not(.open),
+#toast:not(.show),
+#wallet-mini:not(.show) {
+  backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+}
+/* Waehrend der Wallet-Umschaltung ruht auch der Boden-Weichzeichner. Er liegt
+   unter der Menueleiste, ist reine Deko und faellt in den 500 ms niemandem auf. */
+body.wallet-wechsel #bottom-fade {
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+}

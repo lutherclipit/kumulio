@@ -1380,8 +1380,14 @@ sheetEl.addEventListener('pointerdown', e => {
   const content = $('#sheet-content');
   if (e.target.closest('.sheet-fab')) return;
   if (content.scrollTop > 0 && content.contains(e.target)) return;
-  // Textauswahl/Native-Drag unterbinden, aber Eingabefelder & Buttons normal lassen
-  if (!e.target.closest('input, textarea, button, a, .votebtn')) e.preventDefault();
+  // Auf etwas Bedienbarem wird gar nicht erst aufs Ziehen gelauert. Vorher
+  // schon: ein Finger wandert beim Tippen fast immer ein paar Pixel, dann
+  // schnappte setPointerCapture zu und aus dem Tipp wurde NIE ein Klick — der
+  // Knopf mit der Sparkarte oben rechts tat deshalb auf dem Handy nichts.
+  // Gezogen wird weiterhin ueberall sonst: Griff, Freiflaeche, Text, Bilder.
+  if (e.target.closest('button, a, input, textarea, select, label, [role="button"], .votebtn')) return;
+  // Textauswahl und Native-Drag unterbinden
+  e.preventDefault();
   sheetDrag.tracking = true;
   sheetDrag.startY = e.clientY;
   sheetDrag.dy = 0;
@@ -1393,7 +1399,8 @@ sheetEl.addEventListener('pointermove', e => {
   if (!sheetDrag.tracking) return;
   const dy = e.clientY - sheetDrag.startY;
   if (!sheetDrag.active) {
-    if (dy < 8) return;
+    // 8 px waren zu wenig fuer einen Finger; 14 px trennt Tippen und Ziehen
+    if (dy < 14) return;
     sheetDrag.active = true;
     sheetDrag.moved = true;
     sheetEl.classList.add('dragging');
@@ -5526,6 +5533,10 @@ function zeigeSchenkSchritt(v, richtung = 'vor', zurueck) {
       tombstone(v.id);
       state.wallet.vouchers = state.wallet.vouchers.filter(x => x.id !== v.id);
       saveWallet();
+      // Erst raeumt sich das Blatt ab: Formular verschwindet, das Blatt zieht
+      // sich um die Karte zusammen. Dann erst wird eingepackt. Vorher stand
+      // noch das ganze Menue drumherum und alles ging in einem Rutsch vorbei.
+      await blattAufDieKarte(host);
       await packAnimation($('#schenk-karte'), 'ein');
       closeSheet();
       renderWallet();
@@ -5535,6 +5546,34 @@ function zeigeSchenkSchritt(v, richtung = 'vor', zurueck) {
 
   zeichnen();
   openSheetShell(richtung);
+}
+
+// Vor dem Einpacken raeumt sich das Blatt ab: Kopfzeile, Freundeliste,
+// Nachricht und Hinweis blenden gestaffelt aus, dann schrumpft das Blatt um die
+// Karte herum. Erst danach faehrt die Karte in die Schachtel — sonst passiert
+// beides gleichzeitig und man sieht nichts davon.
+function blattAufDieKarte(host) {
+  return new Promise(fertig => {
+    if (reducedMotion() || !host.animate) return fertig();
+    const weg = [...host.querySelectorAll('.schenk-kopf, .gp-block, .gp-haftung, .gp-senden')];
+    weg.forEach((el, i) => {
+      el.style.pointerEvents = 'none';
+      el.animate(
+        [{ opacity: 1, transform: 'translateY(0)' },
+         { opacity: 0, transform: 'translateY(14px)' }],
+        { duration: 240, delay: i * 55, easing: 'cubic-bezier(.4,0,.8,.4)', fill: 'forwards' });
+    });
+    const ende = 240 + Math.max(0, weg.length - 1) * 55;
+    setTimeout(() => {
+      // Das Blatt zieht sich zusammen — die Karte bleibt, wo sie ist
+      const blatt = $('#sheet');
+      blatt?.animate(
+        [{ transform: 'translateX(-50%) scale(1)' },
+         { transform: 'translateX(-50%) scale(.955)' }],
+        { duration: 320, easing: 'cubic-bezier(.22,1,.32,1)', fill: 'forwards' });
+      setTimeout(fertig, 300);
+    }, ende + 60);
+  });
 }
 
 // Einpacken und Auspacken sind dieselbe Bewegung, nur rueckwaerts: die Karte
@@ -5569,9 +5608,11 @@ function packAnimation(kartenEl, richtung = 'ein') {
 
     kartenEl.style.visibility = 'hidden';
     const aK = karte.animate(ein ? [gross, klein] : [klein, gross], {
-      duration: ein ? 520 : 560,
+      // Langsamer als zuerst gebaut: bei 520 ms war die Karte in der
+      // Schachtel, bevor man ueberhaupt hingesehen hatte.
+      duration: ein ? 780 : 820,
       easing: ein ? 'cubic-bezier(.5, 0, .75, .2)' : 'cubic-bezier(.18, 1.1, .35, 1)',
-      fill: 'forwards', delay: ein ? 0 : 180,
+      fill: 'forwards', delay: ein ? 120 : 260,
     });
     box.animate(
       ein
@@ -5582,12 +5623,13 @@ function packAnimation(kartenEl, richtung = 'ein') {
         : [{ transform: 'scale(1)', opacity: 1, offset: 0 },
            { transform: 'scale(1.18)', opacity: 1, offset: .22 },
            { transform: 'scale(.4)', opacity: 0, offset: 1 }],
-      { duration: ein ? 620 : 420, easing: 'cubic-bezier(.3, 1.2, .45, 1)', fill: 'forwards' });
+      { duration: ein ? 940 : 620, delay: ein ? 120 : 0,
+        easing: 'cubic-bezier(.3, 1.2, .45, 1)', fill: 'forwards' });
     blitz.animate(
       [{ transform: 'scale(.3)', opacity: 0 },
        { transform: 'scale(1)', opacity: .85, offset: .5 },
        { transform: 'scale(1.7)', opacity: 0 }],
-      { duration: 520, delay: ein ? 380 : 60, easing: 'ease-out', fill: 'forwards' });
+      { duration: 640, delay: ein ? 700 : 90, easing: 'ease-out', fill: 'forwards' });
 
     const raus = () => {
       if (!buehne.isConnected) return;
@@ -5595,8 +5637,8 @@ function packAnimation(kartenEl, richtung = 'ein') {
       kartenEl.style.visibility = '';
       fertig();
     };
-    aK.onfinish = () => setTimeout(raus, ein ? 320 : 60);
-    setTimeout(raus, 1200);   // Sicherheitsnetz, falls onfinish ausbleibt
+    aK.onfinish = () => setTimeout(raus, ein ? 520 : 80);
+    setTimeout(raus, 2000);   // Sicherheitsnetz, falls onfinish ausbleibt
   });
 }
 
@@ -6636,6 +6678,16 @@ function updateWalletTab(anim) {
   // Erst das Ziel messen, dann umschalten — so faehrt das Farbfeld von Anfang
   // an auf den richtigen Wert zu und nicht hinter dem Kopf her.
   const kopfZiel = kopfZielUnten(coupons || gated);
+  // Fuer die Dauer der Umschaltung ruhen die teuren Weichzeichner (siehe CSS)
+  if (anim) {
+    document.body.classList.add('wallet-wechsel');
+    clearTimeout(updateWalletTab.ruheTimer);
+    updateWalletTab.ruheTimer = setTimeout(
+      () => document.body.classList.remove('wallet-wechsel'), 560);
+  }
+  $('#wallet-modes')?.classList.toggle('rechts', coupons);
+  document.querySelectorAll('[data-wtab]').forEach(b =>
+    b.setAttribute('aria-selected', b.classList.contains('active') ? 'true' : 'false'));
   $('#wallet-kopf')?.classList.toggle('nur-tabs', coupons || gated);
   $('#wallet-kopf-geld')?.classList.toggle('zu', coupons || gated);
   if ((coupons || gated) && kopfGedreht) kopfDrehen(false);
@@ -7111,7 +7163,10 @@ function zeigeRang() {
   openSheetShell();
 }
 
-// Der Kopf dreht sich wie eine Karte — Vorderseite Guthaben, Rueckseite Verlauf
+// Vorder- und Rueckseite des Kopfes wechseln seitwaerts, nicht per Kartendreh.
+// Der Dreh brauchte eine 3D-Ebene ueber den halben Kopf und hat trotzdem nie
+// gut ausgesehen; seitwaerts passt zum Schieber darueber und kostet nur eine
+// Verschiebung. Die Hoehe faehrt getrennt mit, damit nichts springt.
 let kopfGedreht = false, kopfDrehtGerade = false, kopfHoeheTimer = 0;
 function kopfDrehen(zu) {
   const geld = $('#wallet-kopf-geld');
@@ -7122,16 +7177,17 @@ function kopfDrehen(zu) {
   kopfGedreht = ziel;
   balanceFlipped = ziel;
   if (ziel) renderWalletStats(statsRange);
-  buzz(14);
-  const tausch = () => {
-    // Die Rueckseite ist hoeher als die Vorderseite. Ohne Ueberblendung springt
-    // der Kopf und schiebt die halbe Seite nach unten. Deshalb wird die Hoehe
-    // kurz festgehalten und auf die neue gefahren — dieselbe Dauer wie der Dreh.
-    const vorher = geld.getBoundingClientRect().height;
-    vorne.classList.toggle('hidden', ziel);
-    hinten.classList.toggle('hidden', !ziel);
+  buzz(12);
+
+  const raus = ziel ? vorne : hinten;
+  const rein = ziel ? hinten : vorne;
+  const vorher = geld.getBoundingClientRect().height;
+
+  const tauschen = () => {
+    raus.classList.add('hidden');
+    rein.classList.remove('hidden');
     if (!geld.classList.contains('zu')) {
-      const nachher = (ziel ? hinten : vorne).scrollHeight;
+      const nachher = rein.scrollHeight;
       geld.style.gridTemplateRows = Math.round(vorher) + 'px';
       void geld.offsetHeight;
       geld.style.gridTemplateRows = Math.round(nachher) + 'px';
@@ -7139,38 +7195,38 @@ function kopfDrehen(zu) {
       kopfHoeheTimer = setTimeout(() => {
         geld.style.gridTemplateRows = '';
         passeFarbfeldAn();
-      }, 470);
+      }, 430);
     }
-    // Vorder- und Rueckseite sind unterschiedlich hoch — ohne das hier bliebe
-    // der Maskenanfang auf der Hoehe der anderen Seite stehen
     passeFarbfeldAn();
     pruefeKopfzeile();
   };
-  if (reducedMotion() || !geld.animate) { tausch(); return; }
+
+  if (reducedMotion() || !rein.animate) { tauschen(); return; }
   kopfDrehtGerade = true;
-  let getauscht = false;
-  const einmalTauschen = () => { if (!getauscht) { getauscht = true; tausch(); } };
-  // Hin und zurueck drehen sich gegenlaeufig — sonst fuehlt sich das
-  // Zurueckdrehen an wie noch ein Schritt in dieselbe Richtung.
-  const dreh = ziel ? -1 : 1;
-  const a1 = geld.animate(
-    [{ transform: 'perspective(900px) rotateX(0deg)', opacity: 1 },
-     { transform: `perspective(900px) rotateX(${84 * dreh}deg)`, opacity: .5 }],
-    { duration: 210, easing: 'cubic-bezier(.55,0,.8,.5)', fill: 'forwards' });
+  const weite = 26;
+  // Erst die alte Seite hinausschieben, dann die neue von der anderen Seite
+  // hereinholen — nur transform und opacity, also billig.
+  const a1 = raus.animate(
+    [{ transform: 'translate3d(0,0,0)', opacity: 1 },
+     { transform: `translate3d(${ziel ? -weite : weite}px,0,0)`, opacity: 0 }],
+    { duration: 170, easing: 'cubic-bezier(.4,0,.9,.4)', fill: 'forwards' });
+
   const weiter = () => {
-    einmalTauschen();
-    const a2 = geld.animate(
-      [{ transform: `perspective(900px) rotateX(${-84 * dreh}deg)`, opacity: .5 },
-       { transform: 'perspective(900px) rotateX(0deg)', opacity: 1 }],
-      { duration: 330, easing: 'cubic-bezier(.16,.6,.3,1)', fill: 'forwards' });
-    const fertig = () => { a1.cancel(); a2.cancel(); kopfDrehtGerade = false; };
+    if (!kopfDrehtGerade) return;
+    a1.cancel();
+    tauschen();
+    const a2 = rein.animate(
+      [{ transform: `translate3d(${ziel ? weite : -weite}px,0,0)`, opacity: 0 },
+       { transform: 'translate3d(0,0,0)', opacity: 1 }],
+      { duration: 260, easing: 'cubic-bezier(.22,1,.32,1)', fill: 'forwards' });
+    const fertig = () => { a2.cancel(); kopfDrehtGerade = false; };
     a2.onfinish = fertig;
-    setTimeout(fertig, 420);   // Sicherheitsnetz
+    setTimeout(fertig, 340);
   };
   a1.onfinish = weiter;
   // Manche Umgebungen halten Animationen an (versteckter Tab, gedrosselte
   // Wiedergabe) — dann kaeme onfinish nie und die Seite bliebe stehen
-  setTimeout(weiter, 260);
+  setTimeout(weiter, 220);
 }
 
 // Farbige Kopfzeile nur, solange der Kopf darunter noch steht. Sonst haengt
@@ -7296,6 +7352,8 @@ $('#wa-statistik')?.addEventListener('click', () => kopfDrehen(true));
 // Verschenken: nicht alle Gutscheine auf einmal, sondern wie in der Wallet —
 // nach Marke gebuendelt, mit Filter und Sortierung.
 let schenkFilter = '', schenkSort = 'niedrig';
+// Wie viele Gutscheine die Auswahl hoechstens gleichzeitig zeigt
+let schenkSicht = 12;
 function renderSchenkAuswahl() {
   state.sheetMode = 'gift-pick';   // auch beim Zurueckgehen aus Schritt zwei
   const alle = state.wallet.vouchers.filter(v => v.balance == null || v.balance > 0);
@@ -7320,7 +7378,14 @@ function renderSchenkAuswahl() {
           ${vs.length - 1} weitere von ${esc(marke)}</button>` : ''}
       </div>`).join('');
   } else {
-    inhalt = liste.map(voucherCardHtml).join('');
+    // Auch hier eine Obergrenze: mit einer Marke im Filter standen sonst alle
+    // Gutscheine dieser Marke auf einen Schlag im Baum — bei vielen Karten war
+    // das dieselbe Wand wie in der Wallet, nur an anderer Stelle.
+    const zeig = liste.slice(0, schenkSicht);
+    inhalt = zeig.map(voucherCardHtml).join('')
+      + (liste.length > zeig.length
+        ? `<button class="deck-more" data-schenk-mehr="1">${liste.length - zeig.length} weitere anzeigen</button>`
+        : '');
   }
 
   $('#sheet-content').innerHTML = `
@@ -7337,9 +7402,10 @@ function renderSchenkAuswahl() {
     <div class="wallet-list" style="margin-top:12px">${inhalt || '<div class="status">Kein Gutschein mit Guthaben.</div>'}</div>`;
 
   const host = $('#sheet-content');
-  host.querySelectorAll('[data-sf]').forEach(b => b.onclick = () => { schenkFilter = b.dataset.sf; renderSchenkAuswahl(); });
-  host.querySelectorAll('[data-ss]').forEach(b => b.onclick = () => { schenkSort = b.dataset.ss; renderSchenkAuswahl(); });
-  host.querySelectorAll('[data-schenk-marke]').forEach(b => b.onclick = () => { schenkFilter = b.dataset.schenkMarke; renderSchenkAuswahl(); });
+  host.querySelectorAll('[data-sf]').forEach(b => b.onclick = () => { schenkFilter = b.dataset.sf; schenkSicht = 12; renderSchenkAuswahl(); });
+  host.querySelectorAll('[data-ss]').forEach(b => b.onclick = () => { schenkSort = b.dataset.ss; schenkSicht = 12; renderSchenkAuswahl(); });
+  host.querySelectorAll('[data-schenk-marke]').forEach(b => b.onclick = () => { schenkFilter = b.dataset.schenkMarke; schenkSicht = 12; renderSchenkAuswahl(); });
+  host.querySelector('[data-schenk-mehr]')?.addEventListener('click', () => { schenkSicht += 12; renderSchenkAuswahl(); });
   host.querySelectorAll('[data-wv]').forEach(el => el.onclick = () => {
     const v = state.wallet.vouchers.find(x => x.id === el.dataset.wv);
     // Kein Runterwischen und kein zweites Fenster: der naechste Schritt
@@ -7352,6 +7418,7 @@ $('#wa-schenken')?.addEventListener('click', () => {
   if (!offen.length) { island('Du hast gerade keinen Gutschein mit Guthaben'); return; }
   buzz(12);
   schenkFilter = '';
+  schenkSicht = 12;
   state.sheetMode = 'gift-pick';
   renderSchenkAuswahl();
   openSheetShell();
@@ -7700,6 +7767,7 @@ let dmPartner = '';
 let dmLastTs = 0;
 
 function setChatMode(mode, partner) {
+  const vorherMode = chatMode;
   chatMode = mode;
   dmPartner = partner || '';
   dmLastTs = 0;
@@ -7707,20 +7775,22 @@ function setChatMode(mode, partner) {
   $('#chat-list').innerHTML = '';
   chatLastTs = mode === 'global' ? 0 : chatLastTs;
   const zeigt = mode === 'dm' ? 'dmlist' : mode;
-  const vorher = $('#chat-modes')?.querySelector('.cm-titel.active')?.dataset.cmode;
   document.querySelectorAll('[data-cmode]').forEach(b => {
     const an = b.dataset.cmode === zeigt;
     b.classList.toggle('active', an);
     b.setAttribute('aria-selected', an ? 'true' : 'false');
   });
   $('#chat-modes')?.classList.toggle('rechts', zeigt === 'dmlist');
-  // Die Liste schiebt in die Richtung herein, in die man getippt hat — links
-  // Global, rechts Freunde. Ohne das wirkt der Wechsel wie ein Neuladen.
-  if (vorher && vorher !== zeigt) {
+  // Die Liste schiebt in die Richtung herein, in die man geht. Rang der drei
+  // Ebenen: Global (0) — Freundesliste (1) — einzelner Chat (2). Tiefer heisst
+  // von rechts herein, zurueck heisst von links. Vorher galt das nur fuer den
+  // Wechsel oben, und das Oeffnen eines Fluesterchats sprang hart um.
+  const rang = { global: 0, dmlist: 1, dm: 2 };
+  if (vorherMode && vorherMode !== mode) {
     const box = $('#chat-box');
     box.classList.remove('kommt-links', 'kommt-rechts');
     void box.offsetWidth;
-    box.classList.add(zeigt === 'dmlist' ? 'kommt-rechts' : 'kommt-links');
+    box.classList.add(rang[mode] > rang[vorherMode] ? 'kommt-rechts' : 'kommt-links');
   }
   $('#dm-head').classList.toggle('hidden', mode !== 'dm');
   $('#chat-pinbar').classList.toggle('hidden', mode !== 'global' || !$('#chat-pinbar').innerHTML);
@@ -8448,7 +8518,17 @@ if (window.visualViewport) {
     // Tastatur offen? Referenz ist die groesste je gesehene Hoehe — dann darf
     // der Chat-Puffer schrumpfen (die Tabbar-Zone liegt eh unter der Tastatur)
     vvBaseH = Math.max(vvBaseH, vv.height);
-    document.body.classList.toggle('kb-open', vv.height < vvBaseH - 120);
+    const auf = vv.height < vvBaseH - 120;
+    const warVorher = document.body.classList.contains('kb-open');
+    document.body.classList.toggle('kb-open', auf);
+    // Beim Aufgehen der Tastatur ans Ende springen: sonst steht man mitten im
+    // Verlauf und sieht ausgerechnet die letzten Nachrichten nicht.
+    if (auf && !warVorher && document.body.classList.contains('chat-locked')) {
+      requestAnimationFrame(() => {
+        const box = document.getElementById('chat-box');
+        if (box) box.scrollTop = box.scrollHeight;
+      });
+    }
     // iOS schiebt beim Öffnen der Tastatur den sichtbaren Ausschnitt nach unten
     // (offsetTop) und der Chat "verschwindet" oben. Der Trick: den Body um genau
     // diesen Versatz mitschieben, dann bleibt alles lesbar an Ort und Stelle
