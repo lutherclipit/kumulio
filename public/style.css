@@ -199,7 +199,13 @@ html.theme-anim, html.theme-anim *, html.theme-anim *::before, html.theme-anim *
 .island.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 
 /* ---------- Layout + View-Übergänge ---------- */
-main { --seitenpolster: 20px; max-width: 640px; margin: 0 auto; padding: var(--seitenpolster) 16px 110px; position: relative; }
+main {
+  --seitenpolster: 20px;
+  /* Was die Menueleiste unten belegt: 14 px Abstand + 56 px Hoehe + Luft */
+  --menue-luft: 96px;
+  max-width: 640px; margin: 0 auto; position: relative;
+  padding: var(--seitenpolster) 16px calc(var(--menue-luft) + env(safe-area-inset-bottom, 0px));
+}
 /* Wechsel ohne Überlappung: die alte View verschwindet sofort, nur die neue
    animiert herein – so kann nichts springen, doppelt erscheinen oder verrutschen. */
 .view { will-change: transform, opacity; }
@@ -1234,7 +1240,7 @@ body.no-select { user-select: none; -webkit-user-select: none; }
 }
 
 @media (max-width: 520px) {
-  main { --seitenpolster: 16px; padding: var(--seitenpolster) 12px 104px; }
+  main { --seitenpolster: 16px; padding: var(--seitenpolster) 12px calc(var(--menue-luft) + env(safe-area-inset-bottom, 0px)); }
   .deal-img { flex-basis: 66px; width: 66px; height: 66px; }
   .onboarding-grid { grid-template-columns: 1fr; }
 }
@@ -1332,8 +1338,7 @@ input, textarea, select, button { touch-action: manipulation; }
 
 /* ================= Global-Chat ================= */
 #chat-box {
-  /* Box + Eingabezeile müssen komplett über der Tabbar Platz finden */
-  height: calc(100dvh - 415px - env(safe-area-inset-top, 0px)); min-height: 200px;
+  min-height: 0;
   overflow-y: auto; overscroll-behavior: contain;
   background: var(--surface); border: 1px solid var(--stroke-light);
   border-radius: 16px; padding: 10px 12px;
@@ -1636,8 +1641,6 @@ input[type="date"].input {
   margin: 0 0 8px; padding: 8px;
   animation: enterDrop .3s cubic-bezier(.3,1.35,.45,1) backwards;
 }
-#view-chat.emotes-open #chat-box { height: calc(100dvh - 515px - env(safe-area-inset-top, 0px)); }
-#chat-box { transition: height .3s cubic-bezier(.2,.8,.3,1); }
 .emote-pick .emote { height: 24px; }
 
 /* Deal-Karten und Sheet */
@@ -1786,8 +1789,6 @@ input[type="date"].input {
 
 /* Chat nimmt die Seite bis zum Header ein */
 #chat-modes { justify-content: center; margin-bottom: 10px; }
-#chat-box { height: calc(100dvh - 285px - env(safe-area-inset-top, 0px)); min-height: 240px; }
-#view-chat.emotes-open #chat-box { height: calc(100dvh - 395px - env(safe-area-inset-top, 0px)); }
 
 /* Menü-Backdrop: blendet weich ein (Blur + Abdunklung), Verlauf nach unten */
 #top-menu-backdrop {
@@ -1922,9 +1923,6 @@ input[type="date"].input {
 #user-pop-backdrop { z-index: 210 !important; }
 #case-backdrop { z-index: 220 !important; }
 
-/* Chat: Tabbar überlappt die Eingabe nicht mehr (iPhone Safe-Area) */
-#chat-box { height: calc(100dvh - 320px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); }
-#view-chat.emotes-open #chat-box { height: calc(100dvh - 430px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); }
 
 /* Nirgends zoomen oder markieren, außer bei den Gutschein-Codes */
 body { -webkit-user-select: none; user-select: none; }
@@ -2039,8 +2037,6 @@ body { -webkit-user-select: none; user-select: none; }
 
 /* Chat: kompakt, fix, Tastatur-sicher (sichtbare Höhe als Variable) */
 body.chat-locked { overflow: hidden; height: 100dvh; }
-#chat-box { height: calc(var(--vvh, 100dvh) - 300px - env(safe-area-inset-top, 0px)); min-height: 180px; }
-#view-chat.emotes-open #chat-box { height: calc(var(--vvh, 100dvh) - 405px - env(safe-area-inset-top, 0px)); }
 #chat-modes { justify-content: center; }
 
 /* Erwähnungen: klar erkennbar und klickbar */
@@ -2457,19 +2453,14 @@ body:has(.sheet.open) {
 }
 .sheet-content, .modal { overscroll-behavior: contain; }
 
-/* Chat-Hoehe zentral ueber EINE Variable: DM-Kopf und Emote-Picker addieren
-   ihren Platzbedarf, statt sich mit konkurrierenden height-Regeln zu schlagen */
-#view-chat { --chatpad: 300px; }
-#view-chat:has(#dm-head:not(.hidden)) { --chatpad: 356px; }
-#view-chat.emotes-open { --chatpad: 448px; }
-#view-chat.emotes-open:has(#dm-head:not(.hidden)) { --chatpad: 504px; }
-#chat-box {
-  height: calc(var(--vvh, 100dvh) - var(--chatpad, 300px) - env(safe-area-inset-top, 0px)) !important;
-  min-height: 130px;
-}
+/* Die Chat-Hoehe lief frueher ueber --chatpad mit vier Varianten und einem
+   !important. Sie ist ersatzlos weg: der Umbruch rechnet das jetzt selbst
+   (siehe "Chat ohne Zahlenraterei" weiter unten).
 
-/* Wallet: unten genug Luft, damit Menü und Mini-Guthaben nichts überlappen */
-#view-wallet { padding-bottom: 190px; }
+   Auch die 190 px unter der Wallet sind weg. Zusammen mit dem Polster von main
+   ergab das fast 300 px Leere zwischen dem letzten Eintrag und der
+   Menueleiste. Das Mini-Guthaben schwebt ohnehin darueber und braucht keinen
+   eigenen Platz im Fluss. */
 
 /* Filter-Chips: Text wird sauber mit Punkten gekürzt statt hart abgeschnitten */
 #wallet-vendor-filters .chip { max-width: 60vw; }
@@ -3004,10 +2995,6 @@ body:has(.sheet.open) {
 
 /* Tastatur offen: der Chat-Puffer schrumpft, kein Riesen-Loch mehr zwischen
    Eingabezeile und Tastatur (Header + Tabs + Eingabe = ~148px) */
-body.kb-open #view-chat { --chatpad: 188px; }
-body.kb-open #view-chat:has(#dm-head:not(.hidden)) { --chatpad: 244px; }
-body.kb-open #view-chat.emotes-open { --chatpad: 336px; }
-body.kb-open #view-chat.emotes-open:has(#dm-head:not(.hidden)) { --chatpad: 392px; }
 
 /* Off-Screen kostet nichts: unsichtbare Nachrichten und Feed-Karten werden
    weder gelayoutet noch gemalt — animierte Paints und Emotes rechnen dann
@@ -3455,8 +3442,6 @@ body.kb-open #chat-input-row { margin-top: 6px; }
 body.kb-open #chat-cmds { display: none !important; }
 /* Tastatur offen: noch dichter ran. Kopfzeile, Tabs und Eingabe zusammen
    brauchen ~150px — der Rest gehört dem Verlauf. */
-body.kb-open #view-chat { --chatpad: 158px; }
-body.kb-open #view-chat:has(#dm-head:not(.hidden)) { --chatpad: 210px; }
 body.kb-open #view-chat .chat-tabs { margin-bottom: 4px; }
 body.kb-open #chat-box { min-height: 120px; }
 
@@ -3778,7 +3763,7 @@ a.app-quest .app-quest-txt { flex: 1; min-width: 0; }
   position: relative;
   /* Der Kopf reicht bis unter die Kopfzeile und traegt nur den Inhalt —
      gemalt wird der Grund von #wallet-farbfeld ausserhalb von main. */
-  margin: calc(-1 * (var(--kopfzeile-h, 64px) + var(--seitenpolster, 20px))) -16px 18px;
+  margin: calc(-1 * (var(--kopfzeile-h, 64px) + var(--seitenpolster, 20px))) -16px 14px;
   padding: calc(var(--kopfzeile-h, 64px) + 18px) 16px 0;
   color: #fff;
   /* Die Kopfzeile ist ueber dem Kopf durchsichtig — sonst laege dort ein
@@ -3886,7 +3871,7 @@ body.wallet-farbe #wallet-farbfeld { opacity: 1; }
   transition: background .6s ease;
 }
 main { position: relative; z-index: 1; }
-.wallet-kopf-inner { position: relative; z-index: 1; padding-bottom: 30px; }
+.wallet-kopf-inner { position: relative; z-index: 1; padding-bottom: 16px; }
 
 /* Die Kopfzeile faerbt sich mit, solange man in der Wallet steht */
 body.wallet-farbe .topbar {
@@ -3931,8 +3916,14 @@ body.wallet-farbe .topbar .iconbtn {
 .wallet-kopf .balance-big {
   color: #fff; font-size: 3.1rem; font-weight: 800; letter-spacing: -.035em;
   line-height: 1.05; margin: 0; text-shadow: 0 2px 14px rgba(0, 0, 0, .16);
+  /* Das Euro-Zeichen haengt sonst zu weit weg — es gehoert zur Zahl */
+  word-spacing: -.09em;
+  /* Die negative Laufweite faellt auch hinter der letzten Ziffer an. Dadurch
+     ist der Textkasten rechts schmaler und die Zahl sitzt gefuehlt zu weit
+     rechts. Das gleicht es aus. */
+  padding-right: .035em;
 }
-.wallet-kopf-sub { font-size: .84rem; opacity: .88; margin-top: 4px; }
+.wallet-kopf-sub { font-size: .84rem; opacity: .88; margin-top: 6px; }
 
 /* Rang-Leiste */
 .wallet-kopf .rank-row { display: flex; align-items: center; gap: 9px; margin: 16px 0 0; }
@@ -3949,9 +3940,11 @@ body.wallet-farbe .topbar .iconbtn {
 
 /* Die vier Handgriffe: Glasplaettchen mit feiner Kante */
 .wallet-aktionen {
-  display: flex; justify-content: center; gap: 26px; margin-top: 22px;
+  display: grid; grid-template-columns: repeat(3, 1fr); justify-items: center;
+  max-width: 306px; margin: 22px auto 0;
 }
 .wa-btn {
+  width: 100%;
   display: flex; flex-direction: column; align-items: center; gap: 8px;
   background: none; border: none; padding: 0;
   font: inherit; font-size: .72rem; font-weight: 700; color: #fff;
@@ -4004,7 +3997,8 @@ body.wallet-farbe.kopf-weg .topbar .iconbtn {
 
 /* Bereichswahl sitzt im farbigen Kopf */
 .wallet-kopf #wallet-modes {
-  display: flex; gap: 8px; margin: 0 0 18px; padding: 0; overflow-x: auto;
+  /* Steht jetzt unter dem Betrag, also Abstand nach OBEN statt nach unten */
+  display: flex; gap: 8px; margin: 22px 0 0; padding: 0; overflow-x: auto;
   scrollbar-width: none;
 }
 .wallet-kopf #wallet-modes::-webkit-scrollbar { display: none; }
@@ -4032,12 +4026,12 @@ body.wallet-farbe.kopf-weg .topbar .iconbtn {
   grid-template-rows: 0fr; opacity: 0; transform: translateY(-10px);
 }
 .wallet-kopf.nur-tabs .wallet-kopf-inner { padding-bottom: 4px; }
-.wallet-kopf.nur-tabs #wallet-modes { margin-bottom: 0; }
+.wallet-kopf.nur-tabs #wallet-modes { margin-top: 0; }
 
 
 @media (max-width: 560px) {
   .wallet-kopf {
-    margin: calc(-1 * (var(--kopfzeile-h, 64px) + var(--seitenpolster, 16px))) -12px 16px;
+    margin: calc(-1 * (var(--kopfzeile-h, 64px) + var(--seitenpolster, 16px))) -12px 12px;
     padding: calc(var(--kopfzeile-h, 64px) + 14px) 12px 0;
   }
   .wallet-kopf .balance-big { font-size: 2.7rem; }
@@ -4059,8 +4053,12 @@ body.wallet-farbe.kopf-weg .topbar .iconbtn {
 .wallet-kopf .rank-progress { height: 3px; background: rgba(255, 255, 255, .3); }
 
 /* --- Sichern laeuft still: kleiner Punkt neben der Gutschein-Zahl --- */
-.wallet-kopf-sub { display: inline-flex; align-items: center; gap: 7px; }
-.sync-punkt { width: 12px; height: 12px; display: inline-block; opacity: 0; transition: opacity .3s ease; }
+.wallet-kopf-sub { position: relative; display: inline-flex; align-items: center; gap: 7px; }
+.sync-punkt {
+  position: absolute; left: 100%; top: 50%; margin-left: 7px;
+  transform: translateY(-50%);
+  width: 12px; height: 12px; opacity: 0; transition: opacity .3s ease;
+}
 .sync-punkt.laeuft, .sync-punkt.fertig, .sync-punkt.offen { opacity: .9; }
 .sync-punkt.laeuft {
   border: 2px solid rgba(255, 255, 255, .4); border-top-color: #fff;
@@ -4196,10 +4194,7 @@ body:not(.wallet-farbe) .topbar::after {
 body.gescrollt .topbar { padding-top: calc(7px + env(safe-area-inset-top, 0px)); padding-bottom: 7px; }
 body.gescrollt .topbar .k-wordmark { height: 21px; transition: height .3s cubic-bezier(.22, 1, .32, 1); }
 .topbar .k-wordmark { transition: height .3s cubic-bezier(.22, 1, .32, 1); }
-body.gescrollt:not(.wallet-farbe) .topbar {
-  background-color: var(--glass);
-  border-bottom-color: var(--stroke-light);
-}
+body.gescrollt:not(.wallet-farbe) .topbar { border-bottom-color: transparent; }
 
 /* --- Marken-Kacheln: nichts mehr abschneiden --- */
 .app-tile {
@@ -4358,14 +4353,28 @@ body.gescrollt:not(.wallet-farbe) .topbar {
    die Leiste denselben Milchglasgrund wie die Seite und laeuft nach unten
    weich aus. */
 .topbar { border-bottom: none !important; box-shadow: none !important; }
-body:not(.wallet-farbe) .topbar::after {
-  content: ''; position: absolute; left: 0; right: 0; bottom: -18px; height: 18px;
-  background: linear-gradient(to bottom,
-    color-mix(in srgb, var(--seitengrund) 82%, transparent),
-    transparent);
-  pointer-events: none;
-}
+body:not(.wallet-farbe) .topbar::after { content: none; }
 body.wallet-farbe .topbar::after { content: none; }
+
+/* Ausserhalb der Wallet traegt nicht die Leiste selbst das Milchglas, sondern
+   eine Ebene dahinter, die 24 px weiter reicht und weich ausgeht. Die Leiste
+   hebt sich damit weiter vom Inhalt ab — nur ohne die Linie an der Unterkante.
+   Der Inhalt (Wortmarke, Knoepfe) liegt darueber und bleibt scharf. */
+:root body:not(.wallet-farbe) .topbar {
+  background: transparent;
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+}
+:root body:not(.wallet-farbe) .topbar::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 0; bottom: -24px;
+  z-index: -1; pointer-events: none;
+  background: var(--glass);
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 38px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 38px), transparent 100%);
+  /* Ganz oben braucht es den Grund nicht — da ist noch nichts druntergerutscht */
+  opacity: 0; transition: opacity .35s ease;
+}
+body.gescrollt:not(.wallet-farbe) .topbar::before { opacity: 1; }
 
 /* --- Wechsel zwischen Gutscheinen und Karten: ruhiger --- */
 #wallet-content.tab-in, #coupons-content.tab-in {
@@ -4610,3 +4619,176 @@ body.wallet-farbe .topbar::after { content: none; }
 .app-hinweis { border-left-color: #E0B33A; }
 .app-hinweis b { display: block; margin-bottom: 2px; color: var(--text); }
 .cc-locked { border-left-color: color-mix(in srgb, var(--accent-strong, #12C77E) 55%, transparent); }
+
+/* ============ Runde 98: kleine Marken-Kacheln und die Kartenlupe ============ */
+
+/* Drei nebeneinander. Vorher lag pro Zeile EINE breite Karte — bei zwoelf
+   Marken hiess das zwoelfmal scrollen, um zu sehen, was man hat. */
+#coupon-grid {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px; margin-top: 12px;
+}
+.mk-kachel {
+  position: relative; aspect-ratio: 1.35 / 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 7px; padding: 8px 6px;
+  border: none; border-radius: 15px; cursor: pointer;
+  background: linear-gradient(145deg,
+    color-mix(in srgb, var(--bc) 92%, #000 16%) 0%,
+    var(--bc) 58%,
+    color-mix(in srgb, var(--bc) 74%, #fff 26%) 100%);
+  color: var(--tc, #fff);
+  box-shadow: 0 5px 14px rgba(10, 14, 18, .2);
+  transition: transform .22s var(--spring), box-shadow .22s ease;
+  overflow: hidden;
+}
+.mk-kachel:active { transform: scale(.93); box-shadow: 0 2px 7px rgba(10, 14, 18, .22); }
+.mk-kachel .brand-chip {
+  width: 38px; height: 38px; border-radius: 11px;
+  background: rgba(255, 255, 255, .94); flex: 0 0 auto;
+}
+.mk-name {
+  font-size: .68rem; font-weight: 800; line-height: 1.15; text-align: center;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Der Punkt sagt: Sparkarte liegt drin */
+.mk-punkt {
+  position: absolute; top: 7px; right: 7px; width: 7px; height: 7px;
+  border-radius: 50%; background: currentColor; opacity: .9;
+}
+.mk-schloss { position: absolute; top: 6px; left: 6px; opacity: .85; }
+.mk-flagge {
+  position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%);
+  background: #fff; color: #C81E1E; border-radius: 999px;
+  padding: 1px 7px; font-size: .55rem; font-weight: 900; letter-spacing: .02em;
+}
+.mk-kachel.hell { color: #16202A; }
+.mk-kachel.hell .mk-punkt { background: #16202A; }
+.mk-add {
+  background: var(--surface); color: var(--text);
+  border: 1px dashed var(--stroke); box-shadow: none;
+}
+.mk-add .app-add-plus { opacity: .6; }
+
+/* --- Die Lupe: Karte gross in der Mitte, alles andere unscharf --- */
+.karten-lupe { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; }
+.lupe-grund {
+  position: absolute; inset: 0; cursor: pointer;
+  background: rgba(10, 14, 20, .34);
+  backdrop-filter: blur(14px) saturate(.9); -webkit-backdrop-filter: blur(14px) saturate(.9);
+  opacity: 0; transition: opacity .32s ease;
+}
+.karten-lupe.an .lupe-grund { opacity: 1; }
+.lupe-mitte { position: relative; z-index: 1; width: min(360px, 86vw); }
+.lupe-buehne { perspective: 1400px; }
+.lupe-buehne .debitkarte { max-width: none; cursor: pointer; }
+.lupe-knoepfe {
+  display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;
+  margin-top: 18px; opacity: 0; transform: translateY(8px);
+  transition: opacity .3s ease .18s, transform .3s ease .18s;
+}
+.karten-lupe.an .lupe-knoepfe { opacity: 1; transform: none; }
+.lupe-hinweis {
+  margin: 10px 0 0; text-align: center; font-size: .76rem; color: #fff; opacity: .82;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, .4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lupe-grund, .lupe-knoepfe { transition: none; }
+}
+
+/* --- Geschenk-Fenster: Freund waehlen, Nachricht, Hinweis --- */
+.geschenk-modal { max-width: 420px; width: min(420px, 92vw); }
+.gp-rest { margin: 2px 0 0; font-size: .84rem; color: var(--muted); }
+.gp-block { margin-top: 16px; }
+.gp-label { display: block; font-size: .78rem; font-weight: 800; margin-bottom: 7px; }
+.gp-label small { font-weight: 600; color: var(--muted); }
+.gp-suche { margin-bottom: 8px; }
+.gp-freunde { display: flex; flex-direction: column; gap: 6px; max-height: 190px; overflow-y: auto; }
+.gp-freund {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: var(--surface); border: 1px solid var(--stroke-light);
+  border-radius: 13px; padding: 8px 12px; font: inherit; color: var(--text);
+  cursor: pointer; text-align: left;
+  transition: border-color .2s ease, background .2s ease, transform .18s var(--spring);
+}
+.gp-freund:active { transform: scale(.98); }
+.gp-freund.gewaehlt { border-color: var(--accent-strong); background: var(--surface-2); }
+.gp-freund .icon { margin-left: auto; color: var(--accent-strong); }
+.gp-ava {
+  width: 30px; height: 30px; border-radius: 50%; flex: 0 0 auto;
+  display: grid; place-items: center; font-weight: 800; font-size: .82rem;
+  background: var(--accent-soft, rgba(18, 199, 126, .18)); color: var(--accent-strong);
+}
+.gp-name { font-weight: 700; font-size: .88rem; }
+.gp-eingabe { display: flex; gap: 8px; align-items: center; }
+.gp-eingabe .input { flex: 1; min-width: 0; }
+.gp-emotes {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;
+  max-height: 130px; overflow-y: auto;
+}
+.gp-haftung {
+  margin: 16px 0 0; font-size: .72rem; line-height: 1.5; color: var(--muted);
+  background: var(--surface); border: 1px solid var(--stroke-light);
+  border-radius: 12px; padding: 10px 12px;
+}
+.gp-haftung a { color: var(--accent-strong); }
+.gp-senden { margin-top: 14px; }
+
+
+/* ============ Runde 98: Chat ohne Zahlenraterei =============================
+   Vorher bekam #chat-box seine Hoehe aus fuenf Medienabfragen mit fest
+   eingetragenen Abzuegen (415, 285, 320, 300 ...). Jede war fuer ein Geraet
+   richtig und fuer das naechste falsch; auf einem iPhone mit Home-Leiste
+   rutschte die Eingabezeile unter die Menueleiste, weil env(safe-area-inset-
+   bottom) in den meisten dieser Zeilen fehlte.
+   Jetzt rechnet der Umbruch: die Ansicht ist eine Spalte ueber die verfuegbare
+   Hoehe, die Nachrichtenliste nimmt sich den Rest, Emote-Leiste und Eingabe
+   stehen darunter. Keine Zahl mehr, die man pro Geraet nachziehen muesste.
+   --vvh setzt app.js aus visualViewport — damit weicht die Spalte der
+   Bildschirmtastatur aus, statt sich darunter zu schieben. */
+#view-chat {
+  display: flex; flex-direction: column;
+  /* min(): --vvh kommt aus visualViewport und schrumpft, wenn die Tastatur
+     aufgeht — dann gilt es. Haengt es aus irgendeinem Grund hinterher und ist
+     zu gross, faengt 100dvh das ab. So kann die Spalte nie hoeher werden als
+     der Bildschirm, egal welcher Wert veraltet ist. */
+  height: calc(min(var(--vvh, 100dvh), 100dvh)
+    - var(--kopfzeile-h, 62px)
+    - var(--seitenpolster, 20px)
+    - var(--menue-luft, 96px)
+    - env(safe-area-inset-bottom, 0px));
+  /* Klein genug, dass die Spalte auf einem quer gedrehten Handy (Hoehe um die
+     360 px) nicht ueber den Bildschirm hinauswaechst und die Eingabezeile unter
+     die Menueleiste schiebt. */
+  min-height: 150px;
+}
+#chat-box-wrap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+#chat-box {
+  flex: 1 1 auto; min-height: 0; height: auto;
+  transition: none;                 /* die Hoehe faellt jetzt aus dem Umbruch */
+}
+#chat-modes, #dm-head, #chat-pinbar, #chat-input-row { flex: 0 0 auto; }
+#chat-input-row { margin-top: 10px; }
+/* In der Wallet schwebt unten zusaetzlich das Mini-Guthaben. 34 px mehr
+   reichen, damit der letzte Eintrag nicht darunter verschwindet. */
+body.wallet-farbe main { padding-bottom: calc(var(--menue-luft) + 34px + env(safe-area-inset-bottom, 0px)); }
+/* Die Emote-Leiste schwebt ueber der Liste (position: absolute) und nimmt
+   deshalb keinen Platz in der Spalte weg — genau darum braucht es keine
+   zweite Hoehenrechnung mehr fuer den geoeffneten Zustand. */
+
+/* Die Knoepfe stehen auf dem abgedunkelten Grund — der graue Geist-Knopf war
+   dort kaum zu lesen. */
+.lupe-knoepfe .btn-ghost {
+  background: rgba(255, 255, 255, .16); color: #fff;
+  border: 1px solid rgba(255, 255, 255, .34);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+.lupe-knoepfe .btn-ghost:active { background: rgba(255, 255, 255, .26); }
+
+/* Ohne hinterlegte Karte steht dort ein Satz, keine Nummer — Schreibmaschine
+   passt dazu nicht. */
+.debitkarte.leer .dk-nummer {
+  font-family: inherit; font-size: .84rem; font-weight: 700;
+  letter-spacing: .01em; opacity: .92;
+}

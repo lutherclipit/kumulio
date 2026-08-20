@@ -478,10 +478,6 @@
            bei Karten und Coupons sichtbar bleibt. -->
       <div class="wallet-kopf" id="wallet-kopf">
         <div class="wallet-kopf-inner">
-          <div id="wallet-modes">
-            <button class="chip active" data-wtab="gutscheine">Gutscheine</button>
-            <button class="chip" data-wtab="coupons">Karten &amp; Coupons</button>
-          </div>
           <div id="wallet-kopf-geld"><div class="kopf-geld-inner" id="kopf-vorne">
             <button class="balance-flip-btn" id="balance-flip">
               <div class="balance-big" id="wallet-total">0,00 €</div>
@@ -510,6 +506,13 @@
             </div>
           </div>
           <div class="kopf-geld-inner hidden" id="kopf-hinten"></div></div>
+          <!-- Die Bereichswahl steht UNTER dem Betrag: oben liest man erst die
+               Zahl, dann waehlt man. Andersherum wirkt der Kopf wie eine
+               Werkzeugleiste mit Zahl darunter. -->
+          <div id="wallet-modes">
+            <button class="chip active" data-wtab="gutscheine">Gutscheine</button>
+            <button class="chip" data-wtab="coupons">Karten &amp; Coupons</button>
+          </div>
         </div>
       </div>
       <div id="wallet-content">

@@ -823,7 +823,7 @@ function renderCoupons(host) {
   const sofort = marken.filter(b => (b.coupons && b.coupons.open) || /mcdonald/i.test(b.name));
   const rest = marken.filter(b => !sofort.includes(b));
 
-  host.innerHTML = `
+  const bau = `
     <h2 class="bereich-titel">Sofort einlösbar</h2>
     <div class="cc-cards">${sofort.map(b => {
       const gratis = /mcdonald/i.test(b.name) && (mccheapDaten?.items || []).some(x => x.gratis);
@@ -847,27 +847,19 @@ function renderCoupons(host) {
         const gesperrt = b.coupons && !ccBesitzt(b.coupons);
         const gratis = /mcdonald/i.test(b.name) && (mccheapDaten?.items || []).some(x => x.gratis);
         return `
-      <div class="marken-karte ${b.card ? 'hat-karte' : ''}" data-marke="${esc(b.key)}">
-        ${b.card
-          ? sparkarteHtml(b.card)
-          : `<div class="debitkarte leer" style="--bc:${brandColor(b.name)}; --tc:${brandTextColor(b.name)}">
-              <div class="dk-flaeche dk-vorne">
-                <div class="dk-oben">${brandChipHtml(b.name)}<span class="dk-marke">${esc(b.name)}</span></div>
-                <div class="dk-unten">
-                  <span>${esc(brandUntertitel(b))}</span>
-                  ${gesperrt ? icon('lock', 'icon icon-sm') : icon('arrow-right', 'icon icon-sm')}
-                </div>
-              </div>
-            </div>`}
-        ${gratis ? '<span class="tile-flag">gratis!</span>' : ''}
-        <button class="marken-info" data-brand="${esc(b.key)}" aria-label="${esc(b.name)} öffnen">
-          ${icon('chevron', 'icon icon-sm')}
-        </button>
-      </div>`;
+      <button class="mk-kachel ${b.card ? 'hat-karte' : ''} ${brandHelligkeit(brandColor(b.name)) > 0.62 ? 'hell' : ''}"
+        data-marke="${esc(b.key)}" style="--bc:${brandColor(b.name)}; --tc:${brandTextColor(b.name)}"
+        aria-label="${esc(b.name)}">
+        ${brandChipHtml(b.name)}
+        <span class="mk-name">${esc(b.name)}</span>
+        ${b.card ? '<span class="mk-punkt" aria-hidden="true"></span>' : ''}
+        ${gesperrt ? `<span class="mk-schloss">${icon('lock', 'icon icon-sm')}</span>` : ''}
+        ${gratis ? '<span class="mk-flagge">gratis!</span>' : ''}
+      </button>`;
       }).join('')}
-      <button class="marken-karte marken-add" data-wadd="card">
+      <button class="mk-kachel mk-add" data-wadd="card">
         <span class="app-add-plus">${icon('plus')}</span>
-        <span>Karte hinzufügen</span>
+        <span class="mk-name">Karte</span>
       </button>
     </div>
     <h2 class="bereich-titel">Geld zurück</h2>
@@ -875,22 +867,24 @@ function renderCoupons(host) {
       ? gzg.map((d, i) => renderOfferCard(d, i, false)).join('')
       : '<div class="status">Aktuelle GzG-Aktionen postet die Redaktion über das Admin-Panel, sie erscheinen dann hier.</div>'}`;
 
+  // Beim Wechsel auf "Karten & Coupons" wurde bisher JEDES Mal die ganze Liste
+  // neu in den Baum geschrieben — mit allen Logos, Verlaeufen und Schatten.
+  // Das lag genau auf dem ersten Bild der Einblend-Animation und war der Ruck,
+  // den man gesehen hat. Wenn sich nichts geaendert hat, bleibt der Baum jetzt
+  // einfach stehen; nur der Text wird verglichen, nicht neu gebaut.
+  if (renderCoupons.letzterBau === bau && host.firstElementChild) { ladeCouponListe(); return; }
+  host.innerHTML = bau;
+  renderCoupons.letzterBau = bau;   // im Speicher, nicht als Attribut im Baum
+
   ladeCouponListe();
-  // Zeilen oben und der Pfeil an der Karte fuehren ins Marken-Blatt
+  // Die breiten Zeilen oben fuehren direkt ins Marken-Blatt
   host.querySelectorAll('[data-brand]').forEach(b => b.onclick = e => {
     e.stopPropagation();
     openBrandSheet(b.dataset.brand);
   });
-  // Die Karte selbst dreht sich, wenn eine Sparkarte hinterlegt ist
-  host.querySelectorAll('.marken-karte.hat-karte').forEach(el => el.onclick = () => {
-    const k = el.querySelector('.debitkarte');
-    if (!k) return;
-    k.classList.toggle('gedreht');
-    buzz(10);
-  });
-  // Ohne Sparkarte gibt es nichts zu drehen — dann direkt ins Blatt
-  host.querySelectorAll('.marken-karte:not(.hat-karte):not(.marken-add)').forEach(el => el.onclick = () =>
-    openBrandSheet(el.dataset.marke));
+  // Eine Kachel antippen holt die Karte gross in die Mitte
+  host.querySelectorAll('.mk-kachel[data-marke]').forEach(el =>
+    el.onclick = () => oeffneKartenLupe(el.dataset.marke, el));
   host.querySelector('[data-wadd]')?.addEventListener('click', () => openWalletAdd('card'));
   // Einmal nachsehen, ob McCheap gerade etwas Gratis hat — danach steht es im Speicher
   if (!mccheapDaten) ladeMccheap().then(d => {
@@ -5384,6 +5378,251 @@ function sparkarteHtml(c, klein) {
     </div>`;
 }
 
+// ---- Geschenk-Fenster: Freund waehlen, Nachricht dazuschreiben, abschicken.
+// Der Aufruf stand an zwei Stellen im Code, die Funktion selbst fehlte — ein
+// Tipp auf einen Gutschein schloss also nur das Blatt und danach passierte
+// nichts. Hier ist sie.
+function openGiftPop(v) {
+  if (!v) return;
+  if (!state.token) { island('Zum Verschenken bitte anmelden'); return; }
+  const freunde = myProfile?.friends || [];
+  let anWen = '', suche = '';
+  const wrap = document.createElement('div');
+  wrap.className = 'overlay';
+  document.body.appendChild(wrap);
+
+  const zeichnen = () => {
+    const gefiltert = suche
+      ? freunde.filter(f => f.toLowerCase().includes(suche.toLowerCase()))
+      : freunde;
+    wrap.innerHTML = `<div class="modal geschenk-modal">
+      <button class="fav-remove" data-gp="zu" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
+      <h2 class="card-h">${esc(v.vendor)} verschenken</h2>
+      <p class="gp-rest">${v.balance != null ? euroFmt(v.balance) + ' Restguthaben' : 'Ohne Restbetrag'}</p>
+
+      ${freunde.length ? `
+        <div class="gp-block">
+          <label class="gp-label">An wen?</label>
+          ${freunde.length > 6
+            ? `<input class="input gp-suche" placeholder="Freund suchen …" value="${esc(suche)}">` : ''}
+          <div class="gp-freunde">
+            ${gefiltert.map(f => `
+              <button class="gp-freund ${anWen === f ? 'gewaehlt' : ''}" data-gp-an="${esc(f)}">
+                <span class="gp-ava">${esc(f.slice(0, 1).toUpperCase())}</span>
+                <span class="gp-name">@${esc(f)}</span>
+                ${anWen === f ? icon('check', 'icon icon-sm') : ''}
+              </button>`).join('')
+              || '<div class="status">Niemand gefunden.</div>'}
+          </div>
+        </div>
+
+        <div class="gp-block">
+          <label class="gp-label">Nachricht <small>(freiwillig, max. 140)</small></label>
+          <div class="gp-eingabe">
+            <input class="input gp-text" maxlength="140" placeholder="Viel Spaß damit!">
+            <button class="iconbtn gp-emote-btn" aria-label="Emotes">${icon('smile', 'icon icon-sm')}</button>
+          </div>
+          <div class="gp-emotes hidden"></div>
+        </div>
+
+        <p class="gp-haftung">
+          Der Gutschein wechselt endgültig den Besitzer — zurückholen geht nicht.
+          kumulio verwahrt keine Gutscheine und haftet nicht für Wert, Gültigkeit
+          oder Einlösbarkeit. Verschenke nur an Leute, die du kennst.
+          <a href="/agb.html#verschenken" target="_blank" rel="noopener">AGB, Abschnitt 7</a>
+        </p>
+
+        <button class="btn btn-big gp-senden" disabled>Verschenken</button>
+      ` : `
+        <p class="status" style="margin-top:14px">
+          Verschenken geht nur an Freunde — und du hast noch keine.</p>
+        <button class="btn btn-big" data-gp="freunde" style="margin-top:12px">Freunde finden</button>
+      `}
+    </div>`;
+
+    wrap.querySelector('[data-gp="zu"]')?.addEventListener('click', () => wrap.remove());
+    wrap.querySelector('[data-gp="freunde"]')?.addEventListener('click', () => {
+      wrap.remove(); switchView('friends', 'enter-drop');
+    });
+    const suchfeld = wrap.querySelector('.gp-suche');
+    if (suchfeld) suchfeld.oninput = e => {
+      suche = e.target.value;
+      const stand = e.target.selectionStart;
+      zeichnen();
+      const neu = wrap.querySelector('.gp-suche');
+      if (neu) { neu.focus(); neu.setSelectionRange(stand, stand); }
+    };
+    const text = wrap.querySelector('.gp-text');
+    const senden = wrap.querySelector('.gp-senden');
+    if (senden) senden.disabled = !anWen;
+    wrap.querySelectorAll('[data-gp-an]').forEach(b => b.onclick = () => {
+      const vorher = text?.value || '';
+      anWen = b.dataset.gpAn;
+      zeichnen();
+      const t = wrap.querySelector('.gp-text');
+      if (t) t.value = vorher;
+      buzz(8);
+    });
+
+    // Emotes wie im Chat: Namen in doppelten Doppelpunkten, der Chat setzt sie
+    // beim Anzeigen wieder in Bilder um.
+    const emoteBtn = wrap.querySelector('.gp-emote-btn');
+    const emoteBox = wrap.querySelector('.gp-emotes');
+    if (emoteBtn && emoteBox) emoteBtn.onclick = () => {
+      const auf = emoteBox.classList.contains('hidden');
+      if (auf && !emoteBox.dataset.gebaut) {
+        const namen = Object.keys(allEmoteIds()).filter(emoteOwned);
+        emoteBox.innerHTML = namen.length
+          ? namen.map(n => `<button class="emote-pick" data-gp-emote="${esc(n)}">${emoteHtml(n)}</button>`).join('')
+          : '<span class="form-msg">Du hast noch keine Emotes gezogen.</span>';
+        emoteBox.dataset.gebaut = '1';
+        emoteBox.querySelectorAll('[data-gp-emote]').forEach(e => e.onclick = () => {
+          const t = wrap.querySelector('.gp-text');
+          if (!t) return;
+          const zusatz = (t.value ? ' ' : '') + ':' + e.dataset.gpEmote + ':';
+          t.value = (t.value + zusatz).slice(0, 140);
+          t.focus();
+        });
+      }
+      emoteBox.classList.toggle('hidden', !auf);
+    };
+
+    if (senden) senden.onclick = async () => {
+      if (!anWen) return;
+      senden.disabled = true;
+      senden.textContent = 'Wird verschickt …';
+      try {
+        await api('/api/gift/send', { method: 'POST', body: JSON.stringify({
+          to: anWen, id: v.id, msg: (text?.value || '').trim(),
+        }) });
+        // Erst wenn der Server den Gutschein wirklich uebergeben hat, verschwindet
+        // er hier — sonst waere er bei einem Fehler in beiden Waellets weg.
+        tombstone(v.id);
+        state.wallet.vouchers = state.wallet.vouchers.filter(x => x.id !== v.id);
+        saveWallet();
+        renderWallet();
+        wrap.remove();
+        island(`An @${anWen} verschenkt`); playSfx('plop'); buzz([12, 40, 18]);
+      } catch (err) {
+        senden.disabled = false;
+        senden.textContent = 'Verschenken';
+        island(err.message || 'Hat nicht geklappt');
+      }
+    };
+  };
+
+  zeichnen();
+  wrap.addEventListener('click', e => { if (e.target === wrap) wrap.remove(); });
+}
+
+// ---- Kartenlupe: die Kachel zoomt in die Bildmitte, der Rest wird unscharf.
+// Der Weg von der Kachel zur Mitte wird gerechnet, nicht geraten: erst wird die
+// grosse Karte an ihren Platz gelegt, dann auf die Groesse und Position der
+// Kachel zurueckgerechnet und von dort weggefahren. So passt der Anfang der
+// Bewegung immer genau auf die Kachel, egal wie breit der Bildschirm ist.
+let lupeOffen = null;
+function oeffneKartenLupe(key, kachel) {
+  if (lupeOffen) return;
+  const b = walletBrands().find(x => x.key === key);
+  if (!b) return;
+  buzz(12);
+  const gesperrt = b.coupons && !ccBesitzt(b.coupons);
+
+  const lupe = document.createElement('div');
+  lupe.className = 'karten-lupe';
+  lupe.innerHTML = `
+    <div class="lupe-grund"></div>
+    <div class="lupe-mitte">
+      <div class="lupe-buehne">
+        ${b.card
+          ? sparkarteHtml(b.card)
+          : `<div class="debitkarte leer" style="--bc:${brandColor(b.name)}; --tc:${brandTextColor(b.name)}">
+              <div class="dk-flaeche dk-vorne">
+                <div class="dk-oben">${brandChipHtml(b.name)}<span class="dk-marke">${esc(b.name)}</span></div>
+                <div class="dk-chip" aria-hidden="true"></div>
+                <div class="dk-nummer">Keine Karte hinterlegt</div>
+                <div class="dk-unten"><span>${esc(brandUntertitel(b))}</span></div>
+              </div>
+            </div>`}
+      </div>
+      <div class="lupe-knoepfe">
+        <button class="btn btn-small" data-lupe="blatt">
+          ${icon('tag', 'icon icon-sm')} Coupons & App
+        </button>
+        ${b.card
+          ? `<button class="btn btn-small btn-ghost" data-lupe="drehen">
+              ${icon('arrow-out', 'icon icon-sm')} Umdrehen</button>`
+          : `<button class="btn btn-small btn-ghost" data-lupe="neu">
+              ${icon('plus', 'icon icon-sm')} Sparkarte hinzufügen</button>`}
+      </div>
+      ${gesperrt ? '<p class="lupe-hinweis">Für diese Coupons brauchst du die Sparkarte.</p>' : ''}
+    </div>`;
+  document.body.appendChild(lupe);
+  lupeOffen = lupe;
+
+  const karte = lupe.querySelector('.debitkarte');
+  const knoepfe = lupe.querySelector('.lupe-knoepfe');
+  const von = kachel?.getBoundingClientRect();
+  const nach = karte.getBoundingClientRect();
+
+  const fahren = (auf) => {
+    if (!von || !karte.animate) return null;
+    const s = von.width / nach.width;
+    const dx = (von.left + von.width / 2) - (nach.left + nach.width / 2);
+    const dy = (von.top + von.height / 2) - (nach.top + nach.height / 2);
+    const klein = `translate(${dx}px, ${dy}px) scale(${s})`;
+    // Beim Herausfahren dreht die Karte auf dem Weg mit — das ist der
+    // "smoothe Uebergang", nicht ein Dreh NACH dem Zoom.
+    const gross = b.card ? 'translate(0, 0) scale(1) rotateY(180deg)' : 'translate(0, 0) scale(1)';
+    return karte.animate(
+      auf ? [{ transform: klein }, { transform: gross }]
+          : [{ transform: gross }, { transform: klein }],
+      { duration: auf ? 460 : 320, easing: auf ? 'cubic-bezier(.22, 1, .32, 1)' : 'cubic-bezier(.4, 0, .7, .3)',
+        fill: 'forwards' });
+  };
+
+  // Am Ende der Zoomfahrt uebernimmt die Klasse den gedrehten Zustand. Dabei
+  // muss der CSS-Uebergang der Karte kurz aus sein: sonst faehrt er von "keine
+  // Drehung" nochmal auf 180 Grad und die Karte flippt ein zweites Mal.
+  const haltenOhneUebergang = () => {
+    karte.style.transition = 'none';
+    karte.classList.add('gedreht');
+    void karte.offsetHeight;
+    karte.style.transition = '';
+  };
+
+  requestAnimationFrame(() => {
+    lupe.classList.add('an');
+    const a = fahren(true);
+    if (a) a.onfinish = () => { if (b.card) haltenOhneUebergang(); a.cancel(); };
+    else if (b.card) haltenOhneUebergang();
+  });
+
+  const zu = () => {
+    if (lupeOffen !== lupe) return;
+    lupeOffen = null;
+    lupe.classList.remove('an');
+    knoepfe.style.opacity = '0';
+    // Beim Zurueckfahren macht die Animation die Drehung mit — die Klasse darf
+    // nicht gleichzeitig ihren eigenen Uebergang fahren.
+    karte.style.transition = 'none';
+    karte.classList.remove('gedreht');
+    const a = fahren(false);
+    const weg = () => lupe.remove();
+    if (a) { a.onfinish = weg; setTimeout(weg, 420); } else setTimeout(weg, 260);
+  };
+
+  lupe.querySelector('.lupe-grund').onclick = zu;
+  karte.onclick = () => { karte.style.transition = ''; karte.classList.toggle('gedreht'); buzz(8); };
+  lupe.querySelector('[data-lupe="blatt"]').onclick = () => { zu(); openBrandSheet(key); };
+  lupe.querySelector('[data-lupe="drehen"]')?.addEventListener('click',
+    () => { karte.style.transition = ''; karte.classList.toggle('gedreht'); buzz(8); });
+  lupe.querySelector('[data-lupe="neu"]')?.addEventListener('click',
+    () => { zu(); openWalletAdd('card'); });
+  const esc2 = e => { if (e.key === 'Escape') { zu(); removeEventListener('keydown', esc2); } };
+  addEventListener('keydown', esc2);
+}
+
 // Antippen dreht die Karte — gross im eigenen Fenster
 function showKarteBig(c) {
   if (!c) return;
@@ -6733,7 +6972,7 @@ $('#wallet-rank')?.addEventListener('click', e => {
 });
 
 // Der Kopf dreht sich wie eine Karte — Vorderseite Guthaben, Rueckseite Verlauf
-let kopfGedreht = false, kopfDrehtGerade = false;
+let kopfGedreht = false, kopfDrehtGerade = false, kopfHoeheTimer = 0;
 function kopfDrehen(zu) {
   const geld = $('#wallet-kopf-geld');
   const vorne = $('#kopf-vorne'), hinten = $('#kopf-hinten');
@@ -6745,8 +6984,23 @@ function kopfDrehen(zu) {
   if (ziel) renderWalletStats(statsRange);
   buzz(14);
   const tausch = () => {
+    // Die Rueckseite ist hoeher als die Vorderseite. Ohne Ueberblendung springt
+    // der Kopf und schiebt die halbe Seite nach unten. Deshalb wird die Hoehe
+    // kurz festgehalten und auf die neue gefahren — dieselbe Dauer wie der Dreh.
+    const vorher = geld.getBoundingClientRect().height;
     vorne.classList.toggle('hidden', ziel);
     hinten.classList.toggle('hidden', !ziel);
+    if (!geld.classList.contains('zu')) {
+      const nachher = (ziel ? hinten : vorne).scrollHeight;
+      geld.style.gridTemplateRows = Math.round(vorher) + 'px';
+      void geld.offsetHeight;
+      geld.style.gridTemplateRows = Math.round(nachher) + 'px';
+      clearTimeout(kopfHoeheTimer);
+      kopfHoeheTimer = setTimeout(() => {
+        geld.style.gridTemplateRows = '';
+        passeFarbfeldAn();
+      }, 470);
+    }
     // Vorder- und Rueckseite sind unterschiedlich hoch — ohne das hier bliebe
     // der Maskenanfang auf der Hoehe der anderen Seite stehen
     passeFarbfeldAn();
@@ -6756,14 +7010,17 @@ function kopfDrehen(zu) {
   kopfDrehtGerade = true;
   let getauscht = false;
   const einmalTauschen = () => { if (!getauscht) { getauscht = true; tausch(); } };
+  // Hin und zurueck drehen sich gegenlaeufig — sonst fuehlt sich das
+  // Zurueckdrehen an wie noch ein Schritt in dieselbe Richtung.
+  const dreh = ziel ? -1 : 1;
   const a1 = geld.animate(
     [{ transform: 'perspective(900px) rotateX(0deg)', opacity: 1 },
-     { transform: 'perspective(900px) rotateX(-84deg)', opacity: .5 }],
+     { transform: `perspective(900px) rotateX(${84 * dreh}deg)`, opacity: .5 }],
     { duration: 210, easing: 'cubic-bezier(.55,0,.8,.5)', fill: 'forwards' });
   const weiter = () => {
     einmalTauschen();
     const a2 = geld.animate(
-      [{ transform: 'perspective(900px) rotateX(84deg)', opacity: .5 },
+      [{ transform: `perspective(900px) rotateX(${-84 * dreh}deg)`, opacity: .5 },
        { transform: 'perspective(900px) rotateX(0deg)', opacity: 1 }],
       { duration: 330, easing: 'cubic-bezier(.16,.6,.3,1)', fill: 'forwards' });
     const fertig = () => { a1.cancel(); a2.cancel(); kopfDrehtGerade = false; };
