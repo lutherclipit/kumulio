@@ -4333,6 +4333,7 @@ body.gescrollt:not(.wallet-farbe) .topbar { border-bottom-color: transparent; }
 /* --- Analyse: nichts darf springen ---------------------------------------
    Die Rueckseite hatte je nach Betragslaenge eine andere Hoehe, dadurch
    wuchs und schrumpfte der ganze Kopf. Feste Hoehen halten ihn ruhig. */
+#kopf-hinten { min-height: 196px; }
 #kopf-vorne { min-height: 196px; }
 .stat-zahlen {
   display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
@@ -5057,6 +5058,13 @@ body.versteckt .pn-anim { animation-play-state: paused; }
 /* Die Analyse lag frueher auf dem farbigen Kopf, deshalb war alles weiss. Im
    Blatt steht sie auf hellem Grund — also die Farben, die man erwartet:
    Aufgeladen gruen, Ausgegeben rot. */
+/* Auf dem farbigen Kopf gelten helle Toene — auf Gruen waere ein gruener
+   Balken unsichtbar. Die Bedeutung traegt die Beschriftung daneben. */
+.wallet-kopf {
+  --stat-rein: #EAFBF3;
+  --stat-raus: #FFB4A8;
+  --stat-achse: rgba(255, 255, 255, .75);
+}
 #sheet-content {
   --stat-rein: var(--accent-strong, #0E9C64);
   --stat-raus: #E23D2E;

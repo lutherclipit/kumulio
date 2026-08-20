@@ -6710,6 +6710,7 @@ function updateWalletTab(anim) {
   $('#wallet-modes')?.classList.toggle('rechts', coupons);
   document.querySelectorAll('[data-wtab]').forEach(b =>
     b.setAttribute('aria-selected', b.classList.contains('active') ? 'true' : 'false'));
+  if ((coupons || gated) && kopfGedreht) kopfDrehen(false);
   kopfUmschalten(coupons || gated, anim, kopfZiel);
   $('#coupons-content').classList.toggle('hidden', !coupons);
   if (coupons) renderCoupons($('#coupons-content'));
@@ -7132,12 +7133,11 @@ function renderWalletStats(range) {
   statsRange = range;
   const s = walletStats(range);
   const felder = walletVerlauf(6);
-  const host = $('#sheet-content');
+  const host = $('#kopf-hinten');
   if (!host) return;
   host.innerHTML = `
-    <div class="sheet-title">Analyse</div>
     <div class="stat-kopf">
-      <span class="stat-uebertitel">Rein und raus</span>
+      <span class="wallet-kopf-sub">Rein und raus</span>
       <div class="stat-ranges">
         ${[['monat', 'Monat'], ['jahr', 'Jahr'], ['gesamt', 'Gesamt']].map(([r, l]) =>
           `<button class="chip ${r === range ? 'active' : ''}" data-strange="${r}">${l}</button>`).join('')}
@@ -7149,20 +7149,13 @@ function renderWalletStats(range) {
     </div>
     ${felder.some(f => f.rein || f.raus)
       ? verlaufSvg(felder)
-      : `<p class="status" style="margin-top:12px">Noch keine Bewegungen — buch etwas ab, dann füllt sich der Verlauf.</p>`}`;
+      : `<p class="wallet-kopf-sub" style="margin-top:10px">Noch keine Bewegungen — buch etwas ab, dann füllt sich der Verlauf.</p>`}
+    <button class="stat-zurueck" id="stat-zurueck">${icon('arrow-back', 'icon icon-sm')} Zurück zum Guthaben</button>`;
   host.querySelectorAll('[data-strange]').forEach(b => b.onclick = e => {
     e.stopPropagation();
     renderWalletStats(b.dataset.strange);
   });
-}
-
-// Analyse als eigenes Blatt — genau wie der Spar-Rang. Vorher drehte oder schob
-// sich der Kopf dafuer, und das hiess: Hoehe animieren, also Layout und
-// Neuzeichnen in jedem Bild. Jetzt bleibt der Kopf, wo er ist.
-function zeigeAnalyse() {
-  state.sheetMode = 'analyse';
-  renderWalletStats(statsRange);
-  openSheetShell();
+  host.querySelector('#stat-zurueck').onclick = e => { e.stopPropagation(); kopfDrehen(false); };
 }
 
 // Alle Stufen auf einen Blick — als Liste, wie man sie aus Banking-Apps kennt
@@ -7190,9 +7183,72 @@ function zeigeRang() {
   openSheetShell();
 }
 
-// Der Kopf hat keine Rueckseite mehr: die Analyse liegt jetzt in einem eigenen
-// Blatt (zeigeAnalyse). Damit ist die letzte Kopf-Animation weg, die eine Hoehe
-// animiert hat — und genau das kostet auf dem Handy Bilder.
+// Vorder- und Rueckseite des Kopfes wechseln seitwaerts, nicht per Kartendreh.
+// Der Dreh brauchte eine 3D-Ebene ueber den halben Kopf und hat trotzdem nie
+// gut ausgesehen; seitwaerts passt zum Schieber darueber und kostet nur eine
+// Verschiebung. Die Hoehe faehrt getrennt mit, damit nichts springt.
+let kopfGedreht = false, kopfDrehtGerade = false, kopfHoeheTimer = 0;
+let balanceFlipped = false;   // wird von renderWalletStats weiter genutzt
+function kopfDrehen(zu) {
+  const geld = $('#wallet-kopf-geld');
+  const vorne = $('#kopf-vorne'), hinten = $('#kopf-hinten');
+  if (!geld || !vorne || !hinten || kopfDrehtGerade) return;
+  const ziel = zu === undefined ? !kopfGedreht : zu;
+  if (ziel === kopfGedreht) return;
+  kopfGedreht = ziel;
+  balanceFlipped = ziel;
+  if (ziel) renderWalletStats(statsRange);
+  buzz(12);
+
+  const raus = ziel ? vorne : hinten;
+  const rein = ziel ? hinten : vorne;
+  const vorher = geld.getBoundingClientRect().height;
+
+  const tauschen = () => {
+    raus.classList.add('hidden');
+    rein.classList.remove('hidden');
+    if (!geld.classList.contains('zu')) {
+      const nachher = rein.scrollHeight;
+      geld.style.gridTemplateRows = Math.round(vorher) + 'px';
+      void geld.offsetHeight;
+      geld.style.gridTemplateRows = Math.round(nachher) + 'px';
+      clearTimeout(kopfHoeheTimer);
+      kopfHoeheTimer = setTimeout(() => {
+        geld.style.gridTemplateRows = '';
+        setzeFarbfeldNeu();   // andere Seite, andere Kopfhoehe
+      }, 430);
+    }
+    passeFarbfeldAn();
+    pruefeKopfzeile();
+  };
+
+  if (reducedMotion() || !rein.animate) { tauschen(); return; }
+  kopfDrehtGerade = true;
+  const weite = 26;
+  // Erst die alte Seite hinausschieben, dann die neue von der anderen Seite
+  // hereinholen — nur transform und opacity, also billig.
+  const a1 = raus.animate(
+    [{ transform: 'translate3d(0,0,0)', opacity: 1 },
+     { transform: `translate3d(${ziel ? -weite : weite}px,0,0)`, opacity: 0 }],
+    { duration: 170, easing: 'cubic-bezier(.4,0,.9,.4)', fill: 'forwards' });
+
+  const weiter = () => {
+    if (!kopfDrehtGerade) return;
+    a1.cancel();
+    tauschen();
+    const a2 = rein.animate(
+      [{ transform: `translate3d(${ziel ? weite : -weite}px,0,0)`, opacity: 0 },
+       { transform: 'translate3d(0,0,0)', opacity: 1 }],
+      { duration: 260, easing: 'cubic-bezier(.22,1,.32,1)', fill: 'forwards' });
+    const fertig = () => { a2.cancel(); kopfDrehtGerade = false; };
+    a2.onfinish = fertig;
+    setTimeout(fertig, 340);
+  };
+  a1.onfinish = weiter;
+  // Manche Umgebungen halten Animationen an (versteckter Tab, gedrosselte
+  // Wiedergabe) — dann kaeme onfinish nie und die Seite bliebe stehen
+  setTimeout(weiter, 220);
+}
 
 // Farbige Kopfzeile nur, solange der Kopf darunter noch steht. Sonst haengt
 // oben ein Farbblock ohne Anschluss.
@@ -7481,7 +7537,7 @@ addEventListener('load', messeKopfzeile);
 
 // Antippen des Guthabens oder "Analyse" dreht den Kopf zur Verlaufsseite
 $('#balance-flip')?.addEventListener('click', () => zeigeRang());
-$('#wa-statistik')?.addEventListener('click', () => zeigeAnalyse());
+$('#wa-statistik')?.addEventListener('click', () => kopfDrehen(true));
 // Verschenken: erst fragen, welcher Gutschein — danach uebernimmt das Geschenk-Fenster
 // Verschenken: nicht alle Gutscheine auf einmal, sondern wie in der Wallet —
 // nach Marke gebuendelt, mit Filter und Sortierung.
