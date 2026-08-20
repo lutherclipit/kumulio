@@ -4625,7 +4625,9 @@ body.gescrollt:not(.wallet-farbe) .topbar::before { opacity: 1; }
 /* Drei nebeneinander. Vorher lag pro Zeile EINE breite Karte — bei zwoelf
    Marken hiess das zwoelfmal scrollen, um zu sehen, was man hat. */
 #coupon-grid {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  /* Auf dem Handy ergibt das genau drei nebeneinander; auf dem Rechner passen
+     mehr in die Zeile, ohne dass die Kacheln aufgeblasen werden. */
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
   gap: 10px; margin-top: 12px;
 }
 .mk-kachel {
@@ -4701,6 +4703,7 @@ body.gescrollt:not(.wallet-farbe) .topbar::before { opacity: 1; }
 .geschenk-modal { max-width: 420px; width: min(420px, 92vw); }
 .gp-rest { margin: 2px 0 0; font-size: .84rem; color: var(--muted); }
 .gp-block { margin-top: 16px; }
+.gp-block, .gp-rest { text-align: left; }
 .gp-label { display: block; font-size: .78rem; font-weight: 800; margin-bottom: 7px; }
 .gp-label small { font-weight: 600; color: var(--muted); }
 .gp-suche { margin-bottom: 8px; }
@@ -4728,12 +4731,14 @@ body.gescrollt:not(.wallet-farbe) .topbar::before { opacity: 1; }
   max-height: 130px; overflow-y: auto;
 }
 .gp-haftung {
-  margin: 16px 0 0; font-size: .72rem; line-height: 1.5; color: var(--muted);
+  margin: 16px 0 0; text-align: left; font-size: .72rem; line-height: 1.5; color: var(--muted);
   background: var(--surface); border: 1px solid var(--stroke-light);
   border-radius: 12px; padding: 10px 12px;
 }
 .gp-haftung a { color: var(--accent-strong); }
 .gp-senden { margin-top: 14px; }
+/* Solange kein Freund gewaehlt ist, soll der Knopf auch aussehen wie gesperrt */
+.gp-senden:disabled { opacity: .45; cursor: not-allowed; filter: saturate(.4); }
 
 
 /* ============ Runde 98: Chat ohne Zahlenraterei =============================
