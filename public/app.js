@@ -4414,6 +4414,7 @@ let addImg = '';
 let addType = 'voucher';
 let addPrefill = '';
 let addCodeImg = ''; // ausgeschnittener Kassen-Code (falls der Scanner ihn findet)
+let addEditId = '';  // gesetzt, wenn eine vorhandene Sparkarte geaendert wird
 
 // Doppelte Gutscheine: gleiche PIN beim gleichen Shop oder gleicher Code
 function findDupe(v, extra = []) {
@@ -4875,17 +4876,24 @@ function brandChipHtml(name) {
   return `<span class="brand-chip${logo ? ' hat-logo' : ''}" style="--bc:${brandColor(name)}">${logo}${esc(brandInitials(name))}</span>`;
 }
 
-function openWalletAdd(type, prefillName) {
+// bearbeiteId: dann wird eine vorhandene Sparkarte geaendert statt eine neue
+// angelegt. Alles andere am Formular bleibt gleich — nur der Titel, die
+// Vorbelegung und das Speichern unterscheiden sich.
+function openWalletAdd(type, prefillName, bearbeiteId) {
   if (!state.token) { switchView('profile'); island('Für die Wallet bitte anmelden'); return; }
   waSaving = false;
   addType = type || 'voucher';
   addPrefill = prefillName || '';
   state.sheetMode = 'wallet-add';
-  addImg = '';
-  addCodeImg = '';
+  addEditId = bearbeiteId || '';
+  const bearbeitet = addEditId ? state.wallet.cards.find(x => x.id === addEditId) : null;
+  if (!bearbeitet) addEditId = '';
+  addImg = bearbeitet?.img || '';
+  addCodeImg = bearbeitet?.codeImg || '';
   const isCard = addType === 'card';
   $('#sheet-content').innerHTML = `
-    <div class="sheet-title">${isCard ? 'Sparkarte hinzufügen' : 'Gutschein hinzufügen'}</div>
+    <div class="sheet-title">${addEditId ? 'Sparkarte ändern'
+      : isCard ? 'Sparkarte hinzufügen' : 'Gutschein hinzufügen'}</div>
 
     <!-- Bild zuerst: hochladen, fotografieren oder einfach reinziehen -->
     <div class="dropzone" id="wa-drop">
@@ -4922,7 +4930,8 @@ function openWalletAdd(type, prefillName) {
     </div>
     <input id="wa-cname" class="input ${addPrefill && !CARD_GRID.includes(addPrefill) ? '' : 'hidden'}" maxlength="30" placeholder="Kartenname eintippen" value="${esc(addPrefill && !CARD_GRID.includes(addPrefill) ? addPrefill : '')}">
     <label class="f-label">Kartennummer <span class="opt">(optional)</span></label>
-    <input id="wa-cnumber" class="input" maxlength="30" placeholder="Falls die Karte eine hat">
+    <input id="wa-cnumber" class="input" maxlength="30" placeholder="Falls die Karte eine hat"
+      value="${esc(bearbeitet?.number || '')}">
     <p class="muted" style="font-size:.74rem; margin:4px 0 0">Manche Karten haben gar keine Nummer —
       dann reicht ein Foto vom Barcode, oder du legst sie einfach ohne an.</p>
     ` : `
@@ -4954,7 +4963,7 @@ function openWalletAdd(type, prefillName) {
     <input id="wa-end" class="input" type="date">
     `}
     <div class="form-row" style="margin-top:14px">
-      <button id="wa-save" class="btn">Speichern</button>
+      <button id="wa-save" class="btn">${addEditId ? 'Änderungen speichern' : 'Speichern'}</button>
       <span id="wa-msg" class="form-msg"></span>
     </div>`;
 
@@ -4991,6 +5000,14 @@ function openWalletAdd(type, prefillName) {
     }
   }));
   const currentCard = () => pickedCard || $('#wa-cname')?.value.trim() || '';
+
+  // Beim Aendern das schon hinterlegte Bild gleich zeigen — sonst sieht es aus,
+  // als waere es weg, und man laedt es unnoetig neu hoch.
+  if (bearbeitet && (addCodeImg || addImg)) {
+    $('#wa-preview').src = addCodeImg || addImg;
+    $('#wa-preview').classList.remove('hidden');
+    $('#wa-drop-empty').classList.add('hidden');
+  }
 
   // Scan-Fortschritt: erst der Code-Scan (bis 20 %), dann die Text-Erkennung
   const scanProgress = p => {
@@ -5286,16 +5303,25 @@ function openWalletAdd(type, prefillName) {
       state.wallet.vouchers.unshift(v);
       savedItem = v; savedList = state.wallet.vouchers;
     } else {
+      const alt = addEditId ? state.wallet.cards.find(x => x.id === addEditId) : null;
       const c = {
-        id: Math.random().toString(36).slice(2, 9),
+        id: alt ? alt.id : Math.random().toString(36).slice(2, 9),
         name: currentCard().slice(0, 30),
         number: $('#wa-cnumber').value.trim().slice(0, 30),
-        img: addCodeImg ? '' : addImg, codeImg: addCodeImg, added: Date.now(),
+        img: addCodeImg ? '' : addImg, codeImg: addCodeImg,
+        added: alt ? alt.added : Date.now(),
+        // mt = zuletzt bearbeitet. Der Server entscheidet Konflikte danach —
+        // ohne das koennte ein zweites Geraet die Aenderung ueberschreiben.
+        ...(alt ? { mt: Date.now() } : {}),
       };
       // Nur die Marke ist Pflicht — REWE etwa hat gar keine Kartennummer
       $('#wa-card-grid')?.classList.toggle('err', !c.name);
       if (!c.name) { msg.className = 'form-msg error'; msg.textContent = 'Bitte eine Karte auswählen.'; return; }
-      state.wallet.cards.unshift(c);
+      if (alt) {
+        state.wallet.cards[state.wallet.cards.indexOf(alt)] = c;
+      } else {
+        state.wallet.cards.unshift(c);
+      }
       savedItem = c; savedList = state.wallet.cards;
     }
     save('wallet', state.wallet);
@@ -5678,9 +5704,14 @@ function zeigeKarteGross({ karteObj, name, leerHtml, vonEl, aktionen = [], hinwe
     <div class="lupe-mitte">
       <div class="lupe-buehne">${karteObj ? sparkarteHtml(karteObj) : leerHtml}</div>
       <div class="lupe-knoepfe">
-        ${aktionen.map((a, i) => `<button class="btn btn-small ${a.leise ? 'btn-ghost' : ''}"
-          data-lupe="${i}">${a.icon ? icon(a.icon, 'icon icon-sm') : ''} ${esc(a.text)}</button>`).join('')}
+        ${aktionen.filter(a => !a.verwalten).map((a) => `<button class="btn btn-small ${a.leise ? 'btn-ghost' : ''}"
+          data-lupe="${aktionen.indexOf(a)}">${a.icon ? icon(a.icon, 'icon icon-sm') : ''} ${esc(a.text)}</button>`).join('')}
       </div>
+      ${aktionen.some(a => a.verwalten) ? `
+        <div class="lupe-verwalten">
+          ${aktionen.filter(a => a.verwalten).map((a) => `<button class="lupe-link ${a.gefahr ? 'gefahr' : ''}"
+            data-lupe="${aktionen.indexOf(a)}">${esc(a.text)}</button>`).join('<span class="lupe-trenner">·</span>')}
+        </div>` : ''}
       ${hinweis ? `<p class="lupe-hinweis">${esc(hinweis)}</p>` : ''}
     </div>`;
   document.body.appendChild(lupe);
@@ -5754,6 +5785,19 @@ function zeigeKarteGross({ karteObj, name, leerHtml, vonEl, aktionen = [], hinwe
   return { zu, karte };
 }
 
+// Loeschen an einer Stelle, nicht an dreien. Fragt immer nach — eine Sparkarte
+// mit abfotografiertem Barcode ist nicht in zwei Sekunden wiederhergestellt.
+async function karteLoeschen(c) {
+  if (!c) return;
+  if (!await askConfirm(`Bist du sicher, dass du die ${esc(c.name)}-Karte löschen willst?`)) return;
+  tombstone(c.id);
+  state.wallet.cards = state.wallet.cards.filter(x => x.id !== c.id);
+  saveWallet();
+  document.querySelector('.karten-lupe .lupe-grund')?.click();   // Lupe zu
+  if (state.sheetMode === 'brand') closeSheet();
+  island('Karte gelöscht');
+}
+
 // Aus dem Marken-Raster: Karte plus die zwei Wege, die von dort weitergehen
 function oeffneKartenLupe(key, kachel) {
   const b = walletBrands().find(x => x.key === key);
@@ -5773,7 +5817,13 @@ function oeffneKartenLupe(key, kachel) {
       { text: 'Coupons & App', icon: 'tag', fn: () => openBrandSheet(key) },
       b.card
         ? { text: 'Umdrehen', icon: 'arrow-out', leise: true, drehen: true }
-        : { text: 'Sparkarte hinzufügen', icon: 'plus', leise: true, fn: () => openWalletAdd('card') },
+        : { text: 'Sparkarte hinzufügen', icon: 'plus', leise: true, fn: () => openWalletAdd('card', b.name) },
+      // Verwalten steht direkt unter der Karte, in einer leisen zweiten Zeile —
+      // dort sucht man es, wenn die Karte gerade vor einem liegt.
+      ...(b.card ? [
+        { text: 'Ändern', verwalten: true, fn: () => openWalletAdd('card', b.card.name, b.card.id) },
+        { text: 'Löschen', verwalten: true, gefahr: true, bleibt: true, fn: () => karteLoeschen(b.card) },
+      ] : []),
     ],
     hinweis: gesperrt ? 'Für diese Coupons brauchst du die Sparkarte.' : '',
   });
@@ -5888,6 +5938,8 @@ function openVoucherSheet(id, animFrom, zurueckZu, richtung) {
         ? [{ text: 'Nummer kopieren', icon: 'check', leise: true, bleibt: true,
              fn: () => copyText(karte.number) }]
         : []),
+      { text: 'Ändern', verwalten: true, fn: () => openWalletAdd('card', karte.name, karte.id) },
+      { text: 'Löschen', verwalten: true, gefahr: true, bleibt: true, fn: () => karteLoeschen(karte) },
     ],
   }));
   $('#wv-addkarte')?.addEventListener('click', () => openWalletAdd('card', v.vendor));
@@ -6610,7 +6662,10 @@ function openBrandSheet(key, richtung) {
     <div id="wc-app-slot">${cardAppBlockHtml(b.name)}</div>
     ${/mcdonald/i.test(b.name) ? `<div id="mcd-slot">${mccheapBlockHtml()}</div>` : ''}
     <div id="cc-slot"></div>
-    ${c ? `<button class="btn btn-danger" id="wc-del" style="margin-top:18px">Karte löschen</button>` : ''}`;
+    ${c ? `<div class="form-row" style="margin-top:18px">
+      <button class="btn btn-ghost" id="wc-edit">${icon('sliders', 'icon icon-sm')} Karte ändern</button>
+      <button class="btn btn-danger" id="wc-del">Karte löschen</button>
+    </div>` : ''}`;
 
   $('#wc-close').addEventListener('click', closeSheet);
   $('#sheet-content').querySelectorAll('[data-copy-txt]').forEach(x =>
@@ -6640,12 +6695,8 @@ function openBrandSheet(key, richtung) {
   wireQuest();
 
   if (c) {
-    $('#wc-del').addEventListener('click', async () => {
-      if (!await askConfirm(`Bist du sicher, dass du die ${esc(b.name)}-Karte löschen willst?`)) return;
-      tombstone(c.id);
-      state.wallet.cards = state.wallet.cards.filter(x => x.id !== c.id);
-      saveWallet(); closeSheet(); island('Karte gelöscht');
-    });
+    $('#wc-edit').addEventListener('click', () => openWalletAdd('card', c.name, c.id));
+    $('#wc-del').addEventListener('click', () => karteLoeschen(c));
   }
   // McCheap erst beim Öffnen holen, danach steht es im Speicher
   if (/mcdonald/i.test(b.name) && !mccheapDaten) ladeMccheap().then(() => {
