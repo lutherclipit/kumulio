@@ -2341,6 +2341,18 @@ const server = http.createServer(async (req, res) => {
     // Geschenke, Originalfotos (auch solche ohne Gutschein dazu).
     if (p === '/api/admin/wallet-diag' && req.method === 'GET') {
       if (!isAdmin(req)) return send(res, 403, { error: 'Admin-Key falsch.' });
+      // ?find=ID: wo taucht diese Gutschein-ID ueberhaupt noch auf?
+      const such = String(url.searchParams.get('find') || '');
+      if (such) {
+        const orte = [];
+        for (const [n, ww] of Object.entries(wallets)) {
+          for (const v of [...(ww.vouchers || []), ...(ww.cards || [])]) if (v && v.id === such) orte.push({ wo: 'wallet', user: n, v: { ...v, codeImg: (v.codeImg || '').length, img: (v.img || '').length } });
+          for (const t of (ww.deleted || [])) if (t && t.id === such) orte.push({ wo: 'loeschmarker', user: n, ts: t.ts });
+        }
+        for (const [n, gl] of Object.entries(gifts)) for (const g of (gl || [])) if (g && g.id === such) orte.push({ wo: 'geschenk', user: n, v: { ...g, codeImg: (g.codeImg || '').length, img: (g.img || '').length } });
+        for (const n of Object.keys(users)) if (fs.existsSync(origPfad(n, such))) orte.push({ wo: 'originalfoto', user: n });
+        return send(res, 200, { such, orte });
+      }
       const q = String(url.searchParams.get('user') || '').toLowerCase();
       const treffer = Object.keys(users).filter(n => n.toLowerCase().includes(q));
       if (!q || treffer.length !== 1) return send(res, 200, { treffer });
