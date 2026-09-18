@@ -124,6 +124,19 @@ Object.values(wallets).forEach(slimWallet);
 // und das Original wird erst geladen, wenn jemand es im Bildbetrachter sehen will.
 const ORIG_DIR = path.join(DATA, 'orig');
 const ORIG_ID = /^[A-Za-z0-9_-]{1,40}$/;
+// Frische Gutschein-ID fuer ein Geschenk. Die alte ID behielt der Gutschein
+// frueher bei — lag beim Empfaenger noch ein alter Eintrag oder Loeschmarker
+// mit derselben ID (Gutschein ging schon einmal hin und her), verdeckte der
+// das Geschenk oder loeschte es.
+function neueGutscheinId() {
+  return crypto.randomBytes(8).readBigUInt64BE().toString(36).slice(0, 10);
+}
+function origUmziehen(vonUser, vonId, zuUser, zuId) {
+  if (!ORIG_ID.test(vonId) || !ORIG_ID.test(zuId)) return;
+  fs.promises.mkdir(origOrdner(zuUser), { recursive: true })
+    .then(() => fs.promises.rename(origPfad(vonUser, vonId), origPfad(zuUser, zuId)))
+    .catch(() => {});
+}
 function origOrdner(user) { return path.join(ORIG_DIR, Buffer.from(String(user)).toString('hex')); }
 function origPfad(user, id) { return path.join(origOrdner(user), id + '.jpg'); }
 // Rohdaten statt JSON: ein JPEG als base64 im JSON waere ein Drittel groesser
@@ -2106,6 +2119,18 @@ const server = http.createServer(async (req, res) => {
       if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
       // Wartende Geschenke fahren huckepack mit; gelöscht werden sie erst,
       // wenn der Empfänger sie bestätigt hat (claim)
+      // Alt-Geschenke mit einer ID, die hier schon belegt ist (Gutschein ging
+      // schon einmal hin und her), bekommen eine eigene — die App blendete sie
+      // sonst aus, weil sie "schon in der Wallet" schienen.
+      {
+        const w = wallets[user] || {};
+        const belegt = new Set([...(w.vouchers || []).map(v => v && v.id), ...(w.deleted || []).map(t => t && t.id)]);
+        let umbenannt = false;
+        for (const g of (gifts[user] || [])) {
+          if (g && belegt.has(g.id)) { g.giftOrigId = g.giftOrigId || g.id; g.id = neueGutscheinId(); umbenannt = true; }
+        }
+        if (umbenannt) saveJson('gifts.json', gifts);
+      }
       return send(res, 200, { ...(wallets[user] || { vouchers: [], cards: [] }), gifts: gifts[user] || [] });
     }
 
@@ -2134,14 +2159,11 @@ const server = http.createServer(async (req, res) => {
       const giftMsg = String(b.msg || '').trim().slice(0, 140);
       profMe.giftDay.count++;
       gifts[to] = gifts[to] || [];
-      gifts[to].push({ ...v, giftFrom: me, giftTs: Date.now(), giftMsg });
+      const geschenkId = neueGutscheinId();
+      gifts[to].push({ ...v, id: geschenkId, giftOrigId: v.id, giftFrom: me, giftTs: Date.now(), giftMsg });
       // Das Originalfoto zieht mit um. Fehlt es (noch nicht hochgeladen), zeigt
       // der Betrachter beim Freund eben nur den Zuschnitt.
-      if (v.orig && ORIG_ID.test(v.id)) {
-        fs.promises.mkdir(origOrdner(to), { recursive: true })
-          .then(() => fs.promises.rename(origPfad(me, v.id), origPfad(to, v.id)))
-          .catch(() => {});
-      }
+      if (v.orig) origUmziehen(me, v.id, to, geschenkId);
       saveJson('wallets.json', wallets);
       saveJson('gifts.json', gifts);
       saveJson('users.json', users); // Tageszähler
@@ -2159,10 +2181,31 @@ const server = http.createServer(async (req, res) => {
       if (!me) return send(res, 401, { error: 'Bitte anmelden.' });
       const b = await readBody(req);
       const ids = Array.isArray(b.ids) ? b.ids.map(String) : [];
-      const claimed = (gifts[me] || []).filter(g => ids.includes(g.id)).map(g => g.id);
-      gifts[me] = (gifts[me] || []).filter(g => !ids.includes(g.id));
+      // Der Server bucht das Geschenk SELBST in die Wallet am Konto ein. Frueher
+      // strich er es nur aus dem Vorrat und verliess sich darauf, dass das Handy
+      // es speichert und hochlaedt — scheiterte das (voller Handyspeicher, App
+      // zu), war der Gutschein weg.
+      const w = wallets[me] || (wallets[me] = { vouchers: [], cards: [], deleted: [] });
+      w.vouchers = w.vouchers || [];
+      const tote = new Set((w.deleted || []).map(t => t && t.id));
+      const claimed = [], eingebucht = [];
+      for (const g of (gifts[me] || []).filter(x => ids.includes(x.id))) {
+        claimed.push(g.id);
+        let v = { ...g, added: Date.now(), giftSeen: true };
+        if (w.vouchers.some(x => x.id === v.id) || tote.has(v.id)) {
+          const neu = neueGutscheinId();
+          if (v.orig) origUmziehen(me, v.id, me, neu);
+          v = { ...v, id: neu };
+        }
+        w.vouchers.unshift(v);
+        eingebucht.push(v);
+      }
+      gifts[me] = (gifts[me] || []).filter(g => !claimed.includes(g.id));
+      // Erst die Wallet, dann der Vorrat: stuerzt der Server dazwischen ab,
+      // liegt das Geschenk eher doppelt als gar nicht
+      if (eingebucht.length) { updateLifetime(me); saveJson('wallets.json', wallets); }
       saveJson('gifts.json', gifts);
-      return send(res, 200, { ok: true, claimed });
+      return send(res, 200, { ok: true, claimed, vouchers: eingebucht });
     }
     if (p === '/api/wallet' && req.method === 'POST') {
       const user = authUser(req);
@@ -2195,8 +2238,14 @@ const server = http.createServer(async (req, res) => {
       // Konflikt bei gleicher ID: zuletzt BEARBEITETE Fassung gewinnt (mt),
       // sonst die mit mehr Abbuchungen — nie die, die zufällig zuletzt syncte
       const pick = (a, o) => {
-        if ((a.mt || 0) !== (o.mt || 0)) return (a.mt || 0) > (o.mt || 0) ? a : o;
-        return ((o.tx || []).length > (a.tx || []).length) ? o : a;
+        let s;
+        if ((a.mt || 0) !== (o.mt || 0)) s = (a.mt || 0) > (o.mt || 0) ? a : o;
+        else s = ((o.tx || []).length > (a.tx || []).length) ? o : a;
+        // Ein Handy mit vollem Speicher schickt Eintraege ohne Bilder: die
+        // Bilder hier behalten, nie durch ein leeres ersetzen
+        const n = s === a ? o : a;
+        if (!s.codeImg && !s.img && (n.codeImg || n.img)) s = { ...s, codeImg: n.codeImg || '', img: n.img || '' };
+        return s;
       };
       const mergeList = (incList, curList) => {
         const curBy = new Map(curList.filter(x => x && x.id).map(x => [x.id, x]));

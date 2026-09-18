@@ -334,7 +334,29 @@ async function api(path, opts) {
 }
 
 function channelBySlug(slug) { return state.channels.find(c => c.slug === slug); }
-function save(key, val) { localStorage.setItem('ra.' + key, JSON.stringify(val)); }
+// Der Speicher, den ein Browser einer Webseite gibt, ist klein (rund 5 MB).
+// Mit vielen Gutscheinfotos war er voll: setItem warf, und alles danach —
+// Anzeigen, Sichern am Konto — fiel still aus. So gingen Gutscheine verloren.
+// Jetzt wirft save() nie. Passt die Wallet nicht mehr hinein, liegt sie hier
+// ohne Bilder; die Bilder stehen beim Konto und kommen beim naechsten Abgleich
+// zurueck (kein Abgleich ersetzt ein vorhandenes Bild durch ein leeres).
+// vomServer = true: der Stand kam vom Konto, ist also dort schon gesichert.
+let walletRev = 0;        // zaehlt jede Aenderung an der Wallet auf diesem Geraet
+let walletRevOben = -1;   // bis zu welcher Aenderung der Server alles hat
+function save(key, val, vomServer = false) {
+  if (key === 'wallet' && !vomServer) walletRev++;
+  try { localStorage.setItem('ra.' + key, JSON.stringify(val)); return true; }
+  catch {
+    if (key !== 'wallet' || !val) return false;
+    try {
+      const ohneBild = it => (it && (it.codeImg || it.img) ? { ...it, codeImg: '', img: '' } : it);
+      localStorage.setItem('ra.wallet', JSON.stringify({
+        ...val, vouchers: (val.vouchers || []).map(ohneBild), cards: (val.cards || []).map(ohneBild),
+      }));
+      return true;
+    } catch { return false; }
+  }
+}
 
 // ---------------- Island (Status-Kapsel) ----------------
 
@@ -4478,6 +4500,15 @@ addEventListener('storage', e => {
   try {
     const neu = JSON.parse(e.newValue);
     if (!neu || !Array.isArray(neu.vouchers)) return;
+    // Der andere Tab hat womoeglich nur die Fassung ohne Bilder ablegen koennen:
+    // Bilder aus dem eigenen Stand behalten statt sie zu verlieren
+    const bisher = new Map([...state.wallet.vouchers, ...(state.wallet.cards || [])].map(x => [x && x.id, x]));
+    const mitBild = it => {
+      const b = it && bisher.get(it.id);
+      return b && !it.codeImg && !it.img && (b.codeImg || b.img) ? { ...it, codeImg: b.codeImg || '', img: b.img || '' } : it;
+    };
+    neu.vouchers = neu.vouchers.map(mitBild);
+    neu.cards = (neu.cards || []).map(mitBild);
     state.wallet = neu;
     // Vergleichsstand mitziehen, sonst gilt gleich alles als veraendert
     Object.keys(walletHashes).forEach(k => delete walletHashes[k]);
@@ -4491,32 +4522,44 @@ addEventListener('storage', e => {
 });
 async function syncWalletNow() {
   if (!state.token) return true;
-  // Läuft schon ein Upload, hängen sich alle dran, statt sich über Mobilfunk
-  // gegenseitig die Bandbreite wegzunehmen (das provozierte Timeouts)
-  if (walletSyncInFlight) return walletSyncInFlight;
+  // Laeuft schon ein Upload, wartet man auf ihn. Enthielt er die eigene
+  // Aenderung noch nicht, folgt ein eigener Durchgang. Frueher hing man sich
+  // nur an — die Aenderung ging nie hoch, und die Dirty-Marke wurde trotzdem
+  // geloescht.
+  if (walletSyncInFlight) {
+    const meineRev = walletRev;
+    try { await walletSyncInFlight; } catch { /* unten entschieden */ }
+    if (walletRevOben >= meineRev) return true;
+    return syncWalletNow();
+  }
   walletSyncInFlight = (async () => {
     renderSyncBadge();
+    const revBeimStart = walletRev;
     try {
       // Großzügiges Timeout: große Wallets über Mobilfunk brauchen ihre Zeit,
       // hängen darf trotzdem nichts
       const signal = AbortSignal.timeout ? AbortSignal.timeout(45000) : undefined;
       markWalletChanges();
       const r = await api('/api/wallet', { method: 'POST', body: JSON.stringify(state.wallet), signal });
-      // Hat das Konto Einträge beigesteuert (z. B. Neuzugänge vom anderen Gerät),
-      // übernehmen wir den vereinigten Stand sofort — ohne erneuten Upload
+      // Hat das Konto Eintraege beigesteuert, wird VEREINIGT, nicht ersetzt:
+      // was hier waehrend des Uploads dazukam (z. B. ein gerade ausgepacktes
+      // Geschenk), bliebe beim Ersetzen auf der Strecke
       if (r && r.merged) {
-        state.wallet.vouchers = r.vouchers || state.wallet.vouchers;
-        state.wallet.cards = r.cards || state.wallet.cards;
+        mischeWallet(r);
         ensureWalletDates();
-        save('wallet', state.wallet);
+        save('wallet', state.wallet, true);
         renderWallet();
+      } else if (r && r.deleted) {
+        mischeLoeschmarker(r.deleted);
+        save('wallet', state.wallet, true);
       }
-      if (r && r.deleted) { state.wallet.deleted = r.deleted; save('wallet', state.wallet); }
-      localStorage.removeItem('ra.walletDirty');
+      walletRevOben = Math.max(walletRevOben, revBeimStart);
       walletSyncError = '';
       walletSyncFatal = false;
       walletRetryDelay = 1500; // Backoff zurücksetzen
       clearTimeout(walletRetryTimer);
+      if (walletRev === revBeimStart) localStorage.removeItem('ra.walletDirty');
+      else setTimeout(syncWalletNow, 0); // Waehrenddessen Geaendertes gleich hinterher
       if (origWartend().length) origHochladen();
       return true;
     } catch (e) {
@@ -4524,14 +4567,14 @@ async function syncWalletNow() {
         ? 'Das Sichern dauert zu lange (Verbindung zu langsam?).'
         : (e.message || '');
       walletSyncFatal = e.status >= 400 && e.status < 500;
-      localStorage.setItem('ra.walletDirty', '1');
+      try { localStorage.setItem('ra.walletDirty', '1'); } catch { /* voll */ }
       // Schnell nachfassen statt aufs 30s-Intervall zu warten: die PWA hat nach
       // dem Aufwachen oft 1-2s kein Netz, der erste Versuch scheitert dann leise
       if (!walletSyncFatal) {
         walletRetryDelay = Math.min(24000, walletRetryDelay * 2);
         clearTimeout(walletRetryTimer);
         walletRetryTimer = setTimeout(() => {
-          if (state.token && localStorage.getItem('ra.walletDirty')) syncWalletNow();
+          if (state.token && (localStorage.getItem('ra.walletDirty') || walletRev > walletRevOben)) syncWalletNow();
         }, walletRetryDelay);
       }
       return false;
@@ -4548,7 +4591,7 @@ function saveWallet() {
   save('wallet', state.wallet);
   renderWallet();
   if (state.token) {
-    localStorage.setItem('ra.walletDirty', '1');
+    try { localStorage.setItem('ra.walletDirty', '1'); } catch { /* voll — walletRev zaehlt trotzdem */ }
     clearTimeout(walletSyncTimer);
     walletSyncTimer = setTimeout(syncWalletNow, 800);
   }
@@ -4556,7 +4599,7 @@ function saveWallet() {
 // Nachzügler-Sync: sobald wieder Netz da ist, die App aufwacht/in den Vordergrund
 // kommt (PWA!) oder regelmäßig im Hintergrund
 function syncIfDirty() {
-  if (state.token && localStorage.getItem('ra.walletDirty')) syncWalletNow();
+  if (state.token && (localStorage.getItem('ra.walletDirty') || walletRev > walletRevOben)) syncWalletNow();
 }
 window.addEventListener('online', syncIfDirty);
 window.addEventListener('focus', syncIfDirty);
@@ -4590,35 +4633,68 @@ function renderSyncBadge() {
     el.title = '';
   }
 }
+// Stand vom Konto mit dem Stand hier vereinigen — pro ID, nie blind ersetzen.
+// Konflikt: zuletzt bearbeitete Fassung gewinnt, sonst die mit mehr Buchungen.
+// Ein Bild geht dabei nie verloren: fehlt es der Gewinner-Fassung, kommt es
+// von der anderen (die Fassung ohne Bilder aus dem vollen Handyspeicher darf
+// die Bilder am Konto nicht ueberschreiben). Gibt zurueck, ob dieses Geraet
+// etwas hat, das dem Konto noch fehlt.
+function mischeLoeschmarker(fremde) {
+  const tombs = {};
+  for (const t of [...(state.wallet.deleted || []), ...(fremde || [])]) {
+    if (t && t.id) tombs[t.id] = Math.max(tombs[t.id] || 0, t.ts || 0);
+  }
+  state.wallet.deleted = Object.entries(tombs).map(([id, ts]) => ({ id, ts })).slice(-500);
+  return tombs;
+}
+function mischeWallet(remote) {
+  const tombs = mischeLoeschmarker(remote.deleted);
+  let hierMehr = false;
+  const mitBild = (sieger, anderer) => (sieger && anderer && !sieger.codeImg && !sieger.img && (anderer.codeImg || anderer.img))
+    ? { ...sieger, codeImg: anderer.codeImg || '', img: anderer.img || '' } : sieger;
+  const mergeById = (local = [], srv = []) => {
+    const srvBy = new Map(srv.filter(x => x && x.id).map(x => [x.id, x]));
+    const out = local.filter(Boolean).map(l => {
+      const sv = srvBy.get(l.id);
+      if (!sv) { hierMehr = true; return l; }
+      srvBy.delete(l.id);
+      let sieger;
+      if ((sv.mt || 0) !== (l.mt || 0)) sieger = (sv.mt || 0) > (l.mt || 0) ? sv : l;
+      else sieger = ((sv.tx || []).length > (l.tx || []).length) ? sv : l;
+      if (sieger === sv) {
+        const r = mitBild(sv, l);
+        if (r !== sv) hierMehr = true;
+        walletHashes[r.id] = itemHash(r);
+        return r;
+      }
+      const r = mitBild(l, sv);
+      if (r !== l) {
+        // Nur die Bilder kamen dazu. Hatte der Eintrag hier eine noch nicht
+        // gesicherte Aenderung, bleibt sie als Aenderung markiert.
+        if (walletHashes[l.id] !== itemHash(l)) r.mt = Date.now();
+        walletHashes[r.id] = itemHash(r);
+      }
+      if (itemHash(r) !== itemHash(sv)) hierMehr = true;
+      return r;
+    });
+    for (const sv of srvBy.values()) { walletHashes[sv.id] = itemHash(sv); out.push(sv); }
+    return out.filter(it => !(tombs[it.id] && tombs[it.id] >= (it.added || 0)));
+  };
+  const dedupeById = list => { const seen = new Set(); return list.filter(x => x && x.id && !seen.has(x.id) && seen.add(x.id)); };
+  state.wallet.vouchers = dedupeById(mergeById(state.wallet.vouchers, remote.vouchers || []));
+  state.wallet.cards = dedupeById(mergeById(state.wallet.cards, remote.cards || []));
+  return hierMehr;
+}
 async function pullWallet() {
   if (!state.token) return;
   try {
     const remote = await api('/api/wallet');
-    // Löschmarker beider Seiten vereinigen: gelöscht bleibt gelöscht, auch wenn
-    // dieses Gerät den Eintrag noch aus einem alten Stand kennt
-    const tombs = {};
-    for (const t of [...(state.wallet.deleted || []), ...(remote.deleted || [])]) {
-      if (t && t.id) tombs[t.id] = Math.max(tombs[t.id] || 0, t.ts || 0);
-    }
-    const mergeById = (local = [], srv = []) => {
-      const srvBy = new Map(srv.filter(x => x && x.id).map(x => [x.id, x]));
-      const out = local.map(l => {
-        const sv = srvBy.get(l.id);
-        if (!sv) return l;
-        srvBy.delete(l.id);
-        // Konflikt: zuletzt bearbeitete Fassung gewinnt, sonst mehr Abbuchungen
-        if ((sv.mt || 0) !== (l.mt || 0)) return (sv.mt || 0) > (l.mt || 0) ? sv : l;
-        return ((sv.tx || []).length > (l.tx || []).length) ? sv : l;
-      });
-      out.push(...srvBy.values());
-      return out.filter(it => !(tombs[it.id] && tombs[it.id] >= (it.added || 0)));
-    };
-    const dedupeById = list => { const seen = new Set(); return list.filter(x => x && x.id && !seen.has(x.id) && seen.add(x.id)); };
-    state.wallet.vouchers = dedupeById(mergeById(state.wallet.vouchers, remote.vouchers));
-    state.wallet.cards = dedupeById(mergeById(state.wallet.cards, remote.cards));
-    state.wallet.deleted = Object.entries(tombs).map(([id, ts]) => ({ id, ts })).slice(-500);
+    const hierMehr = mischeWallet(remote);
     ensureWalletDates(); // auch vom Konto gezogene Alt-Gutscheine kriegen ein Datum
-    saveWallet(); // lokal sichern + Mergestand zurück zum Server
+    // Nur hochladen, wenn dieses Geraet etwas beisteuert — sonst liegt alles
+    // schon beim Konto (bei grossen Wallets spart das Megabytes je App-Start)
+    if (hierMehr) saveWallet();
+    else { save('wallet', state.wallet, true); renderWallet(); }
     // Geschenke werden NICHT still eingebucht: sie warten auf der Geschenkseite,
     // bis der Empfänger sie dort auspackt. Erst die Öffnungs-Zeremonie bucht den
     // Gutschein ein und hakt ihn beim Server ab — bis dahin bleibt er serverseitig.
@@ -4745,9 +4821,11 @@ function openGiftReveal(gift) {
     updateGiftBadges();
     (async () => {
       let frei = true;
+      let vomServer = null;
       try {
         const r = await api('/api/gift/claim', { method: 'POST', body: JSON.stringify({ ids: [gift.id] }) });
         frei = Array.isArray(r.claimed) ? r.claimed.includes(String(gift.id)) : true;
+        vomServer = Array.isArray(r.vouchers) ? r.vouchers : null;
       } catch {
         // Kein Netz: lieber gutschreiben als verlieren — der Server raeumt
         // das Geschenk beim naechsten Abgleich ohnehin ab
@@ -4756,6 +4834,15 @@ function openGiftReveal(gift) {
       if (!frei) {
         island('Dieses Geschenk hast du schon geöffnet');
         renderGiftsPage?.();
+        return;
+      }
+      if (vomServer) {
+        // Der Server hat das Geschenk schon in die Wallet am Konto gelegt —
+        // es kann also nicht mehr verloren gehen. Hier nur uebernehmen.
+        mischeWallet({ vouchers: vomServer });
+        ensureWalletDates();
+        save('wallet', state.wallet, true);
+        renderWallet();
         return;
       }
       state.wallet.vouchers.unshift({ ...gift, added: Date.now(), giftSeen: true });
