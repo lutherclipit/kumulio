@@ -1348,7 +1348,7 @@ input, textarea, select, button { touch-action: manipulation; }
   .rank-progress-fill { transition: none; }
 }
 
-/* ================= Global-Chat ================= */
+/* ================= Chat (Fluestern mit Freunden) ================= */
 #chat-box {
   min-height: 0;
   overflow-y: auto; overscroll-behavior: contain;
@@ -1440,13 +1440,6 @@ input, textarea, select, button { touch-action: manipulation; }
 .dropzone.drag { border-color: var(--k-accent, #12C77E); background: rgba(18,199,126,.08); }
 
 /* Chat-Modi + Pinbar + DMs */
-#chat-modes { display: flex; gap: 8px; margin-bottom: 10px; }
-#chat-pinbar {
-  display: flex; align-items: center; gap: 8px;
-  background: rgba(18,199,126,.1); border: 1px solid rgba(18,199,126,.35);
-  border-radius: 12px; padding: 8px 12px; margin-bottom: 8px; font-size: .84rem;
-}
-#chat-pinbar .pin-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #dm-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-weight: 800; }
 .dm-row {
   display: flex; align-items: center; gap: 10px; width: 100%;
@@ -1510,11 +1503,6 @@ input, textarea, select, button { touch-action: manipulation; }
 }
 
 /* Command-Palette überm Eingabefeld */
-#chat-cmds {
-  display: none; margin-bottom: 8px;
-  background: var(--surface); border: 1px solid var(--stroke-light);
-  border-radius: 14px; padding: 6px; animation: enterDrop .3s ease backwards;
-}
 .cmd-row {
   display: flex; align-items: center; gap: 10px; width: 100%;
   padding: 8px 10px; border: none; border-radius: 10px; background: none;
@@ -1558,21 +1546,15 @@ input, textarea, select, button { touch-action: manipulation; }
 .btn-danger:active { transform: scale(.97); }
 
 /* Chipbar läuft weich in den Rand aus statt hart abzuschneiden */
-.chipbar, #chat-modes {
+.chipbar {
   overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
   mask-image: linear-gradient(90deg, transparent 0, #000 10px, #000 calc(100% - 26px), transparent 100%);
   -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 10px, #000 calc(100% - 26px), transparent 100%);
   padding-right: 26px;
 }
-.chipbar::-webkit-scrollbar, #chat-modes::-webkit-scrollbar { display: none; }
+.chipbar::-webkit-scrollbar { display: none; }
 
 /* Aktiver Chat-Modus: bewusst NICHT grün (das gehört dem Senden-Button) */
-#chat-modes .chip.active {
-  background: var(--chip-active-bg) !important;
-  color: var(--chip-active-fg) !important;
-  border-color: transparent !important;
-  box-shadow: 0 4px 14px rgba(10, 14, 18, .18);
-}
 
 /* "…" an eigenen Nachrichten: Web beim Drüberfahren, bleibt klickbar */
 .chat-msg { position: relative; padding-right: 26px; }
@@ -1800,7 +1782,6 @@ input[type="date"].input {
 /* ================= Runde 33: Chat-Vollbild, Menü-Blur, Quests, Inventar, Kisten V2 ================= */
 
 /* Chat nimmt die Seite bis zum Header ein */
-#chat-modes { justify-content: center; margin-bottom: 10px; }
 
 /* Menü-Backdrop: blendet weich ein (Blur + Abdunklung), Verlauf nach unten */
 #top-menu-backdrop {
@@ -1932,7 +1913,6 @@ input[type="date"].input {
 
 /* Popups liegen IMMER vor Sheets und Tabs */
 .overlay { z-index: 200 !important; }
-#user-pop-backdrop { z-index: 210 !important; }
 #case-backdrop { z-index: 220 !important; }
 
 
@@ -2064,7 +2044,6 @@ body { -webkit-user-select: none; user-select: none; }
 
 /* Chat: kompakt, fix, Tastatur-sicher (sichtbare Höhe als Variable) */
 body.chat-locked { overflow: hidden; height: 100dvh; }
-#chat-modes { justify-content: center; }
 
 /* Erwähnungen: klar erkennbar und klickbar */
 .mention {
@@ -2359,12 +2338,6 @@ html, body { overflow-x: clip; }
 }
 /* Die letzte feste Zahl von hier ist raus: die Emote-Leiste schwebt ueber der
    Liste (position: absolute) und nimmt ihr keinen Platz weg. */
-#chat-cmds {
-  position: absolute; left: 0; right: 0; bottom: 56px; z-index: 8; margin: 0;
-  background: var(--glass-strong);
-  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
-  box-shadow: var(--glass-edge), var(--shadow);
-}
 
 /* DM-Kopf: Name/Avatar als klickbarer Profil-Knopf */
 #dm-partner-open {
@@ -2375,15 +2348,6 @@ html, body { overflow-x: clip; }
 #dm-partner-open:hover { background: var(--surface); }
 
 /* Chat-Popup: aufgeräumt und mittig */
-#user-pop { position: relative; }
-.us-close { position: absolute; top: 14px; right: 14px; }
-.us-head { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; padding-top: 6px; }
-.us-ava { width: 64px; height: 64px; font-size: 1.5rem; }
-.us-name { font-weight: 800; font-size: 1.05rem; }
-.us-bio { font-size: .8rem; opacity: .6; line-height: 1.45; max-width: 260px; }
-#user-pop .btn-block { margin-top: 14px; display: flex; align-items: center; justify-content: center; }
-.us-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 10px; }
-.us-modbox { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--stroke-light); text-align: center; }
 
 /* Deal-posten-FAB: unten mittig, mit Luft zum Menü (nur Admin im Feed) */
 .admin-fab {
@@ -2421,11 +2385,6 @@ html, body { overflow-x: clip; }
 #chat-input-row .input { margin-top: 0; }
 
 /* Global/Freunde wirklich mittig: das alte padding-right/Mask der Chipbar-Regel weg */
-#chat-modes {
-  padding-right: 0;
-  mask-image: none; -webkit-mask-image: none;
-  overflow-x: visible;
-}
 
 /* ================= Runde 40: Duplikat-Reset + Mehrfach-Upload ================= */
 .dupe-banner {
@@ -3088,12 +3047,6 @@ body:has(.sheet.open) {
 .deck-more:active { transform: scale(.98); background: var(--surface-2); }
 
 /* Chat: Aeltere-Nachrichten-Knopf am Listenanfang */
-.chat-older {
-  display: block; width: 100%; margin: 4px 0 10px;
-  background: var(--surface); border: 1px dashed var(--stroke-light);
-  border-radius: 12px; padding: 9px; font: inherit; font-size: .78rem;
-  font-weight: 700; color: var(--muted); cursor: pointer;
-}
 
 /* ================= Runde 61: Bild-Zuschnitt + Einladen ================= */
 
@@ -3478,7 +3431,6 @@ body:has(.sheet.open) {
 .chat-msg.msg-sent { animation: msgSent .28s var(--spring) both; }
 /* Tastatur offen: der Abstand über der Eingabe darf schmal werden */
 body.kb-open #chat-input-row { margin-top: 6px; }
-body.kb-open #chat-cmds { display: none !important; }
 /* Tastatur offen: noch dichter ran. Kopfzeile, Tabs und Eingabe zusammen
    brauchen ~150px — der Rest gehört dem Verlauf. */
 /* Mit offener Tastatur darf die Liste beliebig klein werden. Die feste
@@ -4473,9 +4425,6 @@ body.wallet-farbe .topbar::after { content: none; }
   background: none; border: none; box-shadow: none;
   border-radius: 0; padding: 6px 0 4px;
 }
-#chat-modes {
-  gap: 8px; margin-bottom: 14px;
-}
 #chat-list { display: flex; flex-direction: column; gap: 3px; }
 
 /* Eine Nachricht ist eine Blase, kein Textabsatz */
@@ -4518,7 +4467,6 @@ body.wallet-farbe .topbar::after { content: none; }
 #chat-input-row .input {
   background: none; border: none; box-shadow: none; padding: 8px 6px;
 }
-#chat-pinbar { border-radius: 14px; }
 /* Zusammenhaengende Nachrichten derselben Person ruecken zusammen */
 .chat-msg + .chat-msg { margin-top: 1px; }
 
@@ -4843,7 +4791,7 @@ body.wallet-farbe .topbar::after { content: none; }
   flex: 1 1 auto; min-height: 0; height: auto;
   transition: none;                 /* die Hoehe faellt jetzt aus dem Umbruch */
 }
-#chat-modes, #dm-head, #chat-pinbar, #chat-input-row { flex: 0 0 auto; }
+#dm-head, #chat-input-row { flex: 0 0 auto; }
 #chat-input-row { margin-top: 10px; }
 /* In der Wallet schwebt unten zusaetzlich das Mini-Guthaben. 34 px mehr
    reichen, damit der letzte Eintrag nicht darunter verschwindet. */
@@ -4893,32 +4841,6 @@ body.wallet-farbe main { padding-bottom: calc(var(--menue-luft) + 34px + env(saf
 /* Zwei Titel, links Global, rechts Freunde. Dahinter gleitet eine Flaeche
    herueber — nur transform, also billig. Die Chips davor sahen aus wie
    Filter, dabei schalten sie zwei getrennte Ansichten um. */
-#chat-modes {
-  position: relative; display: grid; grid-template-columns: 1fr 1fr;
-  gap: 0; margin-bottom: 14px; padding: 5px;
-  background: var(--surface); border: 1px solid var(--stroke-light);
-  border-radius: 16px; box-shadow: var(--glass-edge);
-  overflow: visible;
-}
-.cm-flaeche {
-  position: absolute; left: 5px; top: 5px; bottom: 5px; width: calc(50% - 5px);
-  border-radius: 12px; background: var(--chip-active-bg, #1a1e24);
-  box-shadow: 0 3px 12px rgba(10, 14, 18, .2);
-  transition: transform .42s cubic-bezier(.3, 1.2, .45, 1);
-  z-index: 0;
-}
-#chat-modes.rechts .cm-flaeche { transform: translateX(100%); }
-.cm-titel {
-  position: relative; z-index: 1;
-  display: flex; align-items: center; justify-content: center; gap: 7px;
-  background: none; border: none; padding: 11px 8px;
-  font: inherit; font-size: 1rem; font-weight: 800; letter-spacing: -.01em;
-  color: var(--muted); cursor: pointer;
-  transition: color .32s ease, transform .2s var(--spring);
-}
-.cm-titel.active { color: var(--chip-active-fg, #fff); }
-.cm-titel:active { transform: scale(.97); }
-.cm-titel .pill { font-size: .64rem; padding: 1px 6px; }
 
 /* Die Liste schiebt in die Richtung herein, in die getippt wurde */
 #chat-box.kommt-rechts #chat-list { animation: chatVonRechts .34s cubic-bezier(.22, 1, .32, 1) both; }
@@ -4959,7 +4881,6 @@ body.wallet-farbe main { padding-bottom: calc(var(--menue-luft) + 34px + env(saf
 #chat-list:has(.dm-row) { gap: 0; }
 
 @media (prefers-reduced-motion: reduce) {
-  .cm-flaeche { transition: none; }
   #chat-box.kommt-rechts #chat-list, #chat-box.kommt-links #chat-list { animation: none; }
 }
 
@@ -5135,7 +5056,7 @@ body.sparsam .tabbar { backdrop-filter: none; -webkit-backdrop-filter: none; bac
 body.sparsam .pfb-neonpink, body.sparsam .pfb-eisring,
 body.sparsam .pfb-regenbogen, body.sparsam .pfb-plasma,
 body.sparsam .pn-anim { animation: none; }
-body.sparsam .cm-flaeche, body.sparsam .wm-flaeche, body.sparsam .filter-pille {
+body.sparsam .wm-flaeche, body.sparsam .filter-pille {
   transition: transform .2s ease;
 }
 
@@ -5171,3 +5092,27 @@ body.sparsam .cm-flaeche, body.sparsam .wm-flaeche, body.sparsam .filter-pille {
 .lupe-trenner { color: rgba(255, 255, 255, .5); font-size: .82rem; }
 
 @media (prefers-reduced-motion: reduce) { .lupe-verwalten { transition: none; } }
+
+
+/* ============ Runde 103: Global-Chat entfernt ============================== */
+/* Ungelesene Fluesternachrichten stehen jetzt am Chat-Tab unten statt im
+   Umschalter im Chat — so sieht man sie auch, wenn man gerade woanders ist. */
+.tabbtn { position: relative; }
+.tab-zahl {
+  position: absolute; top: 3px; left: calc(50% + 6px);
+  min-width: 17px; height: 17px; padding: 0 5px; border-radius: 999px;
+  display: grid; place-items: center;
+  background: #E23D2E; color: #fff;
+  font-size: .62rem; font-weight: 800; line-height: 1;
+  box-shadow: 0 0 0 2px var(--glass-strong, #fff);
+}
+.tab-zahl.hidden { display: none; }
+#chat-titel { margin: 0 0 12px; }
+#chat-titel.hidden { display: none; }
+/* Leerzustand: wer noch keine Freunde hat, bekommt den Weg dorthin gezeigt */
+.chat-leer {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  text-align: center; padding: 42px 18px;
+}
+.chat-leer p { margin: 0; font-weight: 700; }
+.chat-leer p.muted { font-weight: 500; font-size: .86rem; margin-bottom: 10px; }

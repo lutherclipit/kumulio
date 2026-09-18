@@ -24,7 +24,7 @@ const state = {
   userName: localStorage.getItem('ra.user') || '',
   token: localStorage.getItem('ra.token') || '',
   featured: [],
-  notif: JSON.parse(localStorage.getItem('ra.notif') || '{"msgs":true,"mention":true,"reminder":true}'),
+  notif: JSON.parse(localStorage.getItem('ra.notif') || '{"msgs":true,"reminder":true}'),
   // Wallet-Filter bleiben eingestellt, bis man sie selbst wieder aendert
   ...JSON.parse(localStorage.getItem('ra.walletFilter') || '{"walletFilter":"","walletSort":"","walletVal":0}'),
 };
@@ -417,12 +417,12 @@ function switchView(next, animClass) {
   if (next === 'profile' && !state.token) renderTurnstile('login');
   if (next === 'profile' && state.token) { refreshGami(); refreshGamiSystem(); }
   if (next === 'chat') {
-    // Egal wo man zuletzt war (Fluester-Chat): der Chat oeffnet immer Global
-    if (chatMode !== 'global') setChatMode('global');
+    // Der Chat besteht nur noch aus den Gespraechen mit Freunden. Er oeffnet
+    // die Liste — wer gezielt in einen Einzelchat will (Benachrichtigung,
+    // Freundesliste, Profil), ruft direkt danach setChatMode('dm', …) auf.
+    if (chatMode !== 'dmlist') setChatMode('dmlist');
     updateChatGate();
     pollChat(true);
-    // Immer unten einsteigen: die neueste Nachricht ist das Wichtigste
-    requestAnimationFrame(() => { const b = $('#chat-box'); b.scrollTop = b.scrollHeight; });
   }
   // Wallet immer aufgeräumt betreten: alle Stapel wieder zusammengelegt
   if (next === 'wallet') { restack(); renderWallet(); }
@@ -2168,8 +2168,6 @@ async function refreshGamiSystem() {
     renderMyName();
     $('#gm-paints').querySelectorAll('[data-paint]').forEach(x => x.classList.toggle('on', x.dataset.paint === next));
     island(next ? 'Paint angelegt' : 'Paint abgelegt');
-    chatLastTs = 0; // der Chat holt alle Nachrichten neu und zeigt den neuen Look
-    if (state.activeView === 'chat') pollChat(true);
     api('/api/paint', { method: 'POST', body: JSON.stringify({ id: next }) })
       .then(() => refreshGamiSystem())
       .catch(e => { island(e.message); refreshGamiSystem(); });
@@ -2328,7 +2326,6 @@ async function renderInventoryPage() {
       const next = gami.activePaint === id ? '' : id;
       gami.activePaint = next;
       if (myProfile) myProfile.activePaint = next;
-      chatLastTs = 0; // der Chat holt alle Nachrichten neu und zeigt den neuen Look
       call = api('/api/paint', { method: 'POST', body: JSON.stringify({ id: next }) });
     } else {
       const next = myProfile.activeBadge === id ? '' : id;
@@ -3036,7 +3033,6 @@ $('#g-handle-save').addEventListener('click', async () => {
 // Overlays raus aus den Views auf Body-Ebene, sonst versteckt .view.hidden sie mit
 // (Kisten-Popup erschien z. B. erst nach dem Zurückgehen ins Profil)
 document.body.appendChild($('#case-backdrop'));
-document.body.appendChild($('#user-pop-backdrop'));
 
 // "Profil bearbeiten": eigene Seite, nach dem Speichern geht es automatisch zurück
 $('#editprofile-host').appendChild($('#bio-card'));
@@ -3490,7 +3486,7 @@ if (swSound) {
   });
 }
 // Mitteilungs-Schalter: Banner/Sounds pro Kategorie an- und abschaltbar
-[['msgs', '#sw-n-msgs'], ['mention', '#sw-n-mention'], ['reminder', '#sw-n-reminder']].forEach(([key, sel]) => {
+[['msgs', '#sw-n-msgs'], ['reminder', '#sw-n-reminder']].forEach(([key, sel]) => {
   const el = $(sel);
   if (!el) return;
   el.checked = state.notif[key] !== false;
@@ -3737,7 +3733,7 @@ function startTour() {
   const steps = [
     { view: 'feed', sel: '.tabbtn[data-view="feed"]', title: 'Deals, die sich lohnen', text: 'Preisfehler als Alarm aufs Handy, Neukunden-Deals und Wege, nebenbei etwas zu verdienen.', visual: feedDemo },
     { view: 'wallet', sel: '.tabbtn[data-view="wallet"]', title: 'Deine Wallet', text: 'Gutschein fotografieren, fertig: Guthaben, PIN und Barcode griffbereit, Restsummen immer im Blick.', visual: walletDemo },
-    { view: 'chat', sel: '.tabbtn[data-view="chat"]', title: 'Chat und Freunde', text: 'Global mitreden oder flüstern: Deals direkt an Freunde schicken und zusammen zuschlagen.', visual: chatDemo },
+    { view: 'chat', sel: '.tabbtn[data-view="chat"]', title: 'Chat und Freunde', text: 'Mit Freunden schreiben: Deals direkt weiterschicken und zusammen zuschlagen.', visual: chatDemo },
     { center: true, title: 'Dein Look', text: 'Mit Spar-Aktivität erspielst du Container: Emotes, Namens-Paints, Sticker und Profilrahmen. Nie für Geld.', visual: lookDemo },
     ...(!isStandalone && (uaIOS || uaAndroid) ? [{
       center: true, title: 'Als App auf den Home-Bildschirm', text: uaIOS
@@ -7928,22 +7924,21 @@ function handleOpenParams(qs) {
   if (p.get('chat') === 'dm' && p.get('user')) {
     if (state.activeView !== 'chat') switchView('chat');
     setChatMode('dm', p.get('user'));
-  } else if (p.get('chat') === 'global') {
+  } else if (p.get('chat')) {
+    // Alte Links (?chat=global, z. B. aus einer frueheren Benachrichtigung)
+    // fuehren jetzt in die Freundesliste — den Global-Chat gibt es nicht mehr
     if (state.activeView !== 'chat') switchView('chat');
-    setChatMode('global');
   } else if (p.get('tab') === 'wallet') {
     if (state.activeView !== 'wallet') switchView('wallet');
   }
 }
 
-// ---------------- Global-Chat (Twitch-artig) ----------------
+// ---------------- Chat: Fluestern mit Freunden ----------------
 
 let chatEmotes = {};
 let chatBadges = {};
 let chatPaints = [];
 let chatRanks = [];
-let chatLastTs = 0;
-const chatSeenUsers = new Set();
 
 const CHAT_COLORS = ['#e91e63', '#9c27b0', '#3f51b5', '#03a9f4', '#009688', '#4caf50', '#ff9800', '#f44336', '#8d6e63', '#607d8b'];
 function chatColor(name) {
@@ -7987,40 +7982,8 @@ function withEmotes(escapedText) {
 function msgMenuHtml(own, id) {
   return own ? `<button class="msg-menu" data-msg-del="${esc(id)}" aria-label="Nachricht löschen">…</button>` : '';
 }
-function chatMsgHtml(m) {
-  if (m.deleted) {
-    return `<div class="chat-msg" data-mid="${esc(m.id)}">
-      <span class="chat-kopf"><span class="chat-user" style="color:${chatColor(m.user)}">${esc(m.user)}</span></span>
-      <span class="chat-text chat-deleted">Nachricht gelöscht</span>
-    </div>`;
-  }
-  const badge = m.badge && chatBadges[m.badge]
-    ? `<svg class="icon icon-sm chat-badge" aria-label="${esc(chatBadges[m.badge].name)}"><use href="#i-${chatBadges[m.badge].icon}"/></svg>`
-    : '';
-  const role = m.role === 'admin' ? `<svg class="icon icon-sm chat-badge role-admin" aria-label="Admin"><use href="#i-crown"/></svg>`
-    : m.role === 'mod' ? `<svg class="icon icon-sm chat-badge role-mod" aria-label="Mod"><use href="#i-check"/></svg>` : '';
-  // Rang-Icon (Pixel-Art, 20px) vor dem Namen, Paint färbt den Namen
-  const rk = chatRanks.find(x => x.tier === (m.rank || 1));
-  const rankImg = rk && rk.tier > 1
-    ? `<img class="px-icon rank-badge" src="/gamification/rank-${String(rk.tier).padStart(2, '0')}-${rk.id}.svg" alt="" title="${esc(rk.name)}">`
-    : '';
-  const ns = nameStyleOf(m.user, m.paint);
-  // Maximal EIN Abzeichen neben dem Rang: das getragene Badge schlägt das Rollen-Icon
-  const insignia = badge || role;
-  chatSeenUsers.add(m.user);
-  // Emotes zuerst, dann @Erwähnungen klickbar machen; Deal-Marker wird zur Karte
-  let body = chatBodyHtml(m.text);
-  if (!body.startsWith('<button class="deal-chip')) body = body.replace(/@([A-Za-z0-9_.-]{3,24})/g, '<button class="mention" data-user="$1">@$1</button>');
-  return `<div class="chat-msg ${m.user === state.userName ? 'own' : ''}" data-mid="${esc(m.id)}">
-    <span class="chat-kopf">
-      ${rankImg}${insignia}<span class="chat-user${ns.cls}" style="${ns.style}">${esc(m.user)}</span>
-    </span>
-    <span class="chat-text">${body}</span>
-    ${msgMenuHtml(m.user === state.userName, m.id)}
-  </div>`;
-}
-// Chat-Modi: Global, Flüster-Liste oder ein konkreter Privat-Chat
-let chatMode = 'global';
+// Chat-Modi: Liste der Gespraeche oder ein einzelner Fluesterchat
+let chatMode = 'dmlist';
 let dmPartner = '';
 let dmLastTs = 0;
 
@@ -8029,21 +7992,10 @@ function setChatMode(mode, partner) {
   chatMode = mode;
   dmPartner = partner || '';
   dmLastTs = 0;
-  chatOlderPool = [];
   $('#chat-list').innerHTML = '';
-  chatLastTs = mode === 'global' ? 0 : chatLastTs;
-  const zeigt = mode === 'dm' ? 'dmlist' : mode;
-  document.querySelectorAll('[data-cmode]').forEach(b => {
-    const an = b.dataset.cmode === zeigt;
-    b.classList.toggle('active', an);
-    b.setAttribute('aria-selected', an ? 'true' : 'false');
-  });
-  $('#chat-modes')?.classList.toggle('rechts', zeigt === 'dmlist');
-  // Die Liste schiebt in die Richtung herein, in die man geht. Rang der drei
-  // Ebenen: Global (0) — Freundesliste (1) — einzelner Chat (2). Tiefer heisst
-  // von rechts herein, zurueck heisst von links. Vorher galt das nur fuer den
-  // Wechsel oben, und das Oeffnen eines Fluesterchats sprang hart um.
-  const rang = { global: 0, dmlist: 1, dm: 2 };
+  // Die Liste schiebt in die Richtung herein, in die man geht: in einen Chat
+  // hinein von rechts, zurueck zur Liste von links.
+  const rang = { dmlist: 1, dm: 2 };
   if (vorherMode && vorherMode !== mode) {
     const box = $('#chat-box');
     box.classList.remove('kommt-links', 'kommt-rechts');
@@ -8051,7 +8003,7 @@ function setChatMode(mode, partner) {
     box.classList.add(rang[mode] > rang[vorherMode] ? 'kommt-rechts' : 'kommt-links');
   }
   $('#dm-head').classList.toggle('hidden', mode !== 'dm');
-  $('#chat-pinbar').classList.toggle('hidden', mode !== 'global' || !$('#chat-pinbar').innerHTML);
+  $('#chat-titel')?.classList.toggle('hidden', mode === 'dm');
   $('#chat-input-row').style.display = mode === 'dmlist' ? 'none' : 'flex';
   if (mode === 'dm') {
     $('#dm-partner-name').textContent = dmPartner;
@@ -8077,18 +8029,6 @@ function setChatMode(mode, partner) {
   pollChat(true);
 }
 
-function renderPinbar(pinned) {
-  const bar = $('#chat-pinbar');
-  if (!pinned) { bar.classList.add('hidden'); bar.innerHTML = ''; return; }
-  bar.innerHTML = `${icon('pin', 'icon icon-sm')}
-    <span class="chat-user" style="color:${chatColor(pinned.user)}">${esc(pinned.user)}</span>
-    <span class="pin-text">${esc(pinned.text)}</span>
-    ${['admin', 'mod'].includes(state.role) ? `<button class="fav-remove" id="pin-remove">${icon('x', 'icon icon-sm')}</button>` : ''}`;
-  bar.classList.toggle('hidden', chatMode !== 'global');
-  $('#pin-remove')?.addEventListener('click', () =>
-    api('/api/chat/mod', { method: 'POST', body: JSON.stringify({ action: 'unpin' }) }).then(() => renderPinbar(null)).catch(e => island(e.message)));
-}
-
 function dmMsgHtml(m) {
   if (m.deleted) {
     return `<div class="chat-msg" data-mid="${esc(m.id)}">
@@ -8097,7 +8037,7 @@ function dmMsgHtml(m) {
     </div>`;
   }
   const own = m.from === state.userName;
-  // Auch im Privatchat: Rang-Icon, Badge/Rolle und Namens-Paint wie im Global-Chat
+  // Rang-Icon, Badge/Rolle und Namens-Paint stehen auch im Privatchat
   const badge = m.badge && chatBadges[m.badge]
     ? `<svg class="icon icon-sm chat-badge" aria-label="${esc(chatBadges[m.badge].name)}"><use href="#i-${chatBadges[m.badge].icon}"/></svg>`
     : '';
@@ -8117,75 +8057,13 @@ function dmMsgHtml(m) {
   </div>`;
 }
 
-let chatOlderPool = [];
-function loadOlderChat() {
-  const box = $('#chat-box');
-  const btn = $('#chat-older');
-  if (!btn || !chatOlderPool.length) return;
-  const take = chatOlderPool.splice(-30);
-  const anchor = box.scrollHeight - box.scrollTop; // Leseposition halten
-  btn.insertAdjacentHTML('afterend', take.map(chatMsgHtml).join(''));
-  if (!chatOlderPool.length) btn.remove();
-  box.scrollTop = box.scrollHeight - anchor;
-}
-// Hochscrollen laedt von selbst nach
-$('#chat-box')?.addEventListener('scroll', () => {
-  if (chatMode === 'global' && chatOlderPool.length && $('#chat-box').scrollTop < 50) loadOlderChat();
-}, { passive: true });
 async function pollChat(force) {
-  // Global wird immer gepollt (für Erwähnungs-Benachrichtigungen), DMs nur im Chat
-  if (!force && state.activeView !== 'chat' && chatMode !== 'global') return;
+  // Ausserhalb des Chats wird nur noch die Zahl ungelesener Nachrichten
+  // nachgesehen. Frueher lief hier alle vier Sekunden der ganze Global-Chat
+  // mit — auch wenn man ihn gar nicht offen hatte.
+  if (!force && state.activeView !== 'chat') { refreshDmBadge(); return; }
   try {
-    if (chatMode === 'global') {
-      const r = await api('/api/chat?since=' + chatLastTs);
-      chatEmotes = r.emotes || chatEmotes;
-      chatBadges = r.badges || chatBadges;
-      chatPaints = r.paints || chatPaints;
-      chatRanks = r.ranks || chatRanks;
-      renderPinbar(r.pinned);
-      // Nachträglich gelöschte Nachrichten gegen den Platzhalter tauschen
-      (r.updates || []).forEach(id => {
-        const el = $('#chat-list').querySelector(`[data-mid="${id}"] .chat-text`);
-        if (el) { el.className = 'chat-text chat-deleted'; el.textContent = 'Nachricht gelöscht'; }
-      });
-      if (r.messages.length) {
-        const box = $('#chat-box'), list = $('#chat-list');
-        const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
-        // Fenster statt Voll-Historie: beim Erstladen nur die letzten 30 ins DOM,
-        // der Rest wartet im Pool und kommt beim Hochscrollen portionsweise
-        let msgs = r.messages;
-        if (!list.children.length && msgs.length > 30) {
-          chatOlderPool = msgs.slice(0, -30);
-          msgs = msgs.slice(-30);
-          chatOlderPool.forEach(m => { chatLastTs = Math.max(chatLastTs, m.ts); });
-          list.insertAdjacentHTML('afterbegin', '<button class="chat-older" id="chat-older">Ältere Nachrichten anzeigen</button>');
-          $('#chat-older').onclick = loadOlderChat;
-        }
-        // Erwähnungen: nur für WIRKLICH neue Nachrichten, nicht beim Neuladen der Historie
-        const mentionSeen = Number(localStorage.getItem('ra.mentionSeen') || 0);
-        let batchMax = mentionSeen;
-        msgs.forEach(m => {
-          // Nie doppelt: die eigene Nachricht steht durch das Sende-Echo evtl. schon
-          // da, während der Echtzeit-Ping parallel denselben Poll anstößt
-          if (!list.querySelector(`[data-mid="${m.id}"]`)) list.insertAdjacentHTML('beforeend', chatMsgHtml(m));
-          chatLastTs = Math.max(chatLastTs, m.ts);
-          batchMax = Math.max(batchMax, m.ts);
-          if (state.notif.mention !== false && state.userName && m.user !== state.userName && !m.deleted && m.ts > mentionSeen
-            && new RegExp(`(^|\\W)@?${state.userName}(\\W|$)`, 'i').test(m.text)) {
-            playSfx('plop'); buzz(25);
-            if (state.activeView !== 'chat') {
-              showNoteBanner(`<b>@${esc(m.user)}</b> hat dich erwähnt: ${esc(m.text.slice(0, 60))}`, () => {
-                switchView('chat'); setChatMode('global');
-              });
-            }
-          }
-        });
-        localStorage.setItem('ra.mentionSeen', String(batchMax));
-        while (list.children.length > 150) list.firstChild.remove();
-        if (nearBottom || !box.dataset.scrolled) box.scrollTop = box.scrollHeight;
-        box.dataset.scrolled = '1';
-      }
-    } else if (chatMode === 'dmlist') {
+    if (chatMode === 'dmlist') {
       if (!state.token) { $('#chat-list').innerHTML = '<div class="status">Zum Flüstern bitte anmelden.</div>'; return; }
       const r = await api('/api/dm/list');
       const ava = (name, avatar) => avatar
@@ -8211,8 +8089,13 @@ async function pollChat(force) {
       // durch und man sah nicht, wo das eine aufhoert.
       $('#chat-list').innerHTML = (rows || friendRows)
         ? rows + (friendRows ? `<div class="dm-trenner">Freunde</div>${friendRows}` : '')
-        : '<div class="status">Noch keine Flüster-Chats. Tippe im Global-Chat auf einen Namen, um zu flüstern.</div>';
+        : `<div class="chat-leer">
+            <p>Hier schreibst du mit deinen Freunden.</p>
+            <p class="muted">Sobald du jemanden hinzugefügt hast, steht er hier.</p>
+            <button class="btn" id="chat-freunde-finden">${icon('user', 'icon icon-sm')} Freunde finden</button>
+          </div>`;
       $('#chat-list').querySelectorAll('[data-dm-open]').forEach(b => b.onclick = () => setChatMode('dm', b.dataset.dmOpen));
+      $('#chat-freunde-finden')?.addEventListener('click', () => switchView('friends', 'enter-drop'));
     } else if (chatMode === 'dm') {
       const r = await api(`/api/dm/with?user=${encodeURIComponent(dmPartner)}&since=${dmLastTs}`);
       (r.updates || []).forEach(id => {
@@ -8261,56 +8144,6 @@ async function refreshDmBadge() {
   } catch { }
 }
 
-// Command-Palette: erscheint, sobald die Eingabe mit "!" beginnt
-const CHAT_COMMANDS = [
-  { cmd: '!v', desc: 'Vanish: alle deine Nachrichten verschwinden' },
-  { cmd: '!muenze', desc: 'Wirft eine Münze (Kopf oder Zahl)' },
-  { cmd: '!stats', desc: 'Zeigt dir deine Funken und deinen Spar-Rang' },
-  { cmd: '!hilfe', desc: 'Zeigt diese Übersicht' },
-];
-function renderCmdPalette(show) {
-  let el = $('#chat-cmds');
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'chat-cmds';
-    $('#chat-input-row').before(el);
-  }
-  if (!show) { el.innerHTML = ''; el.style.display = 'none'; return; }
-  el.style.display = 'block';
-  el.innerHTML = CHAT_COMMANDS.map(c =>
-    `<button class="cmd-row" data-cmd="${c.cmd}"><b>${c.cmd}</b><span>${c.desc}</span></button>`).join('');
-  el.querySelectorAll('[data-cmd]').forEach(b => b.onclick = () => {
-    $('#chat-input').value = b.dataset.cmd;
-    renderCmdPalette(false);
-    $('#chat-input').focus();
-  });
-}
-$('#chat-input').addEventListener('input', e => {
-  const v = e.target.value;
-  // Command-Palette bei "!", @Namens-Vorschläge beim Tippen einer Erwähnung
-  const at = v.match(/@([A-Za-z0-9_.-]*)$/);
-  if (at && chatMode !== 'dm') {
-    const pool = [...new Set([...(myProfile?.friends || []), ...chatSeenUsers])]
-      .filter(n => n !== state.userName && n.toLowerCase().startsWith(at[1].toLowerCase()))
-      .slice(0, 5);
-    let el = $('#chat-cmds');
-    if (!el) { el = document.createElement('div'); el.id = 'chat-cmds'; $('#chat-input-row').before(el); }
-    if (pool.length) {
-      el.style.display = 'block';
-      el.innerHTML = pool.map(n => `<button class="cmd-row" data-atname="${esc(n)}"><b>@${esc(n)}</b></button>`).join('');
-      el.querySelectorAll('[data-atname]').forEach(b => b.onclick = () => {
-        $('#chat-input').value = v.replace(/@[A-Za-z0-9_.-]*$/, '@' + b.dataset.atname + ' ');
-        el.style.display = 'none';
-        $('#chat-input').focus();
-      });
-      return;
-    }
-    el.style.display = 'none';
-    return;
-  }
-  renderCmdPalette(chatMode !== 'dm' && v.startsWith('!'));
-});
-
 // Ans Ende scrollen. Die Tastatur schiebt in mehreren Schueben, deshalb ein
 // paar Nachzuegler — sonst steht man nach dem Antippen mitten im Verlauf.
 function chatToBottom(weich) {
@@ -8327,50 +8160,20 @@ $('#chat-input').addEventListener('focus', () => chatToBottom(false));
 async function sendChat() {
   const inp = $('#chat-input');
   const text = inp.value.trim();
-  if (!text) return;
-  renderCmdPalette(false);
+  if (!text || chatMode !== 'dm' || !dmPartner) return;
   // Emote-Fenster schließt beim Absenden, die Nachricht ist ja raus
   if (!$('#chat-emotes').classList.contains('hidden')) toggleEmotes();
-  // Client-Commands, die keinen Server brauchen
-  if (text === '!hilfe') { inp.value = ''; renderCmdPalette(true); return; }
-  if (text === '!stats') {
-    inp.value = '';
-    const rank = rankFor(renderWallet.lastTotal || 0);
-    island(`${fmtFunken(myProfile?.coins ?? 0)} Funken, Rang: ${rank.name}`);
-    return;
-  }
-  if (!state.token) { switchView('profile'); island('Zum Chatten bitte anmelden'); return; }
+  if (!state.token) { switchView('profile'); island('Zum Schreiben bitte anmelden'); return; }
   try {
-    if (chatMode === 'dm') {
-      const r = await api('/api/dm/send', { method: 'POST', body: JSON.stringify({ to: dmPartner, text }) });
-      inp.value = '';
-      if (!$('#chat-list').querySelector(`[data-mid="${r.message.id}"]`)) {
-        $('#chat-list').insertAdjacentHTML('beforeend', dmMsgHtml(r.message));
-        $('#chat-list').lastElementChild?.classList.add('msg-sent');
-      }
-      dmLastTs = Math.max(dmLastTs, r.message.ts);
-      chatToBottom(true);
-      return;
-    }
-    const r = await api('/api/chat', { method: 'POST', body: JSON.stringify({ text }) });
+    const r = await api('/api/dm/send', { method: 'POST', body: JSON.stringify({ to: dmPartner, text }) });
     inp.value = '';
+    // Admin-Befehl (!funken): wird nicht verschickt, nur bestaetigt
     if (r.admin) { island(r.admin); refreshGami(); refreshGamiSystem(); return; }
-    if (r.vanished) {
-      // !v: eigene Nachrichten werden zum Platzhalter
-      document.querySelectorAll('#chat-list .chat-msg').forEach(el => {
-        if (el.querySelector('.chat-user')?.textContent === state.userName) {
-          const t = el.querySelector('.chat-text');
-          if (t) { t.className = 'chat-text chat-deleted'; t.textContent = 'Nachricht gelöscht'; }
-        }
-      });
-      island('Deine Nachrichten sind gelöscht');
-      return;
-    }
     if (!$('#chat-list').querySelector(`[data-mid="${r.message.id}"]`)) {
-      $('#chat-list').insertAdjacentHTML('beforeend', chatMsgHtml(r.message));
+      $('#chat-list').insertAdjacentHTML('beforeend', dmMsgHtml(r.message));
       $('#chat-list').lastElementChild?.classList.add('msg-sent');
     }
-    chatLastTs = Math.max(chatLastTs, r.message.ts);
+    dmLastTs = Math.max(dmLastTs, r.message.ts);
     chatToBottom(true);
   } catch (e) { island(e.message); }
 }
@@ -8419,7 +8222,7 @@ async function openUserPop(user, msgId) {
     <div id="up-ratings"></div>`;
   renderProfileRatings(user);
   // Bewusst KEINE Mod-Buttons hier: die Profilseite zeigt das Profil, wie es der
-  // Nutzer gestaltet hat; Moderation läuft über das Chat-Popup
+  // Nutzer gestaltet hat. Wer etwas sieht, meldet es ueber "Melden".
   const close = () => switchView(userPageReturn, 'enter-drop');
   $('#up-whisper').onclick = () => {
     if (!state.token) { island('Zum Flüstern bitte anmelden'); return; }
@@ -8442,7 +8245,6 @@ async function openUserPop(user, msgId) {
     close();
   };
 }
-$('#user-pop-backdrop').addEventListener('click', e => { if (e.target.id === 'user-pop-backdrop') hideOverlay($('#user-pop-backdrop')); });
 // Profil-Bewertungen: jeder Besucher hat EINEN Eintrag (Sterne + kurzer Text),
 // der jederzeit ueberschrieben oder entfernt werden kann
 function starRow(n, interactive) {
@@ -8506,12 +8308,12 @@ async function renderProfileRatings(user) {
     } catch (e) { island(e.message); }
   });
 }
-// Eigene Nachricht löschen (Global + Flüstern), wird zum Platzhalter
+// Eigene Nachricht löschen, wird zum Platzhalter
 async function deleteOwnMsg(id) {
+  if (chatMode !== 'dm') return;
   if (!await askConfirm('Diese Nachricht löschen?', { okLabel: 'Löschen' })) return;
   try {
-    if (chatMode === 'dm') await api('/api/dm/delete', { method: 'POST', body: JSON.stringify({ user: dmPartner, id }) });
-    else await api('/api/chat/delete', { method: 'POST', body: JSON.stringify({ id }) });
+    await api('/api/dm/delete', { method: 'POST', body: JSON.stringify({ user: dmPartner, id }) });
     const el = $('#chat-list').querySelector(`[data-mid="${id}"]`);
     if (el) {
       const t = el.querySelector('.chat-text');
@@ -8521,77 +8323,9 @@ async function deleteOwnMsg(id) {
   } catch (e) { island(e.message); }
 }
 // Im Chat: kompaktes Popup mit Schnellaktionen, "Zum Profil" führt zur Seite
-async function openUserSheet(user, msgId) {
-  if (user === state.userName) { switchView('profile'); return; }
-  const pop = $('#user-pop');
-  pop.innerHTML = '<div class="status">Lade …</div>';
-  $('#user-pop-backdrop').classList.remove('hidden');
-  let u = { user };
-  try { u = await api('/api/user?name=' + encodeURIComponent(user)); } catch { }
-  const isFriend = (myProfile?.friends || []).includes(user);
-  const mod = ['admin', 'mod'].includes(state.role);
-  pop.innerHTML = `
-    <button class="fav-remove us-close" id="us-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
-    <div class="us-head">
-      ${u.avatar ? `<img class="avatar-big us-ava${u.activeBorder ? ' pfb-' + esc(u.activeBorder) : ''}" src="${u.avatar}" alt="">`
-      : `<span class="avatar-big us-ava${u.activeBorder ? ' pfb-' + esc(u.activeBorder) : ''}" style="background:${chatColor(user)}">${esc(user[0].toUpperCase())}</span>`}
-      <div class="us-name"><span class="${nameStyleOf(user, u.activePaint).cls.trim()}" style="${nameStyleOf(user, u.activePaint).style}">@${esc(user)}</span> ${u.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : u.role === 'mod' ? icon('check', 'icon icon-sm role-mod') : ''}</div>
-      <div class="us-bio">${u.private ? 'Profil ist privat' : esc((u.bio || '').slice(0, 80) || 'Keine Bio')}</div>
-    </div>
-    <button class="btn btn-block" id="us-profile">${icon('user', 'icon icon-sm')}&nbsp;Zum Profil</button>
-    <div class="us-actions">
-      <button class="btn btn-small btn-ghost" id="us-whisper">${icon('message', 'icon icon-sm')}&nbsp;Flüstern</button>
-      <button class="btn btn-small btn-ghost" id="us-friend">${isFriend ? 'Freund entfernen' : 'Anfragen'}</button>
-      <button class="btn btn-small btn-ghost" id="us-report">Melden</button>
-    </div>
-    ${mod ? `<div class="us-modbox">
-      <span class="tm-section" style="margin:0 0 6px">Moderation</span>
-      <div class="us-actions">
-        ${u.mutedUntil ? `<button class="btn btn-small btn-ghost" id="us-unban">Timeout aufheben</button>`
-      : u.banned ? `<button class="btn btn-small btn-ghost" id="us-unban">Entsperren</button>`
-      : `<button class="btn btn-small btn-ghost" id="us-timeout">Timeout 10 Min.</button>
-        <button class="btn btn-small btn-ghost" id="us-ban">Sperren</button>`}
-        ${msgId ? `<button class="btn btn-small btn-ghost" id="us-delmsg">Nachricht löschen</button>
-        <button class="btn btn-small btn-ghost" id="us-pin">Anpinnen</button>` : ''}
-      </div>
-    </div>` : ''}`;
-  const close = () => hideOverlay($('#user-pop-backdrop'));
-  $('#us-close').onclick = close;
-  $('#us-profile').onclick = () => { close(); openUserPop(user, msgId); };
-  $('#us-whisper').onclick = () => { close(); if (!state.token) { island('Zum Flüstern bitte anmelden'); return; } setChatMode('dm', user); };
-  $('#us-friend').onclick = async () => {
-    if (!state.token) { island('Bitte anmelden'); return; }
-    await api('/api/friend', { method: 'POST', body: JSON.stringify({ user, action: isFriend ? 'remove' : 'add' }) })
-      .then(r => {
-        if (myProfile) { myProfile.friends = r.friends; myProfile.friendRequests = r.friendRequests; }
-        island(isFriend ? 'Freund entfernt' : r.friends.includes(user) ? 'Ihr seid jetzt Freunde!' : 'Anfrage gesendet');
-      }).catch(e => island(e.message));
-    close();
-  };
-  $('#us-report').onclick = async () => {
-    await api('/api/chat/report', { method: 'POST', body: JSON.stringify({ user, id: msgId || '' }) })
-      .then(() => island('Gemeldet, danke!')).catch(e => island(e.message));
-    close();
-  };
-  const modAct = (action, extra) => api('/api/chat/mod', { method: 'POST', body: JSON.stringify({ action, user, id: msgId, ...extra }) })
-    .then(() => { island('Erledigt'); $('#chat-list').innerHTML = ''; chatLastTs = 0; pollChat(true); close(); })
-    .catch(e => island(e.message));
-  $('#us-timeout')?.addEventListener('click', () => modAct('timeout', { minutes: 10 }));
-  $('#us-ban')?.addEventListener('click', () => modAct('ban'));
-  $('#us-unban')?.addEventListener('click', () => modAct('unban'));
-  $('#us-delmsg')?.addEventListener('click', () => modAct('delete-msg'));
-  $('#us-pin')?.addEventListener('click', () => modAct('pin'));
-}
-
 $('#chat-list').addEventListener('click', e => {
   const del = e.target.closest('[data-msg-del]');
   if (del) { deleteOwnMsg(del.dataset.msgDel); return; }
-  const mention = e.target.closest('.mention');
-  if (mention) { openUserSheet(mention.dataset.user); return; }
-  const nameEl = e.target.closest('.chat-user');
-  if (!nameEl || chatMode === 'dm') return;
-  const msgEl = e.target.closest('.chat-msg');
-  openUserSheet(nameEl.textContent, msgEl?.dataset.mid);
 });
 // Handy: eigene Nachricht gedrückt halten zum Löschen
 let pressTimer = null;
@@ -8602,7 +8336,6 @@ $('#chat-list').addEventListener('touchstart', e => {
 }, { passive: true });
 ['touchend', 'touchmove', 'touchcancel'].forEach(t =>
   $('#chat-list').addEventListener(t, () => clearTimeout(pressTimer), { passive: true }));
-document.querySelectorAll('[data-cmode]').forEach(b => b.addEventListener('click', () => setChatMode(b.dataset.cmode)));
 $('#dm-back').addEventListener('click', () => setChatMode('dmlist'));
 // Im Privat-Chat: Name/Avatar oben antippen öffnet das Profil
 $('#dm-partner-open')?.addEventListener('click', () => { if (dmPartner) openUserPop(dmPartner); });
@@ -8669,7 +8402,6 @@ function connectStream() {
   const es = new EventSource(API_BASE + '/api/stream' + tok);
   chatStream = es;
   es.onopen = () => { streamRetry = 0; };
-  es.addEventListener('chat', () => pollChat(true));
   es.addEventListener('gift', () => pullWallet()); // Geschenk kommt sofort an
   es.addEventListener('dm', () => {
     dmBadgeLast = 0;
@@ -8846,7 +8578,7 @@ window.addEventListener('online', () => { if ($('#conn-screen')) location.reload
   renderWallet();
   initTurnstile();
   // Emotes, Badges, Paints und Ränge früh laden, damit Profile und Chats sie kennen
-  api('/api/chat?since=99999999999999').then(r => {
+  api('/api/meta').then(r => {
     chatEmotes = r.emotes || {};
     chatBadges = r.badges || {};
     chatPaints = r.paints || chatPaints;

@@ -310,7 +310,7 @@ function itemValue(rarity, float) { return (SELL_VALUES[rarity] || 20) * (isShin
 const QUESTS = [
   { key: 'comment', name: 'Kommentare schreiben', milestones: [[1, 30], [5, 60], [20, 150]] },
   { key: 'rate', name: 'Deals bewerten', milestones: [[1, 20], [10, 80], [50, 250]] },
-  { key: 'chat', name: 'Im Chat mitreden', milestones: [[10, 40], [100, 200]] },
+  { key: 'chat', name: 'Mit Freunden schreiben', milestones: [[10, 40], [100, 200]] },
   { key: 'friend', name: 'Freunde finden', milestones: [[1, 40], [5, 120]] },
   { key: 'voucher', name: 'Gutscheine gesammelt', milestones: [[1, 30], [5, 80], [20, 200]] },
   { key: 'booking', name: 'Beträge abbuchen', milestones: [[5, 60], [25, 180]] },
@@ -1354,7 +1354,7 @@ const server = http.createServer(async (req, res) => {
         np.coins = (np.coins || 0) + 500;
         np.invitedBy = refUser;
         refBonus = 500;
-        pushToUser(refUser, { title: 'Freund geworben!', body: `@${user} ist über deinen Link dabei: 1.000 Funken für dich.`, url: '/?tab=profile', tag: 'ref-' + user, kind: 'mention', from: user });
+        pushToUser(refUser, { title: 'Freund geworben!', body: `@${user} ist über deinen Link dabei: 1.000 Funken für dich.`, url: '/?tab=profile', tag: 'ref-' + user, kind: 'info', from: user });
       }
       saveJson('users.json', users);
       const token = crypto.randomBytes(18).toString('hex');
@@ -1379,139 +1379,30 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { token, user });
     }
 
-    // ---- Global-Chat
+    // ---- Metadaten fuer Chats und Profile (der Global-Chat ist entfernt)
+    // Emotes, Abzeichen, Paints und Raenge. Frueher kamen die huckepack mit dem
+    // Global-Chat — den gibt es nicht mehr, gebraucht werden sie aber weiter:
+    // in den Fluesterchats, auf Profilen und beim Verschenken.
+    if (p === '/api/meta' && req.method === 'GET') {
+      const allEmotes = { ...emoteCache.map, ...Object.fromEntries(Object.entries(UNLOCK_EMOTES).map(([k, v]) => [k, v.id])) };
+      return send(res, 200, { emotes: allEmotes, badges: BADGES, paints: PAINTS.paints, ranks: RANKS10 });
+    }
+    // Den Global-Chat gibt es nicht mehr. Wer die App noch von vorher offen hat,
+    // bekommt hier weiter die Metadaten, aber keine Nachrichten mehr. Die alten
+    // Nachrichten bleiben in chat.json liegen und werden nicht ausgeliefert.
     if (p === '/api/chat' && req.method === 'GET') {
-      const since = Number(url.searchParams.get('since') || 0);
-      const msgs = withLiveLook(chat.messages.filter(m => m.ts > since).slice(-80), 'user');
-      // Nachträglich gelöschte Nachrichten: der Client tauscht sie gegen einen Platzhalter
-      const updates = chat.messages.filter(m => m.delTs && m.delTs > since && m.ts <= since).map(m => m.id);
-      // Freigeschaltete Emotes rendern für ALLE, benutzen darf sie nur der Besitzer
       const allEmotes = { ...emoteCache.map, ...Object.fromEntries(Object.entries(UNLOCK_EMOTES).map(([k, v]) => [k, v.id])) };
       return send(res, 200, {
-        messages: msgs, updates, emotes: allEmotes, badges: BADGES,
-        pinned: chat.pinned || null, paints: PAINTS.paints, ranks: RANKS10,
+        messages: [], updates: [], pinned: null,
+        emotes: allEmotes, badges: BADGES, paints: PAINTS.paints, ranks: RANKS10,
       });
     }
-    if (p === '/api/chat' && req.method === 'POST') {
-      const user = authUser(req);
-      if (!user) return send(res, 401, { error: 'Zum Schreiben bitte anmelden.' });
-      if (chat.bans[user]) return send(res, 403, { error: 'Du bist aus dem Chat ausgeschlossen.' });
-      const muteUntil = chat.mutes[user] || 0;
-      if (muteUntil > Date.now()) {
-        const min = Math.ceil((muteUntil - Date.now()) / 60000);
-        return send(res, 403, { error: `Timeout, du kannst in ${min} Min. wieder schreiben.` });
-      }
-      const b = await readBody(req);
-      const text = String(b.text || '').trim().slice(0, 220);
-      if (!text) return send(res, 400, { error: 'Leere Nachricht.' });
-      // Admin-Command: !funken NAME BETRAG schreibt Funken gut oder zieht sie ab.
-      // Reines Betriebswerkzeug der Redaktion; Funken sind weiterhin nie kaufbar.
-      const fk = text.match(/^!funken\s+@?([A-Za-z0-9_.-]{3,24})\s+(-?\d{1,6})$/i);
-      if (fk) {
-        if (roleOf(user) !== 'admin') return send(res, 403, { error: 'Nur für Admins.' });
-        const target = fk[1];
-        if (!users[target]) return send(res, 404, { error: `Nutzer ${target} nicht gefunden.` });
-        const amount = Math.max(-100000, Math.min(100000, Number(fk[2]) || 0));
-        const tp = profileOf(target);
-        tp.coins = Math.max(0, (tp.coins || 0) + amount);
-        saveJson('users.json', users);
-        if (target !== user && amount > 0) {
-          pushToUser(target, { title: 'Funken-Gutschrift', body: `${amount.toLocaleString('de-DE')} Funken von der Redaktion sind da.`, url: '/?tab=profile', tag: 'coins-admin', kind: 'mention', from: user });
-        }
-        return send(res, 200, { ok: true, admin: `@${target} hat jetzt ${tp.coins.toLocaleString('de-DE')} Funken (${amount >= 0 ? '+' : ''}${amount.toLocaleString('de-DE')}).` });
-      }
-      // Chat-Command: !v (Vanish) blendet alle eigenen Nachrichten aus
-      if (text === '!v') {
-        chat.messages.forEach(m => { if (m.user === user && !m.deleted) { m.deleted = true; m.text = ''; m.delTs = Date.now(); } });
-        if (chat.pinned && chat.pinned.user === user) chat.pinned = null;
-        saveJson('chat.json', chat);
-        return send(res, 200, { ok: true, vanished: true });
-      }
-      // Chat-Command: !muenze wirft eine Münze
-      if (/^!m(ü|ue)nze$/i.test(text)) {
-        const result = Math.random() < 0.5 ? 'Kopf' : 'Zahl';
-        const msg = {
-          id: crypto.randomBytes(6).toString('hex'), user,
-          badge: profileOf(user).activeBadge || '', role: roleOf(user),
-          text: `wirft eine Münze: ${result}!`, ts: Date.now(),
-        };
-        chat.messages.push(msg);
-        saveJsonSoon('chat.json', chat);
-        ssePush('chat');
-        return send(res, 201, { ok: true, message: msg });
-      }
-      // Spam-Bremse erst bei echtem Spam: 3 schnelle Nachrichten gehen frei durch,
-      // die vierte innerhalb von 5 Sekunden wird gebremst
-      const last = chatLast[user];
-      if (last && last.text === text && Date.now() - last.ts < 30000) return send(res, 429, { error: 'Gleiche Nachricht schon gesendet.' });
-      chatBurst[user] = (chatBurst[user] || []).filter(t => Date.now() - t < 5000);
-      if (chatBurst[user].length >= 3) return send(res, 429, { error: 'Langsam, kurz warten.' });
-      chatBurst[user].push(Date.now());
-      chatLast[user] = { ts: Date.now(), text };
-      const profC = profileOf(user);
-      // Emotes darf nur benutzen, wer sie gezogen hat (gilt fuer den ganzen
-      // ziehbaren Katalog; der Picker zeigt Gesperrte grau mit Schloss)
-      const lockedName = lockedEmoteIn(text, profC);
-      if (lockedName) return send(res, 400, { error: `Du hast ${lockedName} noch nicht gezogen.` });
-      const cleanText = text;
-      bumpQuest(user, 'chat');
-      const msg = {
-        id: crypto.randomBytes(6).toString('hex'), user,
-        badge: profC.activeBadge || '', role: roleOf(user),
-        rank: profC.rankTier || 1, paint: profC.activePaint || '',
-        border: profC.activeBorder || '',
-        text: censor(cleanText), ts: Date.now(),
-      };
-      chat.messages.push(msg);
-      // Historie bewusst kurz: nur die letzten 150 Nachrichten bleiben
-      if (chat.messages.length > 150) chat.messages = chat.messages.slice(-150);
-      saveJsonSoon('chat.json', chat);
-      saveJsonSoon('users.json', users); // Quest-Zähler mitschreiben
-      ssePush('chat'); // alle Zuhörer holen die Nachricht sofort
-      // @Erwähnungen: die Genannten kriegen einen Push (auch außerhalb der App)
-      for (const m of msg.text.matchAll(/@([A-Za-z0-9_.-]{3,24})/g)) {
-        const name = m[1];
-        if (users[name] && name !== user) {
-          pushToUser(name, { title: `@${user} hat dich erwähnt`, body: msg.text.slice(0, 120), url: '/?chat=global', tag: 'mention-' + user, kind: 'mention', from: user });
-        }
-      }
-      return send(res, 201, { ok: true, message: msg });
-    }
-    // Moderation direkt aus der App (Rolle mod/admin), Timeout, Bann, Löschen, Anpinnen
-    if (p === '/api/chat/mod' && req.method === 'POST') {
-      const me = authUser(req);
-      if (!isModUser(me)) return send(res, 403, { error: 'Nur für Moderatoren.' });
-      const b = await readBody(req);
-      const target = String(b.user || '');
-      if (isModUser(target) && b.action !== 'pin' && b.action !== 'unpin' && b.action !== 'delete-msg')
-        return send(res, 403, { error: 'Moderatoren können sich nicht gegenseitig sperren.' });
-      if (b.action === 'timeout') chat.mutes[target] = Date.now() + (Number(b.minutes) || 10) * 60000;
-      else if (b.action === 'ban') chat.bans[target] = true;
-      else if (b.action === 'unban') { delete chat.bans[target]; delete chat.mutes[target]; }
-      else if (b.action === 'delete-msg') {
-        const m = chat.messages.find(x => x.id === b.id);
-        if (m) { m.deleted = true; m.text = ''; m.delTs = Date.now(); }
-        if (chat.pinned && chat.pinned.id === b.id) chat.pinned = null;
-      }
-      else if (b.action === 'pin') chat.pinned = chat.messages.find(m => m.id === b.id) || chat.pinned;
-      else if (b.action === 'unpin') chat.pinned = null;
-      else return send(res, 400, { error: 'Unbekannte Aktion.' });
-      saveJson('chat.json', chat);
-      return send(res, 200, { ok: true });
-    }
-    // Eigene Nachricht löschen (Mods dürfen jede)
-    if (p === '/api/chat/delete' && req.method === 'POST') {
-      const me = authUser(req);
-      if (!me) return send(res, 401, { error: 'Bitte anmelden.' });
-      const b = await readBody(req);
-      const m = chat.messages.find(x => x.id === String(b.id || ''));
-      if (!m) return send(res, 404, { error: 'Nachricht nicht gefunden.' });
-      if (m.user !== me && !isModUser(me)) return send(res, 403, { error: 'Nur eigene Nachrichten.' });
-      m.deleted = true; m.text = ''; m.delTs = Date.now();
-      if (chat.pinned && chat.pinned.id === m.id) chat.pinned = null;
-      saveJson('chat.json', chat);
-      ssePush('chat'); // Löschungen sofort überall sichtbar
-      return send(res, 200, { ok: true });
+    // Global-Chat entfernt: Schreiben, Moderieren und Loeschen dort gehen
+    // nicht mehr. Der Admin-Befehl !funken ist in die Fluesterchats umgezogen
+    // (siehe /api/dm/send). 410 statt 404, damit klar ist: das gab es, und es
+    // ist bewusst weg.
+    if (req.method === 'POST' && (p === '/api/chat' || p === '/api/chat/mod' || p === '/api/chat/delete')) {
+      return send(res, 410, { error: 'Den Global-Chat gibt es nicht mehr. Schreib deinen Freunden direkt.' });
     }
 
     // Nutzer melden
@@ -1524,18 +1415,10 @@ const server = http.createServer(async (req, res) => {
       saveJson('reports.json', reports);
       return send(res, 200, { ok: true });
     }
-    // Moderation: Timeout / Bann / Nachricht löschen (Admin-Panel, per Key)
+    // Admin-Panel: die Moderation des Global-Chats ist mit ihm entfallen
     if (p === '/api/admin/chat' && req.method === 'POST') {
       if (!isAdmin(req)) return send(res, 403, { error: 'Admin-Key falsch.' });
-      const b = await readBody(req);
-      const target = String(b.user || '');
-      if (b.action === 'timeout') chat.mutes[target] = Date.now() + (Number(b.minutes) || 10) * 60000;
-      else if (b.action === 'ban') chat.bans[target] = true;
-      else if (b.action === 'unban') { delete chat.bans[target]; delete chat.mutes[target]; }
-      else if (b.action === 'delete-msg') chat.messages = chat.messages.filter(m => m.id !== b.id);
-      else return send(res, 400, { error: 'Unbekannte Aktion.' });
-      saveJson('chat.json', chat);
-      return send(res, 200, { ok: true });
+      return send(res, 410, { error: 'Den Global-Chat gibt es nicht mehr.' });
     }
 
     // ---- Flüstern (private 1:1-Chats, WhatsApp-artige Liste)
@@ -1611,11 +1494,31 @@ const server = http.createServer(async (req, res) => {
       if (to === me) return send(res, 400, { error: 'Mit dir selbst flüstern? Sadge.' });
       const text = String(b.text || '').trim().slice(0, 220);
       if (!text) return send(res, 400, { error: 'Leere Nachricht.' });
+      // Admin-Befehl !funken NAME BETRAG — frueher im Global-Chat getippt, jetzt
+      // in jedem Fluesterchat. Er wird NICHT an das Gegenueber geschickt.
+      // Reines Betriebswerkzeug der Redaktion; Funken sind weiterhin nie kaufbar.
+      if (/^!funken\b/i.test(text)) {
+        if (roleOf(me) !== 'admin') return send(res, 403, { error: 'Nur für Admins.' });
+        const fk = text.match(/^!funken\s+@?([A-Za-z0-9_.-]{3,24})\s+(-?\d{1,6})$/i);
+        if (!fk) return send(res, 400, { error: 'Format: !funken NAME BETRAG' });
+        const target = fk[1];
+        if (!users[target]) return send(res, 404, { error: `Nutzer ${target} nicht gefunden.` });
+        const amount = Math.max(-100000, Math.min(100000, Number(fk[2]) || 0));
+        const tp = profileOf(target);
+        tp.coins = Math.max(0, (tp.coins || 0) + amount);
+        saveJson('users.json', users);
+        if (target !== me && amount > 0) {
+          pushToUser(target, { title: 'Funken-Gutschrift', body: `${amount.toLocaleString('de-DE')} Funken von der Redaktion sind da.`, url: '/?tab=profile', tag: 'coins-admin', kind: 'info', from: me });
+        }
+        return send(res, 200, { ok: true, admin: `@${target} hat jetzt ${tp.coins.toLocaleString('de-DE')} Funken (${amount >= 0 ? '+' : ''}${amount.toLocaleString('de-DE')}).` });
+      }
       // Auch beim Flüstern: 3 schnelle Nachrichten frei, erst dann bremsen
       chatBurst['dm:' + me] = (chatBurst['dm:' + me] || []).filter(t => Date.now() - t < 5000);
       if (chatBurst['dm:' + me].length >= 3) return send(res, 429, { error: 'Langsam, kurz warten.' });
       chatBurst['dm:' + me].push(Date.now());
-      chatLast['dm:' + me] = { ts: Date.now(), text };
+      const vorige = chatLast['dm:' + me];
+      const wiederholung = !!vorige && vorige.text === text && vorige.to === to;
+      chatLast['dm:' + me] = { ts: Date.now(), text, to };
       const key = dmKey(me, to);
       dms[key] = dms[key] || { msgs: [], reads: {} };
       // Paint, Badge, Rang und Rahmen laufen auch im Privatchat mit
@@ -1631,7 +1534,13 @@ const server = http.createServer(async (req, res) => {
       dms[key].msgs.push(msg);
       if (dms[key].msgs.length > 200) dms[key].msgs = dms[key].msgs.slice(-200);
       dms[key].reads[me] = Date.now();
+      // Die Aufgabe "Mit Freunden schreiben" zaehlt hier — frueher im
+      // Global-Chat. Gleicher Schluessel, damit der Fortschritt erhalten bleibt.
+      // Nur an Freunde und keine wortgleiche Wiederholung, sonst liesse sie
+      // sich abgrasen (der Global-Chat hatte dafuer eine Doppel-Sperre).
+      if (!wiederholung && (profileOf(me).friends || []).includes(to)) bumpQuest(me, 'chat');
       saveJsonSoon('dms.json', dms);
+      saveJsonSoon('users.json', users);
       ssePush('dm', to); // Empfänger sieht die Nachricht sofort
       // Aufs Handy, auch wenn die App zu ist; der Client blendet es im offenen Chat selbst aus
       pushToUser(to, { title: `@${me}`, body: msg.text.slice(0, 120), url: '/?chat=dm&user=' + encodeURIComponent(me), tag: 'dm-' + me, kind: 'dm', from: me });
