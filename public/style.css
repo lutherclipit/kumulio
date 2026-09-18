@@ -5199,3 +5199,18 @@ body.sparsam .wm-flaeche, body.sparsam .filter-pille {
 @media (prefers-reduced-motion: reduce) {
   .bl-zu, .bl-wahl, .bl-wahl-flaeche, .bl-rahmen, #wv-bild { transition: none; }
 }
+
+
+/* ============ Runde 108: Platz in der Wallet ============================== */
+/* Leise, solange genug frei ist; orange ab 90 %, rot wenn voll */
+.wallet-platz {
+  font-size: .74rem; font-weight: 700; color: var(--muted); white-space: nowrap;
+  padding: 3px 8px; border-radius: 999px; background: var(--surface);
+  border: 1px solid var(--stroke-light);
+}
+.wallet-platz:empty { display: none; }
+.wallet-platz.fast { color: #B86A00; border-color: rgba(230, 150, 0, .45); background: rgba(255, 196, 0, .12); }
+.wallet-platz.voll { color: #C0392B; border-color: rgba(226, 61, 46, .45); background: rgba(226, 61, 46, .1); }
+.wa-platz { margin: 2px 0 10px; font-size: .78rem; font-weight: 600; color: var(--muted); }
+.wa-platz.fast { color: #B86A00; }
+.wa-platz.voll { color: #C0392B; font-weight: 700; }

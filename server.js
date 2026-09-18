@@ -36,14 +36,102 @@ const BUILTIN_CHANNELS = [
 
 // ---------------------------------------------------------------- Storage
 
+// Laden: ist die Datei kaputt (halb geschrieben) oder fehlt sie nach einem
+// Absturz zwischen zwei Umbenennungen, kommt die Vorgaengerfassung (.bak).
+// Frueher ging es still mit {} weiter — und der naechste Speichervorgang
+// ueberschrieb ALLE Wallets. Kaputte Dateien werden beiseitegelegt, nie
+// ueberschrieben.
 function loadJson(file, fallback) {
-  try { return JSON.parse(fs.readFileSync(path.join(DATA, file), 'utf8')); }
-  catch { return fallback; }
+  const ziel = path.join(DATA, file);
+  for (const kandidat of [ziel, ziel + '.bak']) {
+    let text;
+    try { text = fs.readFileSync(kandidat, 'utf8'); } catch (err) {
+      if (err && err.code === 'ENOENT') continue;
+      throw new Error(`[Speicher] ${kandidat} nicht lesbar (${err && err.code}) — Start abgebrochen, damit nichts ueberschrieben wird`);
+    }
+    try {
+      const obj = JSON.parse(text);
+      if (kandidat !== ziel) console.error(`[Speicher] ${file} fehlte oder war kaputt — Vorgaengerfassung ${file}.bak geladen`);
+      return obj;
+    } catch {
+      try { fs.copyFileSync(kandidat, `${kandidat}.kaputt-${Date.now()}`); } catch { /* egal */ }
+      console.error(`[Speicher] ${kandidat} ist kaputt — beiseitegelegt`);
+    }
+  }
+  return fallback;
 }
+// Schreiben: erst in eine eigene Zwischendatei (fsync), dann die bisherige
+// Fassung zu .bak und die neue an ihren Platz. Ein Absturz mittendrin
+// hinterlaesst nie eine halbe Datei.
+let tmpZaehler = 0;
+function schreibeAtomarSync(file, obj) {
+  fs.mkdirSync(path.dirname(path.join(DATA, file)), { recursive: true });
+  const ziel = path.join(DATA, file);
+  const tmp = `${ziel}.${process.pid}.${++tmpZaehler}.tmp`;
+  const fd = fs.openSync(tmp, 'w');
+  try { fs.writeSync(fd, JSON.stringify(obj)); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+  try { fs.renameSync(ziel, ziel + '.bak'); } catch { /* gab noch keine */ }
+  fs.renameSync(tmp, ziel);
+}
+// Zwischendateien eines abgebrochenen Schreibvorgangs (Absturz, voller
+// Datentraeger) beim Start wegraeumen — sie belegen sonst nur Platz
+for (const ordner of [DATA, path.join(DATA, 'archiv'), path.join(DATA, 'bilder')]) {
+  try { for (const f of fs.readdirSync(ordner)) if (f.endsWith('.tmp')) fs.rmSync(path.join(ordner, f), { force: true }); } catch { /* fehlt */ }
+}
+// Pro Datei hoechstens ein Schreibvorgang gleichzeitig. Kommt waehrenddessen
+// ein neuer Stand, wird er direkt danach geschrieben — eine aeltere Fassung
+// kann so nie eine neuere ueberholen.
+const speicherQueue = {};
+function speicherEintrag(name) {
+  return speicherQueue[name] || (speicherQueue[name] = { obj: null, timer: null, erstesMal: 0, schreibt: false, nr: 0, geschrieben: 0 });
+}
+async function schreibeSpaeter(name) {
+  const e = speicherEintrag(name);
+  clearTimeout(e.timer); e.timer = null;
+  if (e.schreibt || !e.obj) return;
+  e.schreibt = true; e.erstesMal = 0;
+  const obj = e.obj; e.obj = null;
+  const meineNr = ++e.nr;
+  try {
+    const text = JSON.stringify(obj);
+    await fs.promises.mkdir(path.dirname(path.join(DATA, name)), { recursive: true });
+    const ziel = path.join(DATA, name);
+    const tmp = `${ziel}.${process.pid}.${++tmpZaehler}.tmp`;
+    const fh = await fs.promises.open(tmp, 'w');
+    try { await fh.writeFile(text); await fh.sync(); } finally { await fh.close(); }
+    // Inzwischen sofort geschrieben (saveJson)? Dann ist diese Fassung aelter.
+    // Pruefen und Umbenennen ohne await dazwischen: kein saveJson kann sich
+    // dazwischenschieben
+    if (e.geschrieben > meineNr) { fs.rmSync(tmp, { force: true }); return; }
+    e.geschrieben = meineNr;
+    try { fs.renameSync(ziel, ziel + '.bak'); } catch { /* gab noch keine */ }
+    fs.renameSync(tmp, ziel);
+  } catch (err) {
+    // Nicht still verwerfen: in 2 s nochmal (z. B. Volume kurz voll)
+    console.error(`[Speicher] ${name} konnte nicht geschrieben werden:`, err.message);
+    if (!e.obj) e.obj = obj;
+    e.timer = setTimeout(() => schreibeSpaeter(name), 2000);
+  } finally {
+    e.schreibt = false;
+    if (e.obj && !e.timer) schreibeSpaeter(name);
+  }
+}
+// Sofort sichern (Konto, Geschenke). Laeuft fuer die Datei gerade ein
+// aufgeschobener Schreibvorgang, wird direkt danach geschrieben.
 function saveJson(file, obj) {
-  fs.mkdirSync(DATA, { recursive: true });
-  fs.writeFileSync(path.join(DATA, file), JSON.stringify(obj, null, 2));
+  const e = speicherEintrag(file);
+  clearTimeout(e.timer); e.timer = null; e.erstesMal = 0;
+  e.obj = null;
+  e.geschrieben = ++e.nr; // ein gerade laufender, aelterer Schreibvorgang verwirft sich
+  try { schreibeAtomarSync(file, obj); return true; }
+  catch (err) {
+    console.error(`[Speicher] ${file} konnte nicht geschrieben werden:`, err.message);
+    e.obj = obj;
+    e.timer = setTimeout(() => schreibeSpaeter(file), 2000);
+    return false;
+  }
 }
+
 
 let comments = loadJson('comments.json', {});   // { dealId: [ {user,text,ts,flags} ] }
 let profComments = loadJson('profile-comments.json', {}); // { user: [ {from,text,stars,ts} ] }
@@ -137,6 +225,12 @@ function origUmziehen(vonUser, vonId, zuUser, zuId) {
     .then(() => fs.promises.rename(origPfad(vonUser, vonId), origPfad(zuUser, zuId)))
     .catch(() => {});
 }
+// JPEG oder WebP? (Originalfotos kommen je nach Geraet in beiden Formaten)
+function bildTyp(buf) {
+  if (buf.length > 12 && buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return 'image/jpeg';
+  if (buf.length > 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+  return '';
+}
 function origOrdner(user) { return path.join(ORIG_DIR, Buffer.from(String(user)).toString('hex')); }
 function origPfad(user, id) { return path.join(origOrdner(user), id + '.jpg'); }
 // Rohdaten statt JSON: ein JPEG als base64 im JSON waere ein Drittel groesser
@@ -157,6 +251,377 @@ function readRaw(req, maxBytes) {
     req.on('error', reject);
   });
 }
+// ---------------------------------------------------------------- Bildablage
+// Gutscheinbilder liegen als eigene Dateien in data/bilder/<sha1>.<endung>,
+// in der Wallet steht nur "bild:<name>". Frueher steckten alle Bilder aller
+// Nutzer in wallets.json — die Datei wurde bei jeder Abbuchung komplett neu
+// geschrieben und taeglich siebenfach gesichert. Jetzt bleibt sie klein, und
+// gleiche Bilder (z. B. nach dem Verschenken) liegen nur einmal da.
+// Nach aussen (an die App) gehen die Bilder wie immer als data-URL.
+const BILD_DIR = path.join(DATA, 'bilder');
+const BILD_REF = 'bild:';
+const BILD_ENDUNG = { 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/png': 'png', 'image/gif': 'gif' };
+const ENDUNG_TYP = { jpg: 'image/jpeg', webp: 'image/webp', png: 'image/png', gif: 'image/gif' };
+const BILD_NAME = /^[a-f0-9]{40}\.(jpg|webp|png|gif)$/;
+// Vorhandene Bilddateien: beim Start einmal eingelesen, danach mitgefuehrt
+const bildDateien = new Set();
+try { for (const f of fs.readdirSync(BILD_DIR)) if (BILD_NAME.test(f)) bildDateien.add(f); } catch { /* noch keine */ }
+// Hat der Eintrag ein Bild, das es auch wirklich gibt? Ein Verweis auf eine
+// fehlende Datei zaehlt als kein Bild — so laedt ein Geraet, das es noch hat,
+// es wieder hoch, und es heilt von selbst
+function bildLebt(w) {
+  if (typeof w !== 'string' || !w) return false;
+  return !w.startsWith(BILD_REF) || bildDateien.has(w.slice(BILD_REF.length));
+}
+function hatBild(it) { return !!it && (bildLebt(it.codeImg) || bildLebt(it.img)); }
+function bildAblegen(dataUrl) {
+  const m = /^data:(image\/[a-z+]+);base64,([A-Za-z0-9+/=\s]+)$/.exec(dataUrl);
+  const endung = m && BILD_ENDUNG[m[1]];
+  if (!endung) return dataUrl; // unbekanntes Format: so lassen, wie es ist
+  const buf = Buffer.from(m[2], 'base64');
+  const name = crypto.createHash('sha1').update(buf).digest('hex') + '.' + endung;
+  const datei = path.join(BILD_DIR, name);
+  if (!fs.existsSync(datei)) {
+    // Synchron und vollstaendig, BEVOR die Wallet darauf verweist
+    fs.mkdirSync(BILD_DIR, { recursive: true });
+    const tmp = `${datei}.${process.pid}.${++tmpZaehler}.tmp`;
+    const fd = fs.openSync(tmp, 'w');
+    try { fs.writeSync(fd, buf); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    fs.renameSync(tmp, datei);
+  } else {
+    // Wieder benutzt: Zeitstempel auffrischen, damit das Aufraeumen es nicht
+    // fuer "lange unbenutzt" haelt
+    try { const t = new Date(); fs.utimesSync(datei, t, t); } catch { /* egal */ }
+  }
+  bildDateien.add(name);
+  return BILD_REF + name;
+}
+function bildHolen(ref) {
+  const name = ref.slice(BILD_REF.length);
+  if (!BILD_NAME.test(name)) return '';
+  try {
+    const buf = fs.readFileSync(path.join(BILD_DIR, name));
+    return `data:${ENDUNG_TYP[name.split('.')[1]]};base64,${buf.toString('base64')}`;
+  } catch {
+    console.error('[Bilder] Datei fehlt:', name);
+    return '';
+  }
+}
+// Eingehend: Bilder an Ort und Stelle durch Verweise ersetzen
+function bilderAblegen(it) {
+  if (!it || typeof it !== 'object') return it;
+  for (const f of ['codeImg', 'img']) {
+    const w = it[f];
+    if (typeof w === 'string' && w.length > 1500 && w.startsWith('data:')) {
+      try { it[f] = bildAblegen(w); } catch (e) { console.error('[Bilder] Ablegen fehlgeschlagen:', e.message); }
+    }
+  }
+  return it;
+}
+// Ausgehend: Kopie mit echten Bildern (das Gespeicherte bleibt unangetastet)
+function bilderHolen(it) {
+  if (!it || typeof it !== 'object') return it;
+  let kopie = null;
+  for (const f of ['codeImg', 'img']) {
+    if (typeof it[f] === 'string' && it[f].startsWith(BILD_REF)) {
+      kopie = kopie || { ...it };
+      kopie[f] = bildHolen(it[f]);
+    }
+  }
+  return kopie || it;
+}
+const mitBildern = liste => (liste || []).map(bilderHolen);
+// Einmalig beim Start: vorhandene Bilder aus wallets.json/gifts.json auslagern
+function bilderAuslagernBestand() {
+  let n = 0;
+  const zaehle = it => { const vor = JSON.stringify([it && it.codeImg, it && it.img]).length; bilderAblegen(it); if (JSON.stringify([it && it.codeImg, it && it.img]).length !== vor) n++; };
+  for (const w of Object.values(wallets)) for (const it of [...(w.vouchers || []), ...(w.cards || [])]) zaehle(it);
+  for (const liste of Object.values(gifts)) for (const it of liste || []) zaehle(it);
+  if (n) {
+    saveJson('wallets.json', wallets);
+    saveJson('gifts.json', gifts);
+    console.log(`[Bilder] ${n} Eintraege ausgelagert`);
+  }
+}
+// Aufraeumen: Bilder, auf die nichts mehr verweist (auch kein Papierkorb und
+// keine Tages-Sicherung), und die aelter als 2 Tage sind
+async function bilderAufraeumen() {
+  let dateien;
+  try { dateien = await fs.promises.readdir(BILD_DIR); } catch { return; }
+  const benutzt = new Set();
+  const sammle = text => { for (const m of String(text).matchAll(/bild:([a-f0-9]{40}\.(?:jpg|webp|png|gif))/g)) benutzt.add(m[1]); };
+  // Alle Dateien in einem Ordner lesen (auch .bak und .kaputt-*). Scheitert
+  // etwas anderes als "gibt es nicht", wird NICHTS geloescht
+  const liesOrdner = async (ordner, nurNamen) => {
+    let namen;
+    try { namen = await fs.promises.readdir(ordner); } catch (e) { if (e.code === 'ENOENT') return true; return false; }
+    for (const f of namen) {
+      if (nurNamen && !nurNamen.some(n => f.startsWith(n))) continue;
+      try { sammle(await fs.promises.readFile(path.join(ordner, f), 'utf8')); }
+      catch (e) { if (e.code !== 'ENOENT' && e.code !== 'EISDIR') return false; }
+    }
+    return true;
+  };
+  if (!await liesOrdner(ARCHIV_DIR)) { console.error('[Bilder] Papierkorb nicht lesbar — kein Aufraeumen'); return; }
+  let tage = [];
+  try { tage = await fs.promises.readdir(SICHERUNG_DIR); } catch (e) { if (e.code !== 'ENOENT') return; }
+  for (const tag of tage) if (!await liesOrdner(path.join(SICHERUNG_DIR, tag), ['wallets.json', 'gifts.json'])) return;
+  for (const f of ['wallets.json.bak', 'gifts.json.bak']) {
+    try { sammle(await fs.promises.readFile(path.join(DATA, f), 'utf8')); } catch (e) { if (e.code !== 'ENOENT') return; }
+  }
+  // Kandidaten: nicht benutzt und seit 2 Tagen nicht angefasst
+  const kandidaten = [];
+  for (const f of dateien) {
+    if (!BILD_NAME.test(f) || benutzt.has(f)) continue;
+    try {
+      const st = await fs.promises.stat(path.join(BILD_DIR, f));
+      if (Date.now() - st.mtimeMs > 2 * 86400e3) kandidaten.push(f);
+    } catch { /* weg */ }
+  }
+  // Ab hier ohne await: den aktuellen Stand im Speicher nochmal sammeln und
+  // sofort loeschen — dazwischen kann keine Anfrage einen Verweis anlegen
+  sammle(JSON.stringify(wallets));
+  sammle(JSON.stringify(gifts));
+  for (const a of Object.values(archivCache)) sammle(JSON.stringify(a));
+  for (const e of Object.values(speicherQueue)) if (e.obj) sammle(JSON.stringify(e.obj));
+  let weg = 0;
+  for (const f of kandidaten) {
+    if (benutzt.has(f)) continue;
+    try {
+      const st = fs.statSync(path.join(BILD_DIR, f));
+      if (Date.now() - st.mtimeMs <= 2 * 86400e3) continue;
+      fs.rmSync(path.join(BILD_DIR, f), { force: true });
+      bildDateien.delete(f);
+      weg++;
+    } catch { /* egal */ }
+  }
+  if (weg) console.log(`[Bilder] ${weg} unbenutzte Bilder entfernt`);
+}
+
+// ---------------------------------------------------------------- Wallet-Kern
+// Grenzen pro Wallet, mit Ansage: so viele Gutscheine/Karten kann man anlegen
+// (die App zeigt "61 von 500"). Gerechnet fuer ein Handy mit vielen Fotos und
+// den gemeinsamen Speicher am Server — siehe WALLET_LIMIT in app.js.
+// Die Notbremse darueber schneidet nie still ab: was sie trifft, kommt in den
+// Papierkorb (frueher fielen bei 300/100 Eintraege einfach weg).
+const WALLET_LIMIT_GUTSCHEINE = 500;
+const WALLET_LIMIT_KARTEN = 100;
+const WALLET_MAX_GUTSCHEINE = 1000;
+const WALLET_MAX_KARTEN = 300;
+// Loeschmarker halten zwei Jahre (frueher 180 Tage / 500 Stueck — danach
+// konnte ein altes Handy Geloeschtes und Verschenktes wiederbeleben)
+const LOESCHMARKER_TAGE = 730;
+const LOESCHMARKER_MAX = 20000;
+
+// Buchungen, die nur die unterlegene Fassung kennt (zweites Geraet hat
+// offline abgebucht), gehen nicht verloren: sie werden nachgetragen. Ebenso
+// ein Rueckgaengig, das nur dort passiert ist. Jede Buchung hat eine eigene ID.
+function mischeBuchungen(sieger, anderer) {
+  const st = Array.isArray(sieger.tx) ? sieger.tx : [];
+  const at = Array.isArray(anderer.tx) ? anderer.tx : [];
+  if (!at.length) return sieger;
+  const byId = new Map(st.filter(t => t && t.id).map(t => [t.id, t]));
+  let tx = st.slice();
+  let balance = sieger.balance;
+  let geaendert = false;
+  for (const t of at) {
+    if (!t || !t.id || typeof t.amt !== 'number') continue;
+    const s = byId.get(t.id);
+    if (!s) {
+      tx.push({ ...t });
+      geaendert = true;
+      if (!t.reverted && typeof balance === 'number') balance = Math.round((balance + t.amt) * 100) / 100;
+    } else if (t.reverted && !s.reverted) {
+      tx = tx.map(x => (x === s ? { ...s, reverted: true } : x));
+      geaendert = true;
+      if (typeof balance === 'number') balance = Math.round((balance - s.amt) * 100) / 100;
+    }
+  }
+  if (!geaendert) return sieger;
+  tx.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  return { ...sieger, tx, balance };
+}
+// Konflikt bei gleicher ID: zuletzt BEARBEITETE Fassung gewinnt (mt), sonst
+// die mit mehr Buchungen. Ein Bild geht dabei nie verloren (ein Handy mit
+// vollem Speicher schickt Eintraege ohne Bilder), Buchungen auch nicht.
+function waehleFassung(a, o) {
+  let s;
+  if ((a.mt || 0) !== (o.mt || 0)) s = (a.mt || 0) > (o.mt || 0) ? a : o;
+  else s = ((o.tx || []).length > (a.tx || []).length) ? o : a;
+  const sieger = s;
+  const n = s === a ? o : a;
+  // Das juengere Bild gewinnt fuer sich (bildMt) — ein altes Geraet mit
+  // spaeterer Abbuchung ueberschreibt ein neues Foto nicht. Aber nur ein
+  // Bild, das es auch gibt.
+  if ((n.bildMt || 0) > (s.bildMt || 0) && hatBild(n)) {
+    s = { ...s, codeImg: n.codeImg || '', img: n.img || '', bildMt: n.bildMt, ...(n.orig ? { orig: n.orig } : {}) };
+  }
+  s = mischeBuchungen(s, n);
+  // Neu Entstandenes (Buchung/Rueckgaengig, neueres Bild) ist juenger als
+  // beide Vorlagen — sonst erkennt das Geraet die Aenderung nie. Ein bloss
+  // aufgefuelltes Bild (unten) zaehlt nicht: sonst wanderten Bilder endlos hin und her.
+  if (s !== sieger) s = { ...s, mt: Math.max(a.mt || 0, o.mt || 0) + 1 };
+  // Fehlt der Gewinner-Fassung das Bild (oder zeigt sie auf eine fehlende
+  // Datei), kommt es von der anderen
+  if (!hatBild(s) && hatBild(n)) s = { ...s, codeImg: n.codeImg || '', img: n.img || '' };
+  return s;
+}
+// Eingehenden Stand (ganz oder nur Geaendertes) mit dem Konto vereinigen.
+// Fehlendes gilt nie als geloescht — geloescht wird nur per Loeschmarker.
+// Was dabei aus der Wallet faellt, kommt in den Papierkorb.
+function vereinigeWallet(user, inc) {
+  (inc.vouchers || []).forEach(bilderAblegen);
+  (inc.cards || []).forEach(bilderAblegen);
+  // Geht die Uhr eines Handys weit vor, gewaenne es sonst jeden Konflikt
+  const spaetestens = Date.now() + 10 * 60e3;
+  for (const it of [...(inc.vouchers || []), ...(inc.cards || [])]) {
+    if (it.mt > spaetestens) it.mt = spaetestens;
+    if (it.bildMt > spaetestens) it.bildMt = spaetestens;
+    delete it.bildSig; // nur fuer das Geraet gedacht
+  }
+  const cur = wallets[user] || { vouchers: [], cards: [], deleted: [] };
+  const tombs = {};
+  for (const t of [...(cur.deleted || []), ...(inc.deleted || [])]) {
+    if (t && t.id) tombs[t.id] = Math.max(tombs[t.id] || 0, Number(t.ts) || 0);
+  }
+  const weg = [];
+  const abgelehnt = [];
+  const mergeList = (incList, curList, max) => {
+    const curBy = new Map((curList || []).filter(x => x && x.id).map(x => [x.id, x]));
+    const seen = new Set();
+    let out = [];
+    for (const it of incList) {
+      if (seen.has(it.id)) continue;
+      seen.add(it.id);
+      out.push(curBy.has(it.id) ? waehleFassung(it, curBy.get(it.id)) : it);
+    }
+    for (const it of curList || []) {
+      if (!it || !it.id || seen.has(it.id)) continue;
+      seen.add(it.id);
+      out.push(it);
+    }
+    // Gelöscht bleibt gelöscht — außer der Eintrag wurde NACH der Löschung
+    // neu angelegt (z. B. derselbe Gutschein zurückgeschenkt)
+    out = out.filter(it => {
+      const tot = tombs[it.id] && tombs[it.id] >= (it.added || 0);
+      if (tot && curBy.has(it.id)) weg.push({ it: curBy.get(it.id), grund: 'gelöscht' });
+      return !tot;
+    });
+    if (out.length > max) {
+      // Nur NEUE Eintraege ablehnen — was schon am Konto liegt, bleibt
+      let platz = max - out.filter(it => curBy.has(it.id)).length;
+      out = out.filter(it => {
+        if (curBy.has(it.id)) return true;
+        if (platz > 0) { platz--; return true; }
+        abgelehnt.push(it.id);
+        return false;
+      });
+    }
+    return out;
+  };
+  const vouchers = mergeList(inc.vouchers || [], cur.vouchers, WALLET_MAX_GUTSCHEINE);
+  const cards = mergeList(inc.cards || [], cur.cards, WALLET_MAX_KARTEN);
+  const deleted = Object.entries(tombs)
+    .filter(([, ts]) => Date.now() - ts < LOESCHMARKER_TAGE * 86400e3)
+    .sort((x, y) => x[1] - y[1])
+    .slice(-LOESCHMARKER_MAX)
+    .map(([id, ts]) => ({ id, ts }));
+  for (const { it, grund } of weg) archiviere(user, [it], grund);
+  wallets[user] = slimWallet({ vouchers, cards, deleted, ts: Date.now() });
+  if (Object.keys(tombs).length) origAufraeumen(user, tombs, wallets[user]);
+  return { vouchers: wallets[user].vouchers, cards: wallets[user].cards, deleted, abgelehnt };
+}
+// Inhaltsverzeichnis: pro Eintrag ID, zuletzt bearbeitet, Zahl der Buchungen,
+// Bild ja/nein und angelegt am (gegen Loeschmarker). Daran erkennt ein Geraet,
+// was ihm fehlt — ohne Megabytes.
+function walletIndex(w) {
+  const zeile = x => [x.id, x.mt || 0, (x.tx || []).length, hatBild(x) ? 1 : 0, x.added || 0];
+  return { v: (w.vouchers || []).filter(x => x && x.id).map(zeile), c: (w.cards || []).filter(x => x && x.id).map(zeile) };
+}
+
+// ---- Papierkorb: jede Fassung, die aus einer Wallet verschwindet (geloescht,
+// verschenkt, abgeschnitten), liegt hier ein Jahr lang und laesst sich
+// wiederherstellen. Genau das fehlte, als ein ausgepacktes Geschenk
+// verschwand. Eine Datei pro Nutzer, damit nicht bei jeder Loeschung eine
+// riesige Datei neu geschrieben wird.
+const ARCHIV_DIR = path.join(DATA, 'archiv');
+const ARCHIV_TAGE = 365;
+const ARCHIV_MAX_BYTES = 60_000_000; // pro Nutzer; darueber fliegt das Aelteste
+const archivCache = {};
+function archivDatei(user) { return path.join('archiv', Buffer.from(String(user)).toString('hex') + '.json'); }
+function archivVon(user) {
+  if (!archivCache[user]) archivCache[user] = loadJson(archivDatei(user), {});
+  return archivCache[user];
+}
+function archiviere(user, items, grund) {
+  if (!user || !items || !items.length) return;
+  fs.mkdirSync(ARCHIV_DIR, { recursive: true });
+  const a = archivVon(user);
+  const jetzt = Date.now();
+  for (const it of items) {
+    if (!it || !it.id) continue;
+    a[it.id + ':' + jetzt] = { v: it, ts: jetzt, grund, typ: it.vendor !== undefined ? 'gutschein' : 'karte' };
+  }
+  // Aufraeumen: zu alt raus, dann nach Groesse vom Aeltesten her
+  const eintraege = Object.entries(a).filter(([, e]) => jetzt - e.ts < ARCHIV_TAGE * 86400e3).sort((x, y) => y[1].ts - x[1].ts);
+  let summe = 0;
+  const behalten = {};
+  for (const [k, e] of eintraege) {
+    summe += JSON.stringify(e).length;
+    if (summe > ARCHIV_MAX_BYTES) break;
+    behalten[k] = e;
+  }
+  archivCache[user] = behalten;
+  saveJsonSoon(archivDatei(user), behalten, 1000);
+}
+function archivFlush() {
+  for (const [user, a] of Object.entries(archivCache)) {
+    try { schreibeAtomarSync(archivDatei(user), a); } catch { /* egal */ }
+  }
+}
+function archivVergessen(user) {
+  // Vorgemerkte Schreibvorgaenge fuer diesen Papierkorb verwerfen
+  const e = speicherQueue[archivDatei(user)];
+  if (e) { clearTimeout(e.timer); e.timer = null; e.obj = null; e.geschrieben = ++e.nr; }
+  delete archivCache[user];
+}
+function archivUmbenennen(alt, neu) {
+  const a = archivVon(alt);
+  archivCache[neu] = { ...archivVon(neu), ...a };
+  archivVergessen(alt);
+  fs.mkdirSync(ARCHIV_DIR, { recursive: true });
+  saveJson(archivDatei(neu), archivCache[neu]);
+  for (const f of [archivDatei(alt), archivDatei(alt) + '.bak']) fs.rmSync(path.join(DATA, f), { force: true });
+}
+function archivLoeschen(user) {
+  archivVergessen(user);
+  for (const f of [archivDatei(user), archivDatei(user) + '.bak']) fs.promises.rm(path.join(DATA, f), { force: true }).catch(() => {});
+}
+
+// ---- Tages-Schnappschuss: einmal am Tag wallets/gifts/users kopieren, die
+// letzten 7 Tage bleiben. Das Netz unter dem Netz.
+const SICHERUNG_DIR = path.join(DATA, 'sicherung');
+async function sichereTaeglich() {
+  try {
+    const tag = new Date().toISOString().slice(0, 10);
+    const ordner = path.join(SICHERUNG_DIR, tag);
+    if (fs.existsSync(path.join(ordner, 'wallets.json'))) return;
+    await fs.promises.mkdir(ordner, { recursive: true });
+    for (const f of ['users.json', 'gifts.json', 'wallets.json']) {
+      await fs.promises.copyFile(path.join(DATA, f), path.join(ordner, f)).catch(() => {});
+    }
+    const tage = (await fs.promises.readdir(SICHERUNG_DIR)).filter(x => /^\d{4}-\d{2}-\d{2}$/.test(x)).sort();
+    for (const alt of tage.slice(0, -7)) await fs.promises.rm(path.join(SICHERUNG_DIR, alt), { recursive: true, force: true });
+  } catch (e) { console.error('[Sicherung]', e.message); }
+}
+bilderAuslagernBestand();
+if (!process.env.RA_TEST) {
+  setTimeout(sichereTaeglich, 20_000);
+  setInterval(sichereTaeglich, 3 * 3600e3);
+  setTimeout(() => bilderAufraeumen().catch(() => { }), 60_000);
+  setInterval(() => bilderAufraeumen().catch(() => { }), 12 * 3600e3);
+}
+
 // Aufraeumen: Originale geloeschter Gutscheine weg. Nur was einen Loeschmarker
 // hat, NICHT mehr in der Wallet steht und auch nicht als Geschenk auf den
 // Nutzer wartet (zurueckgeschenkte Gutscheine behalten ihre ID).
@@ -166,24 +631,25 @@ async function origAufraeumen(user, tombs, wallet) {
   const lebt = new Set([...(wallet.vouchers || []), ...(gifts[user] || [])].map(v => v && v.id));
   for (const f of dateien) {
     const id = f.replace(/\.jpg$/, '');
-    if (tombs[id] && !lebt.has(id)) fs.promises.rm(path.join(origOrdner(user), f), { force: true }).catch(() => {});
+    // 30 Tage Frist: so lange laesst sich ein Gutschein samt Originalfoto aus dem Papierkorb holen
+    if (tombs[id] && !lebt.has(id) && Date.now() - tombs[id] > 30 * 86400e3) fs.promises.rm(path.join(origOrdner(user), f), { force: true }).catch(() => {});
   }
 }
 
 // Hochfrequente Dateien (Chat, Quest-Zähler, Wallets) werden gebündelt und
 // asynchron geschrieben: writeFileSync bei jeder Nachricht blockierte sonst
 // ALLE parallelen Anfragen (spürbar als "der Server ist langsam")
-const saveSoonTimers = {};
+// saveJsonSoon: buendelt haeufige Aenderungen (Wallet-Syncs, Quests), schreibt
+// aber spaetestens nach 2 s — auch wenn staendig neue Aenderungen kommen.
+// Pro Datei laeuft immer nur ein Schreibvorgang; was waehrenddessen kommt,
+// wird danach geschrieben. Siehe schreibeJetzt/schreibeSpaeter oben.
 function saveJsonSoon(name, obj, delay = 400) {
-  clearTimeout(saveSoonTimers[name]);
-  saveSoonTimers[name] = setTimeout(() => {
-    delete saveSoonTimers[name];
-    try {
-      fs.writeFile(path.join(DATA, name + '.tmp'), JSON.stringify(obj), err => {
-        if (!err) fs.rename(path.join(DATA, name + '.tmp'), path.join(DATA, name), () => { });
-      });
-    } catch { }
-  }, delay);
+  const e = speicherEintrag(name);
+  e.obj = obj;
+  if (!e.erstesMal) e.erstesMal = Date.now();
+  clearTimeout(e.timer);
+  const warte = Math.max(0, Math.min(delay, e.erstesMal + 2000 - Date.now()));
+  e.timer = setTimeout(() => schreibeSpaeter(name), warte);
 }
 
 // ---------------------------------------------------------------- Echtzeit (SSE)
@@ -1275,19 +1741,24 @@ function send(res, code, body, type = 'application/json') {
 
 function readBody(req, maxBytes = 50_000) {
   return new Promise((resolve, reject) => {
-    let buf = '';
+    // Stuecke als Buffer sammeln und erst am Ende als UTF-8 lesen: per
+    // String-Verkettung zerfielen Umlaute und Emojis an Stueckgrenzen.
+    const teile = [];
+    let n = 0;
     let over = false;
     // Kein req.destroy() bei Überlänge: das kappt die Verbindung hart und der
     // Client sieht nur "Server nicht erreichbar". Stattdessen Rest verwerfen
     // und sauber mit Fehler antworten, damit eine echte Fehlermeldung ankommt.
     req.on('data', c => {
       if (over) return;
-      buf += c;
-      if (buf.length > maxBytes) { over = true; buf = ''; }
+      n += c.length;
+      if (n > maxBytes) { over = true; teile.length = 0; return; }
+      teile.push(c);
     });
     req.on('end', () => {
       if (over) { const e = new Error('Anfrage zu groß.'); e.tooLarge = true; return reject(e); }
-      try { resolve(buf ? JSON.parse(buf) : {}); } catch (e) { reject(e); }
+      const text = Buffer.concat(teile).toString('utf8');
+      try { resolve(text ? JSON.parse(text) : {}); } catch (e) { reject(e); }
     });
     req.on('error', reject);
     req.on('error', reject);
@@ -1437,7 +1908,8 @@ const server = http.createServer(async (req, res) => {
     // in den Fluesterchats, auf Profilen und beim Verschenken.
     if (p === '/api/meta' && req.method === 'GET') {
       const allEmotes = { ...emoteCache.map, ...Object.fromEntries(Object.entries(UNLOCK_EMOTES).map(([k, v]) => [k, v.id])) };
-      return send(res, 200, { emotes: allEmotes, badges: BADGES, paints: PAINTS.paints, ranks: RANKS10 });
+      return send(res, 200, { emotes: allEmotes, badges: BADGES, paints: PAINTS.paints, ranks: RANKS10,
+        walletLimit: { gutscheine: WALLET_LIMIT_GUTSCHEINE, karten: WALLET_LIMIT_KARTEN } });
     }
     // Den Global-Chat gibt es nicht mehr. Wer die App noch von vorher offen hat,
     // bekommt hier weiter die Metadaten, aber keine Nachrichten mehr. Die alten
@@ -1677,6 +2149,13 @@ const server = http.createServer(async (req, res) => {
       profileOf(neu).lastRename = Date.now();
       for (const [t, u] of Object.entries(sessions)) if (u === me) sessions[t] = neu;
       if (wallets[me]) { wallets[neu] = wallets[me]; if (neu !== me) delete wallets[me]; }
+      // Wartende Geschenke, Originalfotos und Papierkorb ziehen mit um — sonst
+      // waeren sie unter dem neuen Namen unsichtbar (und ein spaeterer
+      // Nutzer des alten Namens erbte sie)
+      if (gifts[me]) { gifts[neu] = [...(gifts[neu] || []), ...gifts[me]]; if (neu !== me) delete gifts[me]; saveJson('gifts.json', gifts); }
+      for (const liste of Object.values(gifts)) for (const g of liste || []) if (g && g.giftFrom === me) g.giftFrom = neu;
+      try { if (fs.existsSync(origOrdner(me))) fs.renameSync(origOrdner(me), origOrdner(neu)); } catch (e) { console.error('Originalfotos umziehen:', e.message); }
+      archivUmbenennen(me, neu);
       chat.messages.forEach(m => { if (m.user === me) m.user = neu; });
       if (chat.pinned && chat.pinned.user === me) chat.pinned.user = neu;
       if (chat.bans[me]) { chat.bans[neu] = true; delete chat.bans[me]; }
@@ -1715,7 +2194,31 @@ const server = http.createServer(async (req, res) => {
       if (!me) return send(res, 401, { error: 'Bitte anmelden.' });
       delete users[me];
       for (const [t, u] of Object.entries(sessions)) if (u === me) delete sessions[t];
+      // Noch nicht ausgepackte Geschenke gehen an die Absender zurueck, statt
+      // mit dem Konto zu verschwinden (oder an jemanden, der spaeter den
+      // Namen registriert)
+      for (const g of gifts[me] || []) {
+        const von = g && g.giftFrom;
+        if (!von || !users[von]) continue;
+        const wv = wallets[von] || (wallets[von] = { vouchers: [], cards: [], deleted: [] });
+        wv.vouchers = wv.vouchers || [];
+        const { giftFrom, giftTs, giftMsg, giftSeen, ...rest } = g;
+        const zurueckId = neueGutscheinId();
+        // Originalfoto sofort (synchron) umziehen — gleich danach wird der
+        // Ordner des geloeschten Kontos entfernt
+        if (rest.orig) {
+          try { fs.mkdirSync(origOrdner(von), { recursive: true }); fs.renameSync(origPfad(me, g.id), origPfad(von, zurueckId)); } catch { delete rest.orig; }
+        }
+        wv.vouchers.unshift({ ...rest, id: zurueckId, added: Date.now(), mt: Date.now() });
+        ssePush('gift', von);
+      }
+      delete gifts[me];
       delete wallets[me];
+      // Erst die Wallets (zurueckgegebene Geschenke), dann der Vorrat
+      saveJson('wallets.json', wallets);
+      saveJson('gifts.json', gifts);
+      fs.promises.rm(origOrdner(me), { recursive: true, force: true }).catch(() => {});
+      archivLoeschen(me);
       for (const key of Object.keys(dms)) if (key.split('|').includes(me)) delete dms[key];
       chat.messages.forEach(m => { if (m.user === me) { m.user = 'Gelöschter Nutzer'; m.deleted = true; m.text = ''; } });
       for (const u of Object.values(users)) {
@@ -2084,21 +2587,22 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'GET') {
         let buf;
         try { buf = await fs.promises.readFile(datei); } catch { return send(res, 404, { error: 'Kein Original gespeichert.' }); }
-        return send(res, 200, buf, 'image/jpeg');
+        return send(res, 200, buf, bildTyp(buf) || 'image/jpeg');
       }
       if (req.method === 'POST') {
         let buf;
         try { buf = await readRaw(req, 2_500_000); } catch (e) {
           return send(res, e.tooLarge ? 413 : 400, { error: e.tooLarge ? 'Das Foto ist zu groß.' : 'Upload abgebrochen.' });
         }
-        // Der Client schickt immer ein JPEG aus dem Canvas — alles andere ist Unfug
-        if (buf.length < 200 || buf[0] !== 0xFF || buf[1] !== 0xD8 || buf[2] !== 0xFF) {
-          return send(res, 400, { error: 'Nur JPEG-Fotos.' });
+        // Der Client schickt JPEG oder WebP aus dem Canvas — alles andere ist Unfug
+        if (buf.length < 200 || !bildTyp(buf)) {
+          return send(res, 400, { error: 'Nur JPEG- oder WebP-Fotos.' });
         }
         await fs.promises.mkdir(origOrdner(user), { recursive: true });
-        // Deckel: mehr Originale als Gutscheine (max. 300) braucht niemand
-        if (!fs.existsSync(datei) && (await fs.promises.readdir(origOrdner(user))).length >= 320) {
-          return send(res, 413, { error: 'Zu viele Originalfotos gespeichert.' });
+        // Deckel passend zur Wallet-Notbremse, mit Luft fuer Papierkorb und
+        // Geschenke. "Voll" (507) versucht das Geraet spaeter nochmal.
+        if (!fs.existsSync(datei) && (await fs.promises.readdir(origOrdner(user))).filter(f => f.endsWith('.jpg')).length >= WALLET_MAX_GUTSCHEINE + 200) {
+          return send(res, 507, { error: 'Zu viele Originalfotos gespeichert.', voll: true });
         }
         // Erst vollstaendig schreiben, dann umbenennen: ein abgebrochener Upload
         // hinterlaesst nie ein halbes Bild
@@ -2131,14 +2635,33 @@ const server = http.createServer(async (req, res) => {
         }
         if (umbenannt) saveJson('gifts.json', gifts);
       }
-      return send(res, 200, { ...(wallets[user] || { vouchers: [], cards: [] }), gifts: gifts[user] || [] });
+      if (url.searchParams.get('nur') === 'index') {
+        const w = wallets[user] || { vouchers: [], cards: [], deleted: [] };
+        return send(res, 200, { index: walletIndex(w), deleted: w.deleted || [], gifts: mitBildern(gifts[user]), ts: w.ts || 0 });
+      }
+      const w = wallets[user] || { vouchers: [], cards: [] };
+      return send(res, 200, { ...w, vouchers: mitBildern(w.vouchers), cards: mitBildern(w.cards), gifts: mitBildern(gifts[user]) });
+    }
+    // Gezielt einzelne Eintraege holen (nach einem Blick ins Inhaltsverzeichnis)
+    if (p === '/api/wallet/items' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req, 500_000);
+      const ids = new Set(Array.isArray(b.ids) ? b.ids.map(String) : []);
+      const w = wallets[user] || { vouchers: [], cards: [] };
+      return send(res, 200, {
+        vouchers: mitBildern((w.vouchers || []).filter(v => ids.has(v.id))),
+        cards: mitBildern((w.cards || []).filter(c => ids.has(c.id))),
+      });
     }
 
     // ---- Gutschein verschenken: wandert aus der eigenen Wallet zum Freund
     if (p === '/api/gift/send' && req.method === 'POST') {
       const me = authUser(req);
       if (!me) return send(res, 401, { error: 'Bitte anmelden.' });
-      const b = await readBody(req);
+      // Mit Gutschein samt Bild im Gepaeck: groesseres Limit
+      const b = await readBody(req, 20_000_000);
+      if (authUser(req) !== me) return send(res, 409, { error: 'Dein Konto hat sich gerade geändert.' });
       const to = String(b.to || '');
       if (!users[to]) return send(res, 404, { error: 'Nutzer nicht gefunden.' });
       if (to === me) return send(res, 400, { error: 'An dich selbst? Das hast du schon.' });
@@ -2150,11 +2673,27 @@ const server = http.createServer(async (req, res) => {
       const today = new Date().toISOString().slice(0, 10);
       if (!profMe.giftDay || profMe.giftDay.day !== today) profMe.giftDay = { day: today, count: 0 };
       if (profMe.giftDay.count >= 10) return send(res, 429, { error: 'Für heute reicht es: maximal 10 Geschenke pro Tag.' });
-      const w = wallets[me];
-      const idx = (w?.vouchers || []).findIndex(v => v.id === String(b.id || ''));
-      if (idx < 0) return send(res, 404, { error: 'Gutschein nicht gefunden. Kurz warten, bis die Wallet gesichert ist, und nochmal versuchen.' });
-      const [v] = w.vouchers.splice(idx, 1);
-      w.deleted = [...(w.deleted || []), { id: v.id, ts: Date.now() }].slice(-500);
+      const w = wallets[me] || (wallets[me] = { vouchers: [], cards: [], deleted: [] });
+      w.vouchers = w.vouchers || [];
+      const gid = String(b.id || '');
+      // Das Geraet schickt seine aktuelle Fassung mit: sonst ginge eine noch
+      // nicht gesicherte Aenderung (Abbuchung, neues Bild) beim Verschenken
+      // verloren — und ein noch gar nicht gesicherter Gutschein waere "nicht gefunden"
+      const vomGeraet = b.voucher && typeof b.voucher === 'object' && b.voucher.id === gid ? bilderAblegen(b.voucher) : null;
+      // Volle Wallet beim Freund: lieber gleich sagen, als dass das Geschenk
+      // unausgepackt liegen bleibt
+      if (((wallets[to] && wallets[to].vouchers) || []).length + (gifts[to] || []).length >= WALLET_LIMIT_GUTSCHEINE) {
+        return send(res, 409, { error: `Die Wallet von @${to} ist voll (${WALLET_LIMIT_GUTSCHEINE} Gutscheine).` });
+      }
+      const idx = w.vouchers.findIndex(v => v.id === gid);
+      const tot = (w.deleted || []).some(t => t && t.id === gid);
+      if (idx < 0 && (!vomGeraet || tot)) return send(res, 404, { error: 'Gutschein nicht gefunden. Kurz warten, bis die Wallet gesichert ist, und nochmal versuchen.' });
+      let v;
+      if (idx >= 0) [v] = w.vouchers.splice(idx, 1);
+      if (v && vomGeraet) v = waehleFassung(vomGeraet, v);
+      else if (!v) v = vomGeraet;
+      archiviere(me, [v], 'verschenkt an @' + to);
+      w.deleted = [...(w.deleted || []), { id: v.id, ts: Date.now() }].slice(-LOESCHMARKER_MAX);
       // Optionale Nachricht: max 140 Zeichen, wird beim Rendern IMMER escaped
       const giftMsg = String(b.msg || '').trim().slice(0, 140);
       profMe.giftDay.count++;
@@ -2164,8 +2703,10 @@ const server = http.createServer(async (req, res) => {
       // Das Originalfoto zieht mit um. Fehlt es (noch nicht hochgeladen), zeigt
       // der Betrachter beim Freund eben nur den Zuschnitt.
       if (v.orig) origUmziehen(me, v.id, to, geschenkId);
-      saveJson('wallets.json', wallets);
+      // Erst das Geschenk sichern, dann die Absender-Wallet: stuerzt der Server
+      // dazwischen ab, liegt der Gutschein eher doppelt als gar nicht
       saveJson('gifts.json', gifts);
+      saveJson('wallets.json', wallets);
       saveJson('users.json', users); // Tageszähler
       ssePush('gift', to);
       pushToUser(to, {
@@ -2180,6 +2721,7 @@ const server = http.createServer(async (req, res) => {
       const me = authUser(req);
       if (!me) return send(res, 401, { error: 'Bitte anmelden.' });
       const b = await readBody(req);
+      if (authUser(req) !== me) return send(res, 409, { error: 'Dein Konto hat sich gerade geändert.' });
       const ids = Array.isArray(b.ids) ? b.ids.map(String) : [];
       // Der Server bucht das Geschenk SELBST in die Wallet am Konto ein. Frueher
       // strich er es nur aus dem Vorrat und verliess sich darauf, dass das Handy
@@ -2187,6 +2729,9 @@ const server = http.createServer(async (req, res) => {
       // zu), war der Gutschein weg.
       const w = wallets[me] || (wallets[me] = { vouchers: [], cards: [], deleted: [] });
       w.vouchers = w.vouchers || [];
+      if (w.vouchers.length >= WALLET_LIMIT_GUTSCHEINE) {
+        return send(res, 409, { error: `Deine Wallet ist voll (${WALLET_LIMIT_GUTSCHEINE} Gutscheine). Lösch aufgebrauchte Gutscheine, dann kannst du das Geschenk auspacken — es wartet so lange.` });
+      }
       const tote = new Set((w.deleted || []).map(t => t && t.id));
       const claimed = [], eingebucht = [];
       for (const g of (gifts[me] || []).filter(x => ids.includes(x.id))) {
@@ -2205,7 +2750,7 @@ const server = http.createServer(async (req, res) => {
       // liegt das Geschenk eher doppelt als gar nicht
       if (eingebucht.length) { updateLifetime(me); saveJson('wallets.json', wallets); }
       saveJson('gifts.json', gifts);
-      return send(res, 200, { ok: true, claimed, vouchers: eingebucht });
+      return send(res, 200, { ok: true, claimed, vouchers: mitBildern(eingebucht) });
     }
     if (p === '/api/wallet' && req.method === 'POST') {
       const user = authUser(req);
@@ -2213,70 +2758,33 @@ const server = http.createServer(async (req, res) => {
       // Bilder (Barcode-Fotos als dataURL) brauchen ein größeres Body-Limit
       let b;
       try {
-        b = await readBody(req, 15_000_000);
+        // Grosszuegig: ein alter Client schickt die ganze Wallet mit allen
+        // Bildern. Neue Clients schicken nur Geaendertes (delta).
+        b = await readBody(req, 80_000_000);
       } catch (e) {
         return send(res, e.tooLarge ? 413 : 400, {
           error: e.tooLarge
-            ? 'Die Wallet ist zu groß zum Sichern (zu viele große Fotos). Ältere Gutschein-Bilder löschen und nochmal versuchen.'
+            ? 'Die Wallet ist zu groß für einen Upload am Stück. Bitte die App neu laden — sie sichert dann in kleinen Teilen.'
             : 'Ungültige Daten.',
         });
       }
       // Mehrere Geräte: NIE blind überschreiben. Ein Handy mit älterem Stand
       // würde sonst die Neuzugänge des PCs verwerfen und Gelöschtes wiederbeleben.
-      // Stattdessen: pro Eintrag vereinigen, Löschungen über Löschmarker (deleted).
+      // Stattdessen: pro Eintrag vereinigen (vereinigeWallet), Löschungen über
+      // Löschmarker. Ein Teil-Abgleich (delta) schickt nur Geaendertes — die
+      // Vereinigung ist dieselbe, weil Fehlendes nie als geloescht gilt.
+      if (authUser(req) !== user) return send(res, 409, { error: 'Dein Konto hat sich gerade geändert. Bitte die App neu laden.' });
       const incoming = {
-        vouchers: Array.isArray(b.vouchers) ? b.vouchers.filter(x => x && x.id).slice(0, 300) : [],
-        cards: Array.isArray(b.cards) ? b.cards.filter(x => x && x.id).slice(0, 100) : [],
-        deleted: Array.isArray(b.deleted) ? b.deleted.slice(0, 500) : [],
+        vouchers: Array.isArray(b.vouchers) ? b.vouchers.filter(x => x && x.id) : [],
+        cards: Array.isArray(b.cards) ? b.cards.filter(x => x && x.id) : [],
+        deleted: Array.isArray(b.deleted) ? b.deleted : [],
       };
-      const cur = wallets[user] || { vouchers: [], cards: [], deleted: [] };
-      // Löschmarker beider Seiten vereinigen: pro ID der jüngste Zeitpunkt
-      const tombs = {};
-      for (const t of [...(cur.deleted || []), ...incoming.deleted]) {
-        if (t && t.id) tombs[t.id] = Math.max(tombs[t.id] || 0, Number(t.ts) || 0);
-      }
-      // Konflikt bei gleicher ID: zuletzt BEARBEITETE Fassung gewinnt (mt),
-      // sonst die mit mehr Abbuchungen — nie die, die zufällig zuletzt syncte
-      const pick = (a, o) => {
-        let s;
-        if ((a.mt || 0) !== (o.mt || 0)) s = (a.mt || 0) > (o.mt || 0) ? a : o;
-        else s = ((o.tx || []).length > (a.tx || []).length) ? o : a;
-        // Ein Handy mit vollem Speicher schickt Eintraege ohne Bilder: die
-        // Bilder hier behalten, nie durch ein leeres ersetzen
-        const n = s === a ? o : a;
-        if (!s.codeImg && !s.img && (n.codeImg || n.img)) s = { ...s, codeImg: n.codeImg || '', img: n.img || '' };
-        return s;
-      };
-      const mergeList = (incList, curList) => {
-        const curBy = new Map(curList.filter(x => x && x.id).map(x => [x.id, x]));
-        const seen = new Set();
-        const out = [];
-        for (const it of incList) {
-          if (seen.has(it.id)) continue;
-          seen.add(it.id);
-          out.push(curBy.has(it.id) ? pick(it, curBy.get(it.id)) : it);
-        }
-        for (const it of curList) {
-          if (!it || !it.id || seen.has(it.id)) continue;
-          seen.add(it.id);
-          out.push(it);
-        }
-        // Gelöscht bleibt gelöscht — außer der Eintrag wurde NACH der Löschung
-        // neu angelegt (z. B. derselbe Gutschein zurückgeschenkt)
-        return out.filter(it => !(tombs[it.id] && tombs[it.id] >= (it.added || 0)));
-      };
-      const vouchers = mergeList(incoming.vouchers, cur.vouchers || []).slice(0, 300);
-      const cards = mergeList(incoming.cards, cur.cards || []).slice(0, 100);
+      const { vouchers, cards, deleted, abgelehnt } = vereinigeWallet(user, incoming);
       // Der Client muss den Stand nur übernehmen, wenn der Server etwas beigesteuert hat
       const serverAddedSomething = vouchers.length !== incoming.vouchers.length
         || cards.length !== incoming.cards.length
         || vouchers.some((v, i) => v !== incoming.vouchers[i])
         || cards.some((c, i) => c !== incoming.cards[i]);
-      const deleted = Object.entries(tombs)
-        .filter(([, ts]) => Date.now() - ts < 180 * 86400e3)
-        .slice(-500).map(([id, ts]) => ({ id, ts }));
-      wallets[user] = slimWallet({ vouchers, cards, deleted, ts: Date.now() });
-      if (Object.keys(tombs).length) origAufraeumen(user, tombs, wallets[user]);
       updateLifetime(user);
       // Aufgebrauchter Gutschein = Sparziel erreicht: einmalig eine Kiste
       const prof = profileOf(user);
@@ -2288,9 +2796,16 @@ const server = http.createServer(async (req, res) => {
       }
       ensureProgress(user);
       saveJsonSoon('users.json', users);
-      saveJsonSoon('wallets.json', wallets);
+      // Erst schreiben, dann bestaetigen: die Datei ist ohne Bilder klein, und
+      // ein Absturz direkt nach dem "ok" verliert so nichts mehr
+      // Nicht geschrieben (z. B. Datentraeger voll): KEIN "ok" — das Geraet
+      // haelt den Stand dann fuer ungesichert und versucht es wieder
+      if (!saveJson('wallets.json', wallets)) return send(res, 507, { error: 'Speichern am Server gerade nicht möglich. Wird automatisch wiederholt.' });
+      // Teil-Abgleich: statt der ganzen Wallet nur ein Inhaltsverzeichnis
+      // zurueck — der Client holt sich gezielt, was ihm fehlt
+      if (b.delta) return send(res, 200, { ok: true, delta: true, deleted, index: walletIndex(wallets[user]), ...(abgelehnt.length ? { abgelehnt } : {}) });
       return send(res, 200, serverAddedSomething
-        ? { ok: true, merged: true, vouchers: wallets[user].vouchers, cards: wallets[user].cards, deleted }
+        ? { ok: true, merged: true, vouchers: mitBildern(wallets[user].vouchers), cards: mitBildern(wallets[user].cards), deleted }
         : { ok: true, deleted });
     }
 
@@ -2435,13 +2950,44 @@ const server = http.createServer(async (req, res) => {
         origDateien, geschenkSpuren, giftDay: profileOf(user).giftDay || null,
       });
     }
+    // Papierkorb eines Nutzers (Admin): was ist wann warum verschwunden?
+    if (p === '/api/admin/archiv' && req.method === 'GET') {
+      if (!isAdmin(req)) return send(res, 403, { error: 'Admin-Key falsch.' });
+      const user = String(url.searchParams.get('user') || '');
+      if (!users[user]) return send(res, 404, { error: 'Nutzer nicht gefunden.' });
+      const liste = Object.entries(archivVon(user)).sort((x, y) => y[1].ts - x[1].ts).map(([key, e]) => ({
+        key, ts: e.ts, grund: e.grund, typ: e.typ, id: e.v.id, vendor: e.v.vendor || e.v.name,
+        amount: e.v.amount, balance: e.v.balance, code: !!e.v.code, pin: !!e.v.pin, bild: !!(e.v.codeImg || e.v.img),
+      }));
+      return send(res, 200, { user, liste });
+    }
+    // Wiederherstellen: als neuer Eintrag (frische ID), damit kein alter
+    // Loeschmarker ihn gleich wieder erwischt. Das Handy holt ihn sofort.
+    if (p === '/api/admin/archiv-restore' && req.method === 'POST') {
+      if (!isAdmin(req)) return send(res, 403, { error: 'Admin-Key falsch.' });
+      const b = await readBody(req);
+      const user = String(b.user || '');
+      const e = users[user] && archivVon(user)[String(b.key || '')];
+      if (!e) return send(res, 404, { error: 'Eintrag nicht gefunden.' });
+      const w = wallets[user] || (wallets[user] = { vouchers: [], cards: [], deleted: [] });
+      const zurueck = bilderAblegen({ ...e.v, id: neueGutscheinId(), added: Date.now(), mt: Date.now(), wiederhergestellt: Date.now() });
+      // Originalfoto mitnehmen, falls es noch da ist
+      if (e.v.orig) {
+        try { fs.renameSync(origPfad(user, e.v.id), origPfad(user, zurueck.id)); } catch { delete zurueck.orig; }
+      }
+      if (e.typ === 'karte') (w.cards = w.cards || []).unshift(zurueck);
+      else (w.vouchers = w.vouchers || []).unshift(zurueck);
+      saveJson('wallets.json', wallets);
+      ssePush('gift', user); // Handy holt den Stand sofort
+      return send(res, 200, { ok: true, id: zurueck.id });
+    }
     // Originalfoto eines beliebigen Nutzers abholen (Admin) — zur Rettung
     if (p === '/api/admin/wallet-orig' && req.method === 'GET') {
       if (!isAdmin(req)) return send(res, 403, { error: 'Admin-Key falsch.' });
       const user = String(url.searchParams.get('user') || '');
       const id = String(url.searchParams.get('id') || '');
       if (!users[user] || !ORIG_ID.test(id)) return send(res, 400, { error: 'user/id ungültig.' });
-      try { return send(res, 200, await fs.promises.readFile(origPfad(user, id)), 'image/jpeg'); }
+      try { const buf = await fs.promises.readFile(origPfad(user, id)); return send(res, 200, buf, bildTyp(buf) || 'image/jpeg'); }
       catch { return send(res, 404, { error: 'Keine Datei.' }); }
     }
 
@@ -2788,20 +3334,24 @@ const server = http.createServer(async (req, res) => {
 
 // Beim Herunterfahren (Deploy/Neustart) ausstehende gebündelte Writes sichern
 function flushPendingSaves() {
-  Object.keys(saveSoonTimers).forEach(n => { clearTimeout(saveSoonTimers[n]); delete saveSoonTimers[n]; });
-  try {
-    saveJson('chat.json', chat);
-    saveJson('users.json', users);
-    saveJson('wallets.json', wallets);
-    saveJson('dms.json', dms);
-  } catch { }
+  // Alles Aufgeschobene jetzt synchron schreiben (Deploy/Neustart)
+  for (const [name, e] of Object.entries(speicherQueue)) {
+    clearTimeout(e.timer);
+    if (e.obj) { try { schreibeAtomarSync(name, e.obj); } catch (err) { console.error('Flush fehlgeschlagen:', name, err.message); } e.obj = null; }
+  }
+  for (const [name, obj] of [['chat.json', chat], ['users.json', users], ['wallets.json', wallets], ['dms.json', dms], ['gifts.json', gifts]]) {
+    try { schreibeAtomarSync(name, obj); } catch (err) { console.error('Flush fehlgeschlagen:', name, err.message); }
+  }
+  archivFlush();
 }
 process.on('SIGTERM', () => { flushPendingSaves(); process.exit(0); });
 process.on('SIGINT', () => { flushPendingSaves(); process.exit(0); });
 
 // RA_TEST: für scripts/test-cases.js, damit der Test importieren kann ohne den Server zu starten
 if (process.env.RA_TEST) {
-  module.exports = { CaseSource, grantCase, profileOf, users, rollRarity, ODDS_CASE, ODDS_CAPSULE, CONTAINERS, RARITY, STICKERS };
+  module.exports = { CaseSource, grantCase, profileOf, users, rollRarity, ODDS_CASE, ODDS_CAPSULE, CONTAINERS, RARITY, STICKERS,
+    // fuer scripts/test-wallet.js
+    bilderAufraeumen, bildDateien, bildAblegen, vereinigeWallet, archiviere, archivFlush, wallets, gifts, walletIndex, waehleFassung };
 } else {
   server.listen(PORT, () => {
     console.log(`kumulio läuft auf http://localhost:${PORT}`);

@@ -5,11 +5,17 @@ const $ = sel => document.querySelector(sel);
 // API-Basis: im Web leer (gleiche Origin). In der iOS/Android-App (Capacitor)
 // zeigt sie auf den gehosteten Server, in index.html RA_API_BASE setzen.
 const API_BASE = (window.RA_API_BASE || localStorage.getItem('ra.apiBase') || '').replace(/\/$/, '');
+// localStorage kann voll oder gesperrt sein (privates Fenster): Schreiben darf
+// dann nie einen ganzen Ablauf abbrechen, Lesen nie den Start
+function lsSetzen(k, v) { try { localStorage.setItem(k, v); return true; } catch { return false; } }
+function lsJson(k, fallback) {
+  try { const t = localStorage.getItem(k); return t ? JSON.parse(t) : fallback; } catch { return fallback; }
+}
 const state = {
   channels: [],
   follows: JSON.parse(localStorage.getItem('ra.follows') || 'null'), // null = Onboarding nötig
   stars: JSON.parse(localStorage.getItem('ra.stars') || '{}'),       // { dealId: 1..5 }
-  wallet: JSON.parse(localStorage.getItem('ra.wallet') || '{"vouchers":[],"cards":[]}'),
+  wallet: { vouchers: [], cards: [], deleted: [], ...lsJson('ra.wallet', {}) },
   favs: JSON.parse(localStorage.getItem('ra.favs') || '{}'),         // { dealId: {deal, ts, remindAt, notified} }
   pins: JSON.parse(localStorage.getItem('ra.pins') || '["freebies","preisfehler"]'), // angeheftete Feed-Menüs
   aff: JSON.parse(localStorage.getItem('ra.aff') || '{"ch":{},"m":{}}'), // Verhalten für "Für dich"
@@ -29,7 +35,7 @@ const state = {
   ...JSON.parse(localStorage.getItem('ra.walletFilter') || '{"walletFilter":"","walletSort":"","walletVal":0}'),
 };
 function saveWalletFilter() {
-  localStorage.setItem('ra.walletFilter', JSON.stringify({
+  lsSetzen('ra.walletFilter', JSON.stringify({
     walletFilter: state.walletFilter || '',
     walletSort: state.walletSort || '',
     walletVal: state.walletVal || 0,
@@ -50,7 +56,7 @@ function applyTheme(t, animate = false) {
     setTimeout(() => document.getElementById('btn-theme')?.classList.remove('spin'), 400);
   }
   root.dataset.theme = t;
-  localStorage.setItem('ra.theme', t);
+  lsSetzen('ra.theme', t);
   const sw = document.getElementById('sw-theme');
   if (sw) sw.checked = t === 'dark';
   setzeLeistenfarbe();
@@ -337,25 +343,44 @@ function channelBySlug(slug) { return state.channels.find(c => c.slug === slug);
 // Der Speicher, den ein Browser einer Webseite gibt, ist klein (rund 5 MB).
 // Mit vielen Gutscheinfotos war er voll: setItem warf, und alles danach —
 // Anzeigen, Sichern am Konto — fiel still aus. So gingen Gutscheine verloren.
-// Jetzt wirft save() nie. Passt die Wallet nicht mehr hinein, liegt sie hier
-// ohne Bilder; die Bilder stehen beim Konto und kommen beim naechsten Abgleich
-// zurueck (kein Abgleich ersetzt ein vorhandenes Bild durch ein leeres).
-// vomServer = true: der Stand kam vom Konto, ist also dort schon gesichert.
+// Die Wallet liegt deshalb jetzt in IndexedDB (siehe "Wallet-Speicher"), und
+// save() wirft nie. vomServer = true: der Stand kam vom Konto, ist dort also
+// schon gesichert und muss nicht wieder hoch.
 let walletRev = 0;        // zaehlt jede Aenderung an der Wallet auf diesem Geraet
 let walletRevOben = -1;   // bis zu welcher Aenderung der Server alles hat
+let walletStand = Number(state.wallet.stand) || 0;  // Zeitpunkt der letzten Speicherung
+let walletBesitzer = state.wallet.user || state.userName || '';
+let walletIdbOk = true;       // false: kein IndexedDB — dann alles im localStorage
+let walletIstBereit = false;  // erst wenn die Bilder aus IndexedDB da sind, wird hochgeladen
+let walletBereit = Promise.resolve();
+let walletOben = lsJson('ra.walletOben', {});
+// So viel passt in eine Wallet. Gerechnet: ein Gutschein mit Kassen-Code und
+// Originalfoto braucht komprimiert rund 50-130 KB. 500 Stueck sind dann auf
+// dem Handy rund 25-65 MB (dafuer reicht IndexedDB locker, und die App bleibt
+// flott), und am Server teilen sich alle Nutzer einen Speicher. Der Server
+// meldet seine Werte ueber /api/meta — die hier gelten, bis er geantwortet hat.
+const WALLET_LIMIT = { gutscheine: 500, karten: 100 };
+function walletPlatz(art = 'gutscheine') {
+  const n = (art === 'karten' ? state.wallet.cards : state.wallet.vouchers).length;
+  // Wartende Geschenke belegen schon Platz (der Server zaehlt sie genauso)
+  let g = 0;
+  // pendingGifts steht weiter unten im Skript — vor dessen Zeile waere schon
+  // der Zugriff ein Fehler, deshalb abgesichert
+  try { if (art === 'gutscheine') g = pendingGifts.length; } catch { /* noch nicht da */ }
+  const max = WALLET_LIMIT[art];
+  const belegt = n + g;
+  return { n, g, max, belegt, frei: Math.max(0, max - belegt), voll: belegt >= max, fast: belegt >= max * 0.9 };
+}
+function walletVollText(art = 'gutscheine') {
+  if (art === 'karten') return `Deine Wallet ist voll: maximal ${WALLET_LIMIT.karten} Sparkarten. Lösch eine Karte, die du nicht mehr brauchst.`;
+  const p = walletPlatz('gutscheine');
+  const aufgebraucht = state.wallet.vouchers.some(v => v.balance != null && v.balance <= 0);
+  return `Deine Wallet ist voll: maximal ${p.max} Gutscheine${p.g ? ` (${p.g} wartende Geschenke zählen mit)` : ''}. `
+    + (aufgebraucht ? 'Lösch aufgebrauchte Gutscheine, dann ist wieder Platz.' : 'Lösch einen Gutschein, den du nicht mehr brauchst, dann ist wieder Platz.');
+}
 function save(key, val, vomServer = false) {
-  if (key === 'wallet' && !vomServer) walletRev++;
-  try { localStorage.setItem('ra.' + key, JSON.stringify(val)); return true; }
-  catch {
-    if (key !== 'wallet' || !val) return false;
-    try {
-      const ohneBild = it => (it && (it.codeImg || it.img) ? { ...it, codeImg: '', img: '' } : it);
-      localStorage.setItem('ra.wallet', JSON.stringify({
-        ...val, vouchers: (val.vouchers || []).map(ohneBild), cards: (val.cards || []).map(ohneBild),
-      }));
-      return true;
-    } catch { return false; }
-  }
+  if (key === 'wallet') return speichereWallet(vomServer);
+  return lsSetzen('ra.' + key, JSON.stringify(val));
 }
 
 // ---------------- Island (Status-Kapsel) ----------------
@@ -530,7 +555,10 @@ $('#btn-account-delete').addEventListener('click', async () => {
   try {
     await api('/api/account/delete', { method: 'POST', body: '{}' });
     state.token = ''; state.userName = ''; state.role = '';
-    localStorage.removeItem('ra.token'); localStorage.removeItem('ra.user'); localStorage.removeItem('ra.wallet');
+    localStorage.removeItem('ra.token'); localStorage.removeItem('ra.user');
+    walletZuruecksetzen();
+    localStorage.removeItem('ra.wallet');
+    walletIdbTx('del').catch(() => { });
     myProfile = null;
     refreshProfileTab();
     switchView('feed');
@@ -916,7 +944,7 @@ function renderCoupons(host) {
     if ((state.couponQuery || '').trim()) return;
     // Gespeichert werden Namen, nicht Schlüssel — die Reihenfolge gilt markenweit
     const namen = newOrder.map(k => (walletBrands().find(b => b.key === k) || {}).name).filter(Boolean);
-    localStorage.setItem('ra.couponOrder', JSON.stringify(namen));
+    lsSetzen('ra.couponOrder', JSON.stringify(namen));
   }, el => el.dataset.marke);
 }
 
@@ -1166,14 +1194,19 @@ function origWartend() {
   try { return JSON.parse(localStorage.getItem('ra.origWartend') || '[]'); } catch { return []; }
 }
 function origWartendSetzen(liste) {
-  try { localStorage.setItem('ra.origWartend', JSON.stringify(liste.slice(-300))); } catch { /* voll */ }
+  try { lsSetzen('ra.origWartend', JSON.stringify(liste.slice(-300))); } catch { /* voll */ }
 }
 // Warteschlange: offline oder abgemeldet gemachte Fotos gehen beim naechsten
 // geglueckten Wallet-Sync nach oben
 let origUploadLaeuft = false;
+let origUploadP = null;
 async function origHochladen(id) {
   if (id && !origWartend().includes(id)) origWartendSetzen([...origWartend(), id]);
+  // Laeuft schon ein Durchgang: auf ihn warten (Verschenken braucht das Foto oben)
+  if (origUploadLaeuft) { await origUploadP?.catch(() => { }); if (!origWartend().length) return; }
   if (!state.token || origUploadLaeuft) return;
+  let fertig;
+  origUploadP = new Promise(r => { fertig = r; });
   origUploadLaeuft = true;
   let hakt = false;
   try {
@@ -1182,7 +1215,7 @@ async function origHochladen(id) {
       if (e && e.blob) {
         const r = await fetch(API_BASE + '/api/wallet/orig?id=' + encodeURIComponent(vid), {
           method: 'POST', body: e.blob,
-          headers: { 'Content-Type': 'image/jpeg', Authorization: 'Bearer ' + state.token },
+          headers: { 'Content-Type': e.blob.type || 'image/jpeg', Authorization: 'Bearer ' + state.token },
         });
         // Netz oder Server gerade weg: spaeter nochmal. Abgelehnt (zu gross,
         // kein JPEG): nicht endlos wiederholen.
@@ -1191,7 +1224,7 @@ async function origHochladen(id) {
       origWartendSetzen(origWartend().filter(x => x !== vid));
     }
   } catch { hakt = true; }
-  finally { origUploadLaeuft = false; }
+  finally { origUploadLaeuft = false; fertig(); }
   // Waehrenddessen dazugekommen? Gleich hinterher.
   if (!hakt && origWartend().length) origHochladen();
 }
@@ -1611,11 +1644,11 @@ function wireVoucherImage(v) {
       rd.onload = () => res(rd.result); rd.onerror = rej; rd.readAsDataURL(f);
     });
     // Das ganze Foto bleibt als Original erhalten (verkleinert, ausserhalb der Wallet)
-    const ganzesFoto = await readImageFile(f, 1600, 0.82).catch(() => '');
+    const ganzesFoto = await readImageFile(f, 1600, 0.82, 'foto').catch(() => '');
     openImgCrop(url, (out, info) => {
       if (info.ganz || !ganzesFoto) origEntfernen(v); // sonst zeigte "Original" noch das alte Foto
       else origSichern(v, ganzesFoto);
-      v.codeImg = out; v.img = ''; saveWallet(); openVoucherSheet(v.id);
+      v.codeImg = out; v.img = ''; v.bildMt = Math.max(Date.now(), (v.bildMt || 0) + 1); saveWallet(); openVoucherSheet(v.id);
     });
   });
   $('#wv-img-crop')?.addEventListener('click', async () => {
@@ -1625,7 +1658,7 @@ function wireVoucherImage(v) {
     openImgCrop(vomOriginal || v.codeImg || v.img, (out, info) => {
       if (info.ganz) origEntfernen(v);          // jetzt IST das Bild das Original
       else if (!v.orig && v.img) origSichern(v, v.img); // bisher unbeschnitten: das wird das Original
-      v.codeImg = out; v.img = ''; saveWallet(); openVoucherSheet(v.id);
+      v.codeImg = out; v.img = ''; v.bildMt = Math.max(Date.now(), (v.bildMt || 0) + 1); saveWallet(); openVoucherSheet(v.id);
     });
   });
 }
@@ -1729,12 +1762,8 @@ function openImgCrop(src, onDone) {
   wrap.querySelector('#crop-cancel').onclick = () => finish(null);
   wrap.addEventListener('click', e => { if (e.target === wrap) finish(null); });
   wrap.querySelector('#crop-full').onclick = () => {
-    // Original unveraendert uebernehmen (nur kompakt als JPEG)
-    const c = document.createElement('canvas');
-    const s2 = Math.min(1, 1400 / Math.max(img.naturalWidth, img.naturalHeight));
-    c.width = Math.round(img.naturalWidth * s2); c.height = Math.round(img.naturalHeight * s2);
-    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-    finish(c.toDataURL('image/jpeg', 0.86), { ganz: true });
+    // Ganzes Foto uebernehmen — kompakt, aber Kleingedrucktes bleibt lesbar
+    finish(kodiereBild(img, 'foto'), { ganz: true });
   };
   wrap.querySelector('#crop-ok').onclick = () => {
     const k = baseScale * zoom;
@@ -1744,11 +1773,12 @@ function openImgCrop(src, onDone) {
     sy = Math.max(0, Math.min(img.naturalHeight - 10, sy));
     sw = Math.min(img.naturalWidth - sx, sw);
     sh = Math.min(img.naturalHeight - sy, sh);
+    // Ausschnitt in voller Aufloesung, das Verkleinern uebernimmt kodiereBild
     const c = document.createElement('canvas');
-    const outW = Math.min(1200, Math.round(sw));
-    c.width = outW; c.height = Math.round(outW * (sh / sw));
+    const outW = Math.min(2000, Math.round(sw));
+    c.width = outW; c.height = Math.max(1, Math.round(outW * (sh / sw)));
     c.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
-    finish(c.toDataURL('image/jpeg', 0.86));
+    finish(kodiereBild(c, 'code'));
   };
 }
 async function shareDeal(d) {
@@ -1887,6 +1917,7 @@ function openSheetShell(richtung) {
 // Steht hier oben, weil closeSheet sie loesen muss (siehe dort).
 let blattSchrumpf = null;
 function closeSheet() {
+  waScanLauf++; // laufende Scans duerfen nichts mehr eintragen
   // Falls die Verschenk-Animation das Blatt kleiner gefahren hat: loesen, sonst
   // haelt ihr fill:'forwards' das Blatt an Ort und Stelle fest und es liesse
   // sich nicht mehr wegschieben.
@@ -2622,7 +2653,7 @@ async function refreshGamiSystem() {
   // Rank-Up feiern: einmalige Vollbild-Celebration
   const lastTier = Number(localStorage.getItem('ra.tier') || 0);
   if (lastTier && gami.rank.tier > lastTier) rankUpFx(gami.rank);
-  localStorage.setItem('ra.tier', gami.rank.tier);
+  lsSetzen('ra.tier', gami.rank.tier);
   // Quests: gebündelt, kompakt, Funken per "Abholen"
   const GROUPS = [
     ['Community', ['comment', 'rate', 'chat', 'friend']],
@@ -3553,7 +3584,9 @@ $('#g-handle-save').addEventListener('click', async () => {
   try {
     const r = await api('/api/handle', { method: 'POST', body: JSON.stringify({ name: neu }) });
     state.userName = r.user;
-    localStorage.setItem('ra.user', r.user);
+    walletBesitzer = r.user; // gleiche Wallet, neuer Name — kein Kontowechsel
+    speichereWallet(true);
+    lsSetzen('ra.user', r.user);
     $('#g-handle').value = '';
     island(`Du heißt jetzt @${r.user}`);
     refreshProfileTab();
@@ -3900,8 +3933,20 @@ function setBtnLoading(btn, on) {
 function authOk(r, { welcome = false } = {}) {
   state.token = r.token;
   state.userName = r.user;
-  localStorage.setItem('ra.token', r.token);
-  localStorage.setItem('ra.user', r.user);
+  // Lag hier die Wallet eines ANDEREN Kontos, gehoert sie nicht in dieses —
+  // frueher wurde sie hineingemischt (samt Loeschmarkern, die dann echte
+  // Gutscheine des neuen Kontos toeteten)
+  if (walletBesitzer && walletBesitzer !== r.user) walletZuruecksetzen();
+  // Lag fuer dieses Konto noch Ungesichertes beiseite (frueherer Kontowechsel),
+  // kommt es jetzt zurueck und geht hoch
+  walletBereit.then(() => walletIdbTx('get', undefined, 'beiseite:' + r.user)).then(rec => {
+    if (!rec || !rec.wallet || state.userName !== r.user) return;
+    mischeWallet(rec.wallet);
+    saveWallet();
+    walletIdbTx('del', undefined, 'beiseite:' + r.user).catch(() => { });
+  }).catch(() => { });
+  lsSetzen('ra.token', r.token);
+  lsSetzen('ra.user', r.user);
   refreshProfileTab();
   pullWallet(); // Wallet vom Konto holen (Gerätewechsel/Neuinstallation)
   connectStream(); // Echtzeit-Stream mit dem frischen Token neu verbinden
@@ -4011,7 +4056,7 @@ const swSound = $('#sw-sound');
 if (swSound) {
   swSound.checked = soundOn();
   swSound.addEventListener('change', () => {
-    localStorage.setItem('ra.sound', swSound.checked ? '1' : '0');
+    lsSetzen('ra.sound', swSound.checked ? '1' : '0');
     if (swSound.checked) { initSfx(); playSfx('plop'); }
   });
 }
@@ -4064,7 +4109,7 @@ const OB_STEPS = [
       </div>`,
     wire: () => {
       $('#ob-sound')?.addEventListener('change', e => {
-        localStorage.setItem('ra.sound', e.target.checked ? '1' : '0');
+        lsSetzen('ra.sound', e.target.checked ? '1' : '0');
         const sw = $('#sw-sound'); if (sw) sw.checked = e.target.checked;
         if (e.target.checked) { initSfx(); playSfx('plop'); }
       });
@@ -4136,7 +4181,7 @@ function renderObStep() {
 }
 
 function finishOnboarding(openRegister) {
-  localStorage.setItem('ra.tutorialDone', '1');
+  lsSetzen('ra.tutorialDone', '1');
   $('#onboard').classList.add('done');
   setTimeout(() => $('#onboard').classList.add('hidden'), 520);
   if (openRegister && !state.token) $('#btn-register-open').click();
@@ -4196,7 +4241,7 @@ function showTourFinale() {
     </div>
     <button class="ob-alt" id="obf-guest">Ohne Konto weiter</button>`;
   const closeOb = () => {
-    localStorage.setItem('ra.tutorialDone', '1');
+    lsSetzen('ra.tutorialDone', '1');
     ob.classList.add('done');
     setTimeout(() => { ob.classList.add('hidden'); ob.classList.remove('done', 'step', 'finale'); next.classList.remove('hidden'); }, 520);
   };
@@ -4292,7 +4337,7 @@ function startTour() {
     setTimeout(() => tour.remove(), 400);
   };
   tour.querySelector('.tour-skip-inline').onclick = () => {
-    localStorage.setItem('ra.tutorialDone', '1');
+    lsSetzen('ra.tutorialDone', '1');
     end();
   };
   const show = () => {
@@ -4368,23 +4413,46 @@ $('#btn-wallet-login').addEventListener('click', () => switchView('profile'));
 
 // ---------------- Wallet 2.0: Gutscheine mit Guthaben + Sparkarten ----------------
 
-// Migration alter Einträge: value-String -> Guthaben, neue Felder ergänzen
-state.wallet.vouchers = state.wallet.vouchers.map(v => ({
-  pin: '', img: '', codeImg: '', tx: [], balance: v.balance ?? (parseFloat(String(v.value || '').replace(',', '.')) || null),
-  amount: v.amount ?? (parseFloat(String(v.value || '').replace(',', '.')) || null),
-  ...v,
-}));
-state.wallet.cards = state.wallet.cards.map(c => ({ img: '', codeImg: '', ...c }));
+// Migration alter Einträge: value-String -> Guthaben, neue Felder ergänzen.
+// An Ort und Stelle (gleiche Objekte) und beliebig oft aufrufbar: beim Start
+// und nochmal, wenn die volle Wallet aus IndexedDB da ist.
+function normalisiereWallet() {
+  const w = state.wallet;
+  w.vouchers = (Array.isArray(w.vouchers) ? w.vouchers : []).filter(Boolean);
+  w.cards = (Array.isArray(w.cards) ? w.cards : []).filter(Boolean);
+  w.deleted = Array.isArray(w.deleted) ? w.deleted : [];
+  const neueId = () => Math.random().toString(36).slice(2, 9);
+  for (const v of w.vouchers) {
+    const wert = parseFloat(String(v.value || '').replace(',', '.')) || null;
+    // Uralte Eintraege ohne ID: bekommen eine, statt beim Abgleich zu verschwinden
+    if (!v.id) v.id = neueId();
+    if (!('pin' in v)) v.pin = '';
+    if (!('img' in v)) v.img = '';
+    if (!('codeImg' in v)) v.codeImg = '';
+    if (!('tx' in v)) v.tx = [];
+    if (!('balance' in v) || v.balance === undefined) v.balance = wert;
+    if (!('amount' in v) || v.amount === undefined) v.amount = wert;
+  }
+  for (const c of w.cards) {
+    if (!c.id) c.id = neueId();
+    if (!('img' in c)) c.img = '';
+    if (!('codeImg' in c)) c.codeImg = '';
+  }
+  ensureWalletDates();
+  slimWalletImages();
+}
 // Bestandsdaten ohne Datum reparieren (sehr alte Einträge haben weder added
 // noch Buchungs-Zeitstempel) – sonst ignoriert die Statistik sie stumm
 function ensureWalletDates() {
+  // Hat ein datumloser Alt-Eintrag einen Loeschmarker, bekommt er nicht
+  // "jetzt" — sonst waere er juenger als der Marker und lebte wieder auf
+  const tot = new Set((state.wallet.deleted || []).map(t => t && t.id));
   state.wallet.vouchers.forEach(v => {
     const stamps = (v.tx || []).map(t => t.ts).filter(Boolean);
-    if (!v.added) v.added = stamps.length ? Math.min(...stamps) : Date.now();
+    if (!v.added) v.added = stamps.length ? Math.min(...stamps) : (tot.has(v.id) ? 1 : Date.now());
     (v.tx || []).forEach(t => { if (!t.ts) t.ts = v.added; });
   });
 }
-ensureWalletDates();
 // Payload-Diät: das Originalfoto ist überflüssig, sobald der Kassen-Zuschnitt da
 // ist. Base64-Fotos machten die Wallet mehrere MB groß und ließen den Sync über
 // Mobilfunk regelmäßig ins Timeout laufen ("Gutschein nur lokal gespeichert")
@@ -4395,30 +4463,46 @@ function slimWalletImages() {
   });
   return changed;
 }
-slimWalletImages();
-// Zuschnitte aus früheren Versionen waren PNGs mit mehreren MB und sprengten den
-// Konto-Sync: einmalig zu kompaktem JPEG umwandeln
-(async function shrinkOldCodeImgs() {
-  let changed = false;
-  for (const item of [...state.wallet.vouchers, ...state.wallet.cards]) {
-    if (item.codeImg && item.codeImg.startsWith('data:image/png') && item.codeImg.length > 300000) {
+normalisiereWallet();
+// Bestand nachkomprimieren: alte Bilder (JPEG in fester Qualitaet, frueher
+// sogar PNG mit mehreren MB) werden im Hintergrund neu kodiert — aber nur,
+// wenn es mindestens ein Viertel spart. Sonst bleibt das Bild, wie es ist:
+// jedes Neukodieren kostet ein wenig Schaerfe, das lohnt nur bei echtem Gewinn.
+async function verkleinereBestand() {
+  const alle = [...state.wallet.vouchers, ...state.wallet.cards].filter(x => x && x.id);
+  // Nur Merker fuer Eintraege behalten, die es noch gibt
+  const lebt = new Set(alle.map(x => x.id));
+  const geprueft = Object.fromEntries(Object.entries(lsJson('ra.bilderGeprueft', {})).filter(([k]) => lebt.has(k.split(':')[0])));
+  let geaendert = 0;
+  for (const item of alle) {
+    for (const feld of ['codeImg', 'img']) {
+      const alt = item && item[feld];
+      if (!alt || alt.length < 40_000) continue;
+      const sig = item.id + ':' + feld + ':' + alt.length;
+      if (geprueft[sig]) continue;
+      geprueft[sig] = 1;
       try {
-        const img = new Image();
-        await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = item.codeImg; });
-        const c = document.createElement('canvas');
-        const s = Math.min(1, 700 / Math.max(img.width, img.height));
-        c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
-        const ctx = c.getContext('2d');
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(0, 0, c.width, c.height);
-        ctx.drawImage(img, 0, 0, c.width, c.height);
-        item.codeImg = c.toDataURL('image/jpeg', 0.88);
-        changed = true;
-      } catch { }
+        const bild = new Image();
+        await new Promise((res, rej) => { bild.onload = res; bild.onerror = rej; bild.src = alt; });
+        const neu = kodiereBild(bild, 'bestand');
+        // Nur uebernehmen, wenn das Bild sich inzwischen nicht geaendert hat.
+        // Das ist KEINE Bearbeitung: mt steigt nur minimal (damit die kleinere
+        // Fassung hochgeht), nie auf "jetzt" — sonst schluege ein Geraet mit
+        // altem Stand echte Aenderungen anderer Geraete
+        if (neu && neu.length <= alt.length * 0.75 && item[feld] === alt) {
+          item[feld] = neu;
+          item.mt = (item.mt || 0) + 1;
+          walletHashes[item.id] = itemHash(item);
+          geaendert++;
+        }
+      } catch { /* kaputtes Bild: so lassen */ }
+      // Dem Handy Luft lassen: ein Bild pro Durchgang
+      await new Promise(r => setTimeout(r, 30));
     }
   }
-  if (changed) saveWallet();
-})();
+  lsSetzen('ra.bilderGeprueft', JSON.stringify(geprueft));
+  if (geaendert) saveWallet();
+}
 
 // Wallet: lokal speichern + (angemeldet) ans Konto syncen, Gutscheine überleben
 // so App-Neuinstallation und Gerätewechsel
@@ -4430,8 +4514,9 @@ let walletSyncFatal = false; // true = der Server hat abgelehnt (Retry zwecklos)
 let walletSyncInFlight = null; // Single-Flight: parallele Syncs teilen sich EINEN Upload
 // Löschmarker: Gelöschtes wird dem Konto GEMELDET statt nur weggelassen —
 // sonst belebt das Zweitgerät (altes Handy) den Gutschein beim nächsten Sync wieder
+const LOESCHMARKER_MAX = 20000;
 function tombstone(id) {
-  state.wallet.deleted = [...(state.wallet.deleted || []), { id, ts: Date.now() }].slice(-500);
+  state.wallet.deleted = [...(state.wallet.deleted || []), { id, ts: Date.now() }].slice(-LOESCHMARKER_MAX);
   origIdb('del', id); // Originalfoto auf dem Geraet; am Konto raeumt der Server auf
 }
 // Der eigene Name mit Paint im Profil-Kopf: gami (bei Equips sofort aktuell)
@@ -4473,7 +4558,10 @@ const walletHashes = {};
   }
 })();
 function itemHash(it) {
-  const str = JSON.stringify(it, (k, v) => (k === 'mt' ? undefined : v));
+  const str = JSON.stringify(it, (k, v) => (k === 'mt' || k === 'bildSig' ? undefined
+    : (k === 'codeImg' || k === 'img') && typeof v === 'string' && v.length > 200
+      ? 'b:' + v.length + ':' + v.slice(40, 90) + v.slice(-60)
+      : v));
   let h = 5381;
   for (let i = 0; i < str.length; i++) h = ((h * 33) ^ str.charCodeAt(i)) >>> 0;
   return h + ':' + str.length;
@@ -4485,7 +4573,7 @@ function markWalletChanges() {
     if (!it || !it.id) continue;
     alive.add(it.id);
     const h = itemHash(it);
-    if (walletHashes[it.id] !== h) { it.mt = Date.now(); walletHashes[it.id] = h; changed = true; }
+    if (walletHashes[it.id] !== h) { it.mt = Math.max(Date.now(), (it.mt || 0) + 1); walletHashes[it.id] = h; changed = true; }
   }
   for (const id of Object.keys(walletHashes)) {
     if (!alive.has(id)) { delete walletHashes[id]; changed = true; }
@@ -4493,39 +4581,332 @@ function markWalletChanges() {
   return changed;
 }
 
+// ---------------- Wallet-Speicher: Platz ohne 5-MB-Deckel ----------------
+// Die Wallet liegt vollstaendig (mit allen Bildern) in IndexedDB — dort ist
+// Platz fuer so viel, wie das Handy frei hat. localStorage haelt nur noch einen
+// kleinen Spiegel ohne Bilder: damit steht die Wallet beim Start sofort da, die
+// Bilder kommen Millisekunden spaeter dazu (walletBereit).
+// Frueher lag alles im localStorage (rund 5 MB). Ab etwa 50 Gutscheinen mit
+// Foto war der voll, Speichern scheiterte still — so gingen Gutscheine verloren.
+let walletIdbP = null;
+function walletIdb() {
+  if (!walletIdbP) {
+    walletIdbP = new Promise((res, rej) => {
+      if (!window.indexedDB) return rej(new Error('kein IndexedDB'));
+      const r = indexedDB.open('kumulio-wallet', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('stand');
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+      r.onblocked = () => rej(new Error('IndexedDB blockiert'));
+    });
+    walletIdbP.catch(() => { walletIdbP = null; });
+  }
+  return walletIdbP;
+}
+function walletIdbTx(art, wert, schluessel = 'wallet') {
+  return walletIdb().then(db => new Promise((res, rej) => {
+    const tx = db.transaction('stand', art === 'get' ? 'readonly' : 'readwrite');
+    const st = tx.objectStore('stand');
+    const r = art === 'get' ? st.get(schluessel) : art === 'put' ? st.put(wert, schluessel) : st.delete(schluessel);
+    // Erst melden, wenn es wirklich festgeschrieben ist
+    tx.oncomplete = () => res(r.result);
+    tx.onerror = () => rej(tx.error || r.error);
+    tx.onabort = () => rej(tx.error || new Error('abgebrochen'));
+  }));
+}
+// Kurzer Fingerabdruck der Bilder: daran erkennt der Start, ob das Bild aus
+// IndexedDB zu diesem Eintrag gehoert (und nicht zu einer aelteren Fassung)
+function bildSig(it) {
+  const a = (it && it.codeImg) || '', b = (it && it.img) || '';
+  if (!a && !b) return '';
+  const probe = s => s.length + '.' + s.slice(40, 72) + s.slice(-32);
+  return probe(a) + '|' + probe(b);
+}
+function schreibeSpiegel() {
+  const leicht = it => {
+    // Ohne (lesbares) IndexedDB: Bilder im Spiegel lassen, so gut es passt —
+    // nicht hydrierte Eintraege behalten ihren Fingerabdruck fuer den naechsten Start
+    if (!it || !walletIdbOk || idbGesperrt) return it;
+    const sig = bildSig(it);
+    return sig ? { ...it, codeImg: '', img: '', bildSig: sig } : it;
+  };
+  const spiegel = {
+    stand: walletStand, user: walletBesitzer, bilderInIdb: walletIdbOk,
+    vouchers: (state.wallet.vouchers || []).map(leicht),
+    cards: (state.wallet.cards || []).map(leicht),
+    deleted: state.wallet.deleted || [],
+  };
+  if (lsSetzen('ra.wallet', JSON.stringify(spiegel))) return true;
+  // Ohne IndexedDB und voller localStorage: wenigstens alles ausser den
+  // Bildern (die liegen beim Konto und kommen beim Abgleich zurueck)
+  const ohne = it => (it && (it.codeImg || it.img) ? { ...it, codeImg: '', img: '', bildSig: bildSig(it) } : it);
+  return lsSetzen('ra.wallet', JSON.stringify({ ...spiegel, bilderInIdb: false,
+    vouchers: spiegel.vouchers.map(ohne), cards: spiegel.cards.map(ohne) }));
+}
+// IndexedDB-Schreiben gebuendelt: laeuft eins, folgt danach genau noch eins
+// mit dem neuesten Stand
+let idbSchreibt = null, idbNochmal = false, idbFehler = 0;
+function walletIdbMerken() {
+  if (idbGesperrt) return Promise.resolve();
+  if (idbSchreibt) { idbNochmal = true; return idbSchreibt; }
+  idbSchreibt = (async () => {
+    // Vor dem Start-Abgleich stuende hier die Fassung ohne Bilder — die darf
+    // IndexedDB nie ueberschreiben
+    await walletBereit;
+    do {
+      // Kann waehrend des Wartens gesperrt worden sein (Start fand IndexedDB nicht)
+      if (idbGesperrt) return;
+      idbNochmal = false;
+      try {
+        await walletIdbTx('put', { stand: walletStand, user: walletBesitzer, wallet: state.wallet });
+        idbFehler = 0;
+        if (!walletIdbOk) { walletIdbOk = true; schreibeSpiegel(); }
+      } catch {
+        // Einmal haken kann IndexedDB schon (Speicherdruck, Hintergrund):
+        // nochmal versuchen, erst nach drei Fehlschlaegen alles in den localStorage
+        walletIdbP = null; // Verbindung neu aufbauen
+        if (++idbFehler < 3) { await new Promise(r => setTimeout(r, 700)); idbNochmal = true; continue; }
+        if (walletIdbOk) { walletIdbOk = false; schreibeSpiegel(); }
+        break;
+      }
+    } while (idbNochmal);
+  })().finally(() => { idbSchreibt = null; });
+  return idbSchreibt;
+}
+function speichereWallet(vomServer) {
+  if (!vomServer) {
+    walletRev++;
+    // Bearbeitet-Zeitpunkt (mt) sofort setzen, nicht erst beim Hochladen:
+    // sonst gewinnt bei zwei Geraeten die falsche Fassung
+    try { markWalletChanges(); } catch { /* beim Start noch nicht bereit */ }
+  }
+  if (state.userName) walletBesitzer = state.userName;
+  walletStand = Math.max(Date.now(), walletStand + 1);
+  const ok = schreibeSpiegel();
+  if (walletIdbOk) walletIdbMerken();
+  return ok;
+}
+// Eintrag an Ort und Stelle aktualisieren statt ihn zu ersetzen: ein offenes
+// Gutschein-Blatt haelt sein Objekt fest — bucht man dort ab, muss die Buchung
+// im selben Objekt landen, das auch gespeichert wird
+function ersetzeInhalt(ziel, quelle) {
+  if (ziel === quelle) return ziel;
+  for (const k of Object.keys(ziel)) if (!(k in quelle)) delete ziel[k];
+  Object.assign(ziel, quelle);
+  return ziel;
+}
+function ersetzeListeInPlace(key, neuListe) {
+  const alt = new Map((state.wallet[key] || []).filter(Boolean).map(x => [x.id, x]));
+  state.wallet[key] = (neuListe || []).filter(Boolean).map(n => { const a = alt.get(n.id); return a ? ersetzeInhalt(a, n) : n; });
+}
+function walletHashesNeu() {
+  Object.keys(walletHashes).forEach(k => delete walletHashes[k]);
+  for (const it of [...state.wallet.vouchers, ...state.wallet.cards]) if (it && it.id) walletHashes[it.id] = itemHash(it);
+}
+// Start: Bilder aus IndexedDB zum Spiegel holen
+// IndexedDB war beim Start nicht lesbar (gibt es aber): in dieser Sitzung
+// NICHT hineinschreiben — sonst ueberschriebe die bildlose Fassung die Bilder
+// dort. Der Spiegel behaelt seine Fingerabdruecke, der naechste Start holt sie.
+let idbGesperrt = false;
+function hydriereWallet() {
+  const spiegel = state.wallet;
+  // Alte Version (vor IndexedDB): der localStorage hatte die ganze Wallet,
+  // ohne "stand". Nur das ist Altbestand — nie ein Spiegel dieser Version.
+  const altbestand = !('stand' in spiegel);
+  walletBereit = (async () => {
+    let rec = null, gelesen = false;
+    for (let versuch = 0; versuch < 3 && !gelesen; versuch++) {
+      try {
+        // Haengt IndexedDB, darf die App nicht die ganze Sitzung warten
+        rec = await Promise.race([walletIdbTx('get'), new Promise((_, rej) => setTimeout(() => rej(new Error('IndexedDB haengt')), 6000))]);
+        gelesen = true;
+      } catch {
+        if (!window.indexedDB) break;
+        walletIdbP = null; // tote Verbindung verwerfen, neu oeffnen
+        await new Promise(r => setTimeout(r, 800));
+      }
+    }
+    if (!gelesen) {
+      if (!window.indexedDB) walletIdbOk = false; // gibt es nicht: localStorage ist der Speicher
+      else idbGesperrt = true;
+      return;
+    }
+    const fremd = rec && rec.user && walletBesitzer && rec.user !== walletBesitzer;
+    if (rec && rec.wallet && !fremd) {
+      const byId = new Map([...(rec.wallet.vouchers || []), ...(rec.wallet.cards || [])].filter(Boolean).map(x => [x.id, x]));
+      const nichtAelter = (rec.stand || 0) >= (Number(spiegel.stand) || 0);
+      if (!altbestand && nichtAelter && walletRev === 0) {
+        // IndexedDB ist mindestens so neu wie der Spiegel: ganz uebernehmen
+        ersetzeListeInPlace('vouchers', rec.wallet.vouchers);
+        ersetzeListeInPlace('cards', rec.wallet.cards);
+        state.wallet.deleted = rec.wallet.deleted || state.wallet.deleted || [];
+      } else {
+        // Sonst die Daten von hier behalten (Spiegel neuer, oder schon waehrend
+        // des Starts etwas geaendert) und Bilder aus IndexedDB holen: mit
+        // Fingerabdruck nur, wenn es sicher dasselbe Bild ist; ohne nur, wenn
+        // hier gar keins da ist und IndexedDB nicht aelter ist
+        for (const it of [...spiegel.vouchers, ...spiegel.cards]) {
+          if (!it || it.codeImg || it.img) continue;
+          const q = byId.get(it.id);
+          if (!q || !(q.codeImg || q.img)) continue;
+          if (it.bildSig ? bildSig(q) === it.bildSig : nichtAelter) { it.codeImg = q.codeImg || ''; it.img = q.img || ''; }
+        }
+        // Was nur IndexedDB kennt (Spiegel konnte nicht geschrieben werden), dazu
+        if ((rec.stand || 0) > (Number(spiegel.stand) || 0)) {
+          const tot = new Set((state.wallet.deleted || []).map(t => t && t.id));
+          const hier = new Set([...spiegel.vouchers, ...spiegel.cards].map(x => x && x.id));
+          for (const q of rec.wallet.vouchers || []) if (q && !hier.has(q.id) && !tot.has(q.id)) state.wallet.vouchers.push(q);
+          for (const q of rec.wallet.cards || []) if (q && !hier.has(q.id) && !tot.has(q.id)) state.wallet.cards.push(q);
+        }
+      }
+    }
+    // Umstieg von der alten Version: erst die volle Wallet sicher in
+    // IndexedDB, DANN wird der localStorage zum bildlosen Spiegel — sonst
+    // gaebe es kurz keine vollstaendige Kopie mit Bildern
+    if (altbestand) {
+      try { await walletIdbTx('put', { stand: Date.now(), user: walletBesitzer, wallet: state.wallet }); }
+      catch { idbGesperrt = true; }
+    }
+  })().catch(() => { }).then(() => {
+    // Fehlende Bilder holt der naechste Abgleich vom Konto. Nur wenn IndexedDB
+    // gesperrt ist, bleiben die Fingerabdruecke stehen (fuer den naechsten Start).
+    if (!idbGesperrt) for (const it of [...state.wallet.vouchers, ...state.wallet.cards]) if (it && 'bildSig' in it) delete it.bildSig;
+    delete state.wallet.stand; delete state.wallet.user; delete state.wallet.bilderInIdb;
+    normalisiereWallet();
+    walletHashesNeu();
+    walletIstBereit = true;
+    speichereWallet(true);
+    renderWallet();
+    // Alte, grosse Bilder nachkomprimieren — erst nach einem geglueckten
+    // Abgleich mit dem Konto (siehe pullWallet), nie auf veraltetem Stand
+  });
+  return walletBereit;
+}
+// Das Geraet soll den Speicher nicht bei Platzmangel still leeren duerfen
+try { navigator.storage?.persist?.().catch?.(() => { }); } catch { /* egal */ }
+
+// Wallet eines anderen Kontos gehoert nicht in dieses — bei Kontowechsel leeren
+function walletZuruecksetzen() {
+  // Noch nicht Gesichertes des vorigen Kontos nicht wegwerfen: beiseitelegen
+  const alt = walletBesitzer;
+  if (alt && (state.wallet.vouchers.length || state.wallet.cards.length) && walletBrauchtUpload()) {
+    walletIdbTx('put', { stand: Date.now(), wallet: JSON.parse(JSON.stringify(state.wallet)) }, 'beiseite:' + alt).catch(() => { });
+  }
+  lsSetzen('ra.origWartend', '[]');
+  state.wallet.vouchers = [];
+  state.wallet.cards = [];
+  state.wallet.deleted = [];
+  walletOben = {};
+  speichereWalletOben();
+  walletHashesNeu();
+  try { localStorage.removeItem('ra.walletDirty'); } catch { }
+  walletRevOben = walletRev;
+  walletBesitzer = state.userName || '';
+  speichereWallet(true);
+  renderWallet();
+}
+
+// ---- Abgleich in kleinen Stuecken ----
+// walletOben: pro Eintrag der Stand, den das Konto nachweislich hat. Hochgeladen
+// wird nur, was davon abweicht — statt bei jeder Abbuchung die ganze Wallet
+// (bei 50 Gutscheinen mit Foto ueber 5 MB) ueber Mobilfunk zu schieben.
+function speichereWalletOben() { lsSetzen('ra.walletOben', JSON.stringify(walletOben)); }
+function obenHash(it) { return itemHash(it) + '|' + ((it && it.mt) || 0); }
+let walletAbgelehnt = new Set(); // vom Konto wegen der Notbremse abgelehnt
+function walletBrauchtUpload() {
+  if (walletRev > walletRevOben) return true;
+  return [...state.wallet.vouchers, ...state.wallet.cards].some(it => it && it.id && !walletAbgelehnt.has(it.id) && walletOben[it.id] !== obenHash(it));
+}
+// Inhaltsverzeichnis vom Konto: holen, was hier fehlt oder dort neuer ist
+async function gleicheMitIndexAb(index, deleted, konto = state.token) {
+  // Wurde inzwischen das Konto gewechselt, gehoert diese Antwort nicht hierher
+  if (!index || state.token !== konto) return;
+  mischeWallet({ vouchers: [], cards: [], deleted: deleted || [] });
+  const dirty = !!localStorage.getItem('ra.walletDirty');
+  const lokal = new Map([...state.wallet.vouchers, ...state.wallet.cards].filter(Boolean).map(x => [x.id, x]));
+  const tombs = {};
+  for (const t of state.wallet.deleted || []) if (t && t.id) tombs[t.id] = Math.max(tombs[t.id] || 0, t.ts || 0);
+  const brauche = [];
+  const aufServer = new Set();
+  for (const [id, mt, txn, bild, added] of [...(index.v || []), ...(index.c || [])]) {
+    aufServer.add(id);
+    const l = lokal.get(id);
+    if (!l) { if (!(tombs[id] && tombs[id] >= (added || 0))) brauche.push(id); continue; }
+    const lmt = l.mt || 0, ltx = (l.tx || []).length, lbild = !!(l.codeImg || l.img);
+    if ((mt || 0) > lmt || ((mt || 0) === lmt && txn > ltx) || (bild && !lbild)) brauche.push(id);
+    else if ((mt || 0) < lmt || txn < ltx || (!bild && lbild)) delete walletOben[id]; // dort fehlt etwas: nochmal hoch
+    // Erster Abgleich nach dem Update: was offensichtlich gleich ist, muss
+    // nicht nochmal hoch (nur wenn hier nichts Ungesichertes wartet)
+    else if (!walletOben[id] && !dirty && (mt || 0) === lmt && txn === ltx && !!bild === lbild) walletOben[id] = obenHash(l);
+  }
+  // Was das Konto nicht (mehr) hat, gilt nicht als gesichert
+  for (const id of Object.keys(walletOben)) if (!aufServer.has(id)) delete walletOben[id];
+  for (let i = 0; i < brauche.length; i += 25) {
+    const r = await api('/api/wallet/items', { method: 'POST', body: JSON.stringify({ ids: brauche.slice(i, i + 25) }),
+      signal: AbortSignal.timeout ? AbortSignal.timeout(60000) : undefined });
+    if (state.token !== konto) return;
+    mischeWallet({ vouchers: r.vouchers || [], cards: r.cards || [] }, true);
+  }
+  speichereWalletOben();
+  ensureWalletDates();
+  save('wallet', state.wallet, true);
+  renderWallet();
+}
+
+hydriereWallet();
+
 // Ein anderer Tab hat die Wallet angefasst: Stand uebernehmen, statt mit einer
 // veralteten Fassung weiterzuarbeiten und sie spaeter hochzuladen
 addEventListener('storage', e => {
+  if (e.key === 'ra.walletOben') { walletOben = lsJson('ra.walletOben', {}); return; }
   if (e.key !== 'ra.wallet' || !e.newValue) return;
-  try {
-    const neu = JSON.parse(e.newValue);
-    if (!neu || !Array.isArray(neu.vouchers)) return;
-    // Der andere Tab hat womoeglich nur die Fassung ohne Bilder ablegen koennen:
-    // Bilder aus dem eigenen Stand behalten statt sie zu verlieren
-    const bisher = new Map([...state.wallet.vouchers, ...(state.wallet.cards || [])].map(x => [x && x.id, x]));
-    const mitBild = it => {
-      const b = it && bisher.get(it.id);
-      return b && !it.codeImg && !it.img && (b.codeImg || b.img) ? { ...it, codeImg: b.codeImg || '', img: b.img || '' } : it;
-    };
-    neu.vouchers = neu.vouchers.map(mitBild);
-    neu.cards = (neu.cards || []).map(mitBild);
-    state.wallet = neu;
-    // Vergleichsstand mitziehen, sonst gilt gleich alles als veraendert
-    Object.keys(walletHashes).forEach(k => delete walletHashes[k]);
-    for (const it of [...neu.vouchers, ...(neu.cards || [])]) {
-      if (it && it.id) walletHashes[it.id] = itemHash(it);
-    }
-    if (state.activeView === 'wallet') renderWallet();
-    // Ein offenes Gutschein-Blatt zeigt sonst einen Stand, den es nicht mehr gibt
-    if (state.sheetMode === 'wallet-detail') closeSheet();
-  } catch { /* kaputter Eintrag — dann eben nicht */ }
+  let neu;
+  try { neu = JSON.parse(e.newValue); } catch { return; }
+  if (!neu || !Array.isArray(neu.vouchers) || (Number(neu.stand) || 0) <= walletStand) return;
+  // Hat sich der andere Tab mit einem anderen Konto angemeldet, passt hier
+  // nichts mehr zusammen — neu laden statt Wallets zu vermischen
+  if (neu.user && walletBesitzer && neu.user !== walletBesitzer) { location.reload(); return; }
+  const vorher = walletBereit;
+  walletBereit = vorher.then(() => uebernimmSpiegel(neu)).catch(() => { });
 });
+async function uebernimmSpiegel(neu) {
+  // Bilder: aus dem eigenen Stand, wenn es dasselbe Bild ist, sonst aus
+  // IndexedDB (der andere Tab schreibt dort kurz nach dem Spiegel)
+  const bisher = new Map([...state.wallet.vouchers, ...state.wallet.cards].filter(Boolean).map(x => [x.id, x]));
+  const alle = [...neu.vouchers, ...(neu.cards || [])].filter(Boolean);
+  for (const it of alle) {
+    if (!it.bildSig) continue;
+    const b = bisher.get(it.id);
+    if (b && bildSig(b) === it.bildSig) { it.codeImg = b.codeImg || ''; it.img = b.img || ''; delete it.bildSig; }
+  }
+  for (let i = 0; i < 20 && alle.some(x => x.bildSig); i++) {
+    const rec = await walletIdbTx('get').catch(() => null);
+    if (rec && rec.wallet && (rec.stand || 0) >= (Number(neu.stand) || 0)) {
+      const byId = new Map([...(rec.wallet.vouchers || []), ...(rec.wallet.cards || [])].filter(Boolean).map(x => [x.id, x]));
+      for (const it of alle) {
+        const q = it.bildSig && byId.get(it.id);
+        if (q && bildSig(q) === it.bildSig) { it.codeImg = q.codeImg || ''; it.img = q.img || ''; delete it.bildSig; }
+      }
+      break;
+    }
+    await new Promise(r => setTimeout(r, 100));
+  }
+  alle.forEach(it => { delete it.bildSig; }); // Rest holt der naechste Abgleich vom Konto
+  // An Ort und Stelle uebernehmen: ein offenes Blatt bucht weiter aufs richtige Objekt
+  ersetzeListeInPlace('vouchers', neu.vouchers);
+  ersetzeListeInPlace('cards', neu.cards || []);
+  state.wallet.deleted = neu.deleted || [];
+  walletStand = Math.max(walletStand, Number(neu.stand) || 0);
+  if (neu.user) walletBesitzer = neu.user;
+  walletOben = lsJson('ra.walletOben', {});
+  walletHashesNeu();
+  if (state.activeView === 'wallet') renderWallet();
+}
+let folgeSyncs = 0;
 async function syncWalletNow() {
   if (!state.token) return true;
   // Laeuft schon ein Upload, wartet man auf ihn. Enthielt er die eigene
-  // Aenderung noch nicht, folgt ein eigener Durchgang. Frueher hing man sich
-  // nur an — die Aenderung ging nie hoch, und die Dirty-Marke wurde trotzdem
-  // geloescht.
+  // Aenderung noch nicht, folgt ein eigener Durchgang.
   if (walletSyncInFlight) {
     const meineRev = walletRev;
     try { await walletSyncInFlight; } catch { /* unten entschieden */ }
@@ -4534,23 +4915,62 @@ async function syncWalletNow() {
   }
   walletSyncInFlight = (async () => {
     renderSyncBadge();
-    const revBeimStart = walletRev;
     try {
-      // Großzügiges Timeout: große Wallets über Mobilfunk brauchen ihre Zeit,
-      // hängen darf trotzdem nichts
-      const signal = AbortSignal.timeout ? AbortSignal.timeout(45000) : undefined;
+      // Erst wenn die Bilder aus IndexedDB da sind — sonst ginge die Fassung
+      // ohne Bilder hoch
+      await walletBereit;
+      const konto = state.token;
+      const revBeimStart = walletRev;
       markWalletChanges();
-      const r = await api('/api/wallet', { method: 'POST', body: JSON.stringify(state.wallet), signal });
-      // Hat das Konto Eintraege beigesteuert, wird VEREINIGT, nicht ersetzt:
-      // was hier waehrend des Uploads dazukam (z. B. ein gerade ausgepacktes
-      // Geschenk), bliebe beim Ersetzen auf der Strecke
-      if (r && r.merged) {
-        mischeWallet(r);
+      // Nur, was das Konto noch nicht genau so hat
+      const offen = [
+        ...state.wallet.vouchers.filter(it => it && it.id && !walletAbgelehnt.has(it.id) && walletOben[it.id] !== obenHash(it)).map(it => ['v', it]),
+        ...state.wallet.cards.filter(it => it && it.id && !walletAbgelehnt.has(it.id) && walletOben[it.id] !== obenHash(it)).map(it => ['c', it]),
+      ];
+      // In Paketen bis ~1,5 MB: reisst die Verbindung ab, bleibt Geschafftes geschafft
+      const pakete = [];
+      let akt = [], groesse = 0;
+      for (const [typ, it] of offen) {
+        const laenge = JSON.stringify(it).length;
+        if (akt.length && groesse + laenge > 1_500_000) { pakete.push(akt); akt = []; groesse = 0; }
+        akt.push({ typ, it, hash: obenHash(it), laenge });
+        groesse += laenge;
+      }
+      pakete.push(akt); // auch leer: Loeschmarker und Inhaltsverzeichnis
+      let antwort = null;
+      for (const paket of pakete) {
+        const bytes = paket.reduce((n, p) => n + p.laenge, 0);
+        // Grosszuegig, aber nie endlos: ~15 KB/s im schlechtesten Mobilfunk
+        const ms = Math.max(45000, Math.round(bytes / 15));
+        const signal = AbortSignal.timeout ? AbortSignal.timeout(ms) : undefined;
+        // bildSig ist nur fuer dieses Geraet — nie mitschicken
+        const ohneSig = it => ('bildSig' in it ? (({ bildSig, ...rest }) => rest)(it) : it);
+        const body = {
+          delta: true,
+          vouchers: paket.filter(p => p.typ === 'v').map(p => ohneSig(p.it)),
+          cards: paket.filter(p => p.typ === 'c').map(p => ohneSig(p.it)),
+          deleted: state.wallet.deleted || [],
+        };
+        antwort = await api('/api/wallet', { method: 'POST', body: JSON.stringify(body), signal });
+        // Kontowechsel unterwegs: nichts mehr von diesem Durchgang uebernehmen
+        if (state.token !== konto) return true;
+        for (const p of paket) walletOben[p.it.id] = p.hash;
+        // Ueber der Notbremse abgelehnt: bleibt auf dem Geraet, wird aber nicht
+        // in einer Schleife immer wieder hochgeladen
+        if (antwort && Array.isArray(antwort.abgelehnt) && antwort.abgelehnt.length) {
+          walletAbgelehnt = new Set([...walletAbgelehnt, ...antwort.abgelehnt]);
+          island(`${antwort.abgelehnt.length} Einträge passen nicht mehr ans Konto — bitte aufräumen`);
+        }
+        speichereWalletOben();
+      }
+      if (antwort && antwort.delta) await gleicheMitIndexAb(antwort.index, antwort.deleted, konto);
+      else if (antwort && antwort.merged) {
+        mischeWallet(antwort, true);
         ensureWalletDates();
         save('wallet', state.wallet, true);
         renderWallet();
-      } else if (r && r.deleted) {
-        mischeLoeschmarker(r.deleted);
+      } else if (antwort && antwort.deleted) {
+        mischeLoeschmarker(antwort.deleted);
         save('wallet', state.wallet, true);
       }
       walletRevOben = Math.max(walletRevOben, revBeimStart);
@@ -4558,8 +4978,16 @@ async function syncWalletNow() {
       walletSyncFatal = false;
       walletRetryDelay = 1500; // Backoff zurücksetzen
       clearTimeout(walletRetryTimer);
-      if (walletRev === revBeimStart) localStorage.removeItem('ra.walletDirty');
-      else setTimeout(syncWalletNow, 0); // Waehrenddessen Geaendertes gleich hinterher
+      if (walletRev !== revBeimStart) {
+        setTimeout(syncWalletNow, 0); // Waehrenddessen Geaendertes gleich hinterher
+      } else if (walletBrauchtUpload()) {
+        // Unterschiede nur durch den Abgleich: ein paar Mal nachfassen, nie endlos
+        lsSetzen('ra.walletDirty', '1');
+        if (folgeSyncs++ < 3) setTimeout(syncWalletNow, 1500);
+      } else {
+        folgeSyncs = 0;
+        try { localStorage.removeItem('ra.walletDirty'); } catch { }
+      }
       if (origWartend().length) origHochladen();
       return true;
     } catch (e) {
@@ -4567,7 +4995,7 @@ async function syncWalletNow() {
         ? 'Das Sichern dauert zu lange (Verbindung zu langsam?).'
         : (e.message || '');
       walletSyncFatal = e.status >= 400 && e.status < 500;
-      try { localStorage.setItem('ra.walletDirty', '1'); } catch { /* voll */ }
+      lsSetzen('ra.walletDirty', '1');
       // Schnell nachfassen statt aufs 30s-Intervall zu warten: die PWA hat nach
       // dem Aufwachen oft 1-2s kein Netz, der erste Versuch scheitert dann leise
       if (!walletSyncFatal) {
@@ -4591,7 +5019,7 @@ function saveWallet() {
   save('wallet', state.wallet);
   renderWallet();
   if (state.token) {
-    try { localStorage.setItem('ra.walletDirty', '1'); } catch { /* voll — walletRev zaehlt trotzdem */ }
+    lsSetzen('ra.walletDirty', '1'); // klappt es nicht, zaehlt walletRev trotzdem
     clearTimeout(walletSyncTimer);
     walletSyncTimer = setTimeout(syncWalletNow, 800);
   }
@@ -4644,57 +5072,102 @@ function mischeLoeschmarker(fremde) {
   for (const t of [...(state.wallet.deleted || []), ...(fremde || [])]) {
     if (t && t.id) tombs[t.id] = Math.max(tombs[t.id] || 0, t.ts || 0);
   }
-  state.wallet.deleted = Object.entries(tombs).map(([id, ts]) => ({ id, ts })).slice(-500);
+  state.wallet.deleted = Object.entries(tombs).sort((x, y) => x[1] - y[1])
+    .slice(-LOESCHMARKER_MAX).map(([id, ts]) => ({ id, ts }));
   return tombs;
 }
-function mischeWallet(remote) {
+// Buchungen, die nur die andere Fassung kennt (zweites Geraet hat offline
+// abgebucht), gehen nicht verloren: sie werden nachgetragen. Ebenso ein
+// Rueckgaengig, das nur dort passiert ist. Gleiche Regel wie auf dem Server.
+function mischeBuchungen(sieger, anderer) {
+  const st = Array.isArray(sieger.tx) ? sieger.tx : [];
+  const at = Array.isArray(anderer.tx) ? anderer.tx : [];
+  if (!at.length) return sieger;
+  const byId = new Map(st.filter(t => t && t.id).map(t => [t.id, t]));
+  let tx = st.slice();
+  let balance = sieger.balance;
+  let geaendert = false;
+  for (const t of at) {
+    if (!t || !t.id || typeof t.amt !== 'number') continue;
+    const s = byId.get(t.id);
+    if (!s) {
+      tx.push({ ...t });
+      geaendert = true;
+      if (!t.reverted && typeof balance === 'number') balance = Math.round((balance + t.amt) * 100) / 100;
+    } else if (t.reverted && !s.reverted) {
+      tx = tx.map(x => (x === s ? { ...s, reverted: true } : x));
+      geaendert = true;
+      if (typeof balance === 'number') balance = Math.round((balance - s.amt) * 100) / 100;
+    }
+  }
+  if (!geaendert) return sieger;
+  tx.sort((x, y) => (y.ts || 0) - (x.ts || 0));
+  return { ...sieger, tx, balance };
+}
+// Bild der Fassung mit dem juengeren Bild-Zeitstempel (bildMt) — unabhaengig
+// davon, welche Fassung sonst gewinnt
+function neuesBild(sieger, anderer) {
+  // Nur eine Fassung, die wirklich ein Bild hat, setzt es durch
+  if ((anderer.bildMt || 0) <= (sieger.bildMt || 0) || !(anderer.codeImg || anderer.img)) return sieger;
+  return { ...sieger, codeImg: anderer.codeImg || '', img: anderer.img || '', bildMt: anderer.bildMt,
+    ...(anderer.orig ? { orig: anderer.orig } : {}) };
+}
+// vomKonto = true: remote ist nachweislich der Stand am Konto (dann wird
+// gemerkt, welche Eintraege dort genau so liegen und nicht wieder hoch muessen)
+function mischeWallet(remote, vomKonto = false) {
   const tombs = mischeLoeschmarker(remote.deleted);
-  let hierMehr = false;
   const mitBild = (sieger, anderer) => (sieger && anderer && !sieger.codeImg && !sieger.img && (anderer.codeImg || anderer.img))
     ? { ...sieger, codeImg: anderer.codeImg || '', img: anderer.img || '' } : sieger;
   const mergeById = (local = [], srv = []) => {
     const srvBy = new Map(srv.filter(x => x && x.id).map(x => [x.id, x]));
     const out = local.filter(Boolean).map(l => {
       const sv = srvBy.get(l.id);
-      if (!sv) { hierMehr = true; return l; }
+      if (!sv) return l;
       srvBy.delete(l.id);
       let sieger;
       if ((sv.mt || 0) !== (l.mt || 0)) sieger = (sv.mt || 0) > (l.mt || 0) ? sv : l;
       else sieger = ((sv.tx || []).length > (l.tx || []).length) ? sv : l;
-      if (sieger === sv) {
-        const r = mitBild(sv, l);
-        if (r !== sv) hierMehr = true;
-        walletHashes[r.id] = itemHash(r);
-        return r;
-      }
-      const r = mitBild(l, sv);
-      if (r !== l) {
-        // Nur die Bilder kamen dazu. Hatte der Eintrag hier eine noch nicht
-        // gesicherte Aenderung, bleibt sie als Aenderung markiert.
-        if (walletHashes[l.id] !== itemHash(l)) r.mt = Date.now();
-        walletHashes[r.id] = itemHash(r);
-      }
-      if (itemHash(r) !== itemHash(sv)) hierMehr = true;
-      return r;
+      const anderer = sieger === sv ? l : sv;
+      const mb = mischeBuchungen(neuesBild(sieger, anderer), anderer);
+      let r = mitBild(mb, anderer);
+      if (mb !== sieger) r = { ...r, mt: Math.max(l.mt || 0, sv.mt || 0) + 1 };
+      if (r !== l) ersetzeInhalt(l, r === sv ? { ...sv } : r);
+      walletHashes[l.id] = itemHash(l);
+      if (vomKonto && obenHash(l) === obenHash(sv)) walletOben[l.id] = obenHash(l);
+      return l;
     });
-    for (const sv of srvBy.values()) { walletHashes[sv.id] = itemHash(sv); out.push(sv); }
+    for (const sv of srvBy.values()) {
+      walletHashes[sv.id] = itemHash(sv);
+      if (vomKonto) walletOben[sv.id] = obenHash(sv);
+      out.push(sv);
+    }
     return out.filter(it => !(tombs[it.id] && tombs[it.id] >= (it.added || 0)));
   };
   const dedupeById = list => { const seen = new Set(); return list.filter(x => x && x.id && !seen.has(x.id) && seen.add(x.id)); };
   state.wallet.vouchers = dedupeById(mergeById(state.wallet.vouchers, remote.vouchers || []));
   state.wallet.cards = dedupeById(mergeById(state.wallet.cards, remote.cards || []));
-  return hierMehr;
 }
 async function pullWallet() {
   if (!state.token) return;
   try {
-    const remote = await api('/api/wallet');
-    const hierMehr = mischeWallet(remote);
+    await walletBereit;
+    const konto = state.token;
+    // Nur das Inhaltsverzeichnis: geholt wird, was hier fehlt oder dort neuer ist
+    const remote = await api('/api/wallet?nur=index');
+    if (state.token !== konto) return; // Kontowechsel unterwegs
+    if (remote.index) await gleicheMitIndexAb(remote.index, remote.deleted, konto);
+    else mischeWallet(remote, true); // alter Server: volle Wallet
+    if (state.token !== konto) return;
     ensureWalletDates(); // auch vom Konto gezogene Alt-Gutscheine kriegen ein Datum
-    // Nur hochladen, wenn dieses Geraet etwas beisteuert — sonst liegt alles
-    // schon beim Konto (bei grossen Wallets spart das Megabytes je App-Start)
-    if (hierMehr) saveWallet();
-    else { save('wallet', state.wallet, true); renderWallet(); }
+    save('wallet', state.wallet, true);
+    renderWallet();
+    // Nur hochladen, wenn dieses Geraet etwas beisteuert
+    if (walletBrauchtUpload()) syncWalletNow();
+    // Jetzt ist der Stand frisch: einmal pro Sitzung alte Bilder nachkomprimieren
+    if (!pullWallet.bestandLief && !idbGesperrt) {
+      pullWallet.bestandLief = true;
+      setTimeout(() => verkleinereBestand().catch(() => { }), 4000);
+    }
     // Geschenke werden NICHT still eingebucht: sie warten auf der Geschenkseite,
     // bis der Empfänger sie dort auspackt. Erst die Öffnungs-Zeremonie bucht den
     // Gutschein ein und hakt ihn beim Server ab — bis dahin bleibt er serverseitig.
@@ -4822,26 +5295,42 @@ function openGiftReveal(gift) {
     (async () => {
       let frei = true;
       let vomServer = null;
+      const konto = state.token;
       try {
         const r = await api('/api/gift/claim', { method: 'POST', body: JSON.stringify({ ids: [gift.id] }) });
+        // Konto unterwegs gewechselt: der Gutschein liegt schon in der Wallet
+        // am richtigen Konto — nicht in die jetzt offene uebernehmen
+        if (state.token !== konto) { wrap.remove(); return; }
         frei = Array.isArray(r.claimed) ? r.claimed.includes(String(gift.id)) : true;
         vomServer = Array.isArray(r.vouchers) ? r.vouchers : null;
-      } catch {
-        // Kein Netz: lieber gutschreiben als verlieren — der Server raeumt
-        // das Geschenk beim naechsten Abgleich ohnehin ab
-        frei = true;
+      } catch (e) {
+        // Kein Netz oder Wallet voll: das Geschenk liegt weiter sicher auf dem
+        // Server und wartet. Hier NICHT einbuchen — sonst gaebe es es spaeter doppelt.
+        pendingGifts = [gift, ...pendingGifts.filter(g => g.id !== gift.id)];
+        updateGiftBadges();
+        wrap.remove();
+        if (e && e.status) showToast({ title: 'Geschenk wartet', text: e.message, iconName: 'warning' }, 9000);
+        else {
+          island('Keine Verbindung. Das Geschenk wartet sicher, versuch es gleich nochmal.');
+          // Kam nur die Antwort nicht an, liegt es schon am Konto: beim naechsten
+          // Netz nachsehen
+          setTimeout(() => pullWallet(), 4000);
+        }
+        return;
       }
       if (!frei) {
         island('Dieses Geschenk hast du schon geöffnet');
         renderGiftsPage?.();
+        pullWallet(); // liegt schon am Konto — gleich hier anzeigen
         return;
       }
       if (vomServer) {
         // Der Server hat das Geschenk schon in die Wallet am Konto gelegt —
         // es kann also nicht mehr verloren gehen. Hier nur uebernehmen.
-        mischeWallet({ vouchers: vomServer });
+        mischeWallet({ vouchers: vomServer }, true);
         ensureWalletDates();
         save('wallet', state.wallet, true);
+        vomServer.forEach(zeigeNeuenGutschein);
         renderWallet();
         return;
       }
@@ -4978,21 +5467,87 @@ function detectCode(text) {
   return candidates[0] || '';
 }
 
-// Screenshot (QR/Barcode) einlesen und fürs localStorage verkleinern
-function readImageFile(file, max = 900, quality = 0.82) {
+// ---------------- Bilder klein, aber scharf ----------------
+// Gutscheinbilder so klein wie moeglich speichern, ohne dass man es sieht:
+// WebP, wo das Geraet es erzeugen kann (bei gleicher Qualitaet rund ein
+// Drittel kleiner als JPEG), sonst JPEG. Dazu ein Groessenziel je Bildart:
+// wird es gerissen, sinkt erst die Qualitaet in kleinen Schritten, dann die
+// Aufloesung — Kassen-Codes behalten dabei immer genug Pixel zum Scannen.
+// ziel = Laenge der data-URL in Zeichen (~ 3/4 davon sind echte Bytes).
+const BILD_PROFILE = {
+  code: { maxSeite: 1200, q: 0.85, qMin: 0.75, ziel: 70_000, minSeite: 900 },       // Barcode/QR fuer die Kasse
+  foto: { maxSeite: 1600, q: 0.8, qMin: 0.66, ziel: 190_000, minSeite: 1200 },      // ganzes Foto (Kleingedrucktes lesbar)
+  vorschau: { maxSeite: 900, q: 0.8, qMin: 0.7, ziel: 80_000, minSeite: 800 },      // Bild ohne Zuschnitt
+  // Bestand nachkomprimieren: gleiche Aufloesung, nur anderes Format bzw.
+  // Qualitaet — ein Bild wird dabei nie kleiner in Pixeln
+  bestand: { maxSeite: 1600, q: 0.85, qMin: 0.85, ziel: Infinity, minSeite: 1600 },
+};
+let webpGeht = null;
+function kannWebp() {
+  if (webpGeht === null) {
+    // iPhones (Safari/WebKit) liefern statt WebP stillschweigend PNG — das waere
+    // riesig. Deshalb pruefen, was wirklich herauskommt.
+    try {
+      const c = document.createElement('canvas');
+      c.width = c.height = 4;
+      webpGeht = c.toDataURL('image/webp', 0.8).startsWith('data:image/webp');
+    } catch { webpGeht = false; }
+  }
+  return webpGeht;
+}
+// quelle: Bild oder Canvas. Liefert eine data-URL (WebP oder JPEG).
+function kodiereBild(quelle, profil = 'code', maxSeite = 0) {
+  const p = BILD_PROFILE[profil] || BILD_PROFILE.code;
+  const qw = quelle.naturalWidth || quelle.width, qh = quelle.naturalHeight || quelle.height;
+  if (!qw || !qh) throw new Error('Bild leer');
+  const typ = kannWebp() ? 'image/webp' : 'image/jpeg';
+  let seite = Math.min(maxSeite || p.maxSeite, p.maxSeite, Math.max(qw, qh));
+  let beste = '';
+  for (let runde = 0; runde < 4; runde++) {
+    const s = seite / Math.max(qw, qh);
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(qw * s));
+    c.height = Math.max(1, Math.round(qh * s));
+    const g = c.getContext('2d');
+    // Weisser Grund: Transparenz wuerde sonst schwarz, und Scanner lesen
+    // dunkle Codes auf weiss am besten
+    g.fillStyle = '#fff';
+    g.fillRect(0, 0, c.width, c.height);
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(quelle, 0, 0, c.width, c.height);
+    for (let q = p.q; q >= p.qMin - 1e-9; q -= 0.05) {
+      const url = c.toDataURL(typ, q);
+      if (!url || url.length < 100) throw new Error('Bild zu groß'); // Canvas-Grenze (iPhone)
+      if (!beste || url.length < beste.length) beste = url;
+      if (url.length <= p.ziel) return url;
+    }
+    if (seite <= p.minSeite) break;
+    seite = Math.max(p.minSeite, Math.round(seite * 0.8));
+  }
+  return beste;
+}
+
+// Screenshot (QR/Barcode) einlesen und verkleinern. Mit profil: fuers
+// Speichern (klein und scharf), ohne: fuer die Texterkennung (hohe Qualitaet)
+function readImageFile(file, max = 900, quality = 0.82, profil = '') {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
     img.onload = () => {
-      const scale = Math.min(1, max / Math.max(img.width, img.height));
-      const cv = document.createElement('canvas');
-      cv.width = Math.round(img.width * scale);
-      cv.height = Math.round(img.height * scale);
-      cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
-      URL.revokeObjectURL(url);
-      resolve(cv.toDataURL('image/jpeg', quality));
+      try {
+        if (profil) { resolve(kodiereBild(img, profil, max)); return; }
+        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        const cv = document.createElement('canvas');
+        cv.width = Math.round(img.width * scale);
+        cv.height = Math.round(img.height * scale);
+        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+        const out = cv.toDataURL('image/jpeg', quality);
+        // Zu grosses Canvas (iPhone-Grenze) liefert ein leeres Bild statt eines Fehlers
+        if (!out || out.length < 100) throw new Error('Bild zu groß');
+        resolve(out);
+      } catch (e) { reject(e); } finally { URL.revokeObjectURL(url); }
     };
-    img.onerror = reject;
+    img.onerror = e => { URL.revokeObjectURL(url); reject(e); };
     img.src = url;
   });
 }
@@ -5007,16 +5562,34 @@ let addImg = '';
 // Das ganze Foto in besserer Aufloesung (fuers Original im Bildbetrachter).
 // Faehrt nicht in der Wallet mit, siehe origSichern.
 let addOrig = '';
+let waAutoWerte = {}; // Felder, die der letzte Scan ausgefuellt hat: { selektor: wert }
+let waScanLauf = 0;   // nur der juengste Scan darf das Formular fuellen
 let addType = 'voucher';
 let addPrefill = '';
 let addCodeImg = ''; // ausgeschnittener Kassen-Code (falls der Scanner ihn findet)
 let addEditId = '';  // gesetzt, wenn eine vorhandene Sparkarte geaendert wird
 
 // Doppelte Gutscheine: gleiche PIN beim gleichen Shop oder gleicher Code
+// Duplikat nur, wenn es wirklich derselbe ist: gleicher Shop UND gleiche PIN,
+// oder gleiche Kartennummer beim selben Shop (bzw. eine lange, eindeutige
+// Nummer). Frueher reichte ein kurzer Code quer ueber alle Shops — echte
+// Gutscheine wurden als Duplikat abgewiesen.
 function findDupe(v, extra = []) {
-  return [...state.wallet.vouchers, ...extra].find(x =>
-    (x.pin && v.pin && x.pin === v.pin && x.vendor.toLowerCase() === v.vendor.toLowerCase())
-    || (v.code && x.code && x.code === v.code));
+  const shop = s => String(s || '').trim().toLowerCase();
+  return [...state.wallet.vouchers, ...extra].find(x => x && x !== v && (
+    (x.pin && v.pin && String(v.pin).length >= 4 && x.pin === v.pin && shop(x.vendor) === shop(v.vendor))
+    || (v.code && x.code && x.code === v.code && (shop(x.vendor) === shop(v.vendor) || String(v.code).length >= 12))));
+}
+// Ein gerade gespeicherter oder ausgepackter Gutschein darf nicht hinter einem
+// gespeicherten Filter verschwinden — sonst wirkt er "weg"
+function zeigeNeuenGutschein(v) {
+  if (!v) return;
+  const f = state.walletFilter;
+  if ((f && f !== 'alle' && f.toLowerCase() !== String(v.vendor || '').toLowerCase()) || state.walletVal) {
+    state.walletFilter = '';
+    state.walletVal = 0;
+    saveWalletFilter();
+  }
 }
 // Schon vorhanden: XP-Error-Sound, Wackeln, rotes Aufleuchten und das Formular
 // wird KOMPLETT zurückgesetzt (frisches Sheet mit Hinweis-Banner oben)
@@ -5118,7 +5691,9 @@ function cropCode(img, bb, pad = 1) {
   const scale = (out * 0.9) / side;
   const dw = w * scale, dh = h * scale;
   ctx.drawImage(img, x, y, w, h, (out - dw) / 2, (out - dh) / 2, dw, dh);
-  return c.toDataURL('image/jpeg', 0.88);
+  // Der Scanner prueft den Zuschnitt danach selbst nochmal — auch komprimiert
+  // muss der Code also lesbar bleiben
+  return kodiereBild(c, 'code');
 }
 
 // Helle, farbarme Kästen im Foto finden (Kartennummer-Kasten, PIN-Kasten):
@@ -5484,13 +6059,23 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
   addEditId = bearbeiteId || '';
   const bearbeitet = addEditId ? state.wallet.cards.find(x => x.id === addEditId) : null;
   if (!bearbeitet) addEditId = '';
+  waScanLauf++; // ein noch laufender Scan gehoert nicht in dieses Formular
   addImg = bearbeitet?.img || '';
   addOrig = '';
+  waAutoWerte = {};
   addCodeImg = bearbeitet?.codeImg || '';
   const isCard = addType === 'card';
   $('#sheet-content').innerHTML = `
     <div class="sheet-title">${addEditId ? 'Sparkarte ändern'
       : isCard ? 'Sparkarte hinzufügen' : 'Gutschein hinzufügen'}</div>
+    ${addEditId ? '' : (() => {
+      const art = isCard ? 'karten' : 'gutscheine';
+      const p = walletPlatz(art);
+      const was = isCard ? 'Sparkarten' : 'Gutscheine';
+      return `<p class="wa-platz ${p.voll ? 'voll' : p.fast ? 'fast' : ''}">${p.voll
+        ? walletVollText(art)
+        : `${p.n}${p.g ? ` + ${p.g} wartende Geschenke` : ''} von maximal ${p.max} ${was} in deiner Wallet · noch ${p.frei} frei`}</p>`;
+    })()}
 
     <!-- Bild zuerst: hochladen, fotografieren oder einfach reinziehen -->
     <div class="dropzone" id="wa-drop">
@@ -5607,17 +6192,32 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
   }
 
   // Scan-Fortschritt: erst der Code-Scan (bis 20 %), dann die Text-Erkennung
+  // Null-sicher: wird waehrenddessen ein anderes Blatt geoeffnet, fehlen die Elemente
   const scanProgress = p => {
-    $('#wa-progress-fill').style.width = p + '%';
-    $('#wa-progress-txt').textContent = Math.round(p) + ' %';
+    const f = $('#wa-progress-fill'), t = $('#wa-progress-txt');
+    if (f) f.style.width = p + '%';
+    if (t) t.textContent = Math.round(p) + ' %';
   };
   const handleImageFile = async f => {
     const m = $('#wa-ai-msg');
     if (!f) return;
+    const lauf = ++waScanLauf;
+    const veraltet = () => lauf !== waScanLauf;
     try {
+      for (const [sel, wert] of Object.entries(waAutoWerte)) {
+        if (sel === '__shop') { if (currentVendor() === wert) { pickedVendor = ''; document.querySelectorAll('.vendor-tile').forEach(x => x.classList.remove('on')); if ($('#wa-vendor')?.value === wert) $('#wa-vendor').value = ''; } continue; }
+        const el = $(sel); if (el && el.value === wert) el.value = '';
+      }
+      waAutoWerte = {};
+      addCodeImg = '';
       addOrig = '';
-      addImg = await readImageFile(f);
-      addOrig = await readImageFile(f, 1600, 0.82).catch(() => '');
+      addImg = ''; // scheitert das neue Bild, darf nicht das alte mitgespeichert werden
+      const vorschau = await readImageFile(f, 900, 0.82, 'vorschau');
+      if (veraltet()) return;
+      addImg = vorschau;
+      const ganz = await readImageFile(f, 1600, 0.82, 'foto').catch(() => '');
+      if (veraltet()) return;
+      addOrig = ganz;
       $('#wa-preview').src = addImg;
       $('#wa-preview').classList.remove('hidden');
       $('#wa-drop-empty').classList.add('hidden');
@@ -5631,12 +6231,18 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
       m.textContent = 'Scanne das Bild …';
       // Analyse auf hochauflösender Fassung: kleine Schrift bleibt für die OCR lesbar
       const hiRes = await readImageFile(f, 2200, 0.9);
+      if (veraltet()) return;
       scanProgress(12);
       const r = await analyzeWalletImage(hiRes, p => {
+        if (veraltet()) return;
         scanProgress(20 + p * 0.78);
         m.textContent = 'Lese den Text im Bild … (kann beim ersten Mal etwas dauern)';
       });
+      // Inzwischen kam ein anderes Bild: dieses Ergebnis gehoert nicht mehr hierher
+      if (veraltet()) return;
       if (r.codeImg) { addCodeImg = r.codeImg; $('#wa-preview').src = r.codeImg; }
+      const felder = ['#wa-code', '#wa-pin', '#wa-amount', '#wa-cnumber'];
+      const vorher = Object.fromEntries(felder.map(sel => [sel, $(sel)?.value || '']));
       const filled = [];
       if (addType === 'voucher') {
         if (r.barcode && !$('#wa-code').value) { $('#wa-code').value = r.barcode.slice(0, 40); filled.push('Code (aus QR/Barcode)'); }
@@ -5658,6 +6264,7 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
               const tile = [...document.querySelectorAll('[data-vg]')].find(t => t.dataset.vg.toLowerCase() === hit);
               if (tile) tile.click();
               else { $('#wa-vendor').classList.remove('hidden'); $('#wa-vendor').value = hit.charAt(0).toUpperCase() + hit.slice(1); }
+              waAutoWerte.__shop = currentVendor();
               filled.push('Shop');
             }
           }
@@ -5670,6 +6277,7 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
           if (num) { $('#wa-cnumber').value = num.replace(/\s+/g, '').slice(0, 30); filled.push('Kartennummer'); }
         }
       }
+      for (const sel of felder) { const w = $(sel)?.value || ''; if (w && w !== vorher[sel]) waAutoWerte[sel] = w; }
       if (r.codeImg) filled.push('Kassen-Code ausgeschnitten');
       // Scan fertig: Balken voll, Laserlinie aus, Ergebnis ordentlich untereinander
       scanProgress(100);
@@ -5696,9 +6304,10 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
           + (pinFehlt ? ' Der PIN war nicht sicher lesbar, bitte selbst eintragen.' : '');
       } else {
         m.className = 'form-msg';
-        m.textContent = 'Bild gespeichert, nichts sicher erkannt, bitte Felder ausfüllen.';
+        m.textContent = 'Nichts sicher erkannt, bitte die Felder ausfüllen. Gespeichert wird mit „Speichern“.';
       }
     } catch {
+      if (veraltet()) return;
       $('#wa-scanline')?.classList.add('hidden');
       $('#wa-progress')?.classList.add('hidden');
       m.className = 'form-msg error';
@@ -5738,8 +6347,8 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
       scanProgress((i / files.length) * 100);
       let small = '';
       try {
-        small = await readImageFile(files[i]);
-        $('#wa-preview').src = small;
+        small = await readImageFile(files[i], 900, 0.82, 'vorschau');
+        if ($('#wa-preview')) $('#wa-preview').src = small;
         const hiRes = await readImageFile(files[i], 2200, 0.9);
         const r = await analyzeWalletImage(hiRes, p => scanProgress(((i + p / 100) / files.length) * 100));
         const ex = extractVoucher(r);
@@ -5762,7 +6371,7 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
           amount: ex.amount, balance: ex.amount,
           img: r.codeImg ? '' : small, codeImg: r.codeImg || '', tx: [], added: Date.now(),
         };
-        if (r.codeImg) origSichern(v, await readImageFile(files[i], 1600, 0.82).catch(() => small));
+        if (r.codeImg) origSichern(v, await readImageFile(files[i], 1600, 0.82, 'foto').catch(() => small));
         fresh.push(v);
         results.push({ ok: true, v });
       } catch {
@@ -5773,14 +6382,27 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
       }
     }
     scanProgress(100);
-    $('#wa-progress').classList.add('done');
-    $('#wa-scanline').classList.add('hidden');
+    // Wurde waehrenddessen ein anderes Blatt geoeffnet, fehlen diese Elemente —
+    // gespeichert wird trotzdem
+    $('#wa-progress')?.classList.add('done');
+    $('#wa-scanline')?.classList.add('hidden');
     // Speichern mit derselben Ehrlichkeit wie beim Einzel-Gutschein
     if (fresh.length) {
-      if (state.token && !navigator.onLine) {
-        m.className = 'form-msg error';
-        m.textContent = 'Keine Internetverbindung, es wurde nichts gespeichert. Bitte mit Netz erneut versuchen.';
-        return;
+      // Inzwischen schon drin (zweiter Lauf mit denselben Bildern)? Dann nicht doppelt
+      for (let k = fresh.length - 1; k >= 0; k--) {
+        if (findDupe(fresh[k], fresh.slice(0, k))) {
+          const res = results.find(x => x.v === fresh[k]);
+          if (res) { res.ok = false; res.name = fresh[k].vendor; res.warum = 'schon in der Wallet, übersprungen'; }
+          origEntfernen(fresh[k]);
+          fresh.splice(k, 1);
+        }
+      }
+      // Nur so viele, wie noch Platz ist — der Rest wird ehrlich gemeldet
+      const ueber = fresh.splice(walletPlatz('gutscheine').frei);
+      for (const v of ueber) {
+        const res = results.find(x => x.v === v);
+        if (res) { res.ok = false; res.name = v.vendor; res.warum = `Wallet voll (maximal ${WALLET_LIMIT.gutscheine} Gutscheine), nicht gespeichert`; }
+        origEntfernen(v);
       }
       state.wallet.vouchers.unshift(...fresh);
       save('wallet', state.wallet);
@@ -5790,13 +6412,12 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
         m.textContent = 'Sichere am Konto …';
         const ok = await syncWalletNow();
         if (!ok && walletSyncFatal) {
-          // Server hat aktiv abgelehnt: behalten wäre sinnlos
-          state.wallet.vouchers = state.wallet.vouchers.filter(x => !fresh.includes(x));
-          save('wallet', state.wallet);
-          renderWallet();
-          m.className = 'form-msg error';
-          m.textContent = 'NICHT gespeichert: ' + (walletSyncError || 'Der Server hat abgelehnt.');
-          return;
+          // Das Konto hat abgelehnt: die Gutscheine BLEIBEN auf dem Geraet
+          showToast({
+            title: 'Auf dem Gerät gespeichert',
+            text: 'Das Konto hat das Sichern abgelehnt (' + (walletSyncError || 'unbekannt') + '). Bitte neu anmelden, dann wird nachgesichert.',
+            iconName: 'warning',
+          }, 9000);
         }
         if (!ok) {
           // Netzwackler: Gutscheine bleiben auf dem Gerät, Sicherung folgt automatisch
@@ -5811,6 +6432,12 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
     // Übersicht: was ist drin, was wurde übersprungen und warum; Unvollständiges
     // wandert in die Ergänzen-Warteschlange statt verloren zu gehen
     const fixes = results.filter(res => res.fix).map(res => res.fix);
+    fresh.forEach(zeigeNeuenGutschein);
+    // Anderes Blatt offen: Ergebnis nur als Meldung, das Blatt nicht kapern
+    if (state.sheetMode !== 'wallet-add') {
+      if (fresh.length) island(`${fresh.length} Gutschein${fresh.length > 1 ? 'e' : ''} gespeichert`);
+      return;
+    }
     $('#sheet-content').innerHTML = `
       <div class="sheet-title">Mehrere Gutscheine gescannt</div>
       <p class="muted" style="font-size:.86rem">${fresh.length} von ${files.length} neu in der Wallet.</p>
@@ -5823,7 +6450,10 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
         <button class="btn btn-ghost" id="wa-batch-more">Weitere hinzufügen</button>
       </div>`;
     $('#sheet-content').scrollTop = 0;
-    $('#wa-batch-done').onclick = closeSheet;
+    $('#wa-batch-done').onclick = async () => {
+      if (fixes.length && !await askConfirm(`${fixes.length} Gutschein${fixes.length > 1 ? 'e sind' : ' ist'} noch unvollständig und ${fixes.length > 1 ? 'werden' : 'wird'} nicht gespeichert. Trotzdem fertig?`, { okLabel: 'Ja, verwerfen' })) return;
+      closeSheet();
+    };
     $('#wa-batch-more').onclick = () => openWalletAdd('voucher');
     $('#wa-batch-fix')?.addEventListener('click', () => {
       waFixQueue = fixes;
@@ -5864,14 +6494,16 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
     // Doppelklick-Schutz: solange gespeichert wird, ist der Button tabu, sonst
     // meldet der zweite Klick den EIGENEN Gutschein als Duplikat
     if (waSaving) return;
-    // Ohne Netz kein "gespeichert"-Theater: der Gutschein wäre beim nächsten
-    // App-Start weg (PWA-Speicher ist flüchtig), also ehrlich blocken
-    if (state.token && !navigator.onLine) {
+    // Ohne Netz wird trotzdem gespeichert: die Wallet liegt dauerhaft auf dem
+    // Geraet (IndexedDB) und geht hoch, sobald wieder Netz da ist
+    let savedItem = null, savedList = null;
+    // Wallet voll: ehrlich sagen statt still zu scheitern (Bearbeiten geht immer)
+    const platzArt = addType === 'voucher' ? 'gutscheine' : 'karten';
+    if (!addEditId && walletPlatz(platzArt).voll) {
       msg.className = 'form-msg error';
-      msg.textContent = 'Keine Internetverbindung. Bitte mit Netz speichern, damit nichts verloren geht.';
+      msg.textContent = walletVollText(platzArt);
       return;
     }
-    let savedItem = null, savedList = null;
     if (addType === 'voucher') {
       const amount = parseFloat($('#wa-amount').value.replace(',', '.'));
       const v = {
@@ -5901,6 +6533,7 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
         return;
       }
       state.wallet.vouchers.unshift(v);
+      zeigeNeuenGutschein(v);
       // Gibt es einen Kassen-Zuschnitt, bleibt das ganze Foto als Original
       // erhalten — ausserhalb der Wallet
       if (addCodeImg && (addOrig || addImg)) origSichern(v, addOrig || addImg);
@@ -5940,13 +6573,15 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
       waSaving = false;
       setBtnLoading($('#wa-save'), false);
       if (!ok && walletSyncFatal) {
-        // Der Server hat aktiv abgelehnt (z. B. zu groß): behalten wäre sinnlos
-        const idx = savedList.indexOf(savedItem);
-        if (idx >= 0) savedList.splice(idx, 1);
-        save('wallet', state.wallet);
-        renderWallet();
-        msg.className = 'form-msg error';
-        msg.textContent = 'NICHT gespeichert: ' + (walletSyncError || 'Der Server hat abgelehnt.');
+        // Das Konto hat abgelehnt: der Gutschein BLEIBT auf dem Geraet —
+        // wegwerfen waere das Schlimmste. Blatt zu (ein zweiter Klick legte
+        // ihn sonst doppelt an) und ehrlich sagen, was los ist.
+        closeSheet();
+        showToast({
+          title: 'Auf dem Gerät gespeichert',
+          text: 'Das Konto hat das Sichern abgelehnt (' + (walletSyncError || 'unbekannt') + '). Bitte neu anmelden, dann wird nachgesichert.',
+          iconName: 'warning',
+        }, 9000);
         return;
       }
       if (!ok) {
@@ -6156,8 +6791,13 @@ function zeigeSchenkSchritt(v, richtung = 'vor', zurueck) {
       senden.disabled = true;
       senden.textContent = 'Wird verpackt …';
       try {
+        // Liegt das Originalfoto noch nur auf dem Geraet, erst hoch damit —
+        // der Server gibt es beim Verschenken an den Freund weiter
+        if (v.orig && (origWartend().includes(v.id) || origUploadLaeuft)) await origHochladen().catch(() => { });
         await api('/api/gift/send', { method: 'POST', body: JSON.stringify({
           to: anWen, id: v.id, msg: (nachricht || '').trim(),
+          // Die Fassung hier zaehlt (samt noch nicht gesicherter Abbuchung)
+          voucher: v,
         }) });
       } catch (err) {
         senden.disabled = false;
@@ -6530,7 +7170,7 @@ function openVoucherSheet(id, animFrom, zurueckZu, richtung) {
     </div>` : ''}
     ${v.giftFrom ? `<p class="added-line">${icon('gift', 'icon icon-sm')} Geschenk von @${esc(v.giftFrom)}</p>` : ''}
     ${v.added ? `<p class="added-line">Hinzugefügt am ${new Date(v.added).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })} um ${new Date(v.added).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} Uhr</p>` : ''}
-    ${(v.balance == null || v.balance <= 0)
+    ${(v.balance == null || v.balance <= 0 || expired || walletPlatz('gutscheine').voll)
       ? '<button class="btn btn-danger" id="wv-del" style="margin-top:14px">Gutschein löschen</button>' : ''}`;
 
   $('#sheet-content').querySelectorAll('[data-copy-txt]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copyTxt)));
@@ -6557,8 +7197,11 @@ function openVoucherSheet(id, animFrom, zurueckZu, richtung) {
   // Löschen gibt es nur bei aufgebrauchten Gutscheinen, immer mit Rückfrage
   wireVoucherImage(v); // Bild tauschen / zuschneiden / nachtraeglich hochladen
   $('#wv-del')?.addEventListener('click', async () => {
-    if (v.balance != null && v.balance > 0) return;
-    if (!await askConfirm(`Bist du sicher, dass du den ${esc(v.vendor)}-Gutschein löschen willst?`)) return;
+    const rest = v.balance != null && v.balance > 0;
+    if (rest && !(expired || walletPlatz('gutscheine').voll)) return;
+    if (!await askConfirm(rest
+      ? `Auf diesem ${esc(v.vendor)}-Gutschein sind noch ${euroFmt(v.balance)}. Trotzdem löschen?`
+      : `Bist du sicher, dass du den ${esc(v.vendor)}-Gutschein löschen willst?`, rest ? { okLabel: 'Trotzdem löschen' } : undefined)) return;
     tombstone(id);
     state.wallet.vouchers = state.wallet.vouchers.filter(x => x.id !== id);
     saveWallet(); closeSheet(); island('Gutschein gelöscht');
@@ -6727,7 +7370,7 @@ async function ladeCouponListe() {
     const list = (await api('/api/cardcoupons/list')).list || [];
     const alt = JSON.stringify(cardCouponList);
     cardCouponList = list;
-    localStorage.setItem('ra.ccList', JSON.stringify(list));
+    lsSetzen('ra.ccList', JSON.stringify(list));
     // Nur neu zeichnen, wenn sich wirklich etwas geaendert hat — sonst flackert es
     if (JSON.stringify(list) !== alt && walletTab !== 'gutscheine') renderCoupons();
   } catch {
@@ -6746,7 +7389,7 @@ const ccIsFav = (key, code) => (ccFavs[key] || []).includes(code);
 function ccToggleFav(key, code) {
   const list = ccFavs[key] || [];
   ccFavs[key] = list.includes(code) ? list.filter(x => x !== code) : [...list, code];
-  localStorage.setItem('ra.couponFavs', JSON.stringify(ccFavs));
+  lsSetzen('ra.couponFavs', JSON.stringify(ccFavs));
 }
 // "9,99" -> 9.99; "50 % sparen" hat keinen Preis und wandert ans Ende
 function ccPreis(p) {
@@ -6776,7 +7419,7 @@ async function ladeCouponsIn(key, brand, host, gesperrt) {
     return;
   }
   ccCache[key] = d;
-  try { localStorage.setItem('ra.ccData', JSON.stringify(ccCache)); } catch { /* Speicher voll */ }
+  try { lsSetzen('ra.ccData', JSON.stringify(ccCache)); } catch { /* Speicher voll */ }
   // Nur neu aufbauen, wenn sich etwas geaendert hat — sonst bleibt die Liste ruhig
   if (!gecacht || JSON.stringify(gecacht) !== JSON.stringify(d)) renderCardCoupons(key, brand, d, host);
 }
@@ -6973,7 +7616,7 @@ function ccWireSheet() {
     const chip = e.target.closest('[data-ccsort]');
     if (chip) {
       ccSort = chip.dataset.ccsort;
-      localStorage.setItem('ra.couponSort', ccSort);
+      lsSetzen('ra.couponSort', ccSort);
       ccFilterChips(); ccBody();
       const body = $('#cc-body');
       body?.classList.remove('cc-fade');
@@ -7165,7 +7808,7 @@ function questRest(key) {
 }
 function questErledigt(key) {
   appQuests[String(key).toLowerCase()] = Date.now();
-  localStorage.setItem('ra.appQuests', JSON.stringify(appQuests));
+  lsSetzen('ra.appQuests', JSON.stringify(appQuests));
 }
 function restText(ms) {
   const tage = Math.ceil(ms / (24 * 3600 * 1000));
@@ -7500,6 +8143,15 @@ function renderWallet() {
   $('#wallet-total-sub').textContent = allActive.length
     ? `über ${allActive.length} Gutschein${allActive.length > 1 ? 'e' : ''}`
     : 'noch keine Gutscheine mit Guthaben';
+  // Platz in der Wallet: alle Gutscheine zaehlen, auch aufgebrauchte
+  const platzEl = $('#wallet-platz');
+  if (platzEl) {
+    const p = walletPlatz('gutscheine');
+    const zahl = p.g ? `${p.n} + ${p.g} Geschenk${p.g > 1 ? 'e' : ''}` : `${p.n}`;
+    platzEl.textContent = p.voll ? `voll · ${zahl} von ${p.max}` : `${zahl} von max. ${p.max}`;
+    platzEl.className = 'wallet-platz' + (p.voll ? ' voll' : p.fast ? ' fast' : '');
+    platzEl.title = `Maximal ${p.max} Gutscheine pro Wallet. Aufgebrauchte zählen mit — löschen schafft Platz.`;
+  }
 
   // Spar-Rang: je mehr Guthaben, desto edler die Karte + Fortschritt zur nächsten Stufe
   const rank = rankFor(total);
@@ -8083,10 +8735,10 @@ function pruefeBildrate() {
     const lang = t.filter(x => x > Math.max(24, schnellstes * 2.2)).length;
     letzteFps = { median: +median.toFixed(1), schnellstes: +schnellstes.toFixed(1),
                   lang, bilder: t.length, zeit: Date.now() };
-    try { localStorage.setItem('ra.fps', JSON.stringify(letzteFps)); } catch { /* egal */ }
+    try { lsSetzen('ra.fps', JSON.stringify(letzteFps)); } catch { /* egal */ }
     zeigeFpsAnzeige();
     if (lang >= 4) {
-      try { localStorage.setItem(SPARSAM, '1'); } catch { /* egal */ }
+      try { lsSetzen(SPARSAM, '1'); } catch { /* egal */ }
       document.body.classList.add('sparsam');
     }
   });
@@ -9030,7 +9682,7 @@ connectStream();
 // Einladungslink: ?ref=NAME wird gemerkt und zaehlt bei der Registrierung
 {
   const rp = new URLSearchParams(location.search).get('ref');
-  if (rp) localStorage.setItem('ra.ref', rp.slice(0, 24));
+  if (rp) lsSetzen('ra.ref', rp.slice(0, 24));
 }
 function inviteUrl() { return 'https://kumulio.de/?ref=' + encodeURIComponent(state.userName || ''); }
 // Teilen bzw. kopieren, je nachdem was das Geraet kann
@@ -9194,6 +9846,7 @@ window.addEventListener('online', () => { if ($('#conn-screen')) location.reload
     chatBadges = r.badges || {};
     chatPaints = r.paints || chatPaints;
     chatRanks = r.ranks || chatRanks;
+    if (r.walletLimit) { Object.assign(WALLET_LIMIT, r.walletLimit); if (state.activeView === 'wallet') renderWallet(); }
   }).catch(() => { });
   if (state.token) {
     pullWallet(); // parallel statt hinter /api/me: Guthaben ist schneller aktuell
