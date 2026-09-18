@@ -2336,6 +2336,54 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- Admin: Verwaltung (alles über X-Admin-Key)
+    // ---- Wallet-Diagnose (Admin): was liegt fuer einen Nutzer wo? Fuer die
+    // Suche nach verschwundenen Gutscheinen — Wallet, Loeschmarker, wartende
+    // Geschenke, Originalfotos (auch solche ohne Gutschein dazu).
+    if (p === '/api/admin/wallet-diag' && req.method === 'GET') {
+      if (!isAdmin(req)) return send(res, 403, { error: 'Admin-Key falsch.' });
+      const q = String(url.searchParams.get('user') || '').toLowerCase();
+      const treffer = Object.keys(users).filter(n => n.toLowerCase().includes(q));
+      if (!q || treffer.length !== 1) return send(res, 200, { treffer });
+      const user = treffer[0];
+      const w = wallets[user] || { vouchers: [], cards: [], deleted: [] };
+      const groesse = x => Buffer.byteLength(JSON.stringify(x || ''));
+      const kurz = v => ({
+        id: v.id, vendor: v.vendor, amount: v.amount, balance: v.balance,
+        added: v.added, mt: v.mt, giftFrom: v.giftFrom, giftTs: v.giftTs, orig: v.orig,
+        code: !!v.code, pin: !!v.pin, codeImg: (v.codeImg || '').length, img: (v.img || '').length, bytes: groesse(v),
+      });
+      let origDateien = [];
+      try {
+        const lebt = new Set((w.vouchers || []).map(v => v.id));
+        origDateien = (await fs.promises.readdir(origOrdner(user))).map(f => {
+          const st = fs.statSync(path.join(origOrdner(user), f));
+          return { id: f.replace(/\.jpg$/, ''), bytes: st.size, mtime: st.mtimeMs, imWallet: lebt.has(f.replace(/\.jpg$/, '')) };
+        });
+      } catch { /* kein Ordner */ }
+      // Wer hat diesem Nutzer etwas geschenkt / von ihm bekommen? (Loeschmarker
+      // beim Absender + giftFrom beim Empfaenger)
+      const geschenkSpuren = [];
+      for (const [name, ww] of Object.entries(wallets)) {
+        for (const v of (ww.vouchers || [])) if (v.giftFrom === user) geschenkSpuren.push({ bei: name, ...kurz(v) });
+      }
+      return send(res, 200, {
+        user, walletBytes: groesse(w), ts: w.ts,
+        vouchers: (w.vouchers || []).map(kurz), cards: (w.cards || []).map(kurz),
+        deleted: (w.deleted || []).slice(-80),
+        giftsPending: (gifts[user] || []).map(kurz),
+        origDateien, geschenkSpuren, giftDay: profileOf(user).giftDay || null,
+      });
+    }
+    // Originalfoto eines beliebigen Nutzers abholen (Admin) — zur Rettung
+    if (p === '/api/admin/wallet-orig' && req.method === 'GET') {
+      if (!isAdmin(req)) return send(res, 403, { error: 'Admin-Key falsch.' });
+      const user = String(url.searchParams.get('user') || '');
+      const id = String(url.searchParams.get('id') || '');
+      if (!users[user] || !ORIG_ID.test(id)) return send(res, 400, { error: 'user/id ungültig.' });
+      try { return send(res, 200, await fs.promises.readFile(origPfad(user, id)), 'image/jpeg'); }
+      catch { return send(res, 404, { error: 'Keine Datei.' }); }
+    }
+
     if (p === '/api/admin/users' && req.method === 'GET') {
       if (!isAdmin(req)) return send(res, 403, { error: 'Admin-Key falsch.' });
       return send(res, 200, Object.entries(users).map(([name, u]) => ({
