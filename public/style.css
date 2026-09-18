@@ -5116,3 +5116,86 @@ body.sparsam .wm-flaeche, body.sparsam .filter-pille {
 }
 .chat-leer p { margin: 0; font-weight: 700; }
 .chat-leer p.muted { font-weight: 500; font-size: .86rem; margin-bottom: 10px; }
+
+
+/* ============ Runde 104: Bildbetrachter fuer Gutscheinbilder ============== */
+/* Im Blatt: das Bild ist antippbar, dazu ein kleiner Lupen-Knopf neben
+   "Bild tauschen". Bewusst kein Symbol AUF dem Bild — das laege sonst ueber
+   dem Barcode, den die Kasse scannen soll. */
+#wv-bild { cursor: zoom-in; transition: transform .2s var(--spring); -webkit-tap-highlight-color: transparent; }
+#wv-bild:active { transform: scale(.985); }
+.bild-btn-rund { flex: 0 0 48px; padding: 11px 0; }
+
+.bild-lupe {
+  position: fixed; inset: 0; z-index: 89; /* unter der Status-Kapsel (90) */
+  touch-action: none; overscroll-behavior: contain;
+  -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+}
+.bild-lupe.an .lupe-grund { opacity: 1; }
+.bl-flaeche {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  transform-origin: 0 0; pointer-events: none;
+}
+.bl-rahmen {
+  box-sizing: border-box; overflow: hidden; pointer-events: auto; cursor: zoom-in;
+  box-shadow: 0 0 0 rgba(0, 0, 0, 0);
+  transition: box-shadow .35s ease;
+}
+.bild-lupe.an .bl-rahmen { box-shadow: 0 22px 60px rgba(0, 0, 0, .34); }
+.bl-rahmen img {
+  display: block; width: 100%; height: 100%; object-fit: contain;
+  pointer-events: none; -webkit-user-drag: none;
+}
+
+/* X oben rechts: gross genug fuer den Daumen, auf dem dunklen Grund gut lesbar */
+.bl-zu {
+  position: absolute; top: calc(env(safe-area-inset-top, 0px) + 14px); right: 14px;
+  width: 44px; height: 44px; border-radius: 50%;
+  display: grid; place-items: center; cursor: pointer;
+  background: rgba(255, 255, 255, .16); color: #fff;
+  border: 1px solid rgba(255, 255, 255, .32);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  opacity: 0; transform: scale(.8);
+  transition: opacity .25s ease .08s, transform .3s var(--spring) .08s;
+}
+.bild-lupe.an .bl-zu { opacity: var(--bl-knopf, 1); transform: none; }
+.bl-zu:active { transform: scale(.9); }
+.bl-zu .icon { width: 20px; height: 20px; }
+
+/* Zugeschnitten | Original — derselbe Gleiter wie oben in der Wallet */
+.bl-wahl {
+  position: absolute; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 24px);
+  display: grid; grid-template-columns: 1fr 1fr; padding: 4px; border-radius: 999px;
+  width: max-content; /* sonst schrumpft er an left: 50% auf die halbe Breite */
+  background: rgba(18, 22, 30, .46); border: 1px solid rgba(255, 255, 255, .22);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  opacity: 0; transform: translate(-50%, 10px);
+  transition: opacity .25s ease .14s, transform .3s ease .14s;
+}
+.bild-lupe.an .bl-wahl { opacity: var(--bl-knopf, 1); transform: translate(-50%, 0); }
+.bl-wahl-flaeche {
+  position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc(50% - 4px);
+  border-radius: 999px; background: #fff;
+  transition: transform .34s cubic-bezier(.22, 1, .32, 1);
+}
+.bl-wahl.rechts .bl-wahl-flaeche { transform: translateX(100%); }
+.bl-wahl-knopf {
+  position: relative; z-index: 1; border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: .8rem; font-weight: 800; white-space: nowrap;
+  padding: 9px 16px; color: rgba(255, 255, 255, .92);
+  transition: color .25s ease;
+}
+.bl-wahl-knopf.an { color: #14181f; }
+/* Original wird noch geholt: der Knopf atmet, bis es da ist */
+.bild-lupe.laedt .bl-wahl-knopf[data-bl="orig"] { animation: bl-atmen 1s ease-in-out infinite; }
+@keyframes bl-atmen { 50% { opacity: .45; } }
+
+/* Waehrend man zieht, folgen Grund und Knoepfe dem Finger ohne Verzoegerung */
+.bild-lupe.zieht .lupe-grund, .bild-lupe.zieht .bl-zu, .bild-lupe.zieht .bl-wahl { transition: none; }
+/* Beim Schliessen bleibt die Flaeche bis zum Ende liegen (gut 0,3 s): liesse
+   sie Tipps sofort durch, landete der Klick nach dem Antippen des Grunds auf
+   dem Knopf darunter — etwa auf "Abbuchen". */
+
+@media (prefers-reduced-motion: reduce) {
+  .bl-zu, .bl-wahl, .bl-wahl-flaeche, .bl-rahmen, #wv-bild { transition: none; }
+}

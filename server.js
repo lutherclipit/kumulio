@@ -118,6 +118,45 @@ function slimWallet(w) {
 }
 Object.values(wallets).forEach(slimWallet);
 
+// Originalfotos (das nicht zugeschnittene Bild eines Gutscheins) liegen als
+// eigene JPEG-Dateien neben der Wallet: data/orig/<Nutzer als Hex>/<id>.jpg.
+// Die Wallet traegt nur den Zeitstempel v.orig — so bleibt jeder Sync klein,
+// und das Original wird erst geladen, wenn jemand es im Bildbetrachter sehen will.
+const ORIG_DIR = path.join(DATA, 'orig');
+const ORIG_ID = /^[A-Za-z0-9_-]{1,40}$/;
+function origOrdner(user) { return path.join(ORIG_DIR, Buffer.from(String(user)).toString('hex')); }
+function origPfad(user, id) { return path.join(origOrdner(user), id + '.jpg'); }
+// Rohdaten statt JSON: ein JPEG als base64 im JSON waere ein Drittel groesser
+function readRaw(req, maxBytes) {
+  return new Promise((resolve, reject) => {
+    const teile = [];
+    let n = 0, over = false;
+    req.on('data', c => {
+      if (over) return;
+      n += c.length;
+      if (n > maxBytes) { over = true; teile.length = 0; return; }
+      teile.push(c);
+    });
+    req.on('end', () => {
+      if (over) { const e = new Error('Bild zu groß.'); e.tooLarge = true; return reject(e); }
+      resolve(Buffer.concat(teile));
+    });
+    req.on('error', reject);
+  });
+}
+// Aufraeumen: Originale geloeschter Gutscheine weg. Nur was einen Loeschmarker
+// hat, NICHT mehr in der Wallet steht und auch nicht als Geschenk auf den
+// Nutzer wartet (zurueckgeschenkte Gutscheine behalten ihre ID).
+async function origAufraeumen(user, tombs, wallet) {
+  let dateien;
+  try { dateien = await fs.promises.readdir(origOrdner(user)); } catch { return; }
+  const lebt = new Set([...(wallet.vouchers || []), ...(gifts[user] || [])].map(v => v && v.id));
+  for (const f of dateien) {
+    const id = f.replace(/\.jpg$/, '');
+    if (tombs[id] && !lebt.has(id)) fs.promises.rm(path.join(origOrdner(user), f), { force: true }).catch(() => {});
+  }
+}
+
 // Hochfrequente Dateien (Chat, Quest-Zähler, Wallets) werden gebündelt und
 // asynchron geschrieben: writeFileSync bei jeder Nachricht blockierte sonst
 // ALLE parallelen Anfragen (spürbar als "der Server ist langsam")
@@ -2022,6 +2061,45 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true, activePaint: prof.activePaint });
     }
 
+    // ---- Originalfoto eines Gutscheins: hochladen, abholen, loeschen
+    if (p === '/api/wallet/orig') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      const id = String(url.searchParams.get('id') || '');
+      if (!ORIG_ID.test(id)) return send(res, 400, { error: 'Ungültige ID.' });
+      const datei = origPfad(user, id);
+      if (req.method === 'GET') {
+        let buf;
+        try { buf = await fs.promises.readFile(datei); } catch { return send(res, 404, { error: 'Kein Original gespeichert.' }); }
+        return send(res, 200, buf, 'image/jpeg');
+      }
+      if (req.method === 'POST') {
+        let buf;
+        try { buf = await readRaw(req, 2_500_000); } catch (e) {
+          return send(res, e.tooLarge ? 413 : 400, { error: e.tooLarge ? 'Das Foto ist zu groß.' : 'Upload abgebrochen.' });
+        }
+        // Der Client schickt immer ein JPEG aus dem Canvas — alles andere ist Unfug
+        if (buf.length < 200 || buf[0] !== 0xFF || buf[1] !== 0xD8 || buf[2] !== 0xFF) {
+          return send(res, 400, { error: 'Nur JPEG-Fotos.' });
+        }
+        await fs.promises.mkdir(origOrdner(user), { recursive: true });
+        // Deckel: mehr Originale als Gutscheine (max. 300) braucht niemand
+        if (!fs.existsSync(datei) && (await fs.promises.readdir(origOrdner(user))).length >= 320) {
+          return send(res, 413, { error: 'Zu viele Originalfotos gespeichert.' });
+        }
+        // Erst vollstaendig schreiben, dann umbenennen: ein abgebrochener Upload
+        // hinterlaesst nie ein halbes Bild
+        await fs.promises.writeFile(datei + '.tmp', buf);
+        await fs.promises.rename(datei + '.tmp', datei);
+        return send(res, 200, { ok: true });
+      }
+      if (req.method === 'DELETE') {
+        await fs.promises.rm(datei, { force: true });
+        return send(res, 200, { ok: true });
+      }
+      return send(res, 405, { error: 'Methode nicht erlaubt.' });
+    }
+
     // ---- Wallet am Konto: überlebt Gerätewechsel und App-Neuinstallation
     if (p === '/api/wallet' && req.method === 'GET') {
       const user = authUser(req);
@@ -2057,6 +2135,13 @@ const server = http.createServer(async (req, res) => {
       profMe.giftDay.count++;
       gifts[to] = gifts[to] || [];
       gifts[to].push({ ...v, giftFrom: me, giftTs: Date.now(), giftMsg });
+      // Das Originalfoto zieht mit um. Fehlt es (noch nicht hochgeladen), zeigt
+      // der Betrachter beim Freund eben nur den Zuschnitt.
+      if (v.orig && ORIG_ID.test(v.id)) {
+        fs.promises.mkdir(origOrdner(to), { recursive: true })
+          .then(() => fs.promises.rename(origPfad(me, v.id), origPfad(to, v.id)))
+          .catch(() => {});
+      }
       saveJson('wallets.json', wallets);
       saveJson('gifts.json', gifts);
       saveJson('users.json', users); // Tageszähler
@@ -2142,6 +2227,7 @@ const server = http.createServer(async (req, res) => {
         .filter(([, ts]) => Date.now() - ts < 180 * 86400e3)
         .slice(-500).map(([id, ts]) => ({ id, ts }));
       wallets[user] = slimWallet({ vouchers, cards, deleted, ts: Date.now() });
+      if (Object.keys(tombs).length) origAufraeumen(user, tombs, wallets[user]);
       updateLifetime(user);
       // Aufgebrauchter Gutschein = Sparziel erreicht: einmalig eine Kiste
       const prof = profileOf(user);

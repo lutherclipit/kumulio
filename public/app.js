@@ -1082,10 +1082,505 @@ document.addEventListener('click', e => {
   if (d) openDealSheet(d);
   else island('Dieser Deal ist nicht mehr im Feed');
 });
-// Bild eines Gutscheins nachtraeglich pflegen: neu hochladen (mit direktem
-// Zuschnitt) oder das vorhandene selbst zuschneiden. Fester Rahmen, Bild wird
+// ---------------- Originalfotos: eigener Speicher neben der Wallet ----------------
+// Das nicht zugeschnittene Foto eines Gutscheins faehrt NICHT in der Wallet
+// mit: die geht bei jedem Sync komplett zum Server und liegt im localStorage
+// (rund 5 MB). Mit Originalfotos darin liefen Syncs ins Timeout und Gutscheine
+// gingen verloren (Payload-Diaet, 966becb). Deshalb liegt das Original hier in
+// IndexedDB und am Konto als eigene Datei; die Wallet merkt sich nur den
+// Zeitstempel v.orig. Geladen wird es erst, wenn jemand es sehen will.
+let origDbP = null;
+function origDb() {
+  if (!origDbP) {
+    origDbP = new Promise((res, rej) => {
+      if (!window.indexedDB) return rej(new Error('IndexedDB fehlt'));
+      const r = indexedDB.open('kumulio-bilder', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('orig');
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+    origDbP.catch(() => { origDbP = null; });
+  }
+  return origDbP;
+}
+async function origIdb(art, id, wert) {
+  try {
+    const db = await origDb();
+    return await new Promise((res, rej) => {
+      const st = db.transaction('orig', art === 'get' ? 'readonly' : 'readwrite').objectStore('orig');
+      const r = art === 'get' ? st.get(id) : art === 'put' ? st.put(wert, id) : st.delete(id);
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+  } catch { return undefined; }
+}
+function dataUrlZuBlob(url) {
+  const [kopf, daten] = String(url).split(',');
+  const bin = atob(daten || '');
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: (kopf.match(/^data:([^;,]+)/) || [])[1] || 'image/jpeg' });
+}
+// v.orig wird sofort gesetzt, damit es mit dem naechsten Wallet-Sync mitgeht;
+// das Bild selbst folgt ueber die Warteschlange.
+function origSichern(v, dataUrl) {
+  if (!v || !dataUrl) return Promise.resolve();
+  const ts = Date.now();
+  v.orig = ts;
+  return origIdb('put', v.id, { ts, blob: dataUrlZuBlob(dataUrl) }).then(() => origHochladen(v.id));
+}
+function origEntfernen(v) {
+  if (!v || !v.orig) return;
+  delete v.orig;
+  origIdb('del', v.id);
+  origWartendSetzen(origWartend().filter(x => x !== v.id));
+  if (state.token) {
+    fetch(API_BASE + '/api/wallet/orig?id=' + encodeURIComponent(v.id), {
+      method: 'DELETE', headers: { Authorization: 'Bearer ' + state.token },
+    }).catch(() => {});
+  }
+}
+function origWartend() {
+  try { return JSON.parse(localStorage.getItem('ra.origWartend') || '[]'); } catch { return []; }
+}
+function origWartendSetzen(liste) {
+  try { localStorage.setItem('ra.origWartend', JSON.stringify(liste.slice(-300))); } catch { /* voll */ }
+}
+// Warteschlange: offline oder abgemeldet gemachte Fotos gehen beim naechsten
+// geglueckten Wallet-Sync nach oben
+let origUploadLaeuft = false;
+async function origHochladen(id) {
+  if (id && !origWartend().includes(id)) origWartendSetzen([...origWartend(), id]);
+  if (!state.token || origUploadLaeuft) return;
+  origUploadLaeuft = true;
+  let hakt = false;
+  try {
+    for (const vid of origWartend()) {
+      const e = await origIdb('get', vid);
+      if (e && e.blob) {
+        const r = await fetch(API_BASE + '/api/wallet/orig?id=' + encodeURIComponent(vid), {
+          method: 'POST', body: e.blob,
+          headers: { 'Content-Type': 'image/jpeg', Authorization: 'Bearer ' + state.token },
+        });
+        // Netz oder Server gerade weg: spaeter nochmal. Abgelehnt (zu gross,
+        // kein JPEG): nicht endlos wiederholen.
+        if (!r.ok && r.status !== 400 && r.status !== 413) { hakt = true; break; }
+      }
+      origWartendSetzen(origWartend().filter(x => x !== vid));
+    }
+  } catch { hakt = true; }
+  finally { origUploadLaeuft = false; }
+  // Waehrenddessen dazugekommen? Gleich hinterher.
+  if (!hakt && origWartend().length) origHochladen();
+}
+// Original zum Anzeigen holen: erst vom Geraet, sonst vom Konto
+async function origLaden(v) {
+  if (!v || !v.orig) return null;
+  const e = await origIdb('get', v.id);
+  const lokal = e && e.blob ? URL.createObjectURL(e.blob) : null;
+  if (lokal && e.ts === v.orig) return lokal;
+  if (!state.token) return lokal;
+  try {
+    const r = await fetch(API_BASE + '/api/wallet/orig?id=' + encodeURIComponent(v.id), {
+      headers: { Authorization: 'Bearer ' + state.token },
+    });
+    if (!r.ok) return lokal;
+    const blob = await r.blob();
+    origIdb('put', v.id, { ts: v.orig, blob });
+    if (lokal) URL.revokeObjectURL(lokal);
+    return URL.createObjectURL(blob);
+  } catch { return lokal; }
+}
+
+// ---------------- Bildbetrachter ----------------
+// Gutscheinbild antippen: es hebt sich aus dem Blatt in die Mitte — derselbe
+// Weg wie bei der Kartenlupe, nur ohne Drehung — und der Rest wird unscharf.
+// Zwei Finger, Doppeltipp oder Mausrad zoomen, ein Finger schiebt. Raus geht
+// es auf jedem naheliegenden Weg: daneben tippen, einmal aufs Bild tippen,
+// runterwischen, zusammenkneifen, X oder Esc.
+let bildOffen = null;
+function zeigeBildGross({ vonEl, src, ladeOriginal = null }) {
+  if (bildOffen || !vonEl) return;
+  const von = vonEl.getBoundingClientRect();
+  if (!von.width) return;
+  // Der Rahmen uebernimmt Rand, Ecken und Grund des Bildes im Blatt. Dann ist
+  // der Weg dorthin ein reines Skalieren, und nichts springt beim Landen.
+  const cs = getComputedStyle(vonEl);
+  const rand = parseFloat(cs.paddingLeft) || 0;
+  const ecke = parseFloat(cs.borderTopLeftRadius) || 0;
+  const grundFarbe = cs.backgroundColor;
+  buzz(10);
+
+  const el = document.createElement('div');
+  el.className = 'bild-lupe';
+  el.setAttribute('role', 'dialog');
+  el.setAttribute('aria-modal', 'true');
+  el.setAttribute('aria-label', 'Bild');
+  el.innerHTML = `
+    <div class="lupe-grund"></div>
+    <div class="bl-flaeche"><div class="bl-rahmen"><img alt="" draggable="false"></div></div>
+    <button class="bl-zu" aria-label="Schließen">${icon('x')}</button>
+    ${ladeOriginal ? `<div class="bl-wahl" role="tablist" aria-label="Bildfassung">
+        <span class="bl-wahl-flaeche" aria-hidden="true"></span>
+        <button class="bl-wahl-knopf an" data-bl="zu" role="tab" aria-selected="true">Zugeschnitten</button>
+        <button class="bl-wahl-knopf" data-bl="orig" role="tab" aria-selected="false">Original</button>
+      </div>` : ''}`;
+  document.body.appendChild(el);
+  bildOffen = el;
+  const flaeche = el.querySelector('.bl-flaeche');
+  const rahmen = el.querySelector('.bl-rahmen');
+  const img = rahmen.querySelector('img');
+  const hinten = el.querySelector('.lupe-grund');
+  const wahl = el.querySelector('.bl-wahl');
+  img.src = src;
+  const leise = reducedMotion();
+  const weich = 'cubic-bezier(.22, 1, .32, 1)';
+  const urls = [];
+
+  // ---- Groesse: so viel Bildschirm wie moeglich, oben das X, unten der Umschalter
+  let modus = 'zu';
+  let orig = null;          // { url, w, h }
+  let B = null;             // Lage des Rahmens bei Zoom 1
+  const passeAn = () => {
+    const W = el.clientWidth, H = el.clientHeight;
+    const maxW = W - 16, maxH = H - (wahl ? 150 : 112);
+    let w, h;
+    if (modus === 'zu') {
+      // Nicht beliebig aufblasen: hoechstens anderthalbmal so gross, wie das
+      // Bild Pixel hat — kleiner als im Blatt wird es aber nie (ausser es passt nicht)
+      const innen = Math.max(1, von.width - 2 * rand);
+      const k = Math.min(maxW / von.width, maxH / von.height,
+        Math.max(1, ((vonEl.naturalWidth || innen) * 1.5) / innen));
+      w = von.width * k; h = von.height * k;
+      rahmen.style.padding = rand * k + 'px';
+      rahmen.style.borderRadius = ecke * k + 'px';
+      rahmen.style.background = grundFarbe;
+    } else {
+      const k = Math.min(maxW / orig.w, maxH / orig.h, 1.5);
+      w = orig.w * k; h = orig.h * k;
+      rahmen.style.padding = '0';
+      rahmen.style.borderRadius = '14px';
+      rahmen.style.background = 'transparent';
+    }
+    rahmen.style.width = w + 'px';
+    rahmen.style.height = h + 'px';
+    const r = rahmen.getBoundingClientRect();
+    B = { left: r.left, top: r.top, width: r.width, height: r.height };
+  };
+
+  // ---- Zoom-Zustand: z und Verschiebung der ganzen Flaeche (Ursprung oben links)
+  let z = 1, tx = 0, ty = 0;
+  const trafo = () => `translate(${tx}px, ${ty}px) scale(${z})`;
+  const setze = () => { flaeche.style.transform = trafo(); };
+  // Gezoomt darf man bis an die Bildkante schieben, nicht weiter. Passt das
+  // Bild in einer Richtung ganz aufs Display, bleibt es dort mittig.
+  const begrenzt = (zz, x, y) => {
+    const achse = (lo, gr, t, platz) => {
+      const g = gr * zz;
+      if (g <= platz) return (platz - g) / 2 - lo * zz;
+      return Math.min(-lo * zz, Math.max(platz - (lo + gr) * zz, t));
+    };
+    return [achse(B.left, B.width, x, el.clientWidth), achse(B.top, B.height, y, el.clientHeight)];
+  };
+  // Der Punkt unter dem Finger bleibt unter dem Finger
+  const zoomUm = (nz, px, py) => [nz, px - ((px - tx) / z) * nz, py - ((py - ty) / z) * nz];
+  const gleite = (nz, nx, ny, ms = 320) => {
+    let alt = getComputedStyle(flaeche).transform;
+    if (!alt || alt === 'none') alt = 'matrix(1, 0, 0, 1, 0, 0)';
+    flaeche.getAnimations().forEach(a => a.cancel());
+    z = nz; tx = nx; ty = ny; setze();
+    if (!leise) flaeche.animate([{ transform: alt }, { transform: trafo() }], { duration: ms, easing: weich });
+  };
+  // Mitten in einer Gleitfahrt anfassen: dort weitermachen, wo sie gerade ist
+  const halte = () => {
+    const laufend = flaeche.getAnimations();
+    if (!laufend.length) return;
+    const m = new DOMMatrixReadOnly(getComputedStyle(flaeche).transform);
+    laufend.forEach(a => a.cancel());
+    z = m.a; tx = m.e; ty = m.f; setze();
+  };
+  // Hintergrund und Knoepfe blassen mit, je weiter man zieht
+  const daempfe = f => {
+    hinten.style.opacity = String(1 - f * .85);
+    el.style.setProperty('--bl-knopf', String(Math.max(0, 1 - f * 1.6)));
+  };
+  const entdaempfe = () => { hinten.style.opacity = ''; el.style.removeProperty('--bl-knopf'); };
+
+  // ---- Hinein: aus dem Bild im Blatt heraus
+  const abbild = (r, b) => `translate(${r.left + r.width / 2 - (b.left + b.width / 2)}px, `
+    + `${r.top + r.height / 2 - (b.top + b.height / 2)}px) scale(${r.width / b.width})`;
+  passeAn();
+  void el.offsetWidth;
+  el.classList.add('an');
+  vonEl.style.visibility = 'hidden';
+  if (!leise) rahmen.animate([{ transform: abbild(von, B) }, { transform: 'none' }], { duration: 420, easing: weich });
+
+  // ---- Hinaus: von da, wo das Bild gerade ist, zurueck an seinen Platz
+  let tippUhr = 0;
+  const zu = () => {
+    if (bildOffen !== el) return;
+    bildOffen = null;
+    removeEventListener('keydown', taste, true);
+    removeEventListener('resize', neuLayout);
+    clearTimeout(tippUhr);
+    const jetzt = rahmen.getBoundingClientRect();
+    flaeche.getAnimations().forEach(a => a.cancel());
+    rahmen.getAnimations().forEach(a => a.cancel());
+    z = 1; tx = 0; ty = 0; flaeche.style.transform = '';
+    entdaempfe();
+    el.classList.remove('an', 'zieht');
+    el.classList.add('geht');
+    const ziel = vonEl.isConnected ? vonEl.getBoundingClientRect() : null;
+    const fertig = () => {
+      if (!el.isConnected) return;
+      el.remove();
+      vonEl.style.visibility = '';
+      urls.forEach(u => URL.revokeObjectURL(u));
+    };
+    if (leise) return fertig();
+    let a;
+    if (modus === 'zu' && ziel && ziel.width) {
+      a = rahmen.animate([{ transform: abbild(jetzt, B) }, { transform: abbild(ziel, B) }],
+        { duration: 320, easing: 'cubic-bezier(.32, .72, 0, 1)', fill: 'forwards' });
+    } else {
+      // Das Original hat ein anderes Format als das Bild im Blatt — dorthin
+      // zu schrumpfen saehe schief aus. Also: sanft ausblenden.
+      vonEl.style.visibility = '';
+      a = rahmen.animate([
+        { transform: abbild(jetzt, B), opacity: 1 },
+        { transform: abbild(jetzt, B) + ' scale(.92)', opacity: 0 },
+      ], { duration: 200, easing: 'ease-out', fill: 'forwards' });
+    }
+    a.onfinish = fertig;
+    setTimeout(fertig, 520);
+  };
+
+  // ---- Gesten
+  const finger = new Map();
+  let geste = null, letzterTipp = null;
+  const zweiFinger = () => {
+    const [p, q] = [...finger.values()];
+    return { d: Math.hypot(p.x - q.x, p.y - q.y) || 1, mx: (p.x + q.x) / 2, my: (p.y + q.y) / 2 };
+  };
+  el.addEventListener('pointerdown', e => {
+    if (bildOffen !== el || e.target.closest('.bl-zu, .bl-wahl')) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    halte();
+    finger.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    try { el.setPointerCapture(e.pointerId); } catch { /* zweiter Finger */ }
+    if (finger.size === 1) {
+      geste = { art: 'eins', sx: e.clientX, sy: e.clientY, tx0: tx, ty0: ty, bewegt: false,
+        aufBild: !!e.target.closest('.bl-rahmen'), spur: [{ x: e.clientX, y: e.clientY, t: e.timeStamp }] };
+    } else if (finger.size === 2) {
+      const f = zweiFinger();
+      geste = { art: 'zwei', d0: f.d, z0: z, cx: (f.mx - tx) / z, cy: (f.my - ty) / z };
+      el.classList.add('zieht');
+      clearTimeout(tippUhr); letzterTipp = null;
+    }
+  });
+  el.addEventListener('pointermove', e => {
+    if (!finger.has(e.pointerId) || !geste) return;
+    finger.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (geste.art === 'zwei') {
+      if (finger.size < 2) return;
+      const f = zweiFinger();
+      let nz = geste.z0 * f.d / geste.d0;
+      // Ueber 6-fach nur noch zaeh, unter halb gar nicht
+      if (nz > 6) nz = 6 + (nz - 6) * .3;
+      nz = Math.max(.5, nz);
+      z = nz; tx = f.mx - geste.cx * z; ty = f.my - geste.cy * z; setze();
+      if (z < 1) daempfe(Math.min(1, (1 - z) * 2.2)); else entdaempfe();
+      return;
+    }
+    const dx = e.clientX - geste.sx, dy = e.clientY - geste.sy;
+    if (!geste.bewegt) {
+      if (Math.hypot(dx, dy) < 8) return;
+      geste.bewegt = true;
+      geste.art = z > 1.02 || Math.abs(dx) > Math.abs(dy) ? 'schieben' : 'wisch';
+      if (geste.art === 'wisch') el.classList.add('zieht');
+    }
+    geste.spur.push({ x: e.clientX, y: e.clientY, t: e.timeStamp });
+    if (geste.spur.length > 8) geste.spur.shift();
+    if (geste.art === 'schieben') {
+      // Ueber den Rand hinaus nur mit Widerstand
+      const wx = geste.tx0 + dx, wy = geste.ty0 + dy;
+      const [bx, by] = begrenzt(z, wx, wy);
+      tx = bx + (wx - bx) * .35; ty = by + (wy - by) * .35; setze();
+    } else {
+      // Runterwischen: das Bild folgt dem Finger, wird etwas kleiner, der
+      // Hintergrund klart auf
+      const s = 1 - Math.min(.22, Math.abs(dy) / 1400);
+      const mx = B.left + B.width / 2, my = B.top + B.height / 2;
+      z = s; tx = mx * (1 - s) + dx * .5; ty = my * (1 - s) + dy; setze();
+      daempfe(Math.min(1, Math.abs(dy) / 320));
+    }
+  });
+  // Nach dem Loslassen: in gueltige Grenzen zurueck
+  const landen = () => {
+    el.classList.remove('zieht');
+    if (z < .85) return zu(); // zusammengekniffen: raus
+    entdaempfe();
+    let nz = Math.min(6, Math.max(1, z)), nx = tx, ny = ty;
+    if (nz !== z) [nz, nx, ny] = zoomUm(nz, el.clientWidth / 2, el.clientHeight / 2);
+    [nx, ny] = begrenzt(nz, nx, ny);
+    if (Math.abs(nz - z) > .001 || Math.abs(nx - tx) > .5 || Math.abs(ny - ty) > .5) gleite(nz, nx, ny);
+  };
+  const tempo = (g, t) => {
+    const b = g.spur[g.spur.length - 1];
+    if (!b) return { x: 0, y: 0 };
+    const a = g.spur.find(p => p.t >= b.t - 100) || g.spur[0];
+    if (b.t - a.t < 8 || t - b.t > 90) return { x: 0, y: 0 };
+    return { x: (b.x - a.x) / (b.t - a.t), y: (b.y - a.y) / (b.t - a.t) };
+  };
+  const tippen = (e, g) => {
+    const jetzt = e.timeStamp;
+    if (letzterTipp && jetzt - letzterTipp.t < 300
+        && Math.hypot(e.clientX - letzterTipp.x, e.clientY - letzterTipp.y) < 40) {
+      // Doppeltipp: rein an genau diese Stelle — oder wieder ganz raus
+      clearTimeout(tippUhr); letzterTipp = null;
+      buzz(6);
+      if (z > 1.02) return gleite(1, 0, 0);
+      const [nz, nx, ny] = zoomUm(2.6, e.clientX, e.clientY);
+      const [bx, by] = begrenzt(nz, nx, ny);
+      return gleite(nz, bx, by);
+    }
+    if (!g.aufBild) return zu(); // daneben getippt: sofort raus
+    letzterTipp = { t: jetzt, x: e.clientX, y: e.clientY };
+    // Einmal aufs Bild: auch raus — aber erst, wenn kein zweiter Tipp folgt
+    clearTimeout(tippUhr);
+    tippUhr = setTimeout(() => { letzterTipp = null; if (z <= 1.02) zu(); }, 300);
+  };
+  const los = e => {
+    if (!finger.has(e.pointerId)) return;
+    finger.delete(e.pointerId);
+    if (!geste) return;
+    if (geste.art === 'zwei') {
+      if (finger.size === 1) {
+        // Ein Finger bleibt liegen: nahtlos weiterschieben
+        const [f] = [...finger.values()];
+        geste = { art: 'schieben', sx: f.x, sy: f.y, tx0: tx, ty0: ty, bewegt: true, spur: [] };
+      } else if (!finger.size) { geste = null; landen(); }
+      return;
+    }
+    if (finger.size) return;
+    const g = geste; geste = null;
+    if (e.type === 'pointercancel') return landen();
+    if (!g.bewegt) return tippen(e, g);
+    if (g.art === 'wisch') {
+      el.classList.remove('zieht');
+      const v = tempo(g, e.timeStamp);
+      if (Math.abs(e.clientY - g.sy) > 110 || Math.abs(v.y) > .55) return zu();
+      entdaempfe();
+      return gleite(1, 0, 0, 300);
+    }
+    // Schwung mitnehmen: das Bild gleitet nach dem Loslassen noch ein Stueck
+    const v = tempo(g, e.timeStamp);
+    if (Math.hypot(v.x, v.y) > .15 && z > 1.02) {
+      const [nx, ny] = begrenzt(z, tx + v.x * 240, ty + v.y * 240);
+      return gleite(z, nx, ny, 560);
+    }
+    landen();
+  };
+  el.addEventListener('pointerup', los);
+  el.addEventListener('pointercancel', los);
+  // Mausrad und Trackpad (Pinch am Trackpad kommt als Strg+Rad)
+  el.addEventListener('wheel', e => {
+    e.preventDefault();
+    if (bildOffen !== el) return;
+    halte();
+    const dy = e.deltaY * (e.deltaMode === 1 ? 33 : 1);
+    const f = Math.exp(-dy * (e.ctrlKey ? .012 : .0025));
+    let [nz, nx, ny] = zoomUm(Math.min(6, Math.max(1, z * f)), e.clientX, e.clientY);
+    [nx, ny] = begrenzt(nz, nx, ny);
+    z = nz; tx = nx; ty = ny; setze();
+  }, { passive: false });
+
+  // ---- Zugeschnitten / Original
+  let wechselt = false;
+  const setzeWahl = m => {
+    if (!wahl) return;
+    wahl.classList.toggle('rechts', m === 'orig');
+    wahl.querySelectorAll('[data-bl]').forEach(k => {
+      k.classList.toggle('an', k.dataset.bl === m);
+      k.setAttribute('aria-selected', String(k.dataset.bl === m));
+    });
+  };
+  const wechsle = async ziel => {
+    if (ziel === modus || wechselt) return;
+    wechselt = true;
+    try { await wechsleJetzt(ziel); } finally { wechselt = false; }
+  };
+  const wechsleJetzt = async ziel => {
+    buzz(6);
+    setzeWahl(ziel);
+    let quelle = src;
+    if (ziel === 'orig') {
+      if (!orig) {
+        el.classList.add('laedt');
+        const url = await ladeOriginal().catch(() => null);
+        el.classList.remove('laedt');
+        if (url) {
+          urls.push(url);
+          const probe = new Image();
+          probe.src = url;
+          try { await probe.decode(); } catch { /* unten geprueft */ }
+          if (probe.naturalWidth) orig = { url, w: probe.naturalWidth, h: probe.naturalHeight };
+        }
+      }
+      if (bildOffen !== el) return;
+      if (!orig) { setzeWahl(modus); island('Das Original ist gerade nicht abrufbar'); return; }
+      quelle = orig.url;
+    }
+    const raus = leise ? null : rahmen.animate(
+      [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.97)' }],
+      { duration: 130, easing: 'ease-in', fill: 'forwards' });
+    if (raus) await raus.finished.catch(() => {});
+    if (bildOffen !== el) return;
+    flaeche.getAnimations().forEach(a => a.cancel());
+    z = 1; tx = 0; ty = 0; setze();
+    modus = ziel;
+    img.src = quelle;
+    raus?.cancel();
+    passeAn();
+    if (!leise) rahmen.animate([{ opacity: 0, transform: 'scale(.97)' }, { opacity: 1, transform: 'none' }],
+      { duration: 260, easing: weich });
+  };
+  wahl?.querySelectorAll('[data-bl]').forEach(k => { k.onclick = () => wechsle(k.dataset.bl); });
+
+  el.querySelector('.bl-zu').onclick = zu;
+  // Esc schliesst nur den Betrachter, nicht auch noch das Blatt dahinter
+  const taste = e => { if (e.key === 'Escape') { e.stopPropagation(); zu(); } };
+  addEventListener('keydown', taste, true);
+  // Handy gedreht: neu einpassen, Zoom zuruecksetzen
+  const neuLayout = () => {
+    if (bildOffen !== el) return;
+    flaeche.getAnimations().forEach(a => a.cancel());
+    z = 1; tx = 0; ty = 0; setze();
+    passeAn();
+  };
+  addEventListener('resize', neuLayout);
+  return { zu };
+}
+
+// Bild eines Gutscheins pflegen: antippen zum Vergroessern, neu hochladen (mit
+// direktem Zuschnitt) oder selbst zuschneiden. Fester Rahmen, Bild wird
 // verschoben und gezoomt — das ist auf dem Handy am treffsichersten.
 function wireVoucherImage(v) {
+  const bildGross = () => {
+    const bild = $('#wv-bild');
+    if (!bild) return;
+    zeigeBildGross({
+      vonEl: bild, src: bild.src,
+      // Umschalter nur, wenn es neben dem Zuschnitt wirklich ein Original gibt
+      ladeOriginal: v.orig && v.codeImg ? () => origLaden(v) : null,
+    });
+  };
+  $('#wv-bild')?.addEventListener('click', bildGross);
+  $('#wv-bild')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); bildGross(); }
+  });
+  $('#wv-img-zoom')?.addEventListener('click', bildGross);
+
   $('#wv-img-file')?.addEventListener('change', async e => {
     const f = e.target.files[0];
     if (!f) return;
@@ -1093,10 +1588,23 @@ function wireVoucherImage(v) {
       const rd = new FileReader();
       rd.onload = () => res(rd.result); rd.onerror = rej; rd.readAsDataURL(f);
     });
-    openImgCrop(url, out => { v.codeImg = out; v.img = ''; saveWallet(); openVoucherSheet(v.id); });
+    // Das ganze Foto bleibt als Original erhalten (verkleinert, ausserhalb der Wallet)
+    const ganzesFoto = await readImageFile(f, 1600, 0.82).catch(() => '');
+    openImgCrop(url, (out, info) => {
+      if (info.ganz || !ganzesFoto) origEntfernen(v); // sonst zeigte "Original" noch das alte Foto
+      else origSichern(v, ganzesFoto);
+      v.codeImg = out; v.img = ''; saveWallet(); openVoucherSheet(v.id);
+    });
   });
-  $('#wv-img-crop')?.addEventListener('click', () => {
-    openImgCrop(v.codeImg || v.img, out => { v.codeImg = out; v.img = ''; saveWallet(); openVoucherSheet(v.id); });
+  $('#wv-img-crop')?.addEventListener('click', async () => {
+    // Vom Original aus zuschneiden: so laesst sich der Ausschnitt auch wieder
+    // groesser ziehen, nicht nur immer kleiner
+    const vomOriginal = v.orig ? await origLaden(v) : null;
+    openImgCrop(vomOriginal || v.codeImg || v.img, (out, info) => {
+      if (info.ganz) origEntfernen(v);          // jetzt IST das Bild das Original
+      else if (!v.orig && v.img) origSichern(v, v.img); // bisher unbeschnitten: das wird das Original
+      v.codeImg = out; v.img = ''; saveWallet(); openVoucherSheet(v.id);
+    });
   });
 }
 function openImgCrop(src, onDone) {
@@ -1191,10 +1699,10 @@ function openImgCrop(src, onDone) {
   regler.addEventListener('input', e =>
     setzeZoom(Number(e.target.value) / 100, stage.clientWidth / 2, stage.clientHeight / 2));
 
-  const finish = out => {
+  const finish = (out, info) => {
     wrap.classList.add('closing');
     setTimeout(() => wrap.remove(), 240);
-    if (out) onDone(out);
+    if (out) onDone(out, info || {});
   };
   wrap.querySelector('#crop-cancel').onclick = () => finish(null);
   wrap.addEventListener('click', e => { if (e.target === wrap) finish(null); });
@@ -1204,7 +1712,7 @@ function openImgCrop(src, onDone) {
     const s2 = Math.min(1, 1400 / Math.max(img.naturalWidth, img.naturalHeight));
     c.width = Math.round(img.naturalWidth * s2); c.height = Math.round(img.naturalHeight * s2);
     c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-    finish(c.toDataURL('image/jpeg', 0.86));
+    finish(c.toDataURL('image/jpeg', 0.86), { ganz: true });
   };
   wrap.querySelector('#crop-ok').onclick = () => {
     const k = baseScale * zoom;
@@ -3902,6 +4410,7 @@ let walletSyncInFlight = null; // Single-Flight: parallele Syncs teilen sich EIN
 // sonst belebt das Zweitgerät (altes Handy) den Gutschein beim nächsten Sync wieder
 function tombstone(id) {
   state.wallet.deleted = [...(state.wallet.deleted || []), { id, ts: Date.now() }].slice(-500);
+  origIdb('del', id); // Originalfoto auf dem Geraet; am Konto raeumt der Server auf
 }
 // Der eigene Name mit Paint im Profil-Kopf: gami (bei Equips sofort aktuell)
 // schlägt myProfile — dadurch wirkt Anlegen/Ablegen ohne Reload
@@ -4008,6 +4517,7 @@ async function syncWalletNow() {
       walletSyncFatal = false;
       walletRetryDelay = 1500; // Backoff zurücksetzen
       clearTimeout(walletRetryTimer);
+      if (origWartend().length) origHochladen();
       return true;
     } catch (e) {
       walletSyncError = e.name === 'TimeoutError' || e.name === 'AbortError'
@@ -4407,6 +4917,9 @@ async function copyText(t) {
 
 // ---- Hinzufügen (großes Plus -> Sheet)
 let addImg = '';
+// Das ganze Foto in besserer Aufloesung (fuers Original im Bildbetrachter).
+// Faehrt nicht in der Wallet mit, siehe origSichern.
+let addOrig = '';
 let addType = 'voucher';
 let addPrefill = '';
 let addCodeImg = ''; // ausgeschnittener Kassen-Code (falls der Scanner ihn findet)
@@ -4885,6 +5398,7 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
   const bearbeitet = addEditId ? state.wallet.cards.find(x => x.id === addEditId) : null;
   if (!bearbeitet) addEditId = '';
   addImg = bearbeitet?.img || '';
+  addOrig = '';
   addCodeImg = bearbeitet?.codeImg || '';
   const isCard = addType === 'card';
   $('#sheet-content').innerHTML = `
@@ -5014,7 +5528,9 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
     const m = $('#wa-ai-msg');
     if (!f) return;
     try {
+      addOrig = '';
       addImg = await readImageFile(f);
+      addOrig = await readImageFile(f, 1600, 0.82).catch(() => '');
       $('#wa-preview').src = addImg;
       $('#wa-preview').classList.remove('hidden');
       $('#wa-drop-empty').classList.add('hidden');
@@ -5159,6 +5675,7 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
           amount: ex.amount, balance: ex.amount,
           img: r.codeImg ? '' : small, codeImg: r.codeImg || '', tx: [], added: Date.now(),
         };
+        if (r.codeImg) origSichern(v, await readImageFile(files[i], 1600, 0.82).catch(() => small));
         fresh.push(v);
         results.push({ ok: true, v });
       } catch {
@@ -5297,6 +5814,9 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
         return;
       }
       state.wallet.vouchers.unshift(v);
+      // Gibt es einen Kassen-Zuschnitt, bleibt das ganze Foto als Original
+      // erhalten — ausserhalb der Wallet
+      if (addCodeImg && (addOrig || addImg)) origSichern(v, addOrig || addImg);
       savedItem = v; savedList = state.wallet.vouchers;
     } else {
       const alt = addEditId ? state.wallet.cards.find(x => x.id === addEditId) : null;
@@ -5871,8 +6391,10 @@ function openVoucherSheet(id, animFrom, zurueckZu, richtung) {
     </div>` : ''}
     ${v.pin ? `<div class="tx-row"><span class="wallet-code" style="flex:1">PIN: ${esc(v.pin)}</span>
       <button class="btn btn-small btn-ghost" data-copy-txt="${esc(v.pin)}">PIN kopieren</button></div>` : ''}
-    ${v.codeImg ? `<img class="wallet-code-img" src="${v.codeImg}" alt="Code für die Kasse">`
-      : v.img ? `<img class="wallet-img" src="${v.img}" alt="QR/Barcode">` : ''}
+    ${v.codeImg ? `<img class="wallet-code-img" id="wv-bild" src="${v.codeImg}" alt="Code für die Kasse"
+        role="button" tabindex="0" aria-label="Bild vergrößern">`
+      : v.img ? `<img class="wallet-img" id="wv-bild" src="${v.img}" alt="QR/Barcode"
+        role="button" tabindex="0" aria-label="Bild vergrößern">` : ''}
     <div class="bild-aktionen">
       <label class="bild-btn">
         ${icon(v.codeImg || v.img ? 'wand' : 'plus', 'icon')}
@@ -5880,7 +6402,9 @@ function openVoucherSheet(id, animFrom, zurueckZu, richtung) {
         <input type="file" id="wv-img-file" accept="image/*" style="display:none">
       </label>
       ${v.codeImg || v.img ? `<button class="bild-btn" id="wv-img-crop">
-        ${icon('sliders', 'icon')}<span>Zuschneiden</span></button>` : ''}
+        ${icon('sliders', 'icon')}<span>Zuschneiden</span></button>
+        <button class="bild-btn bild-btn-rund" id="wv-img-zoom" aria-label="Bild vergrößern" title="Vergrößern">
+        ${icon('search', 'icon')}</button>` : ''}
     </div>
     ${v.balance != null ? `
     <div class="sheet-section">
