@@ -158,6 +158,7 @@
           <button id="btn-login" class="btn">Anmelden</button>
           <button id="btn-register-open" class="btn btn-ghost">Neu hier? Registrieren</button>
         </div>
+        <button class="link-knopf" id="btn-pw-vergessen" type="button">Passwort vergessen?</button>
         <div id="auth-msg" class="form-msg" style="margin-top:8px"></div>
         <p class="muted" style="font-size:.76rem; margin-top:10px">Dein Passwort wird nie im Klartext
           gespeichert, sondern nur als verschlüsselter Hash auf unserem Server.</p>
@@ -409,6 +410,7 @@
         </div>
         <div id="push-msg" class="form-msg"></div>
       </div>
+      <div class="card hidden" id="sicherheit-card"></div>
       <div class="card hidden" id="danger-card">
         <h2 class="card-h">Konto</h2>
         <div class="settings-row">
@@ -453,6 +455,18 @@
 
     <!-- ================= WALLET ================= -->
     <section id="view-wallet" class="view hidden">
+      <!-- Sperrbildschirm: liegt ueber der ganzen Wallet (auch dem Kopf), das
+           Menue unten bleibt bedienbar -->
+      <div id="wallet-sperre" class="wallet-sperre hidden" role="dialog" aria-modal="true" aria-label="Wallet gesperrt">
+        <div class="ws-inhalt">
+          <div class="ws-schloss"><svg class="icon"><use href="#i-lock"/></svg></div>
+          <h2 class="ws-titel">Wallet gesperrt</h2>
+          <p class="ws-text" id="ws-text">Gib deine PIN ein</p>
+          <div class="ws-punkte" id="ws-punkte"></div>
+          <div class="ws-tasten" id="ws-tasten"></div>
+          <button class="link-knopf" id="ws-vergessen" type="button">PIN vergessen?</button>
+        </div>
+      </div>
       <!-- Kein Extra-Titel: das Menü unten zeigt schon, wo man ist -->
       <!-- Drei Bereiche: Gutscheine, Sparkarten, Coupons -->
 
@@ -513,6 +527,16 @@
         </div>
       </div>
       <div id="wallet-content">
+        <!-- Wer noch keine PIN hat, bekommt sie hier empfohlen -->
+        <div id="pin-empfehlung" class="pin-empfehlung hidden">
+          <div class="pe-icon"><svg class="icon"><use href="#i-lock"/></svg></div>
+          <div class="pe-text"><b>Sichere deine Wallet</b>
+            <span>Mit einer PIN (und Face ID oder Fingerabdruck, wo es geht) sieht niemand deine Codes, der dein Handy in die Hand bekommt.</span></div>
+          <div class="pe-knoepfe">
+            <button class="btn btn-small" id="pe-ja" type="button">PIN festlegen</button>
+            <button class="btn btn-small btn-ghost" id="pe-spaeter" type="button">Später</button>
+          </div>
+        </div>
 
         <div class="wallet-tools">
           <input id="wallet-search" class="input" type="search" placeholder="Shop; z.B. REWE, Amazon; PIN, Notiz …">
@@ -532,6 +556,7 @@
           <summary><svg class="icon icon-sm"><use href="#i-list"/></svg> Aufgebraucht
             <span id="used-count" class="stars-count"></span>
             <svg class="icon icon-sm chev"><use href="#i-chevron"/></svg></summary>
+          <p class="used-hinweis" id="used-hinweis"></p>
           <div id="voucher-used" class="wallet-list" style="padding:0 14px 14px"></div>
         </details>
       </div>

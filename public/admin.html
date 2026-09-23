@@ -105,6 +105,22 @@
     <div class="msg" id="ts-msg"></div>
   </div>
 
+  <!-- E-Mail-Versand (Passwort vergessen, Sicherheits-Hinweise). Railway sperrt
+       SMTP auf Trial/Hobby, deshalb laeuft der Versand ueber die HTTPS-Schnittstelle
+       von Resend (resend.com): Konto anlegen, Domain kumulio.de verifizieren
+       (DNS-Eintraege in Cloudflare), API-Key erzeugen, hier eintragen. -->
+  <div class="card" id="mail-card" style="display:none">
+    <strong>Einstellungen: E-Mail-Versand (Resend)</strong>
+    <p class="sub" style="margin-top:4px" id="mail-status">Status wird geladen …</p>
+    <label>Resend API-Key</label><input id="mail-key" type="password" placeholder="re_… (leer lassen = unverändert)">
+    <label>Absender</label><input id="mail-from" placeholder="kumulio &lt;noreply@kumulio.de&gt;">
+    <label>Adresse der App (für Links in Mails)</label><input id="mail-basis" placeholder="https://kumulio.de">
+    <button id="btn-mail-save">Speichern</button>
+    <label style="margin-top:12px">Test-Mail an</label><input id="mail-test-to" placeholder="deine@adresse.de">
+    <button id="btn-mail-test">Test-Mail schicken</button>
+    <div class="msg" id="mail-msg"></div>
+  </div>
+
   <div class="card" id="form-card" style="display:none">
     <strong>Neue Kachel</strong>
     <label>Titel *</label><input id="f-title" maxlength="90" placeholder="z. B. AirPods Pro 2 für 189 €">
@@ -134,7 +150,7 @@
     });
     if (!t.ok) { msg('Admin-Key falsch.', 'err'); return; }
     sessionStorage.setItem('ra.adminkey', key());
-    ['list-card', 'form-card', 'deal-card', 'posts-card', 'users-card', 'settings-card']
+    ['list-card', 'form-card', 'deal-card', 'posts-card', 'users-card', 'settings-card', 'mail-card']
       .forEach(id => $('#' + id).style.display = 'block');
     const chs = await (await fetch('/api/channels')).json();
     $('#d-channel').innerHTML = chs.filter(c => c.type === 'community')
@@ -143,6 +159,17 @@
     render();
     loadPosts();
     loadUsers();
+    loadMail();
+  }
+  async function loadMail() {
+    const r = await adminFetch('/api/admin/mail');
+    if (!r.ok) return;
+    const j = await r.json();
+    $('#mail-status').textContent = j.bereit
+      ? `Eingerichtet: Absender ${j.from}, Schlüssel ${j.key}, Links auf ${j.basis}.`
+      : 'Noch nicht eingerichtet: „Passwort vergessen“ zeigt Nutzern dann einen Hinweis statt eine Mail zu schicken.';
+    $('#mail-from').value = j.from || '';
+    $('#mail-basis').value = j.basis || '';
   }
 
   const adminFetch = (path, opts) => fetch(path, {
@@ -189,6 +216,24 @@
     a.href = URL.createObjectURL(blob);
     a.download = 'newsletter.csv';
     a.click();
+  };
+
+  $('#btn-mail-save').onclick = async () => {
+    const r = await adminFetch('/api/admin/mail', { method: 'POST',
+      body: JSON.stringify({ resendKey: $('#mail-key').value, from: $('#mail-from').value, basis: $('#mail-basis').value }) });
+    const j = await r.json();
+    const m = $('#mail-msg');
+    m.textContent = r.ok ? (j.bereit ? 'Gespeichert, Versand ist bereit.' : 'Gespeichert, aber noch unvollständig (Schlüssel und Absender nötig).') : (j.error || 'Fehler');
+    m.className = 'msg ' + (r.ok ? 'ok' : 'err');
+    $('#mail-key').value = '';
+    loadMail();
+  };
+  $('#btn-mail-test').onclick = async () => {
+    const r = await adminFetch('/api/admin/mail-test', { method: 'POST', body: JSON.stringify({ to: $('#mail-test-to').value }) });
+    const j = await r.json();
+    const m = $('#mail-msg');
+    m.textContent = r.ok ? 'Test-Mail ist raus — schau ins Postfach (auch in den Spam-Ordner).' : (j.error || 'Fehler');
+    m.className = 'msg ' + (r.ok ? 'ok' : 'err');
   };
 
   $('#btn-ts-save').onclick = async () => {

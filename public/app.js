@@ -354,6 +354,23 @@ let walletIdbOk = true;       // false: kein IndexedDB — dann alles im localSt
 let walletIstBereit = false;  // erst wenn die Bilder aus IndexedDB da sind, wird hochgeladen
 let walletBereit = Promise.resolve();
 let walletOben = lsJson('ra.walletOben', {});
+// Wallet-Sperre (PIN / Face ID), siehe "Wallet-Sperre" weiter unten. Hier oben,
+// weil renderWallet und switchView sie schon beim Start brauchen.
+// PIN und Face ID gehoeren zum Konto, dessen Wallet auf dem Geraet liegt —
+// ein Kontowechsel loescht sie nicht, sie gelten wieder, wenn man zurueckwechselt
+const pinSchluessel = () => 'ra.walletPin:' + (walletBesitzer || state.userName || 'gast');
+const bioSchluessel = () => 'ra.walletBio:' + (walletBesitzer || state.userName || 'gast');
+const PIN_FEHL_KEY = 'ra.pinFehl';
+const PIN_HINWEIS_KEY = 'ra.pinHinweis';
+const SPERRE_NACH_MS = 60e3; // so lange darf die App im Hintergrund sein, ohne dass die Wallet sich sperrt
+let walletEntsperrt = false;
+let versteckSeit = 0;
+let kontoInfo = null; // aus /api/me: zweiFaktor, ersatzcodes, autoAufraeumen, mailBereit
+const FACE_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M9 9.5v1M15 9.5v1M12 9.5v3.5h-1M9.5 15.5c1.4 1.2 3.6 1.2 5 0"/></svg>';
+const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+let sperrEingabe = '';
+let sperrUhr = 0;
 // So viel passt in eine Wallet. Gerechnet: ein Gutschein mit Kassen-Code und
 // Originalfoto braucht komprimiert rund 50-130 KB. 500 Stueck sind dann auf
 // dem Handy rund 25-65 MB (dafuer reicht IndexedDB locker, und die App bleibt
@@ -473,6 +490,8 @@ function switchView(next, animClass) {
   }
   // Wallet immer aufgeräumt betreten: alle Stapel wieder zusammengelegt
   if (next === 'wallet') { restack(); renderWallet(); }
+  aktualisiereSperre(); // gesperrte Wallet: Sperrbildschirm (nur auf der Wallet-Seite)
+  if (next === 'settings') renderSicherheit();
   // Solange die Wallet offen ist, traegt die Kopfzeile ihre Farbe mit —
   // sonst steht oben eine harte Kante zwischen Leiste und farbigem Kopf
   document.body.classList.toggle('wallet-farbe', next === 'wallet' && !!state.token);
@@ -552,16 +571,21 @@ $('#fr-add-send').addEventListener('click', async () => {
 $('#btn-account-delete').addEventListener('click', async () => {
   if (!await askConfirm('Willst du dein Konto wirklich löschen? Profil, Wallet und Chats sind dann weg.', { okLabel: 'Ja, weiter' })) return;
   if (!await askConfirm('Letzte Frage: endgültig löschen? Das lässt sich nicht rückgängig machen.', { okLabel: 'Endgültig löschen' })) return;
+  // Nur mit Passwort — wer bloss das Handy in der Hand hat, darf das nicht
+  const pass = await passwortDialog('Konto löschen', 'Zur Sicherheit: dein Passwort.', { mitVergessen: false });
+  if (!pass) return;
   try {
-    await api('/api/account/delete', { method: 'POST', body: '{}' });
+    await api('/api/account/delete', { method: 'POST', body: JSON.stringify({ pass }) });
     state.token = ''; state.userName = ''; state.role = '';
     localStorage.removeItem('ra.token'); localStorage.removeItem('ra.user');
     walletZuruecksetzen();
     localStorage.removeItem('ra.wallet');
     walletIdbTx('del').catch(() => { });
     myProfile = null;
+    kontoInfo = null;
+    pinEntfernen(); // die PIN gehoerte zum geloeschten Konto
     refreshProfileTab();
-    switchView('feed');
+    switchView('wallet');
     island('Konto gelöscht. Mach es gut!');
   } catch (e) { island(e.message); }
 });
@@ -1255,7 +1279,7 @@ async function origLaden(v) {
 // runterwischen, zusammenkneifen, X oder Esc.
 let bildOffen = null;
 function zeigeBildGross({ vonEl, src, ladeOriginal = null }) {
-  if (bildOffen || !vonEl) return;
+  if (bildOffen || !vonEl || walletGesperrt()) return;
   const von = vonEl.getBoundingClientRect();
   if (!von.width) return;
   // Der Rahmen uebernimmt Rand, Ecken und Grund des Bildes im Blatt. Dann ist
@@ -3848,9 +3872,9 @@ async function checkFriendReqs() {
 setInterval(checkFriendReqs, 20000);
 
 // Cloudflare Turnstile: etabliertes Captcha für Login und Registrierung
-const tsWidgets = { login: null, reg: null };
+const tsWidgets = { login: null, reg: null, forgot: null };
 let tsSitekey = null;
-const tsTries = { login: 0, reg: 0 };
+const tsTries = { login: 0, reg: 0, forgot: 0 };
 function renderTurnstile(which) {
   const el = $('#ts-' + which);
   if (!el) return;
@@ -3937,6 +3961,8 @@ function authOk(r, { welcome = false } = {}) {
   // frueher wurde sie hineingemischt (samt Loeschmarkern, die dann echte
   // Gutscheine des neuen Kontos toeteten)
   if (walletBesitzer && walletBesitzer !== r.user) walletZuruecksetzen();
+  walletEntsperrt = true; // gerade mit Passwort angemeldet
+  kontoInfo = null;
   // Lag fuer dieses Konto noch Ungesichertes beiseite (frueherer Kontowechsel),
   // kommt es jetzt zurueck und geht hoch
   walletBereit.then(() => walletIdbTx('get', undefined, 'beiseite:' + r.user)).then(rec => {
@@ -3950,7 +3976,7 @@ function authOk(r, { welcome = false } = {}) {
   refreshProfileTab();
   pullWallet(); // Wallet vom Konto holen (Gerätewechsel/Neuinstallation)
   connectStream(); // Echtzeit-Stream mit dem frischen Token neu verbinden
-  api('/api/me').then(x => { state.role = x.role || ''; refreshAdminUi(); }).catch(() => { });
+  api('/api/me').then(x => { kontoInfo = x; state.role = x.role || ''; refreshAdminUi(); renderWallet(); }).catch(() => { });
   if (welcome) {
     // Willkommens-Moment: der Punkt quittiert das neue Konto
     $('#welcome-title').textContent = `Willkommen, ${r.user}!`;
@@ -3964,6 +3990,7 @@ function authOk(r, { welcome = false } = {}) {
   }
 }
 
+$('#btn-pw-vergessen')?.addEventListener('click', () => passwortVergessenDialog($('#auth-user').value.trim()));
 $('#btn-login').addEventListener('click', async () => {
   const msg = $('#auth-msg');
   msg.className = 'form-msg'; msg.textContent = '';
@@ -3977,6 +4004,13 @@ $('#btn-login').addEventListener('click', async () => {
       }),
     });
     $('#auth-pass').value = '';
+    if (r.zweiFaktor) {
+      // Zweiter Faktor: nur hier, bei der Anmeldung
+      const fertig = await zweiFaktorAnmeldung(r.ticket);
+      if (fertig && fertig.token) authOk(fertig);
+      else renderTurnstile('login');
+      return;
+    }
     authOk(r);
   } catch (e) {
     msg.className = 'form-msg error'; msg.textContent = e.message;
@@ -4041,6 +4075,10 @@ $('#btn-logout').addEventListener('click', async () => {
   await api('/api/logout', { method: 'POST', body: '{}' }).catch(() => {});
   state.token = '';
   localStorage.removeItem('ra.token');
+  // Die Wallet bleibt auf dem Geraet — also wieder sperren
+  walletEntsperrt = false;
+  kontoInfo = null;
+  aktualisiereSperre();
   refreshProfileTab();
   island('Abgemeldet');
 });
@@ -4635,6 +4673,7 @@ function schreibeSpiegel() {
     vouchers: (state.wallet.vouchers || []).map(leicht),
     cards: (state.wallet.cards || []).map(leicht),
     deleted: state.wallet.deleted || [],
+    statistik: state.wallet.statistik || {},
   };
   if (lsSetzen('ra.wallet', JSON.stringify(spiegel))) return true;
   // Ohne IndexedDB und voller localStorage: wenigstens alles ausser den
@@ -4740,6 +4779,7 @@ function hydriereWallet() {
         ersetzeListeInPlace('vouchers', rec.wallet.vouchers);
         ersetzeListeInPlace('cards', rec.wallet.cards);
         state.wallet.deleted = rec.wallet.deleted || state.wallet.deleted || [];
+        if (rec.wallet.statistik) state.wallet.statistik = rec.wallet.statistik;
       } else {
         // Sonst die Daten von hier behalten (Spiegel neuer, oder schon waehrend
         // des Starts etwas geaendert) und Bilder aus IndexedDB holen: mit
@@ -4963,6 +5003,7 @@ async function syncWalletNow() {
         }
         speichereWalletOben();
       }
+      if (antwort && antwort.statistik) state.wallet.statistik = antwort.statistik;
       if (antwort && antwort.delta) await gleicheMitIndexAb(antwort.index, antwort.deleted, konto);
       else if (antwort && antwort.merged) {
         mischeWallet(antwort, true);
@@ -5141,7 +5182,7 @@ function mischeWallet(remote, vomKonto = false) {
       if (vomKonto) walletOben[sv.id] = obenHash(sv);
       out.push(sv);
     }
-    return out.filter(it => !(tombs[it.id] && tombs[it.id] >= (it.added || 0)));
+    return out.filter(it => !(tombs[it.id] && tombs[it.id] >= Math.max(it.added || 0, it.wiederbelebt || 0)));
   };
   const dedupeById = list => { const seen = new Set(); return list.filter(x => x && x.id && !seen.has(x.id) && seen.add(x.id)); };
   state.wallet.vouchers = dedupeById(mergeById(state.wallet.vouchers, remote.vouchers || []));
@@ -5155,6 +5196,7 @@ async function pullWallet() {
     // Nur das Inhaltsverzeichnis: geholt wird, was hier fehlt oder dort neuer ist
     const remote = await api('/api/wallet?nur=index');
     if (state.token !== konto) return; // Kontowechsel unterwegs
+    if (remote.statistik) state.wallet.statistik = remote.statistik;
     if (remote.index) await gleicheMitIndexAb(remote.index, remote.deleted, konto);
     else mischeWallet(remote, true); // alter Server: volle Wallet
     if (state.token !== konto) return;
@@ -5227,6 +5269,9 @@ function renderGiftsPage() {
   });
 }
 function openGiftReveal(gift) {
+  // Beim Auspacken stehen Code und PIN offen da — mit gesperrter Wallet erst
+  // die PIN (bzw. Face ID)
+  if (walletGesperrt()) { walletFreigeben().then(ok => { if (ok) openGiftReveal(gift); }); return; }
   const wrap = document.createElement('div');
   wrap.className = 'overlay gift-overlay';
   wrap.innerHTML = `
@@ -7043,6 +7088,7 @@ async function karteLoeschen(c) {
 
 // Aus dem Marken-Raster: Karte plus die zwei Wege, die von dort weitergehen
 function oeffneKartenLupe(key, kachel) {
+  if (walletGesperrt()) { aktualisiereSperre(); return; } // gesperrte Wallet: nichts zeigen
   const b = walletBrands().find(x => x.key === key);
   if (!b) return;
   const gesperrt = b.coupons && !ccBesitzt(b.coupons);
@@ -7077,6 +7123,7 @@ function oeffneKartenLupe(key, kachel) {
 // zeigeKarteGross (Zoom aus der Kachel, Rest unscharf, dreht auf dem Weg).
 
 function openVoucherSheet(id, animFrom, zurueckZu, richtung) {
+  if (walletGesperrt()) { aktualisiereSperre(); return; } // gesperrte Wallet: nichts zeigen
   const v = state.wallet.vouchers.find(x => x.id === id);
   if (!v) return;
   if (v.giftFrom && !v.giftSeen) { v.giftSeen = true; saveWallet(); }
@@ -7875,6 +7922,7 @@ function cardAppBlockHtml(name) {
 // darunter der Sprung in die App, darunter die Coupons dieser Marke. Alles, was
 // man beim Einkauf braucht, in einer Reihenfolge.
 function openBrandSheet(key, richtung) {
+  if (walletGesperrt()) { aktualisiereSperre(); return; } // gesperrte Wallet: nichts zeigen
   const b = walletBrands().find(x => x.key === key);
   if (!b) return;
   const c = b.card;
@@ -7965,6 +8013,17 @@ function openCardSheet(id) {
 
 // Die Gutscheinkarte, wie man sie aus der Wallet kennt — auch das Marken-Blatt
 // zeigt genau diese, damit ein Gutschein ueberall gleich aussieht.
+// Aufgebrauchte verschwinden 30 Tage nach der letzten Buchung (Server raeumt
+// auf, siehe raeumeAufgebrauchteAuf) — die Karte sagt vorher, wann
+function entferntAmHtml(v) {
+  if (v.balance == null || v.balance > 0 || !state.token || (kontoInfo && kontoInfo.autoAufraeumen === false)) return '';
+  let letzte = Math.max(Number(v.added) || 0, Number(v.wiederbelebt) || 0);
+  for (const t of v.tx || []) { const ts = Number(t && t.ts) || 0; if (ts > letzte) letzte = ts; }
+  // Eingefuehrt am 24.09.2026: Aelteres zaehlt ab diesem Tag (wie am Server)
+  const am = Math.max(letzte, Date.parse('2026-09-24T00:00:00Z')) + 30 * 864e5;
+  return `<span class="pill pill-verfall">${am <= Date.now() ? 'wird bald entfernt'
+    : 'wird am ' + new Date(am).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }) + ' entfernt'}</span>`;
+}
 function voucherCardHtml(v) {
     const pct = v.amount ? Math.max(0, Math.min(100, Math.round(((v.balance || 0) / v.amount) * 100))) : 100;
     return `
@@ -7979,6 +8038,7 @@ function voucherCardHtml(v) {
         <span>${esc(v.code || 'Ohne Code')}</span>
         ${v.giftFrom ? `<span class="pill">${icon('gift', 'icon icon-sm')} von @${esc(v.giftFrom)}</span>` : ''}
         ${v.end ? `<span class="pill">bis ${new Date(v.end).toLocaleDateString('de-DE')}</span>` : ''}
+        ${entferntAmHtml(v)}
       </div>
       ${v.pin ? `<div class="wallet-card-pin">PIN ${esc(v.pin)}</div>` : ''}
       ${(v.stickers || []).map(voucherStickerHtml).join('')}
@@ -8064,6 +8124,11 @@ function renderWallet() {
   // Wallet nur mit Profil: Gast sieht die Anmelde-Sperre (Coupons bleiben offen)
   updateWalletTab(false);
   if (!state.token) return;
+  zeigePinEmpfehlung();
+  const uh = $('#used-hinweis');
+  if (uh) uh.textContent = kontoInfo && kontoInfo.autoAufraeumen === false
+    ? 'Aufgebrauchte bleiben, bis du sie löschst (automatisches Aufräumen ist in den Einstellungen aus).'
+    : 'Aufgebrauchte Gutscheine werden 30 Tage nach der letzten Buchung automatisch entfernt. Abschalten kannst du das in den Einstellungen.';
 
   const allActive = state.wallet.vouchers.filter(v => v.balance == null || v.balance > 0);
   const used = state.wallet.vouchers.filter(v => v.balance != null && v.balance <= 0);
@@ -8407,6 +8472,12 @@ function walletStats(range) {
       if (a > 0) added += a; else spent += -a;
     });
   });
+  // Aufgeraeumte Gutscheine: ihre Summen hat das Konto pro Monat aufbewahrt
+  for (const [monat, e] of Object.entries(state.wallet.statistik || {})) {
+    const [j, m] = monat.split('-').map(Number);
+    if (!j || !m || !inRange(new Date(j, m - 1, 15).getTime())) continue;
+    added += zahl(e.rein); spent += zahl(e.raus);
+  }
   return { added: Math.round(added * 100) / 100, spent: Math.round(spent * 100) / 100 };
 }
 // Monatsverlauf: was kam rein, was ging raus. Reine Zahlen aus der Wallet,
@@ -8435,6 +8506,11 @@ function walletVerlauf(monate = 6) {
       if (a > 0) f.rein += a; else f.raus += -a;
     });
   });
+  for (const [monat, e] of Object.entries(state.wallet.statistik || {})) {
+    const [j, m] = monat.split('-').map(Number);
+    const f = felder.find(x => x.jahr === j && x.monat === m - 1);
+    if (f) { f.rein += zahl(e.rein); f.raus += zahl(e.raus); }
+  }
   return felder;
 }
 
@@ -8872,6 +8948,7 @@ let schenkFilter = '', schenkSort = 'niedrig';
 // Wie viele Gutscheine die Auswahl hoechstens gleichzeitig zeigt
 let schenkSicht = 12;
 function renderSchenkAuswahl() {
+  if (walletGesperrt()) { aktualisiereSperre(); return; } // gesperrte Wallet: nichts zeigen
   state.sheetMode = 'gift-pick';   // auch beim Zurueckgehen aus Schritt zwei
   const alle = state.wallet.vouchers.filter(v => v.balance == null || v.balance > 0);
   const marken = [...new Set(alle.map(v => v.vendor))];
@@ -8971,11 +9048,9 @@ $('#wallet-sort-btn')?.addEventListener('click', () => {
   });
 });
 
+// Das Logo fuehrt nach Hause — und zu Hause ist jetzt die Wallet
 $('#btn-home').addEventListener('click', () => {
-  state.activeChip = 'fuer-dich';
-  renderChipbar();
-  renderFeed();
-  if (state.activeView !== 'feed') switchView('feed');
+  if (state.activeView !== 'wallet') switchView('wallet');
   window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
@@ -9191,8 +9266,9 @@ function handleOpenParams(qs) {
     // Alte Links (?chat=global, z. B. aus einer frueheren Benachrichtigung)
     // fuehren jetzt in die Freundesliste — den Global-Chat gibt es nicht mehr
     if (state.activeView !== 'chat') switchView('chat');
-  } else if (p.get('tab') === 'wallet') {
-    if (state.activeView !== 'wallet') switchView('wallet');
+  } else if (p.get('tab')) {
+    const t = p.get('tab');
+    if (['wallet', 'feed', 'profile', 'gifts', 'chat', 'settings'].includes(t) && $('#view-' + t) && state.activeView !== t) switchView(t);
   }
 }
 
@@ -9759,6 +9835,700 @@ async function renderInvitePage() {
   $('#inv-link-box').onclick = copyInvite;
 }
 
+
+// ---------------- Wallet-Sperre: PIN, Face ID / Fingerabdruck ----------------
+// Die PIN schuetzt die Wallet auf DIESEM Geraet: wer das entsperrte Handy in
+// die Hand bekommt, sieht ohne sie keine Codes und PINs. Gespeichert wird nur
+// ein PBKDF2-Hash (150 000 Runden) im localStorage, nie die PIN selbst.
+// Face ID / Fingerabdruck laufen ueber WebAuthn (Passkey des Geraets) — nur
+// als Abkuerzung zur PIN, die PIN bleibt immer der Weg zurueck.
+// (Schluessel und Zustand der Sperre stehen oben bei save())
+
+function pinDaten() { return lsJson(pinSchluessel(), null); }
+function pinGesetzt() { const p = pinDaten(); return !!(p && p.hash && p.salt); }
+function pinMoeglich() { return !!(window.crypto && crypto.subtle && window.TextEncoder); }
+async function pinHash(pin, saltB64, iter) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(pin), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: unb64(saltB64), iterations: iter, hash: 'SHA-256' }, key, 256);
+  return b64(bits);
+}
+async function pinSpeichern(pin) {
+  const salt = b64(crypto.getRandomValues(new Uint8Array(16)));
+  const iter = 150000;
+  const hash = await pinHash(pin, salt, iter);
+  if (!lsSetzen(pinSchluessel(), JSON.stringify({ salt, hash, iter, laenge: pin.length, v: 1 }))) return false;
+  lsSetzen(PIN_FEHL_KEY, JSON.stringify({ n: 0, bis: 0 }));
+  return true;
+}
+async function pinPruefen(pin) {
+  const p = pinDaten();
+  if (!p) return false;
+  return (await pinHash(pin, p.salt, p.iter || 150000)) === p.hash;
+}
+function pinEntfernen() {
+  for (const k of [pinSchluessel(), bioSchluessel(), PIN_FEHL_KEY]) { try { localStorage.removeItem(k); } catch { } }
+}
+// Gesperrt, solange eine PIN gilt und nicht entsperrt wurde — auch abgemeldet:
+// sonst waere die Wallet nach "Abmelden" als Gast wieder einsehbar
+function walletGesperrt() { return pinGesetzt() && !walletEntsperrt; }
+// Zu viele falsche PINs: kurz warten (30 s, dann doppelt so lang, max. 15 min)
+function pinWarteBis() { return (lsJson(PIN_FEHL_KEY, { n: 0, bis: 0 }).bis || 0); }
+function pinFehlversuch() {
+  const f = lsJson(PIN_FEHL_KEY, { n: 0, bis: 0 });
+  f.n = (f.n || 0) + 1;
+  if (f.n >= 5) f.bis = Date.now() + Math.min(15 * 60e3, 30e3 * 2 ** (f.n - 5));
+  lsSetzen(PIN_FEHL_KEY, JSON.stringify(f));
+}
+// PIN pruefen mit Wartezeit und Zaehlung — an JEDER Stelle, die eine PIN
+// annimmt (sonst liesse sich ueber "PIN aendern" unbegrenzt raten)
+async function pinPruefenGeschuetzt(pin) {
+  const warte = pinWarteBis() - Date.now();
+  if (warte > 0) { island(`Zu viele falsche Versuche. Warte noch ${Math.ceil(warte / 1000)} s.`); return false; }
+  if (await pinPruefen(pin)) { lsSetzen(PIN_FEHL_KEY, JSON.stringify({ n: 0, bis: 0 })); return true; }
+  pinFehlversuch();
+  island('Falsche PIN');
+  return false;
+}
+
+// ---- Face ID / Fingerabdruck (WebAuthn, Plattform-Authentifikator)
+async function bioVerfuegbar() {
+  try { return !!window.PublicKeyCredential && await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable(); }
+  catch { return false; }
+}
+function bioAn() { return !!lsJson(bioSchluessel(), null); }
+async function bioEinrichten() {
+  try {
+    const cred = await navigator.credentials.create({ publicKey: {
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      rp: { name: 'kumulio' },
+      user: { id: crypto.getRandomValues(new Uint8Array(16)), name: state.userName || 'kumulio', displayName: 'kumulio-Wallet' },
+      pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+      authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'discouraged' },
+      timeout: 60000, attestation: 'none',
+    } });
+    lsSetzen(bioSchluessel(), JSON.stringify({ id: b64(cred.rawId) }));
+    return true;
+  } catch { island('Face ID / Fingerabdruck ließ sich nicht einrichten'); return false; }
+}
+async function bioPruefen() {
+  const bio = lsJson(bioSchluessel(), null);
+  if (!bio) return false;
+  try {
+    const a = await navigator.credentials.get({ publicKey: {
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      allowCredentials: [{ type: 'public-key', id: unb64(bio.id), transports: ['internal'] }],
+      userVerification: 'required', timeout: 60000,
+    } });
+    return !!a;
+  } catch { return false; }
+}
+
+// ---- Ziffernblock: derselbe fuer Sperre und Dialoge
+function ziffernblockHtml(mitBio) {
+  return [1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => `<button class="ws-taste" type="button" data-z="${n}">${n}</button>`).join('')
+    + (mitBio ? `<button class="ws-taste ws-neben" type="button" data-bio="1" aria-label="Mit Face ID oder Fingerabdruck entsperren">${FACE_SVG}</button>`
+      : '<span class="ws-taste leer" aria-hidden="true"></span>')
+    + '<button class="ws-taste" type="button" data-z="0">0</button>'
+    + `<button class="ws-taste ws-neben" type="button" data-weg="1" aria-label="Letzte Ziffer löschen">${icon('arrow-back')}</button>`;
+}
+function punkteHtml(anzahl, voll) {
+  return Array.from({ length: anzahl }, (_, i) => `<span class="ws-punkt${i < voll ? ' voll' : ''}"></span>`).join('');
+}
+
+// ---- Sperrbildschirm der Wallet
+function aktualisiereSperre() {
+  const el = $('#wallet-sperre');
+  if (!el) return;
+  const zu = walletGesperrt() && state.activeView === 'wallet';
+  el.classList.toggle('hidden', !zu);
+  document.body.classList.toggle('wallet-zu', zu);
+  // Nicht nur ein Vorhang: darunter ist nichts bedien- oder per Tastatur erreichbar
+  for (const sel of ['#wallet-kopf', '#wallet-content', '#coupons-content', '#wallet-gate', '#wallet-mini', '#wallet-modes']) {
+    const n = $(sel);
+    if (n) n.inert = walletGesperrt();
+  }
+  if (zu) {
+    schliesseWalletAnsichten();
+    baueSperre();
+    setTimeout(() => $('#ws-tasten .ws-taste')?.focus({ preventScroll: true }), 0);
+  } else clearInterval(sperrUhr);
+}
+// Alles zu, was Codes oder PINs zeigen kann: Blaetter, Lupen, Bildbetrachter,
+// Auspacken
+function schliesseWalletAnsichten() {
+  if (state.sheetMode) closeSheet();
+  document.querySelector('.karten-lupe .lupe-grund')?.click();
+  if (bildOffen) bildOffen.querySelector('.bl-zu')?.click();
+  document.querySelectorAll('.gift-overlay, .cc-big').forEach(x => x.remove());
+}
+function baueSperre() {
+  const p = pinDaten() || {};
+  const laenge = p.laenge || 4;
+  $('#ws-punkte').innerHTML = punkteHtml(laenge, sperrEingabe.length);
+  const tasten = $('#ws-tasten');
+  if (tasten.dataset.bio !== String(bioAn())) {
+    tasten.dataset.bio = String(bioAn());
+    tasten.innerHTML = ziffernblockHtml(bioAn());
+  }
+  const warte = pinWarteBis() - Date.now();
+  const text = $('#ws-text');
+  clearInterval(sperrUhr);
+  if (warte > 0) {
+    text.textContent = `Zu viele falsche Versuche. Warte noch ${Math.ceil(warte / 1000)} s.`;
+    text.classList.add('fehler');
+    sperrUhr = setInterval(() => { if (pinWarteBis() <= Date.now()) { clearInterval(sperrUhr); baueSperre(); } else text.textContent = `Zu viele falsche Versuche. Warte noch ${Math.ceil((pinWarteBis() - Date.now()) / 1000)} s.`; }, 1000);
+  } else if (!text.classList.contains('fehler')) {
+    text.textContent = bioAn() ? 'PIN eingeben oder Face ID / Fingerabdruck nutzen' : 'Gib deine PIN ein';
+  }
+}
+async function sperrTaste(z) {
+  if (pinWarteBis() > Date.now()) return;
+  const laenge = (pinDaten() || {}).laenge || 4;
+  if (sperrEingabe.length >= laenge) return;
+  sperrEingabe += z;
+  buzz(6);
+  $('#ws-text').classList.remove('fehler');
+  baueSperre();
+  if (sperrEingabe.length < laenge) return;
+  const versuch = sperrEingabe;
+  if (await pinPruefen(versuch)) return entsperreWallet();
+  pinFehlversuch();
+  sperrEingabe = '';
+  buzz([40, 40, 40]);
+  const text = $('#ws-text');
+  text.textContent = 'Falsche PIN';
+  text.classList.add('fehler');
+  const box = $('#ws-punkte');
+  box.classList.remove('shake-once'); void box.offsetWidth; box.classList.add('shake-once');
+  baueSperre();
+}
+function entsperreWallet() {
+  walletEntsperrt = true;
+  sperrEingabe = '';
+  lsSetzen(PIN_FEHL_KEY, JSON.stringify({ n: 0, bis: 0 }));
+  $('#ws-text')?.classList.remove('fehler');
+  aktualisiereSperre();
+  renderWallet();
+}
+$('#ws-tasten')?.addEventListener('click', async e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.z != null) sperrTaste(b.dataset.z);
+  else if (b.dataset.weg) { sperrEingabe = sperrEingabe.slice(0, -1); baueSperre(); }
+  else if (b.dataset.bio && await bioPruefen()) entsperreWallet();
+});
+$('#ws-vergessen')?.addEventListener('click', () => pinVergessen());
+addEventListener('keydown', e => {
+  if ($('#wallet-sperre')?.classList.contains('hidden') !== false || state.sheetMode || document.querySelector('.overlay:not(.hidden)')) return;
+  if (/^\d$/.test(e.key)) sperrTaste(e.key);
+  else if (e.key === 'Backspace') { sperrEingabe = sperrEingabe.slice(0, -1); baueSperre(); }
+});
+// Im Hintergrund laenger als eine Minute: wieder sperren (und offene
+// Gutschein-Blaetter schliessen, damit dort nichts stehen bleibt)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') { versteckSeit = Date.now(); return; }
+  if (versteckSeit && Date.now() - versteckSeit > SPERRE_NACH_MS && pinGesetzt() && walletEntsperrt) {
+    walletEntsperrt = false;
+    schliesseWalletAnsichten();
+    aktualisiereSperre();
+  }
+  // Zurueck in der App: kurz beim Konto nachsehen (Aufraeumen, anderes Geraet)
+  if (versteckSeit && Date.now() - versteckSeit > 30e3 && state.token) pullWallet();
+  versteckSeit = 0;
+});
+
+// ---- Dialoge: PIN eingeben (fest oder 4-6 Stellen), Passwort eingeben
+function pinDialog({ titel, text = '', fest = 0, min = 4, max = 6 }) {
+  return new Promise(resolve => {
+    const wrap = document.createElement('div');
+    wrap.className = 'overlay pin-overlay';
+    wrap.innerHTML = `<div class="modal pin-modal">
+      <h2 class="card-h">${esc(titel)}</h2>
+      ${text ? `<p class="muted pin-text">${esc(text)}</p>` : ''}
+      <div class="ws-punkte" data-punkte></div>
+      <div class="ws-tasten klein">${ziffernblockHtml(false)}</div>
+      <div class="form-row">
+        <button class="btn btn-small btn-ghost" data-abbrechen type="button">Abbrechen</button>
+        ${fest ? '' : '<button class="btn btn-small" data-weiter type="button" disabled>Weiter</button>'}
+      </div>
+    </div>`;
+    document.body.appendChild(wrap);
+    let eingabe = '';
+    const punkte = wrap.querySelector('[data-punkte]');
+    const weiter = wrap.querySelector('[data-weiter]');
+    const zeichne = () => {
+      punkte.innerHTML = punkteHtml(fest || Math.max(min, eingabe.length), eingabe.length);
+      if (weiter) weiter.disabled = eingabe.length < min;
+    };
+    const fertig = wert => { removeEventListener('keydown', taste, true); wrap.classList.add('closing'); setTimeout(() => wrap.remove(), 220); resolve(wert); };
+    const tippe = z => {
+      if (eingabe.length >= (fest || max)) return;
+      eingabe += z; buzz(6); zeichne();
+      if (fest && eingabe.length === fest) setTimeout(() => fertig(eingabe), 120);
+    };
+    wrap.addEventListener('click', e => {
+      const b = e.target.closest('button');
+      if (!b) { if (e.target === wrap) fertig(null); return; }
+      if (b.dataset.z != null) tippe(b.dataset.z);
+      else if (b.dataset.weg) { eingabe = eingabe.slice(0, -1); zeichne(); }
+      else if (b.dataset.abbrechen != null) fertig(null);
+      else if (b.dataset.weiter != null && eingabe.length >= min) fertig(eingabe);
+    });
+    const taste = e => {
+      if (/^\d$/.test(e.key)) { e.stopPropagation(); tippe(e.key); }
+      else if (e.key === 'Backspace') { e.stopPropagation(); eingabe = eingabe.slice(0, -1); zeichne(); }
+      else if (e.key === 'Enter' && !fest && eingabe.length >= min) fertig(eingabe);
+      else if (e.key === 'Escape') { e.stopPropagation(); fertig(null); }
+    };
+    addEventListener('keydown', taste, true);
+    zeichne();
+  });
+}
+function passwortDialog(titel, text, { mitVergessen = true } = {}) {
+  return new Promise(resolve => {
+    const wrap = document.createElement('div');
+    wrap.className = 'overlay';
+    wrap.innerHTML = `<div class="modal modal-left">
+      <h2 class="card-h">${esc(titel)}</h2>
+      <p class="muted" style="font-size:.84rem">${esc(text)}</p>
+      <input class="input" type="password" maxlength="64" placeholder="Passwort" autocomplete="current-password" data-pass>
+      <div class="form-row">
+        <button class="btn btn-small btn-ghost" data-abbrechen type="button">Abbrechen</button>
+        <button class="btn btn-small" data-ok type="button">Weiter</button>
+      </div>
+      ${mitVergessen ? '<button class="link-knopf" data-vergessen type="button">Passwort auch vergessen?</button>' : ''}
+    </div>`;
+    document.body.appendChild(wrap);
+    const feld = wrap.querySelector('[data-pass]');
+    const fertig = wert => { wrap.classList.add('closing'); setTimeout(() => wrap.remove(), 220); resolve(wert); };
+    wrap.querySelector('[data-abbrechen]').onclick = () => fertig(null);
+    wrap.querySelector('[data-ok]').onclick = () => feld.value && fertig(feld.value);
+    feld.addEventListener('keydown', e => { if (e.key === 'Enter' && feld.value) fertig(feld.value); });
+    wrap.querySelector('[data-vergessen]')?.addEventListener('click', () => { fertig(null); passwortVergessenDialog(); });
+    wrap.addEventListener('click', e => { if (e.target === wrap) fertig(null); });
+    setTimeout(() => feld.focus(), 60);
+  });
+}
+
+// ---- PIN einrichten, aendern, entfernen, vergessen
+async function pinEinrichten() {
+  if (!pinMoeglich()) return island('Dieses Gerät kann keine PIN sicher speichern');
+  if (pinGesetzt()) {
+    const alt = await pinDialog({ titel: 'Aktuelle PIN', fest: pinDaten().laenge || 4 });
+    if (alt === null) return;
+    if (!await pinPruefenGeschuetzt(alt)) return;
+  }
+  const neu = await pinDialog({ titel: 'Neue PIN', text: '4 bis 6 Ziffern. Damit entsperrst du deine Wallet auf diesem Gerät.' });
+  if (!neu) return;
+  const wdh = await pinDialog({ titel: 'PIN wiederholen', fest: neu.length });
+  if (wdh === null) return;
+  if (wdh !== neu) return island('Die PINs stimmen nicht überein, bitte nochmal');
+  if (!await pinSpeichern(neu)) return island('Die PIN ließ sich auf diesem Gerät nicht speichern');
+  walletEntsperrt = true;
+  lsSetzen(PIN_HINWEIS_KEY, String(Date.now()));
+  playSfx('coin'); buzz(20);
+  island('PIN gespeichert, deine Wallet ist gesichert');
+  if (!bioAn() && await bioVerfuegbar()
+    && await askConfirm('Auch mit Face ID oder Fingerabdruck entsperren?', { okLabel: 'Ja, einrichten' })) {
+    await bioEinrichten();
+  }
+  renderWallet();
+  renderSicherheit();
+}
+async function pinAusschalten() {
+  const alt = await pinDialog({ titel: 'PIN eingeben', text: 'Zum Entfernen der Sperre', fest: pinDaten().laenge || 4 });
+  if (alt === null) return;
+  if (!await pinPruefenGeschuetzt(alt)) return;
+  pinEntfernen();
+  walletEntsperrt = true;
+  island('PIN entfernt');
+  renderWallet();
+  renderSicherheit();
+}
+async function pinVergessen() {
+  if (!state.token) {
+    // Abgemeldet: Anmelden entsperrt die Wallet (das Passwort beweist es)
+    island('Melde dich an, dann ist die Wallet entsperrt');
+    switchView('profile');
+    return;
+  }
+  const pass = await passwortDialog('PIN vergessen?',
+    'Gib dein kumulio-Passwort ein. Danach ist die PIN auf diesem Gerät gelöscht, und du kannst eine neue festlegen.');
+  if (!pass) return;
+  try {
+    await api('/api/konto/passwort-pruefen', { method: 'POST', body: JSON.stringify({ pass }) });
+  } catch (e) { island(e.message); return; }
+  pinEntfernen();
+  entsperreWallet();
+  if (await askConfirm('PIN gelöscht. Gleich eine neue festlegen?', { okLabel: 'Neue PIN' })) pinEinrichten();
+}
+
+// Wallet entsperren ausserhalb des Sperrbildschirms (z. B. vor dem Auspacken
+// eines Geschenks): Face ID, falls eingerichtet, sonst die PIN
+async function walletFreigeben() {
+  if (!walletGesperrt()) return true;
+  if (pinWarteBis() > Date.now()) { island('Zu viele falsche Versuche, bitte kurz warten'); return false; }
+  if (bioAn() && await bioPruefen()) { entsperreWallet(); return true; }
+  const pin = await pinDialog({ titel: 'Wallet entsperren', text: 'Gib deine PIN ein', fest: (pinDaten() || {}).laenge || 4 });
+  if (pin === null) return false;
+  if (await pinPruefenGeschuetzt(pin)) { entsperreWallet(); return true; }
+  return false;
+}
+// Empfehlung in der Wallet: wer noch keine PIN hat, bekommt sie angeboten
+function zeigePinEmpfehlung() {
+  const el = $('#pin-empfehlung');
+  if (!el) return;
+  const spaeter = Number(localStorage.getItem(PIN_HINWEIS_KEY) || 0);
+  el.classList.toggle('hidden', !(state.token && pinMoeglich() && !pinGesetzt() && Date.now() - spaeter > 7 * 864e5));
+}
+$('#pe-ja')?.addEventListener('click', () => pinEinrichten());
+$('#pe-spaeter')?.addEventListener('click', () => { lsSetzen(PIN_HINWEIS_KEY, String(Date.now())); zeigePinEmpfehlung(); });
+
+// ---- Einstellungen: Sicherheit
+async function renderSicherheit() {
+  const card = $('#sicherheit-card');
+  if (!card) return;
+  card.classList.toggle('hidden', !state.token);
+  if (!state.token) return;
+  const bioOk = pinGesetzt() && await bioVerfuegbar();
+  const pin = pinGesetzt();
+  const k = kontoInfo || {};
+  card.innerHTML = `
+    <h2 class="card-h">Sicherheit</h2>
+    <div class="settings-row">
+      <div class="settings-label"><b>Wallet-PIN</b>
+        <span>${pin ? 'Deine Wallet ist auf diesem Gerät mit einer PIN gesperrt.' : 'Sperrt deine Wallet auf diesem Gerät, damit niemand deine Codes sieht. Empfohlen.'}</span></div>
+      <div class="sr-knoepfe">${pin
+        ? '<button class="btn btn-small btn-ghost" id="si-pin-aendern" type="button">Ändern</button><button class="btn btn-small btn-ghost" id="si-pin-weg" type="button">Entfernen</button>'
+        : `<button class="btn btn-small" id="si-pin-an" type="button" ${pinMoeglich() ? '' : 'disabled'}>Festlegen</button>`}</div>
+    </div>
+    ${bioOk ? `<div class="settings-row">
+      <div class="settings-label"><b>Face ID / Fingerabdruck</b><span>Wallet ohne PIN-Eingabe entsperren</span></div>
+      <label class="switch"><input type="checkbox" id="si-bio" ${bioAn() ? 'checked' : ''}><span class="switch-slider"></span></label>
+    </div>` : ''}
+    <div class="settings-row">
+      <div class="settings-label"><b>Zwei-Faktor-Anmeldung</b>
+        <span>${k.zweiFaktor
+          ? `An: bei jeder Anmeldung braucht es zusätzlich den Code aus deiner Authenticator-App. Noch ${k.ersatzcodes || 0} Ersatzcodes.`
+          : 'Bei der Anmeldung zusätzlich ein Code aus einer Authenticator-App. Schützt dein Konto, falls jemand dein Passwort kennt.'}</span></div>
+      <button class="btn btn-small ${k.zweiFaktor ? 'btn-ghost' : ''}" id="si-2fa" type="button">${k.zweiFaktor ? 'Ausschalten' : 'Einrichten'}</button>
+    </div>
+    <div class="settings-row">
+      <div class="settings-label"><b>E-Mail-Adresse</b>
+        <span>${k.hatEmail ? `${esc(k.emailMaske || '')} · ${k.emailOk ? 'bestätigt' : 'noch nicht bestätigt: ohne Bestätigung gibt es keinen Link, falls du dein Passwort vergisst'}` : 'Keine hinterlegt.'}</span></div>
+      ${k.hatEmail && !k.emailOk ? `<button class="btn btn-small" id="si-email" type="button" ${k.mailBereit ? '' : 'disabled'}>Bestätigen</button>` : ''}
+    </div>
+    <div class="settings-row">
+      <div class="settings-label"><b>Aufgebrauchte aufräumen</b>
+        <span>Aufgebrauchte Gutscheine 30 Tage nach der letzten Buchung automatisch entfernen. Ein Jahr lang holst du sie im Papierkorb zurück, die Statistik bleibt.</span></div>
+      <label class="switch"><input type="checkbox" id="si-aufraeumen" ${k.autoAufraeumen !== false ? 'checked' : ''}><span class="switch-slider"></span></label>
+    </div>
+    <div class="settings-row">
+      <div class="settings-label"><b>Papierkorb</b><span>Gelöschte und aufgeräumte Gutscheine und Karten, ein Jahr lang</span></div>
+      <button class="btn btn-small btn-ghost" id="si-korb" type="button">Öffnen</button>
+    </div>`;
+  $('#si-email')?.addEventListener('click', async e => {
+    try {
+      const r = await api('/api/email/senden', { method: 'POST', body: '{}' });
+      island(r.schonBestaetigt ? 'Schon bestätigt' : 'Bestätigungslink ist unterwegs — schau in dein Postfach');
+      e.target.disabled = true;
+    } catch (err) { island(err.message); }
+  });
+  $('#si-korb')?.addEventListener('click', papierkorbZeigen);
+  $('#si-pin-an')?.addEventListener('click', pinEinrichten);
+  $('#si-pin-aendern')?.addEventListener('click', pinEinrichten);
+  $('#si-pin-weg')?.addEventListener('click', pinAusschalten);
+  $('#si-bio')?.addEventListener('change', async e => {
+    if (e.target.checked) {
+      // Face ID oeffnet die Wallet ohne PIN — einschalten also nur mit der PIN
+      const pin = await pinDialog({ titel: 'PIN eingeben', text: 'Zum Einschalten von Face ID / Fingerabdruck', fest: (pinDaten() || {}).laenge || 4 });
+      if (pin === null || !await pinPruefenGeschuetzt(pin) || !await bioEinrichten()) e.target.checked = false;
+    }
+    else { try { localStorage.removeItem(bioSchluessel()); } catch { } }
+  });
+  $('#si-2fa')?.addEventListener('click', () => (k.zweiFaktor ? zweiFaktorAusschalten() : zweiFaktorEinrichten()));
+  $('#si-aufraeumen')?.addEventListener('change', async e => {
+    try {
+      const r = await api('/api/einstellungen', { method: 'POST', body: JSON.stringify({ autoAufraeumen: e.target.checked }) });
+      kontoInfo = { ...(kontoInfo || {}), autoAufraeumen: r.autoAufraeumen };
+      renderWallet();
+    } catch (err) { e.target.checked = !e.target.checked; island(err.message); }
+  });
+}
+async function ladeKontoInfo() {
+  if (!state.token) { kontoInfo = null; return null; }
+  try { kontoInfo = await api('/api/me'); } catch { /* offline */ }
+  return kontoInfo;
+}
+
+// ---- Papierkorb: ein Jahr lang zurueckholen, was aus der Wallet verschwand
+async function papierkorbZeigen() {
+  if (walletGesperrt() && !await walletFreigeben()) return;
+  let liste;
+  try { liste = (await api('/api/papierkorb')).liste; } catch (e) { return island(e.message); }
+  const wrap = document.createElement('div');
+  wrap.className = 'overlay';
+  const zeile = e => `<div class="korb-zeile">
+      <div class="korb-info"><b>${esc(e.vendor || 'Eintrag')}</b>
+        <span>${e.typ === 'karte' ? 'Sparkarte' : (e.amount != null ? euroFmt(e.amount) : 'Gutschein')}${e.balance != null && e.typ !== 'karte' ? ' · Rest ' + euroFmt(e.balance) : ''}
+          · ${esc(e.grund || '')} · ${new Date(e.ts).toLocaleDateString('de-DE')}</span></div>
+      ${e.verschenkt ? '<span class="pill">verschenkt</span>' : `<button class="btn btn-small btn-ghost" data-zurueck="${esc(e.key)}" type="button">Zurückholen</button>`}
+    </div>`;
+  wrap.innerHTML = `<div class="modal modal-left korb-modal">
+    <h2 class="card-h">Papierkorb</h2>
+    <p class="muted" style="font-size:.82rem">Was aus deiner Wallet verschwunden ist, liegt hier ein Jahr lang.</p>
+    <div class="korb-liste">${liste.length ? liste.map(zeile).join('') : '<div class="status">Leer.</div>'}</div>
+    <div class="form-row"><button class="btn btn-small" data-zu type="button">Schließen</button></div>
+  </div>`;
+  document.body.appendChild(wrap);
+  const zu = () => { wrap.classList.add('closing'); setTimeout(() => wrap.remove(), 220); };
+  wrap.querySelector('[data-zu]').onclick = zu;
+  wrap.addEventListener('click', async ev => {
+    if (ev.target === wrap) return zu();
+    const b = ev.target.closest('[data-zurueck]');
+    if (!b) return;
+    b.disabled = true;
+    try {
+      await api('/api/papierkorb/zurueck', { method: 'POST', body: JSON.stringify({ key: b.dataset.zurueck }) });
+      b.closest('.korb-zeile').remove();
+      island('Zurück in der Wallet');
+      pullWallet();
+    } catch (e) { b.disabled = false; island(e.message); }
+  });
+}
+
+// ---- Zwei-Faktor: einrichten (QR fuer die Authenticator-App) und ausschalten
+async function ladeZxingSkript() {
+  if (window.ZXing) return true;
+  await new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = '/vendor/zxing.min.js'; s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  }).catch(() => { });
+  return !!window.ZXing;
+}
+async function zweiFaktorEinrichten() {
+  let r;
+  try { r = await api('/api/2fa/start', { method: 'POST', body: '{}' }); } catch (e) { return island(e.message); }
+  const wrap = document.createElement('div');
+  wrap.className = 'overlay';
+  wrap.innerHTML = `<div class="modal modal-left zf-modal">
+    <h2 class="card-h">Zwei-Faktor einrichten</h2>
+    <ol class="zf-schritte">
+      <li>Öffne eine Authenticator-App (z. B. Google Authenticator, Microsoft Authenticator, 2FAS oder Apple Passwörter).</li>
+      <li>Scanne den QR-Code oder gib den Schlüssel von Hand ein.</li>
+      <li>Tipp den 6-stelligen Code ein, den die App anzeigt.</li>
+    </ol>
+    <div class="zf-qr" data-qr>QR-Code lädt …</div>
+    <div class="zf-schluessel"><code>${esc(r.secret.replace(/(.{4})/g, '$1 ').trim())}</code>
+      <button class="btn btn-small btn-ghost" data-kopieren type="button">Kopieren</button></div>
+    <a class="link-knopf" href="${esc(r.uri)}">Direkt in der Authenticator-App öffnen</a>
+    <input class="input" data-code inputmode="numeric" maxlength="6" placeholder="6-stelliger Code" autocomplete="one-time-code">
+    <div class="form-msg" data-msg></div>
+    <div class="form-row">
+      <button class="btn btn-small btn-ghost" data-abbrechen type="button">Abbrechen</button>
+      <button class="btn btn-small" data-an type="button">Einschalten</button>
+    </div>
+  </div>`;
+  document.body.appendChild(wrap);
+  const zu = () => { wrap.classList.add('closing'); setTimeout(() => wrap.remove(), 220); };
+  wrap.querySelector('[data-abbrechen]').onclick = zu;
+  wrap.querySelector('[data-kopieren]').onclick = () => copyText(r.secret);
+  if (await ladeZxingSkript() && window.ZXing.BrowserQRCodeSvgWriter) {
+    try {
+      const svg = new ZXing.BrowserQRCodeSvgWriter().write(r.uri, 208, 208);
+      const qr = wrap.querySelector('[data-qr]');
+      qr.textContent = '';
+      qr.appendChild(svg);
+    } catch { wrap.querySelector('[data-qr]').textContent = 'QR-Code geht gerade nicht — nimm den Schlüssel darunter.'; }
+  } else wrap.querySelector('[data-qr]').textContent = 'QR-Code geht gerade nicht — nimm den Schlüssel darunter.';
+  const msg = wrap.querySelector('[data-msg]');
+  const code = wrap.querySelector('[data-code]');
+  const an = async () => {
+    msg.className = 'form-msg'; msg.textContent = '';
+    try {
+      const x = await api('/api/2fa/aktivieren', { method: 'POST', body: JSON.stringify({ code: code.value }) });
+      zu();
+      zeigeErsatzcodes(x.ersatzcodes);
+      await ladeKontoInfo();
+      renderSicherheit();
+    } catch (e) { msg.className = 'form-msg error'; msg.textContent = e.message; }
+  };
+  wrap.querySelector('[data-an]').onclick = an;
+  code.addEventListener('keydown', e => { if (e.key === 'Enter') an(); });
+}
+function zeigeErsatzcodes(codes) {
+  const wrap = document.createElement('div');
+  wrap.className = 'overlay';
+  wrap.innerHTML = `<div class="modal modal-left">
+    <h2 class="card-h">Zwei-Faktor ist an</h2>
+    <p class="muted" style="font-size:.84rem">Heb diese Ersatzcodes sicher auf (z. B. im Passwort-Manager). Jeder gilt einmal — für den Fall,
+      dass du dein Handy mit der Authenticator-App nicht zur Hand hast.</p>
+    <div class="zf-ersatz">${codes.map(c => `<code>${esc(c)}</code>`).join('')}</div>
+    <div class="form-row">
+      <button class="btn btn-small btn-ghost" data-kopieren type="button">Alle kopieren</button>
+      <button class="btn btn-small" data-ok type="button">Gesichert</button>
+    </div>
+  </div>`;
+  document.body.appendChild(wrap);
+  wrap.querySelector('[data-kopieren]').onclick = () => copyText(codes.join('\n'));
+  wrap.querySelector('[data-ok]').onclick = () => { wrap.classList.add('closing'); setTimeout(() => wrap.remove(), 220); };
+}
+async function zweiFaktorAusschalten() {
+  const pass = await passwortDialog('Zwei-Faktor ausschalten', 'Zur Sicherheit: dein Passwort.', { mitVergessen: false });
+  if (!pass) return;
+  try {
+    await api('/api/2fa/aus', { method: 'POST', body: JSON.stringify({ pass }) });
+    island('Zwei-Faktor ist aus');
+    await ladeKontoInfo();
+    renderSicherheit();
+  } catch (e) { island(e.message); }
+}
+// Anmeldung, zweiter Schritt: nur hier fragt kumulio nach dem Code
+function zweiFaktorAnmeldung(ticket) {
+  return new Promise(resolve => {
+    const wrap = document.createElement('div');
+    wrap.className = 'overlay';
+    wrap.innerHTML = `<div class="modal modal-left">
+      <h2 class="card-h">Bestätigungscode</h2>
+      <p class="muted" style="font-size:.84rem">Gib den 6-stelligen Code aus deiner Authenticator-App ein.</p>
+      <input class="input" data-code inputmode="numeric" maxlength="11" placeholder="123456" autocomplete="one-time-code">
+      <div class="form-msg" data-msg></div>
+      <div class="form-row">
+        <button class="btn btn-small btn-ghost" data-abbrechen type="button">Abbrechen</button>
+        <button class="btn btn-small" data-ok type="button">Anmelden</button>
+      </div>
+      <button class="link-knopf" data-ersatz type="button">Handy nicht zur Hand? Ersatzcode verwenden</button>
+    </div>`;
+    document.body.appendChild(wrap);
+    const code = wrap.querySelector('[data-code]');
+    const msg = wrap.querySelector('[data-msg]');
+    const fertig = wert => { wrap.classList.add('closing'); setTimeout(() => wrap.remove(), 220); resolve(wert); };
+    const senden = async () => {
+      msg.className = 'form-msg'; msg.textContent = '';
+      try {
+        const r = await api('/api/login/2fa', { method: 'POST', body: JSON.stringify({ ticket, code: code.value }) });
+        if (r.restErsatzcodes != null && r.restErsatzcodes <= 2 && !/^\d{6}$/.test(code.value.trim())) {
+          setTimeout(() => island(`Nur noch ${r.restErsatzcodes} Ersatzcodes. Neue gibt es, wenn du Zwei-Faktor neu einrichtest.`, 5000), 2500);
+        }
+        fertig(r);
+      } catch (e) {
+        msg.className = 'form-msg error'; msg.textContent = e.message;
+        if (e.status === 429 || e.status === 400) setTimeout(() => fertig(null), 1800);
+      }
+    };
+    wrap.querySelector('[data-ok]').onclick = senden;
+    wrap.querySelector('[data-abbrechen]').onclick = () => fertig(null);
+    wrap.querySelector('[data-ersatz]').onclick = () => {
+      code.setAttribute('inputmode', 'text'); code.placeholder = 'abcde-fghij'; code.value = ''; code.focus();
+    };
+    code.addEventListener('keydown', e => { if (e.key === 'Enter') senden(); });
+    setTimeout(() => code.focus(), 60);
+  });
+}
+
+// ---- Passwort vergessen: Link per E-Mail
+function passwortVergessenDialog(vorbelegt = '') {
+  const wrap = document.createElement('div');
+  wrap.className = 'overlay';
+  wrap.innerHTML = `<div class="modal modal-left">
+    <h2 class="card-h">Passwort vergessen?</h2>
+    <p class="muted" style="font-size:.84rem">Gib deinen Benutzernamen oder deine E-Mail-Adresse ein. Wir schicken dir einen Link,
+      mit dem du ein neues Passwort festlegst — an die bestätigte E-Mail-Adresse deines Kontos.</p>
+    <input class="input" data-login maxlength="80" placeholder="Benutzername oder E-Mail" autocomplete="username" value="${esc(vorbelegt)}">
+    <div id="ts-forgot" class="ts-widget"></div>
+    <div class="form-msg" data-msg></div>
+    <div class="form-row">
+      <button class="btn btn-small btn-ghost" data-abbrechen type="button">Schließen</button>
+      <button class="btn btn-small" data-senden type="button">Link schicken</button>
+    </div>
+  </div>`;
+  document.body.appendChild(wrap);
+  tsWidgets.forgot = null; tsTries.forgot = 0;
+  renderTurnstile('forgot');
+  const msg = wrap.querySelector('[data-msg]');
+  const zu = () => {
+    try { if (tsWidgets.forgot !== null) turnstile.remove(tsWidgets.forgot); } catch { }
+    tsWidgets.forgot = null;
+    wrap.classList.add('closing'); setTimeout(() => wrap.remove(), 220);
+  };
+  wrap.querySelector('[data-abbrechen]').onclick = zu;
+  const senden = async () => {
+    const login = wrap.querySelector('[data-login]').value.trim();
+    if (!login) return;
+    const knopf = wrap.querySelector('[data-senden]');
+    setBtnLoading(knopf, true);
+    msg.className = 'form-msg'; msg.textContent = '';
+    try {
+      const r = await api('/api/password/forgot', { method: 'POST', body: JSON.stringify({ login, turnstileToken: tsToken('forgot') }) });
+      msg.className = 'form-msg ok'; msg.textContent = r.text;
+      knopf.classList.add('hidden');
+    } catch (e) {
+      msg.className = 'form-msg error'; msg.textContent = e.message;
+      renderTurnstile('forgot');
+    } finally { setBtnLoading(knopf, false); }
+  };
+  wrap.querySelector('[data-senden]').onclick = senden;
+}
+// Link aus der Mail: neues Passwort festlegen
+async function neuesPasswortDialog(token) {
+  // Zu welchem Konto gehoert der Link? Steht gross oben — ein fremder Link
+  // (Konto eines anderen) faellt so sofort auf
+  let fuer = '';
+  try { fuer = (await api('/api/password/reset-info', { method: 'POST', body: JSON.stringify({ token }) })).user; }
+  catch (e) { await askConfirm(e.message, { alertOnly: true }); return; }
+  const wrap = document.createElement('div');
+  wrap.className = 'overlay';
+  wrap.innerHTML = `<div class="modal modal-left">
+    <h2 class="card-h">Neues Passwort für @${esc(fuer)}</h2>
+    <p class="muted" style="font-size:.84rem">Mindestens 6 Zeichen. Danach bist du überall abgemeldet und meldest dich mit dem neuen Passwort an.
+      Nicht dein Konto? Dann schließ dieses Fenster.</p>
+    <input class="input" type="password" data-p1 maxlength="64" placeholder="Neues Passwort" autocomplete="new-password">
+    <input class="input" type="password" data-p2 maxlength="64" placeholder="Nochmal zur Sicherheit" autocomplete="new-password">
+    <div class="form-msg" data-msg></div>
+    <div class="form-row">
+      <button class="btn btn-small btn-ghost" data-abbrechen type="button">Abbrechen</button>
+      <button class="btn btn-small" data-ok type="button">Speichern</button>
+    </div>
+  </div>`;
+  document.body.appendChild(wrap);
+  const msg = wrap.querySelector('[data-msg]');
+  const zu = () => { wrap.classList.add('closing'); setTimeout(() => wrap.remove(), 220); };
+  wrap.querySelector('[data-abbrechen]').onclick = zu;
+  wrap.querySelector('[data-ok]').onclick = async () => {
+    const p1 = wrap.querySelector('[data-p1]').value, p2 = wrap.querySelector('[data-p2]').value;
+    msg.className = 'form-msg error';
+    if (p1.length < 6) { msg.textContent = 'Mindestens 6 Zeichen.'; return; }
+    if (p1 !== p2) { msg.textContent = 'Die Passwörter stimmen nicht überein.'; return; }
+    try {
+      const r = await api('/api/password/reset', { method: 'POST', body: JSON.stringify({ token, pass: p1 }) });
+      zu();
+      await askConfirm(`Passwort für @${r.user} geändert. Melde dich jetzt mit dem neuen Passwort an${r.zweiFaktor ? ' (und deinem Bestätigungscode)' : ''}.`, { alertOnly: true });
+      if (state.token && state.userName === r.user) { state.token = ''; localStorage.removeItem('ra.token'); walletEntsperrt = false; refreshProfileTab(); }
+      switchView('profile');
+      if (r.user) $('#auth-user').value = r.user;
+      $('#auth-pass')?.focus();
+    } catch (e) { msg.textContent = e.message; }
+  };
+}
+// Einstiege ueber Links (Mail): ?reset=… bzw. ?passwort-vergessen=1
+function pruefeKontoLinks() {
+  const q = new URLSearchParams(location.search);
+  const token = q.get('reset');
+  const vergessen = q.get('passwort-vergessen');
+  const emailOk = q.get('email-ok');
+  if (!token && !vergessen && !emailOk) return;
+  q.delete('reset'); q.delete('passwort-vergessen'); q.delete('email-ok');
+  const rest = q.toString();
+  history.replaceState(null, '', location.pathname + (rest ? '?' + rest : '') + location.hash);
+  if (token) neuesPasswortDialog(token);
+  else if (emailOk) {
+    api('/api/email/bestaetigen', { method: 'POST', body: JSON.stringify({ token: emailOk }) })
+      .then(r => { island(`E-Mail bestätigt${r.user ? ' für @' + r.user : ''}`); ladeKontoInfo().then(renderSicherheit); })
+      .catch(e => askConfirm(e.message, { alertOnly: true }));
+  } else passwortVergessenDialog();
+}
+
 // ---------------- Start ----------------
 
 // Tastatur auf dem Handy: die sichtbare Höhe als CSS-Variable, damit der Chat
@@ -9838,7 +10608,15 @@ window.addEventListener('online', () => { if ($('#conn-screen')) location.reload
   // die App trotzdem nicht dauerhaft verdecken
   setTimeout(() => document.getElementById('boot-cover')?.remove(), 3200);
   refreshProfileTab();
+  // Die Wallet ist die Startseite — ausser ein Link will woanders hin
+  {
+    const q = new URLSearchParams(location.search);
+    const woanders = q.get('chat') || (q.get('tab') && q.get('tab') !== 'wallet');
+    if (!woanders && state.activeView !== 'wallet') switchView('wallet', 'start-ohne-anim');
+  }
   renderWallet();
+  aktualisiereSperre();
+  pruefeKontoLinks();
   initTurnstile();
   // Emotes, Badges, Paints und Ränge früh laden, damit Profile und Chats sie kennen
   api('/api/meta').then(r => {
@@ -9850,11 +10628,11 @@ window.addEventListener('online', () => { if ($('#conn-screen')) location.reload
   }).catch(() => { });
   if (state.token) {
     pullWallet(); // parallel statt hinter /api/me: Guthaben ist schneller aktuell
-    api('/api/me').then(r => { state.userName = r.user; state.role = r.role || ''; refreshProfileTab(); refreshAdminUi(); })
+    api('/api/me').then(r => { kontoInfo = r; state.userName = r.user; state.role = r.role || ''; refreshProfileTab(); refreshAdminUi(); renderWallet(); })
       .catch(e => {
         // Nur bei ECHTEM 401 abmelden; ist der Server kurz weg, bleibt der Login stehen
         if (/401|anmelden/i.test(String(e.message))) {
-          state.token = ''; localStorage.removeItem('ra.token'); refreshProfileTab();
+          state.token = ''; localStorage.removeItem('ra.token'); walletEntsperrt = false; aktualisiereSperre(); refreshProfileTab();
         }
       });
   }

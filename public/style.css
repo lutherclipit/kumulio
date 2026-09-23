@@ -5214,3 +5214,92 @@ body.sparsam .wm-flaeche, body.sparsam .filter-pille {
 .wa-platz { margin: 2px 0 10px; font-size: .78rem; font-weight: 600; color: var(--muted); }
 .wa-platz.fast { color: #B86A00; }
 .wa-platz.voll { color: #C0392B; font-weight: 700; }
+
+
+/* ============ Runde 112: Wallet-Sperre, Sicherheit, Aufraeumen ============== */
+.wallet-sperre {
+  position: fixed; inset: 0; z-index: 27;           /* ueber Kopf und Wallet, unter dem Menue (30) */
+  background: var(--seitengrund, #eef1f5);
+  display: grid; place-items: center;
+  padding: calc(env(safe-area-inset-top, 0px) + 20px) 16px calc(env(safe-area-inset-bottom, 0px) + 110px);
+}
+.wallet-sperre.hidden { display: none; }
+body.wallet-zu #wallet-mini, body.wallet-zu .topbar { visibility: hidden; }
+.ws-inhalt { width: min(320px, 100%); display: flex; flex-direction: column; align-items: center; text-align: center; }
+.ws-schloss {
+  width: 58px; height: 58px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--surface-2); border: 1px solid var(--stroke-light); margin-bottom: 12px;
+}
+.ws-schloss .icon { width: 26px; height: 26px; color: var(--accent-strong); }
+.ws-titel { margin: 0 0 4px; font-size: 1.25rem; }
+.ws-text { margin: 0 0 18px; font-size: .86rem; color: var(--muted); min-height: 1.3em; }
+.ws-text.fehler { color: #C0392B; font-weight: 700; }
+.ws-punkte { display: flex; gap: 14px; justify-content: center; margin-bottom: 22px; min-height: 16px; }
+.ws-punkt {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid var(--muted); transition: background .15s ease, border-color .15s ease, transform .15s var(--spring);
+}
+.ws-punkt.voll { background: var(--text); border-color: var(--text); transform: scale(1.08); }
+.ws-tasten { display: grid; grid-template-columns: repeat(3, 72px); gap: 14px 22px; justify-content: center; }
+.ws-taste {
+  width: 72px; height: 72px; border-radius: 50%;
+  border: 1px solid var(--stroke-light); background: var(--surface-2); color: var(--text);
+  font: inherit; font-size: 1.6rem; font-weight: 600; cursor: pointer;
+  display: grid; place-items: center; touch-action: manipulation;
+  transition: transform .15s var(--spring), background .15s ease;
+}
+.ws-taste:active { transform: scale(.92); background: var(--surface); }
+.ws-taste.leer { visibility: hidden; }
+.ws-taste.ws-neben { background: transparent; border-color: transparent; }
+.ws-taste .icon { width: 26px; height: 26px; }
+.ws-tasten.klein { grid-template-columns: repeat(3, 60px); gap: 10px 18px; margin: 4px 0 14px; }
+.ws-tasten.klein .ws-taste { width: 60px; height: 60px; font-size: 1.35rem; }
+.link-knopf {
+  background: none; border: none; padding: 8px 4px; margin-top: 10px; cursor: pointer;
+  font: inherit; font-size: .84rem; font-weight: 700; color: var(--accent-strong); text-decoration: none;
+  display: inline-block;
+}
+.link-knopf:active { opacity: .7; }
+.pin-modal { max-width: 360px; text-align: center; }
+.pin-modal .form-row { justify-content: center; }
+.pin-text { font-size: .82rem; margin: -2px 0 14px; }
+
+.pin-empfehlung {
+  display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; align-items: center;
+  padding: 14px; margin: 0 0 14px; border-radius: var(--r-md);
+  background: var(--surface-2); border: 1px solid var(--stroke-light);
+}
+.pin-empfehlung.hidden { display: none; }
+.pe-icon { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; background: rgba(47, 164, 92, .14); }
+.pe-icon .icon { width: 20px; height: 20px; color: var(--accent-strong); }
+.pe-text { display: flex; flex-direction: column; gap: 2px; font-size: .84rem; }
+.pe-text span { color: var(--muted); font-size: .8rem; line-height: 1.4; }
+.pe-knoepfe { grid-column: 1 / -1; display: flex; gap: 8px; }
+
+.sr-knoepfe { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+#sicherheit-card .btn-small { width: auto; }
+
+.zf-schritte { margin: 0 0 12px; padding-left: 20px; font-size: .84rem; line-height: 1.45; color: var(--text-soft); }
+.zf-qr { display: grid; place-items: center; min-height: 208px; margin: 4px auto 10px; padding: 8px; background: #fff; border-radius: 14px; width: 224px; font-size: .8rem; color: #555; }
+.zf-qr svg { width: 208px; height: 208px; display: block; }
+.zf-schluessel { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.zf-schluessel code, .zf-ersatz code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .82rem;
+  background: var(--surface); border: 1px solid var(--stroke-light); border-radius: 10px; padding: 8px 10px; word-break: break-all;
+}
+.zf-ersatz { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0 14px; }
+.zf-ersatz code { text-align: center; }
+
+.used-hinweis { margin: 0 14px 10px; font-size: .76rem; color: var(--muted); line-height: 1.4; }
+.pill.pill-verfall { background: rgba(120, 130, 140, .14); color: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) { .ws-punkt, .ws-taste { transition: none; } }
+
+/* Papierkorb */
+.korb-modal { max-width: 460px; }
+.korb-liste { max-height: min(60vh, 460px); overflow-y: auto; display: flex; flex-direction: column; gap: 8px; margin: 8px 0 12px; }
+.korb-zeile { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px;
+  border-radius: 12px; background: var(--surface); border: 1px solid var(--stroke-light); }
+.korb-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.korb-info span { font-size: .76rem; color: var(--muted); }
+.korb-zeile .btn-small { width: auto; flex: none; }

@@ -160,6 +160,222 @@ catch {
 
 function hashPass(pass, salt) { return crypto.scryptSync(pass, salt, 32).toString('hex'); }
 
+// ---------------------------------------------------------------- Konto-Sicherheit
+// Drossel: hoechstens max Versuche je Schluessel im Zeitfenster (gegen
+// Durchprobieren von Passwoertern, Codes und Massen-Mails)
+const drosselTopf = new Map();
+function drosselAufraeumen() {
+  // Gegen Speicherfluten (viele erfundene Schluessel): Aelteste raus
+  if (drosselTopf.size <= 20000) return;
+  const jetzt = Date.now();
+  for (const [k, l] of drosselTopf) if (!l.length || jetzt - l[l.length - 1] > 3600e3) drosselTopf.delete(k);
+  if (drosselTopf.size > 20000) [...drosselTopf.keys()].slice(0, drosselTopf.size - 15000).forEach(k => drosselTopf.delete(k));
+}
+// Zaehlt jeden Aufruf; false, sobald max im Fenster erreicht ist
+function drossel(schluessel, max, fensterMs) {
+  const jetzt = Date.now();
+  const liste = (drosselTopf.get(schluessel) || []).filter(t => jetzt - t < fensterMs);
+  if (liste.length >= max) { drosselTopf.set(schluessel, liste); return false; }
+  liste.push(jetzt);
+  drosselTopf.set(schluessel, liste);
+  drosselAufraeumen();
+  return true;
+}
+// Nur Fehlschlaege zaehlen (Anmeldung, 2FA-Codes): wer sein Passwort kennt,
+// wird nie ausgebremst, weil ein anderer sich vertippt
+function zuVieleFehler(schluessel, max, fensterMs) {
+  const jetzt = Date.now();
+  return (drosselTopf.get(schluessel) || []).filter(t => jetzt - t < fensterMs).length >= max;
+}
+function fehlerMerken(...schluessel) {
+  const jetzt = Date.now();
+  for (const k of schluessel) {
+    const l = (drosselTopf.get(k) || []).filter(t => jetzt - t < 3600e3);
+    l.push(jetzt);
+    drosselTopf.set(k, l);
+  }
+  drosselAufraeumen();
+}
+setInterval(() => {
+  const jetzt = Date.now();
+  for (const [k, l] of drosselTopf) if (!l.some(t => jetzt - t < 3600e3)) drosselTopf.delete(k);
+}, 3600e3).unref?.();
+function ipVon(req) {
+  return String(req.headers['cf-connecting-ip'] || String(req.headers['x-forwarded-for'] || '').split(',')[0] || req.socket.remoteAddress || '').trim();
+}
+const sha256 = s => crypto.createHash('sha256').update(String(s)).digest('hex');
+
+// ---- E-Mail: ueber die HTTPS-Schnittstelle von Resend. SMTP geht auf
+// Railway (Trial/Hobby) nicht — die Ports sind dort gesperrt. HTTPS auf Port
+// 443 funktioniert auf jedem Tarif. Schluessel und Absender kommen aus
+// data/mail.json (Admin-Panel) oder aus den Umgebungsvariablen.
+let MAIL = loadJson('mail.json', null);
+function mailEinstellungen() {
+  const m = MAIL || {};
+  return {
+    resendKey: m.resendKey || process.env.RESEND_API_KEY || '',
+    from: m.from || process.env.MAIL_FROM || '',
+    basis: (m.basis || process.env.PUBLIC_URL || 'https://kumulio.de').replace(/\/$/, ''),
+  };
+}
+function mailBereit() { const m = mailEinstellungen(); return !!(m.resendKey && m.from); }
+async function sendeMail({ to, subject, text, html }) {
+  const m = mailEinstellungen();
+  if (!m.resendKey || !m.from) throw new Error('E-Mail-Versand ist nicht eingerichtet.');
+  if (!drossel('mail-global-stunde', 40, 3600e3) || !drossel('mail-global-tag', 90, 86400e3)) {
+    throw new Error('Mail-Grenze fuer heute erreicht.');
+  }
+  // RESEND_API_URL nur fuer lokale Tests (Mail abfangen statt verschicken)
+  const r = await fetch(process.env.RESEND_API_URL || 'https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + m.resendKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: m.from, to: [to], subject, text, html }),
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!r.ok) throw new Error(`Mailversand fehlgeschlagen (${r.status}): ${(await r.text()).slice(0, 300)}`);
+}
+// Schlichte Mail im kumulio-Ton: Text + einfaches HTML mit einem Knopf
+function mailHtml(titel, absaetze, knopf) {
+  const e = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  return `<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;max-width:460px;margin:0 auto;padding:24px;color:#1b1f24">
+<div style="font-size:22px;font-weight:800;letter-spacing:-.02em;margin-bottom:14px">kumulio</div>
+<h1 style="font-size:19px;margin:0 0 12px">${e(titel)}</h1>
+${absaetze.map(a => `<p style="font-size:15px;line-height:1.5;margin:0 0 12px">${e(a)}</p>`).join('')}
+${knopf ? `<p style="margin:20px 0"><a href="${e(knopf.url)}" style="background:#12C77E;color:#fff;text-decoration:none;font-weight:700;padding:12px 20px;border-radius:12px;display:inline-block">${e(knopf.text)}</a></p>
+<p style="font-size:12px;color:#6b7280;word-break:break-all">Falls der Knopf nicht geht: ${e(knopf.url)}</p>` : ''}
+</div>`;
+}
+// Sicherheits-Hinweis ans Konto (Passwort geaendert, 2FA an/aus). Scheitert
+// der Versand, geht der eigentliche Vorgang trotzdem durch.
+function sicherheitsMail(user, titel, satz) {
+  const u = users[user];
+  if (!u || !u.email || !mailBereit()) return;
+  sendeMail({
+    to: u.email, subject: `kumulio: ${titel}`,
+    text: `Hallo @${user},\n\n${satz}\n\nWarst du das nicht? Setz dein Passwort sofort zurück: ${mailEinstellungen().basis}/?passwort-vergessen=1\n\nDein kumulio-Team`,
+    html: mailHtml(titel, [`Hallo @${user},`, satz, 'Warst du das nicht? Dann setz dein Passwort sofort zurück.'],
+      { text: 'Passwort zurücksetzen', url: `${mailEinstellungen().basis}/?passwort-vergessen=1` }),
+  }).catch(e => console.error('[Mail]', e.message));
+}
+
+// Bestaetigungslink fuer die E-Mail-Adresse (gilt 7 Tage)
+function emailBestaetigungSchicken(user) {
+  const u = users[user];
+  if (!u || !u.email || u.emailOk || !mailBereit()) return;
+  const token = crypto.randomBytes(24).toString('base64url');
+  resets[sha256(token)] = { user, zweck: 'email', email: u.email, exp: Date.now() + 7 * 864e5, ts: Date.now() };
+  saveJson('resets.json', resets);
+  const link = `${mailEinstellungen().basis}/?email-ok=${token}`;
+  sendeMail({
+    to: u.email, subject: 'kumulio: E-Mail-Adresse bestätigen',
+    text: `Hallo @${user},
+
+bitte bestätige deine E-Mail-Adresse:
+${link}
+
+Nur bestätigte Adressen bekommen Links, falls du mal dein Passwort vergisst.
+
+Dein kumulio-Team`,
+    html: mailHtml('E-Mail-Adresse bestätigen', [`Hallo @${user},`, 'bitte bestätige deine E-Mail-Adresse. Nur bestätigte Adressen bekommen Links, falls du mal dein Passwort vergisst.'],
+      { text: 'Adresse bestätigen', url: link }),
+  }).catch(e => console.error('[Mail] Bestaetigung:', e.message));
+}
+function emailMaske(e) {
+  const [n, d] = String(e || '').split('@');
+  if (!d) return '';
+  return (n.length <= 2 ? n[0] + '*' : n.slice(0, 2) + '*'.repeat(Math.min(6, n.length - 2))) + '@' + d;
+}
+// ---- Passwort-Links: nur der Hash des Tokens liegt auf dem Server; der
+// Link gilt 60 Minuten und nur einmal
+let resets = loadJson('resets.json', {});   // { sha256(token): { user, exp, ts } }
+function resetsAufraeumen() {
+  const jetzt = Date.now();
+  let weg = false;
+  for (const [k, r] of Object.entries(resets)) if (!r || r.exp < jetzt) { delete resets[k]; weg = true; }
+  if (weg) saveJson('resets.json', resets);
+}
+
+// ---- Zwei-Faktor (TOTP, RFC 6238): funktioniert mit jeder Authenticator-App
+// (Google Authenticator, Microsoft Authenticator, 2FAS, Apple Passwoerter …)
+const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+function base32(buf) {
+  let bits = 0, wert = 0, out = '';
+  for (const b of buf) {
+    wert = (wert << 8) | b; bits += 8;
+    while (bits >= 5) { out += B32[(wert >>> (bits - 5)) & 31]; bits -= 5; }
+  }
+  if (bits > 0) out += B32[(wert << (5 - bits)) & 31];
+  return out;
+}
+function base32Lesen(s) {
+  const clean = String(s).toUpperCase().replace(/[^A-Z2-7]/g, '');
+  let bits = 0, wert = 0;
+  const out = [];
+  for (const c of clean) {
+    wert = (wert << 5) | B32.indexOf(c); bits += 5;
+    if (bits >= 8) { out.push((wert >>> (bits - 8)) & 255); bits -= 8; }
+  }
+  return Buffer.from(out);
+}
+function totpCode(secret, zaehler) {
+  const buf = Buffer.alloc(8);
+  buf.writeBigUInt64BE(BigInt(zaehler));
+  const h = crypto.createHmac('sha1', base32Lesen(secret)).update(buf).digest();
+  const o = h[h.length - 1] & 15;
+  const n = ((h[o] & 127) << 24) | (h[o + 1] << 16) | (h[o + 2] << 8) | h[o + 3];
+  return String(n % 1e6).padStart(6, '0');
+}
+// Prueft einen 6-stelligen Code (±30 s Uhrversatz). Ein schon benutzter
+// Zeitschritt zaehlt nicht nochmal (kein Wiederverwenden abgefangener Codes).
+function totpPruefen(t, code) {
+  const c = String(code || '').replace(/\D/g, '');
+  if (c.length !== 6 || !t || !t.secret) return false;
+  const jetzt = Math.floor(Date.now() / 30000);
+  for (const d of [0, -1, 1]) {
+    const z = jetzt + d;
+    if (z <= (t.letzter || 0)) continue;
+    const soll = totpCode(t.secret, z);
+    if (crypto.timingSafeEqual(Buffer.from(soll), Buffer.from(c))) { t.letzter = z; return true; }
+  }
+  return false;
+}
+// Ersatzcodes: fuer den Fall, dass das Handy mit der Authenticator-App weg ist
+function ersatzcodeEinloesen(t, code) {
+  const c = String(code || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (c.length < 8 || !t || !Array.isArray(t.reserve)) return false;
+  const i = t.reserve.indexOf(sha256(c));
+  if (i < 0) return false;
+  t.reserve.splice(i, 1);
+  return true;
+}
+function neueErsatzcodes() {
+  const codes = Array.from({ length: 8 }, () => {
+    const s = base32(crypto.randomBytes(7)).toLowerCase().slice(0, 10);
+    return s.slice(0, 5) + '-' + s.slice(5);
+  });
+  return { codes, hashes: codes.map(c => sha256(c.replace(/-/g, ''))) };
+}
+// Anmeldung mit 2FA: nach dem Passwort gibt es erst ein kurzlebiges Ticket,
+// die Sitzung erst nach dem Code
+const loginTickets = new Map(); // ticket -> { user, exp, versuche }
+function ticketsWeg(user) { for (const [k, t] of loginTickets) if (t.user === user) loginTickets.delete(k); }
+// Alles beenden, was an einem Konto haengt (ausser optional der eigenen Sitzung):
+// Sitzungen, Anmelde-Tickets, Push-Abos (sonst liest ein Angreifer DMs weiter
+// mit), offene Echtzeit-Verbindungen
+function kontoAbmeldenUeberall(user, ausserToken = '') {
+  for (const [t, u] of Object.entries(sessions)) if (u === user && t !== ausserToken) delete sessions[t];
+  ticketsWeg(user);
+  saveJson('sessions.json', sessions);
+  if (!ausserToken) {
+    const vorher = pushSubs.length;
+    pushSubs = pushSubs.filter(x => x.user !== user);
+    if (pushSubs.length !== vorher) saveJson('push-subs.json', pushSubs);
+    for (const c of sseClients) if (c.user === user) { try { c.res.end(); } catch { /* weg */ } }
+  }
+}
+function tokenVon(req) { return String(req.headers['authorization'] || '').replace(/^Bearer\s+/i, ''); }
+function zweiFaktorAn(user) { const t = users[user] && users[user].totp; return !!(t && t.aktiv); }
+
 // Cloudflare Turnstile (etablierter Captcha-Dienst).
 // Standard: die offiziellen Turnstile-TEST-Keys (bestehen immer, zeigen das echte Widget).
 // Für den Live-Betrieb eigene Keys unter https://dash.cloudflare.com → Turnstile anlegen
@@ -502,9 +718,26 @@ function vereinigeWallet(user, inc) {
     }
     // Gelöscht bleibt gelöscht — außer der Eintrag wurde NACH der Löschung
     // neu angelegt (z. B. derselbe Gutschein zurückgeschenkt)
+    const incBy = new Map(incList.map(x => [x.id, x]));
+    const istTot = it => tombs[it.id] && tombs[it.id] >= Math.max(it.added || 0, it.wiederbelebt || 0);
+    // Vom Aufraeumen entfernt, danach aber noch bearbeitet (aufgeladen,
+    // Rueckgaengig)? Dann lebt er wieder auf — die Buchung darf nicht verloren gehen
+    out = out.map(it => {
+      const auto = (cur.autoWeg || {})[it.id];
+      const neu = incBy.get(it.id);
+      if (istTot(it) && auto && neu && (neu.mt || 0) > auto) {
+        delete cur.autoWeg[it.id];
+        // Immer juenger als der Loeschmarker, auch in derselben Millisekunde
+        return { ...it, wiederbelebt: Math.max(Date.now(), (tombs[it.id] || 0) + 1) };
+      }
+      return it;
+    });
     out = out.filter(it => {
-      const tot = tombs[it.id] && tombs[it.id] >= (it.added || 0);
+      const tot = istTot(it);
+      const neu = incBy.get(it.id);
       if (tot && curBy.has(it.id)) weg.push({ it: curBy.get(it.id), grund: 'gelöscht' });
+      // Eine nach der Loeschung noch geaenderte Fassung kommt in den Papierkorb
+      if (tot && neu && !curBy.has(it.id) && (neu.mt || 0) > tombs[it.id]) weg.push({ it: neu, grund: 'nach dem Löschen noch geändert' });
       return !tot;
     });
     if (out.length > max) {
@@ -527,7 +760,9 @@ function vereinigeWallet(user, inc) {
     .slice(-LOESCHMARKER_MAX)
     .map(([id, ts]) => ({ id, ts }));
   for (const { it, grund } of weg) archiviere(user, [it], grund);
-  wallets[user] = slimWallet({ vouchers, cards, deleted, ts: Date.now() });
+  wallets[user] = slimWallet({ vouchers, cards, deleted, ts: Date.now(),
+    ...(cur.statistik ? { statistik: cur.statistik } : {}),
+    ...(cur.autoWeg && Object.keys(cur.autoWeg).length ? { autoWeg: cur.autoWeg } : {}) });
   if (Object.keys(tombs).length) origAufraeumen(user, tombs, wallets[user]);
   return { vouchers: wallets[user].vouchers, cards: wallets[user].cards, deleted, abgelehnt };
 }
@@ -535,7 +770,7 @@ function vereinigeWallet(user, inc) {
 // Bild ja/nein und angelegt am (gegen Loeschmarker). Daran erkennt ein Geraet,
 // was ihm fehlt — ohne Megabytes.
 function walletIndex(w) {
-  const zeile = x => [x.id, x.mt || 0, (x.tx || []).length, hatBild(x) ? 1 : 0, x.added || 0];
+  const zeile = x => [x.id, x.mt || 0, (x.tx || []).length, hatBild(x) ? 1 : 0, Math.max(x.added || 0, x.wiederbelebt || 0)];
   return { v: (w.vouchers || []).filter(x => x && x.id).map(zeile), c: (w.cards || []).filter(x => x && x.id).map(zeile) };
 }
 
@@ -601,11 +836,75 @@ function archivLoeschen(user) {
 // ---- Tages-Schnappschuss: einmal am Tag wallets/gifts/users kopieren, die
 // letzten 7 Tage bleiben. Das Netz unter dem Netz.
 const SICHERUNG_DIR = path.join(DATA, 'sicherung');
+const AUFGEBRAUCHT_TAGE = 30;
+// Eingefuehrt am 24.09.2026: davor Aufgebrauchtes zaehlt ab diesem Tag — so
+// sieht jeder den Hinweis "wird am … entfernt" 30 Tage vorher und kann es abschalten
+const AUFRAEUMEN_AB = Date.parse('2026-09-24T00:00:00Z');
+// Letzte Bewegung eines Gutscheins: juengste Buchung, sonst angelegt am
+// (Schleife statt Spread: sehr viele Buchungen sprengten sonst den Stack)
+function letzteBewegung(v) {
+  let m = Math.max(Number(v.added) || 0, Number(v.wiederbelebt) || 0);
+  for (const t of Array.isArray(v.tx) ? v.tx : []) { const ts = Number(t && t.ts) || 0; if (ts > m) m = ts; }
+  return m;
+}
+function aufgebrauchtWeg(v, jetzt = Date.now()) {
+  return !!v && v.balance != null && v.balance <= 0
+    && Math.max(letzteBewegung(v), AUFRAEUMEN_AB) < jetzt - AUFGEBRAUCHT_TAGE * 86400e3;
+}
+// Was ein aufgeraeumter Gutschein zur Statistik beigetragen hat, bleibt als
+// Monatssumme erhalten (Analyse "Rein und raus")
+function statistikMerken(w, v) {
+  const st = w.statistik || (w.statistik = {});
+  const monat = ts => { const d = new Date(ts); return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0'); };
+  const dazu = (ts, rein, raus) => {
+    if (!ts) return;
+    const k = monat(ts);
+    const e = st[k] || (st[k] = { rein: 0, raus: 0 });
+    e.rein = Math.round((e.rein + rein) * 100) / 100;
+    e.raus = Math.round((e.raus + raus) * 100) / 100;
+  };
+  if (v.amount != null && Number.isFinite(Number(v.amount))) dazu(v.added, Number(v.amount), 0);
+  for (const t of Array.isArray(v.tx) ? v.tx : []) {
+    if (!t || t.reverted || !Number.isFinite(Number(t.amt))) continue;
+    const a = Number(t.amt);
+    dazu(t.ts, a > 0 ? a : 0, a < 0 ? -a : 0);
+  }
+}
+function raeumeAufgebrauchteAuf() {
+  let gesamt = 0;
+  try {
+    for (const [user, w] of Object.entries(wallets)) {
+      // Ein kaputter Eintrag bei einem Konto darf das Aufraeumen der anderen nicht stoppen
+      try {
+        if (!w || !Array.isArray(w.vouchers) || !users[user] || profileOf(user).autoAufraeumen === false) continue;
+        const weg = w.vouchers.filter(v => v && v.id && aufgebrauchtWeg(v));
+        if (!weg.length) continue;
+        archiviere(user, weg, `aufgebraucht, nach ${AUFGEBRAUCHT_TAGE} Tagen entfernt`);
+        for (const v of weg) statistikMerken(w, v);
+        const ids = new Set(weg.map(v => v.id));
+        w.vouchers = w.vouchers.filter(v => v && !ids.has(v.id));
+        // Loeschmarker, damit die Geraete ihn auch entfernen; autoWeg merkt, dass
+        // es das Aufraeumen war (wird danach noch gebucht, lebt er wieder auf)
+        const jetzt = Date.now();
+        w.deleted = [...(w.deleted || []), ...weg.map(v => ({ id: v.id, ts: jetzt }))].slice(-LOESCHMARKER_MAX);
+        w.autoWeg = { ...(w.autoWeg || {}) };
+        for (const v of weg) w.autoWeg[v.id] = jetzt;
+        ssePush('gift', user); // offene App holt den neuen Stand
+        gesamt += weg.length;
+      } catch (e) { console.error('[Wallet] Aufraeumen bei', user, e.message); }
+    }
+  } finally {
+    if (gesamt) { saveJson('wallets.json', wallets); console.log(`[Wallet] ${gesamt} aufgebrauchte Gutscheine nach ${AUFGEBRAUCHT_TAGE} Tagen entfernt`); }
+  }
+  return gesamt;
+}
 async function sichereTaeglich() {
+  // Aufraeumen erst NACH der Tages-Sicherung (siehe unten)
+  const aufraeumen = () => { try { raeumeAufgebrauchteAuf(); } catch (e) { console.error('[Wallet] Aufraeumen:', e.message); } };
   try {
     const tag = new Date().toISOString().slice(0, 10);
     const ordner = path.join(SICHERUNG_DIR, tag);
-    if (fs.existsSync(path.join(ordner, 'wallets.json'))) return;
+    if (fs.existsSync(path.join(ordner, 'wallets.json'))) { aufraeumen(); return; }
     await fs.promises.mkdir(ordner, { recursive: true });
     for (const f of ['users.json', 'gifts.json', 'wallets.json']) {
       await fs.promises.copyFile(path.join(DATA, f), path.join(ordner, f)).catch(() => {});
@@ -613,6 +912,7 @@ async function sichereTaeglich() {
     const tage = (await fs.promises.readdir(SICHERUNG_DIR)).filter(x => /^\d{4}-\d{2}-\d{2}$/.test(x)).sort();
     for (const alt of tage.slice(0, -7)) await fs.promises.rm(path.join(SICHERUNG_DIR, alt), { recursive: true, force: true });
   } catch (e) { console.error('[Sicherung]', e.message); }
+  aufraeumen();
 }
 bilderAuslagernBestand();
 if (!process.env.RA_TEST) {
@@ -1861,6 +2161,7 @@ const server = http.createServer(async (req, res) => {
       if (Object.values(users).some(u => u.email === email)) return send(res, 409, { error: 'E-Mail wird schon verwendet.' });
       const salt = crypto.randomBytes(12).toString('hex');
       users[user] = { hash: hashPass(pass, salt), salt, email, newsletter: !!b.newsletter, ts: Date.now() };
+      setTimeout(() => emailBestaetigungSchicken(user), 0);
       // Freunde werben Freunde: kam die Registrierung ueber einen Einladungslink,
       // bekommt der Werber 1000 Funken (Mitmach-Belohnung, kein Echtgeld-Pfad;
       // Deckel gegen Fake-Konten-Farmen)
@@ -1886,6 +2187,233 @@ const server = http.createServer(async (req, res) => {
       return send(res, 201, { token, user, refBonus });
     }
 
+    // ---- Passwort vergessen: Link per E-Mail (gilt 60 Minuten, einmal)
+    if (p === '/api/password/forgot' && req.method === 'POST') {
+      const b = await readBody(req);
+      if (!mailBereit()) {
+        return send(res, 503, { error: 'Passwort per E-Mail zurücksetzen ist gerade noch nicht eingerichtet. Bitte melde dich beim kumulio-Team.' });
+      }
+      if (!await verifyTurnstile(b.turnstileToken)) return send(res, 400, { error: 'Captcha-Prüfung fehlgeschlagen, bitte erneut bestätigen.' });
+      if (!drossel('forgot-ip:' + ipVon(req), 5, 3600e3)) return send(res, 429, { error: 'Zu viele Versuche. Bitte in einer Stunde nochmal.' });
+      const eingabe = String(b.login || '').trim().toLowerCase();
+      const user = Object.keys(users).find(k => k.toLowerCase() === eingabe || (users[k].email || '') === eingabe);
+      // Immer dieselbe Antwort — sonst liesse sich abfragen, wer ein Konto hat
+      const antwort = { ok: true, text: 'Wenn es ein Konto mit diesen Angaben gibt, ist jetzt eine E-Mail unterwegs. Der Link gilt 60 Minuten.' };
+      // Nur an bestaetigte Adressen — sonst wuerde ein Tippfehler bei der
+      // Registrierung zum Weg in das Konto
+      if (!user || !users[user].email || !users[user].emailOk || !drossel('forgot-user:' + user, 3, 3600e3)) return send(res, 200, antwort);
+      resetsAufraeumen();
+      const token = crypto.randomBytes(24).toString('base64url');
+      resets[sha256(token)] = { user, zweck: 'passwort', exp: Date.now() + 3600e3, ts: Date.now() };
+      saveJson('resets.json', resets);
+      const link = `${mailEinstellungen().basis}/?reset=${token}`;
+      // Ohne Warten verschicken: die Antwort kommt gleich schnell, ob es das
+      // Konto gibt oder nicht
+      (async () => {
+        await sendeMail({
+          to: users[user].email,
+          subject: 'kumulio: Passwort zurücksetzen',
+          text: `Hallo @${user},\n\nüber diesen Link legst du ein neues Passwort fest (gilt 60 Minuten):\n${link}\n\nDu hast das nicht angefordert? Dann ignorier diese Mail einfach, dein Passwort bleibt, wie es ist.\n\nDein kumulio-Team`,
+          html: mailHtml('Neues Passwort festlegen', [`Hallo @${user},`, 'über den Knopf legst du ein neues Passwort fest. Der Link gilt 60 Minuten.',
+            'Du hast das nicht angefordert? Dann ignorier diese Mail einfach, dein Passwort bleibt, wie es ist.'], { text: 'Neues Passwort festlegen', url: link }),
+        });
+      })().catch(e => console.error('[Mail] Passwort-Link:', e.message));
+      return send(res, 200, antwort);
+    }
+    if (p === '/api/password/reset' && req.method === 'POST') {
+      const b = await readBody(req);
+      if (!drossel('reset-ip:' + ipVon(req), 20, 3600e3)) return send(res, 429, { error: 'Zu viele Versuche. Bitte später nochmal.' });
+      resetsAufraeumen();
+      const eintrag = resets[sha256(String(b.token || ''))];
+      if (!eintrag || (eintrag.zweck || 'passwort') !== 'passwort' || !users[eintrag.user]) return send(res, 400, { error: 'Der Link ist abgelaufen oder wurde schon benutzt. Fordere einfach einen neuen an.' });
+      const pass = String(b.pass || '');
+      if (pass.length < 6) return send(res, 400, { error: 'Passwort: mindestens 6 Zeichen.' });
+      if (pass.length > 64) return send(res, 400, { error: 'Passwort: höchstens 64 Zeichen.' });
+      const user = eintrag.user;
+      const salt = crypto.randomBytes(16).toString('hex');
+      users[user].salt = salt;
+      users[user].hash = hashPass(pass, salt);
+      // Alle Links dieses Kontos verfallen; alle Sitzungen, Anmelde-Tickets und
+      // Push-Abos enden (auch die eines Angreifers, falls das Passwort geklaut war)
+      for (const [k, r] of Object.entries(resets)) if (r.user === user && (r.zweck || 'passwort') === 'passwort') delete resets[k];
+      saveJson('users.json', users);
+      saveJson('resets.json', resets);
+      kontoAbmeldenUeberall(user);
+      sicherheitsMail(user, 'Passwort geändert', 'Dein kumulio-Passwort wurde gerade über den Link aus der E-Mail neu festgelegt.');
+      // Kein automatisches Anmelden: ein fremder Reset-Link koennte sonst dem
+      // Opfer das Konto des Angreifers unterschieben. Die App zeigt den Namen
+      // und meldet mit dem neuen Passwort normal an.
+      return send(res, 200, { ok: true, user, zweiFaktor: zweiFaktorAn(user) });
+    }
+    // Fuer den Dialog: zu welchem Konto gehoert der Link? (verraet nur dem, der
+    // den Link hat, den Namen)
+    if (p === '/api/password/reset-info' && req.method === 'POST') {
+      if (!drossel('reset-info:' + ipVon(req), 30, 3600e3)) return send(res, 429, { error: 'Zu viele Versuche.' });
+      const b = await readBody(req);
+      resetsAufraeumen();
+      const e = resets[sha256(String(b.token || ''))];
+      if (!e || (e.zweck || 'passwort') !== 'passwort' || !users[e.user]) return send(res, 400, { error: 'Der Link ist abgelaufen oder wurde schon benutzt. Fordere einfach einen neuen an.' });
+      return send(res, 200, { user: e.user });
+    }
+
+    // ---- E-Mail bestaetigen: nur bestaetigte Adressen bekommen Passwort-Links
+    if (p === '/api/email/senden' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      if (!mailBereit()) return send(res, 503, { error: 'E-Mail-Versand ist noch nicht eingerichtet.' });
+      if (!users[user].email) return send(res, 400, { error: 'Für dein Konto ist keine E-Mail-Adresse hinterlegt.' });
+      if (users[user].emailOk) return send(res, 200, { ok: true, schonBestaetigt: true });
+      if (!drossel('email-senden:' + user, 3, 3600e3)) return send(res, 429, { error: 'Schon unterwegs. Schau in dein Postfach (auch in den Spam-Ordner).' });
+      emailBestaetigungSchicken(user);
+      return send(res, 200, { ok: true });
+    }
+    if (p === '/api/email/bestaetigen' && req.method === 'POST') {
+      if (!drossel('email-ok:' + ipVon(req), 30, 3600e3)) return send(res, 429, { error: 'Zu viele Versuche.' });
+      const b = await readBody(req);
+      resetsAufraeumen();
+      const k = sha256(String(b.token || ''));
+      const e = resets[k];
+      if (!e || e.zweck !== 'email' || !users[e.user] || users[e.user].email !== e.email) {
+        return send(res, 400, { error: 'Der Bestätigungslink ist abgelaufen. Schick dir in den Einstellungen einfach einen neuen.' });
+      }
+      users[e.user].emailOk = Date.now();
+      delete resets[k];
+      saveJson('users.json', users);
+      saveJson('resets.json', resets);
+      return send(res, 200, { ok: true, user: e.user });
+    }
+
+    // ---- Papierkorb fuer Nutzer: was aus der Wallet verschwunden ist (geloescht,
+    // aufgeraeumt, verschenkt), ein Jahr lang sehen und zurueckholen
+    if (p === '/api/papierkorb' && req.method === 'GET') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      const liste = Object.entries(archivVon(user)).sort((x, y) => y[1].ts - x[1].ts).slice(0, 200).map(([key, e]) => ({
+        key, ts: e.ts, grund: e.grund, typ: e.typ, vendor: e.v.vendor || e.v.name || '',
+        amount: e.v.amount ?? null, balance: e.v.balance ?? null, bild: !!(e.v.codeImg || e.v.img),
+        verschenkt: /^verschenkt/.test(e.grund || ''),
+      }));
+      return send(res, 200, { liste });
+    }
+    if (p === '/api/papierkorb/zurueck' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      const a = archivVon(user);
+      const e = a[String(b.key || '')];
+      if (!e) return send(res, 404, { error: 'Eintrag nicht gefunden.' });
+      // Verschenkte Gutscheine gehoeren jetzt dem Freund — nicht zurueckholbar
+      if (/^verschenkt/.test(e.grund || '')) return send(res, 409, { error: 'Den hast du verschenkt, er gehört jetzt deinem Freund.' });
+      const w = wallets[user] || (wallets[user] = { vouchers: [], cards: [], deleted: [] });
+      const karte = e.typ === 'karte';
+      const liste = karte ? (w.cards = w.cards || []) : (w.vouchers = w.vouchers || []);
+      if (liste.length >= (karte ? WALLET_LIMIT_KARTEN : WALLET_LIMIT_GUTSCHEINE)) return send(res, 409, { error: 'Deine Wallet ist voll. Lösch erst etwas.' });
+      const zurueck = bilderAblegen({ ...e.v, id: neueGutscheinId(), added: Date.now(), mt: Date.now(), wiederhergestellt: Date.now() });
+      if (e.v.orig) { try { fs.renameSync(origPfad(user, e.v.id), origPfad(user, zurueck.id)); } catch { delete zurueck.orig; } }
+      liste.unshift(zurueck);
+      delete a[String(b.key)];
+      saveJsonSoon(archivDatei(user), a, 200);
+      saveJson('wallets.json', wallets);
+      ssePush('gift', user);
+      return send(res, 200, { ok: true, id: zurueck.id });
+    }
+
+    // ---- Passwort pruefen (z. B. um eine vergessene Wallet-PIN zu loeschen)
+    if (p === '/api/konto/passwort-pruefen' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      if (!drossel('pw-pruefen:' + user, 5, 15 * 60e3)) return send(res, 429, { error: 'Zu viele Versuche. Bitte in 15 Minuten nochmal.' });
+      const b = await readBody(req);
+      const u = users[user];
+      if (!u || hashPass(String(b.pass || ''), u.salt) !== u.hash) return send(res, 403, { error: 'Das Passwort stimmt nicht.' });
+      return send(res, 200, { ok: true });
+    }
+
+    // ---- Einstellungen am Konto (gelten auf allen Geraeten)
+    if (p === '/api/einstellungen' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      const prof = profileOf(user);
+      if (typeof b.autoAufraeumen === 'boolean') prof.autoAufraeumen = b.autoAufraeumen;
+      saveJson('users.json', users);
+      return send(res, 200, { ok: true, autoAufraeumen: prof.autoAufraeumen !== false });
+    }
+
+    // ---- Zwei-Faktor einrichten / ausschalten
+    if (p === '/api/2fa/start' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      if (zweiFaktorAn(user)) return send(res, 409, { error: 'Zwei-Faktor ist schon eingeschaltet.' });
+      const secret = base32(crypto.randomBytes(20));
+      users[user].totpNeu = { secret, ts: Date.now() };
+      saveJson('users.json', users);
+      const uri = `otpauth://totp/kumulio:${encodeURIComponent(user)}?secret=${secret}&issuer=kumulio&digits=6&period=30`;
+      return send(res, 200, { secret, uri });
+    }
+    if (p === '/api/2fa/aktivieren' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      if (!drossel('2fa-akt:' + user, 10, 15 * 60e3)) return send(res, 429, { error: 'Zu viele Versuche. Bitte in 15 Minuten nochmal.' });
+      const b = await readBody(req);
+      const neu = users[user].totpNeu;
+      if (!neu || Date.now() - neu.ts > 30 * 60e3) return send(res, 400, { error: 'Die Einrichtung ist abgelaufen. Bitte neu starten.' });
+      const t = { secret: neu.secret, aktiv: true, seit: Date.now(), letzter: 0 };
+      if (!totpPruefen(t, b.code)) return send(res, 400, { error: 'Der Code stimmt nicht. Schau, ob die Uhr am Handy richtig geht.' });
+      const { codes, hashes } = neueErsatzcodes();
+      t.reserve = hashes;
+      users[user].totp = t;
+      delete users[user].totpNeu;
+      saveJson('users.json', users);
+      // Alle anderen Sitzungen enden: ab jetzt gibt es nur noch Sitzungen, die
+      // mit zweitem Faktor entstanden sind (deshalb reicht zum Ausschalten das Passwort)
+      kontoAbmeldenUeberall(user, tokenVon(req));
+      sicherheitsMail(user, 'Zwei-Faktor eingeschaltet', 'Für dein kumulio-Konto ist jetzt die Anmeldung mit zweitem Faktor (Authenticator-App) eingeschaltet.');
+      return send(res, 200, { ok: true, ersatzcodes: codes });
+    }
+    if (p === '/api/2fa/aus' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      if (!drossel('2fa-aus:' + user, 5, 15 * 60e3)) return send(res, 429, { error: 'Zu viele Versuche. Bitte in 15 Minuten nochmal.' });
+      const b = await readBody(req);
+      const u = users[user];
+      // Nur das Passwort: einen 2FA-Code gibt es ausschliesslich bei der Anmeldung
+      // (die Sitzung selbst ist ja schon mit zweitem Faktor entstanden)
+      if (hashPass(String(b.pass || ''), u.salt) !== u.hash) return send(res, 403, { error: 'Das Passwort stimmt nicht.' });
+      delete u.totp;
+      ticketsWeg(user);
+      saveJson('users.json', users);
+      sicherheitsMail(user, 'Zwei-Faktor ausgeschaltet', 'Für dein kumulio-Konto ist die Anmeldung mit zweitem Faktor jetzt ausgeschaltet.');
+      return send(res, 200, { ok: true });
+    }
+    // Anmeldung, zweiter Schritt: Code aus der App (oder ein Ersatzcode)
+    if (p === '/api/login/2fa' && req.method === 'POST') {
+      const b = await readBody(req);
+      const ticket = String(b.ticket || '');
+      const t = loginTickets.get(ticket);
+      if (!t || t.exp < Date.now()) return send(res, 400, { error: 'Die Anmeldung ist abgelaufen. Bitte nochmal mit Passwort anmelden.' });
+      // Kontoweit: hoechstens 10 falsche Codes pro Stunde — sonst liesse sich
+      // der Code mit bekanntem Passwort ueber Wochen durchprobieren
+      if (zuVieleFehler('2fa-fehl:' + t.user, 10, 3600e3)) {
+        loginTickets.delete(ticket);
+        return send(res, 429, { error: 'Zu viele falsche Codes. Bitte in einer Stunde nochmal.' });
+      }
+      if (++t.versuche > 5) { loginTickets.delete(ticket); return send(res, 429, { error: 'Zu viele falsche Codes. Bitte nochmal mit Passwort anmelden.' }); }
+      const u = users[t.user];
+      const ok = u && (totpPruefen(u.totp, b.code) || ersatzcodeEinloesen(u.totp, b.code));
+      if (!ok) {
+        fehlerMerken('2fa-fehl:' + t.user);
+        if (zuVieleFehler('2fa-fehl:' + t.user, 10, 3600e3)) sicherheitsMail(t.user, 'Viele falsche Anmeldecodes', 'Bei deinem kumulio-Konto wurde mehrfach ein falscher Bestätigungscode eingegeben — jemand kennt vielleicht dein Passwort. Ändere es am besten.');
+        return send(res, 401, { error: 'Der Code stimmt nicht.' });
+      }
+      loginTickets.delete(ticket);
+      saveJson('users.json', users); // letzter Zeitschritt bzw. verbrauchter Ersatzcode
+      const token = crypto.randomBytes(18).toString('hex');
+      sessions[token] = t.user;
+      saveJson('sessions.json', sessions);
+      return send(res, 200, { token, user: t.user, restErsatzcodes: (u.totp.reserve || []).length });
+    }
+
     if (p === '/api/login' && req.method === 'POST') {
       const b = await readBody(req);
       if (!await verifyTurnstile(b.turnstileToken)) return send(res, 400, { error: 'Captcha-Prüfung fehlgeschlagen, bitte erneut bestätigen.' });
@@ -1893,8 +2421,23 @@ const server = http.createServer(async (req, res) => {
       // Groß/Klein egal: Nutzer findet sich auch als "luther", wenn er "Luther" heißt
       const user = Object.keys(users).find(k => k.toLowerCase() === typed.toLowerCase());
       const u = user ? users[user] : null;
+      // Gegen Durchprobieren: nur FEHLVERSUCHE zaehlen — 10 je Konto und Netz,
+      // 100 je Konto insgesamt, 30 je Netz in 15 Minuten
+      const ip = ipVon(req);
+      if (zuVieleFehler('login-ip:' + ip, 30, 15 * 60e3)
+        || (user && (zuVieleFehler('login-user:' + user + ':' + ip, 10, 15 * 60e3) || zuVieleFehler('login-user:' + user, 100, 15 * 60e3)))) {
+        return send(res, 429, { error: 'Zu viele Anmeldeversuche. Bitte in 15 Minuten nochmal — oder Passwort zurücksetzen.' });
+      }
       if (!u || hashPass(String(b.pass || ''), u.salt) !== u.hash) {
+        fehlerMerken('login-ip:' + ip, ...(user ? ['login-user:' + user + ':' + ip, 'login-user:' + user] : []));
         return send(res, 401, { error: 'Name oder Passwort falsch.' });
+      }
+      // Zwei-Faktor an: erst der Code, dann die Sitzung
+      if (zweiFaktorAn(user)) {
+        for (const [k, t] of loginTickets) if (t.exp < Date.now()) loginTickets.delete(k);
+        const ticket = crypto.randomBytes(18).toString('hex');
+        loginTickets.set(ticket, { user, exp: Date.now() + 5 * 60e3, versuche: 0 });
+        return send(res, 200, { zweiFaktor: true, ticket, user });
       }
       const token = crypto.randomBytes(18).toString('hex');
       sessions[token] = user;
@@ -2148,6 +2691,14 @@ const server = http.createServer(async (req, res) => {
       if (wasAdmin && !DEFAULT_ADMINS.includes(neu.toLowerCase())) users[neu].role = 'admin';
       profileOf(neu).lastRename = Date.now();
       for (const [t, u] of Object.entries(sessions)) if (u === me) sessions[t] = neu;
+      for (const r of Object.values(resets)) if (r.user === me) r.user = neu;
+      for (const t of loginTickets.values()) if (t.user === me) t.user = neu;
+      // Push-Abos ziehen mit um (sonst bekaeme ein spaeterer Traeger des alten
+      // Namens die DMs aufs Geraet)
+      for (const x of pushSubs) if (x.user === me) x.user = neu;
+      saveJson('push-subs.json', pushSubs);
+      for (const c of sseClients) if (c.user === me) c.user = neu;
+      saveJson('resets.json', resets);
       if (wallets[me]) { wallets[neu] = wallets[me]; if (neu !== me) delete wallets[me]; }
       // Wartende Geschenke, Originalfotos und Papierkorb ziehen mit um — sonst
       // waeren sie unter dem neuen Namen unsichtbar (und ein spaeterer
@@ -2192,8 +2743,18 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/account/delete' && req.method === 'POST') {
       const me = authUser(req);
       if (!me) return send(res, 401, { error: 'Bitte anmelden.' });
+      // Endgueltig loeschen nur mit Passwort — wer bloss das Handy in der Hand
+      // hat, darf das nicht
+      const bd = await readBody(req);
+      if (!drossel('delete-pw:' + me, 5, 15 * 60e3)) return send(res, 429, { error: 'Zu viele Versuche. Bitte in 15 Minuten nochmal.' });
+      if (!users[me] || hashPass(String(bd.pass || ''), users[me].salt) !== users[me].hash) return send(res, 403, { error: 'Das Passwort stimmt nicht.' });
+      pushSubs = pushSubs.filter(x => x.user !== me);
+      saveJson('push-subs.json', pushSubs);
       delete users[me];
       for (const [t, u] of Object.entries(sessions)) if (u === me) delete sessions[t];
+      for (const [k, r] of Object.entries(resets)) if (r.user === me) delete resets[k];
+      ticketsWeg(me);
+      saveJson('resets.json', resets);
       // Noch nicht ausgepackte Geschenke gehen an die Absender zurueck, statt
       // mit dem Konto zu verschwinden (oder an jemanden, der spaeter den
       // Namen registriert)
@@ -2637,7 +3198,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (url.searchParams.get('nur') === 'index') {
         const w = wallets[user] || { vouchers: [], cards: [], deleted: [] };
-        return send(res, 200, { index: walletIndex(w), deleted: w.deleted || [], gifts: mitBildern(gifts[user]), ts: w.ts || 0 });
+        return send(res, 200, { index: walletIndex(w), deleted: w.deleted || [], gifts: mitBildern(gifts[user]), ts: w.ts || 0, statistik: w.statistik || {} });
       }
       const w = wallets[user] || { vouchers: [], cards: [] };
       return send(res, 200, { ...w, vouchers: mitBildern(w.vouchers), cards: mitBildern(w.cards), gifts: mitBildern(gifts[user]) });
@@ -2803,7 +3364,7 @@ const server = http.createServer(async (req, res) => {
       if (!saveJson('wallets.json', wallets)) return send(res, 507, { error: 'Speichern am Server gerade nicht möglich. Wird automatisch wiederholt.' });
       // Teil-Abgleich: statt der ganzen Wallet nur ein Inhaltsverzeichnis
       // zurueck — der Client holt sich gezielt, was ihm fehlt
-      if (b.delta) return send(res, 200, { ok: true, delta: true, deleted, index: walletIndex(wallets[user]), ...(abgelehnt.length ? { abgelehnt } : {}) });
+      if (b.delta) return send(res, 200, { ok: true, delta: true, deleted, index: walletIndex(wallets[user]), statistik: wallets[user].statistik || {}, ...(abgelehnt.length ? { abgelehnt } : {}) });
       return send(res, 200, serverAddedSomething
         ? { ok: true, merged: true, vouchers: mitBildern(wallets[user].vouchers), cards: mitBildern(wallets[user].cards), deleted }
         : { ok: true, deleted });
@@ -2818,7 +3379,18 @@ const server = http.createServer(async (req, res) => {
 
     if (p === '/api/me' && req.method === 'GET') {
       const user = authUser(req);
-      return user ? send(res, 200, { user, role: roleOf(user) }) : send(res, 401, { error: 'Nicht angemeldet.' });
+      if (!user) return send(res, 401, { error: 'Nicht angemeldet.' });
+      const u = users[user] || {};
+      return send(res, 200, {
+        user, role: roleOf(user),
+        zweiFaktor: zweiFaktorAn(user),
+        ersatzcodes: zweiFaktorAn(user) ? (u.totp.reserve || []).length : 0,
+        hatEmail: !!u.email,
+        emailOk: !!u.emailOk,
+        emailMaske: emailMaske(u.email),
+        mailBereit: mailBereit(),
+        autoAufraeumen: profileOf(user).autoAufraeumen !== false,
+      });
     }
 
     // ---- Startseiten-Kacheln (Admin pflegt sie über /admin.html)
@@ -3028,6 +3600,61 @@ const server = http.createServer(async (req, res) => {
       }
       if (removed) saveJson('posts.json', posts);
       return send(res, removed ? 200 : 404, removed ? { ok: true } : { error: 'Post nicht gefunden.' });
+    }
+
+    // Support: 2FA fuer ein Konto ausschalten (Handy weg, keine Ersatzcodes)
+    if (p === '/api/admin/2fa-aus' && req.method === 'POST') {
+      if (!isAdmin(req)) return send(res, 403, { error: 'Admin-Key falsch.' });
+      const b = await readBody(req);
+      const u = users[String(b.user || '')];
+      if (!u) return send(res, 404, { error: 'Nutzer nicht gefunden.' });
+      delete u.totp; delete u.totpNeu;
+      ticketsWeg(String(b.user));
+      saveJson('users.json', users);
+      sicherheitsMail(String(b.user), 'Zwei-Faktor ausgeschaltet', 'Das kumulio-Team hat auf deine Bitte die Anmeldung mit zweitem Faktor ausgeschaltet.');
+      return send(res, 200, { ok: true });
+    }
+    // Support: Passwort-Link fuer ein Konto erzeugen (z. B. ohne bestaetigte
+    // E-Mail) — der Admin gibt ihn nach Pruefung der Person weiter
+    if (p === '/api/admin/reset-link' && req.method === 'POST') {
+      if (!isAdmin(req)) return send(res, 403, { error: 'Admin-Key falsch.' });
+      const b = await readBody(req);
+      const user = String(b.user || '');
+      if (!users[user]) return send(res, 404, { error: 'Nutzer nicht gefunden.' });
+      const token = crypto.randomBytes(24).toString('base64url');
+      resets[sha256(token)] = { user, zweck: 'passwort', exp: Date.now() + 3600e3, ts: Date.now(), vomAdmin: true };
+      saveJson('resets.json', resets);
+      return send(res, 200, { link: `${mailEinstellungen().basis}/?reset=${token}`, gilt: '60 Minuten' });
+    }
+
+    // E-Mail-Versand (Resend) einrichten: Schluessel, Absender, Link-Basis
+    if (p === '/api/admin/mail' && req.method === 'GET') {
+      if (!isAdmin(req)) return send(res, 403, { error: 'Admin-Key falsch.' });
+      const m = mailEinstellungen();
+      return send(res, 200, { bereit: mailBereit(), from: m.from, basis: m.basis, key: m.resendKey ? '…' + m.resendKey.slice(-4) : '' });
+    }
+    if (p === '/api/admin/mail' && req.method === 'POST') {
+      if (!isAdmin(req)) return send(res, 403, { error: 'Admin-Key falsch.' });
+      const b = await readBody(req);
+      const alt = MAIL || {};
+      MAIL = {
+        resendKey: String(b.resendKey || '').trim() || alt.resendKey || '',
+        from: String(b.from || '').trim() || alt.from || '',
+        basis: String(b.basis || '').trim() || alt.basis || '',
+      };
+      saveJson('mail.json', MAIL);
+      return send(res, 200, { ok: true, bereit: mailBereit() });
+    }
+    if (p === '/api/admin/mail-test' && req.method === 'POST') {
+      if (!isAdmin(req)) return send(res, 403, { error: 'Admin-Key falsch.' });
+      const b = await readBody(req);
+      const to = String(b.to || '').trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(to)) return send(res, 400, { error: 'Bitte eine gültige Adresse.' });
+      try {
+        await sendeMail({ to, subject: 'kumulio: Test-Mail', text: 'Der E-Mail-Versand von kumulio funktioniert.',
+          html: mailHtml('Test-Mail', ['Der E-Mail-Versand von kumulio funktioniert.']) });
+        return send(res, 200, { ok: true });
+      } catch (e) { return send(res, 502, { error: e.message }); }
     }
 
     if (p === '/api/admin/turnstile' && req.method === 'POST') {
@@ -3261,7 +3888,7 @@ const server = http.createServer(async (req, res) => {
       // Preisfehler-Alarm: alle Push-Abos benachrichtigen (bewusst nur dieser Kanal –
       // Preisfehler sind zeitkritisch, alles andere wäre Spam)
       if (ch.slug === 'preisfehler') {
-        pushToAll({ title: 'Preisfehler entdeckt!', body: title, url: '/' }).catch(() => { });
+        pushToAll({ title: 'Preisfehler entdeckt!', body: title, url: '/?tab=feed' }).catch(() => { });
       }
       return send(res, 201, post);
     }
@@ -3351,7 +3978,9 @@ process.on('SIGINT', () => { flushPendingSaves(); process.exit(0); });
 if (process.env.RA_TEST) {
   module.exports = { CaseSource, grantCase, profileOf, users, rollRarity, ODDS_CASE, ODDS_CAPSULE, CONTAINERS, RARITY, STICKERS,
     // fuer scripts/test-wallet.js
-    bilderAufraeumen, bildDateien, bildAblegen, vereinigeWallet, archiviere, archivFlush, wallets, gifts, walletIndex, waehleFassung };
+    bilderAufraeumen, bildDateien, bildAblegen, vereinigeWallet, archiviere, archivFlush, wallets, gifts, walletIndex, waehleFassung,
+    totpCode, totpPruefen, base32, base32Lesen, ersatzcodeEinloesen, neueErsatzcodes, aufgebrauchtWeg, raeumeAufgebrauchteAuf, drossel,
+    zuVieleFehler, fehlerMerken, statistikMerken, AUFRAEUMEN_AB };
 } else {
   server.listen(PORT, () => {
     console.log(`kumulio läuft auf http://localhost:${PORT}`);
