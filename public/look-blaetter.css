@@ -1294,6 +1294,7 @@ body.sparsam #sheet-content #btn-sheet-fav .icon, body.sparsam #sheet-content .a
 }
 @media (prefers-reduced-motion: reduce) { .rs .rf-sprite { animation: none; } }
 
+/* =============================================================================
    Deal-Seite (Runde 120): eigene Seite statt Blatt, gebaut wie die
    Gutschein-Seite (wseite, gd-block, gd-h, gd-leiste). Oben Bild bzw. Logo auf
    der Markenfarbe, darunter Titel, Preis, Hinweise, Bewertung, Preisvergleich,
@@ -1580,6 +1581,7 @@ body.sparsam #sheet-content #btn-sheet-fav .icon, body.sparsam #sheet-content .a
   .dl-v-spur i, .dl-regeln[open] .dl-regeln-liste { animation: none; }
 }
 
+/* =============================================================================
    Schenken & Burger King (Runde 120)
    Rabattcode verschenken (Karte mit "Geschenk von"), Coupon an Freunde
    schicken (Schritt in der grossen Coupon-Ansicht) und die Burger-King-
