@@ -1,301 +1,216 @@
 /* =============================================================================
-   kumulio — neuer Look: Profil und Unterseiten (Runde 116). Laedt nach look.css.
-   Profilkarte, Rang/Funken/Quests/Paints, Inventar, Shop, Freunde, Geschenke,
-   Einladen, Profil bearbeiten und fremdes Profil. Weisse Karten auf hellem
-   Grund, Ecken maessig gerundet (Karten 16-18, Knoepfe 10-12, Badges 8-9),
-   Akzent in der Rang-Farbe. Nur transform/opacity animiert.
+   kumulio — neuer Look: Profil und Unterseiten (Runde 116/117). Laedt nach look.css.
+   Eigenes Profil (Kopf, Rang, Login-Serie, Lieblingsmarken, Freunde), Freunde,
+   Geschenke, Einladen, Profil bearbeiten, fremdes Profil und die Rang-Liste.
+   Weisse Karten auf hellem Grund, Ecken maessig gerundet (Karten 16-18,
+   Knoepfe 10-12, Badges 8-10), Akzent in der Rang-Farbe. Nur transform/opacity
+   animiert.
    ========================================================================== */
 
-/* ---- Gemeinsam: Seitentitel, Karten, Knoepfe */
-#view-profile > h1,
-:is(#view-friends, #view-inventory, #view-shop, #view-invite, #view-gifts, #view-editprofile) .search-head h1 {
+/* ---- Namensfarbe: gilt ueberall, wo Namen stehen (Chat, Kommentare, Profile).
+   Die Farbe am Element ist fuer hellen Grund angepasst, --nf-d fuer den
+   dunklen (siehe lesbareFarbe in app.js). */
+:root[data-theme="dark"] .nf { color: var(--nf-d) !important; }
+
+/* ---- Gemeinsam: Seitenkopf mit rundem weissen Zurueck-Knopf (wie Einstellungen) */
+:is(#view-profile, #view-friends, #view-invite, #view-gifts, #view-editprofile) .search-head {
+  min-height: 44px; margin: 2px 0 14px;
+}
+:is(#view-profile, #view-friends, #view-invite, #view-gifts, #view-editprofile) .search-head h1 {
   font-size: 1.35rem; font-weight: 850; letter-spacing: -.02em; line-height: 1.2;
 }
-#view-profile > h1 { margin: 2px 0 12px; }
+:is(#view-profile, #view-friends, #view-invite, #view-gifts, #view-editprofile, #view-user) .back-btn {
+  width: 42px; height: 42px;
+  background: var(--karte); border: 0; box-shadow: var(--schatten-1); color: var(--text);
+}
 :is(#view-profile, #view-editprofile) .card { border-radius: 18px; }
-#view-profile > .card { margin-bottom: 14px; }
 
-:is(#auth-card, #me-card, #gami-card, #bio-card, #view-friends, #view-inventory, #view-shop, #view-gifts, #view-invite, #view-user) .btn {
+:is(#auth-card, #view-profile, #view-friends, #view-gifts, #view-invite, #view-editprofile, #view-user) .btn {
   border-radius: 12px; font-weight: 750;
 }
-:is(#auth-card, #me-card, #gami-card, #bio-card, #view-friends, #view-inventory, #view-shop, #view-gifts, #view-invite, #view-user) .btn-small {
+:is(#auth-card, #view-profile, #view-friends, #view-gifts, #view-invite, #view-editprofile, #view-user) .btn-small {
   min-height: 34px; padding: 0 13px; border-radius: 10px; font-size: .8rem;
   box-shadow: none;
 }
-:is(#auth-card, #me-card, #gami-card, #bio-card, #view-friends, #view-inventory, #view-shop, #view-gifts, #view-invite, #view-user) .btn-ghost {
+:is(#auth-card, #view-profile, #view-friends, #view-gifts, #view-invite, #view-editprofile, #view-user) .btn-ghost {
   background: var(--karte-2); color: var(--text); box-shadow: none;
 }
-:is(#view-profile, #view-friends, #view-inventory, #view-shop, #view-gifts, #view-invite, #view-editprofile, #view-user) .input {
+:is(#view-profile, #view-friends, #view-invite, #view-gifts, #view-editprofile, #view-user) .input {
   border-radius: 12px;
 }
-/* Abzeichen und Pillen im Profil: kleine Ecken statt Kapsel */
-:is(#view-profile, #view-user) .pill { border-radius: 8px; }
-.badge-chip { border-radius: 10px; padding: 6px 11px; }
-.badge-chip.rar-rare { border-color: color-mix(in srgb, var(--akzent) 55%, transparent); color: var(--akzent-text); }
-.badge-chip.on { box-shadow: 0 0 0 2px color-mix(in srgb, var(--akzent) 50%, transparent); }
-/* position/overflow: sonst laeuft der Shiny-Glitzer (::after, inset 0) ueber die ganze Seite */
-.sc-slot { position: relative; overflow: hidden; border-radius: 14px; background: radial-gradient(70% 60% at 50% 40%, color-mix(in srgb, var(--rc) 22%, transparent), transparent), var(--karte-2); }
-/* Fortschrittsbalken in der Rang-Farbe */
-:is(#gami-card, #view-profile) .rank-progress { border-radius: 5px; background: color-mix(in srgb, var(--muted) 16%, transparent); }
-:is(#gami-card, #view-profile) .rank-progress-fill { border-radius: 5px; background: var(--akzent); }
+
+/* ---- Gast: "Anmelden" oben links (dort sitzt sonst das Profilbild) als
+   ruhiger Knopf in der Rang-Farbe statt einer Pille ohne Innenabstand */
+#btn-profile-top.btn-auth {
+  height: 42px; padding: 0 14px; border-radius: 12px;
+  background: var(--akzent-tief); color: #fff; font-size: .84rem; font-weight: 750;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--akzent) 28%, transparent);
+}
+:root[data-theme="dark"] #btn-profile-top.btn-auth { box-shadow: 0 4px 14px rgba(0, 0, 0, .3); }
 
 /* ---- Anmelden (Gast) */
+#view-profile #auth-card { margin-bottom: 14px; }
 #auth-card .card-h { font-size: 1.15rem; }
 #auth-card .input { min-height: 46px; }
 #auth-card .form-row .btn { flex: 1 1 auto; min-height: 46px; font-size: .9rem; }
 
 /* =============================================================================
-   Profilkarte: grosses Bild mit Ring in der Rang-Farbe, Name, @Name, Rang
+   Eigenes Profil
    ========================================================================== */
-#me-card { padding: 20px 18px 18px; }
-#me-card .me-head { gap: 16px; align-items: center; }
-#me-avatar { flex: none; display: grid; }
-#me-avatar .avatar-big { width: 72px; height: 72px; font-size: 1.75rem; }
-/* Ring nur, wenn kein Profilrahmen angelegt ist (der malt selbst per Schatten) */
-#me-avatar .avatar-big:not([class*="pfb-"]) { box-shadow: 0 0 0 2.5px var(--karte), 0 0 0 5px var(--akzent); }
-#me-card .me-head-text { gap: 2px; min-width: 0; }
-#me-card .me-head-text .card-h {
-  font-size: 1.35rem; font-weight: 850; letter-spacing: -.02em; line-height: 1.2;
-  overflow-wrap: anywhere;
-}
-#me-card .me-handle { font-size: .86rem; font-weight: 650; color: var(--muted); opacity: 1; }
-/* Spar-Rang als schlichte Zeile mit Punkt statt Pille */
-#g-rank-row { margin-top: 6px; }
-#me-card .rank-chip {
-  display: inline-flex; align-items: center; gap: 7px;
-  padding: 0; border: 0; border-radius: 0; background: none;
-  font-size: .84rem; font-weight: 750; letter-spacing: 0; color: var(--akzent-text);
-}
-#me-card .rank-chip::before {
-  content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%;
-  background: var(--akzent); box-shadow: 0 0 0 3px var(--akzent-weich);
-}
-#me-card .me-bio { margin: 16px 0 0; font-size: .93rem; line-height: 1.5; color: var(--text); opacity: .82; }
-#me-favs:empty, #me-showcase:empty { display: none; }
-#me-card .favs-view { margin-top: 14px; gap: 10px; }
-/* Lieblings-Eintraege ohne Logo: so hoch wie die Logos, oben buendig */
-:is(#me-card, #user-page) .favs-view { align-items: flex-start; }
-:is(#me-card, #user-page) .favs-view > .pill {
-  height: 40px; padding: 0 12px; border: 0; border-radius: 12px;
-  background: var(--karte-2); color: var(--text); font-size: .8rem; font-weight: 700;
-}
-#me-card .me-showcase { margin-top: 14px; }
-#me-card .badge-grid { margin-top: 14px; }
-#me-badges .stars-count { font-size: .8rem; }
-/* "Profil bearbeiten" als breiter, ruhiger Knopf */
-#me-card #btn-edit-profile {
-  flex: 1; min-height: 42px; border-radius: 12px;
-  background: var(--karte-2); color: var(--text); box-shadow: none;
-  font-size: .9rem; font-weight: 750;
+.pf-seite { display: flex; flex-direction: column; gap: 12px; padding-bottom: 8px; }
+#view-profile .pf-seite > * { margin: 0; }
+.pf-seite.hidden { display: none; }
+
+/* Kopf: Bild ohne Rahmen, Name in der Namensfarbe, @Name, Bio */
+#view-profile .pf-kopf { padding: 16px; }
+.pf-kopf-zeile { display: flex; align-items: center; gap: 14px; }
+.pf-ava { flex: none; display: grid; }
+.pf-ava .avatar-big { width: 64px; height: 64px; font-size: 1.6rem; }
+.pf-kopf-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pf-name { font-size: 1.3rem; font-weight: 850; letter-spacing: -.02em; line-height: 1.2; overflow-wrap: anywhere; }
+.pf-handle { font-size: .86rem; font-weight: 650; color: var(--muted); overflow-wrap: anywhere; }
+.pf-bio { margin: 14px 0 0; font-size: .93rem; line-height: 1.5; color: var(--text); overflow-wrap: anywhere; }
+.pf-bio.leer { color: var(--muted); }
+#view-profile .pf-bearbeiten {
+  display: flex; width: 100%; margin: 16px 0 0; min-height: 44px;
+  font-size: .9rem; justify-content: center;
 }
 
-/* =============================================================================
-   Rang, Funken, Inventar/Shop, Leiter, Quests, Paints
-   ========================================================================== */
-#gami-card { padding: 18px 18px 16px; }
-#gami-card .gm-info-corner {
-  top: 14px; right: 14px; width: 36px; height: 36px;
-  background: var(--karte-2); color: var(--muted); box-shadow: none;
-}
-#gami-card .gm-info-corner .icon { width: 18px; height: 18px; }
-#gm-rank-head .gm-rank-row { margin: 0 46px 0 0; gap: 12px; }
-#gm-rank-head .px-icon.big {
-  flex: none; width: 54px; height: 54px; padding: 7px;
-  background: var(--karte-2); border-radius: 13px;
-}
-#gm-rank-head .gm-rank-text { gap: 3px; min-width: 0; }
-/* "RANG:" steht gross im Text — hier in normaler Schreibweise */
-#gm-rank-head .gm-rank-text b {
-  font-size: 1.08rem; font-weight: 850; letter-spacing: -.01em; line-height: 1.25;
-  text-transform: lowercase;
-}
-#gm-rank-head .gm-rank-text b::first-letter { text-transform: uppercase; }
-#gm-rank-head .gm-rank-text b span { font-size: inherit; opacity: 1; text-transform: none; }
-#gm-rank-head .gm-rank-text > span { font-size: .8rem; line-height: 1.35; color: var(--muted); opacity: 1; }
-#gm-rank-head .rank-progress.big { height: 8px; margin-top: 14px; }
-/* Die Zeile darunter hat 10px Abstand im Markup, hier kommen 6px dazu */
-#gm-rank-head { margin-bottom: 6px; }
-
-/* Funken-Zeile (grau hinterlegt) mit Daily rechts, darunter Inventar | Shop */
-#gami-card > .form-row {
-  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px;
-  align-items: stretch;
-}
-#gami-card > .form-row::before {
-  content: ""; grid-row: 1; grid-column: 1 / -1; align-self: stretch;
-  background: var(--karte-2); border-radius: 14px;
-}
-#gami-card .coin-chip {
-  grid-row: 1; grid-column: 1; align-self: center; z-index: 1;
-  padding-left: 14px; gap: 6px; white-space: nowrap;
-  font-size: .9rem; font-weight: 700; color: var(--muted);
-}
-#gami-card .coin-chip .px-icon { width: 22px; height: 22px; vertical-align: 0; }
-#gami-card .coin-chip b { font-size: 1.15rem; font-weight: 850; color: var(--text); font-variant-numeric: tabular-nums; }
-#gami-card #g-daily {
-  grid-row: 1; grid-column: 2; justify-self: end; align-self: center; z-index: 1;
-  margin: 8px 8px 8px 0; min-height: 36px; padding: 0 14px; font-size: .84rem;
-}
-#gami-card #g-daily.daily-wait { background: var(--karte); color: var(--muted); opacity: 1; letter-spacing: .02em; }
-#gami-card :is(#gm-inv-open, #gm-shop-open) {
-  grid-row: 2; justify-content: flex-start; gap: 10px;
-  min-height: 54px; padding: 0 12px; border-radius: 14px;
-  font-size: .92rem; font-weight: 750;
-}
-#gm-inv-open { grid-column: 1; }
-#gm-shop-open { grid-column: 2; }
-/* Symbol im kleinen weissen Quadrat, wie in Listen */
-#gm-inv-open .icon, #gm-shop-open .icon, #quests-fold summary > .icon:first-child {
-  flex: none; box-sizing: content-box; width: 18px; height: 18px; padding: 8px;
-  border-radius: 10px; background: var(--karte); color: var(--akzent-text);
-}
-
-/* Leiter der Aktivitaets-Raenge */
-/* Laeuft bis an den Kartenrand und blendet an beiden Seiten weich aus */
-#gm-ladder {
-  gap: 6px; margin: 4px -18px 0; padding: 12px 18px 4px; scroll-padding-inline: 18px;
-  mask-image: linear-gradient(90deg, transparent, #000 18px, #000 calc(100% - 18px), transparent);
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 18px, #000 calc(100% - 18px), transparent);
-}
-#gm-ladder .gm-step { width: 66px; gap: 3px; padding: 8px 2px 7px; border-radius: 12px; opacity: 1; }
-#gm-ladder .gm-step:not(.done) { opacity: .55; }
-:root[data-theme="dark"] #gm-ladder .gm-step:not(.done) img { filter: grayscale(1) brightness(1.9) opacity(.45); }
-#gm-ladder .gm-step span { font-size: .7rem; font-weight: 750; }
-#gm-ladder .gm-step small { font-size: .64rem; font-weight: 650; color: var(--muted); opacity: 1; }
-#gm-ladder .gm-step.current { outline: 0; background: var(--akzent-weich); }
-#gm-ladder .gm-step.current span, #gm-ladder .gm-step.current small { color: var(--akzent-text); }
-
-/* Quests: graue Klappe, Gruppen in normaler Schreibweise */
-#quests-fold { background: var(--karte-2); border: 0; border-radius: 14px; box-shadow: none; }
-#quests-fold summary {
-  min-height: 54px; padding: 8px 14px 8px 12px; gap: 10px;
-  font-size: .92rem; font-weight: 750; color: var(--text);
-}
-#quests-fold summary .chev { color: var(--muted); }
-#quests-claim-count { font-size: .8rem; font-weight: 750; color: var(--akzent-text); }
-#gm-quests .quest-group { margin: 4px 0 8px; }
-#gm-quests .quest-group > b {
-  display: block; margin: 6px 0 0;
-  font-size: .8rem; font-weight: 750; text-transform: none; letter-spacing: 0;
-  color: var(--muted); opacity: 1;
-}
-#gm-quests .quest-row { padding: 10px 0; border-bottom: 1px solid var(--linie); }
-#gm-quests .quest-group .quest-row:last-child { border-bottom: 0; }
-#gm-quests .quest-main { align-items: center; gap: 10px; margin-bottom: 7px; }
-#gm-quests .quest-main > span:first-child { font-size: .88rem; font-weight: 700; color: var(--text); opacity: 1; }
-#gm-quests .quest-main > span:first-child small { margin-left: 2px; font-size: .76rem; font-weight: 650; color: var(--muted); opacity: 1; white-space: nowrap; }
-#gm-quests .quest-main > small { font-size: .76rem; font-weight: 650; color: var(--muted); white-space: nowrap; }
-#gm-quests .quest-main .btn-small { flex: none; min-height: 30px; padding: 0 10px; font-size: .76rem; gap: 4px; }
-#gm-quests .rank-progress { height: 5px; background: color-mix(in srgb, var(--muted) 20%, transparent); }
-
-/* Namens-Paints */
-#gami-card .gm-h { margin: 20px 0 0; font-size: 1rem; font-weight: 800; letter-spacing: -.01em; }
-#gami-card .gm-h .stars-count { font-weight: 600; }
-#gm-paints .gm-paint { border: 0; border-radius: 10px; background: var(--karte-2); padding: 8px 13px; }
-#gm-paints .gm-paint.on { box-shadow: 0 0 0 2px var(--akzent); }
-#gm-paints > .form-msg { font-size: .84rem; line-height: 1.45; }
-
-/* =============================================================================
-   Unterseiten: Kopf mit Zurueck links, Titel mittig
-   ========================================================================== */
-
-/* ---- Inventar: Filter wischbar in einer Zeile, "Auswählen" oben rechts */
-#view-inventory { position: relative; }
-#inv-filters {
-  position: static; flex-wrap: nowrap; gap: 8px;
-  overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
-  margin: 0 -16px; padding: 2px 16px 8px; scroll-padding-inline: 16px;
-}
-#inv-filters::-webkit-scrollbar { display: none; }
-@media (max-width: 560px) { #inv-filters { margin-inline: -12px; padding-inline: 12px; scroll-padding-inline: 12px; } }
-#inv-filters .chip, #inv-filters .chip:not(:has(.brand-chip)) {
-  flex: none; height: 36px; padding: 0 13px; border-radius: 11px;
-  background: var(--karte); border: 1px solid var(--linie); box-shadow: none;
-  font-size: .86rem; font-weight: 700; color: var(--text);
-}
-#inv-filters .chip.active {
-  background: var(--akzent-tief); color: #fff; border-color: transparent;
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--akzent) 26%, transparent);
-}
-#inv-sort { margin-left: 6px; }
-#inv-sort.active {
-  outline: 0; background: var(--akzent-weich); color: var(--akzent-text);
-  border-color: color-mix(in srgb, var(--akzent) 45%, transparent); box-shadow: none;
-}
-#inv-filters #inv-select {
-  position: absolute; top: 3px; right: 0; z-index: 2;
-  height: 36px; padding: 0 13px; border: 0; border-radius: 12px;
-  background: var(--karte); color: var(--akzent-text); box-shadow: var(--schatten-1);
-  font-weight: 750;
-}
-#inv-page .gm-h { margin: 14px 0 10px; font-size: 1.05rem; font-weight: 800; letter-spacing: -.01em; }
-#inv-page .gm-h:first-child { margin-top: 4px; }
-#inv-page .gm-cases { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; margin-top: 0; }
-#inv-page .gm-case {
-  gap: 6px; padding: 14px 8px 12px; border: 0; border-radius: 16px;
-  background: var(--karte); box-shadow: var(--schatten-1);
-  font-size: .76rem; font-weight: 750; line-height: 1.25; text-align: center;
-}
-#inv-page .inv-grid { gap: 10px; margin-top: 0; }
-#inv-page .inv-grid > .status { grid-column: 1 / -1; }
-.inv-item {
-  gap: 4px; padding: 14px 10px 12px;
-  background: radial-gradient(70% 55% at 50% 30%, color-mix(in srgb, var(--rc) 18%, transparent), transparent), var(--karte);
-  border: 0; border-bottom: 3px solid var(--rc); border-radius: 16px;
-  box-shadow: var(--schatten-1);
-}
-.inv-item b { font-size: .86rem; font-weight: 800; line-height: 1.25; }
-/* Glitzer auf dunklen Karten gedaempft, sonst wirkt die Karte grau verwaschen */
-:root[data-theme="dark"] :is(.inv-item, .sc-slot).shiny::after { opacity: .4; }
-.inv-item .inv-actions { gap: 5px; margin-top: 8px; }
-.inv-item .c-act {
-  border-radius: 8px; padding: 5px 9px; background: var(--karte-2); color: var(--text);
-  font-size: .72rem; font-weight: 700; opacity: 1;
-}
-.inv-item .c-act.on { background: var(--akzent-weich); color: var(--akzent-text); }
-.inv-item.sel-mode.selected { outline: 2px solid var(--akzent); outline-offset: 0; }
-.inv-item.sel-mode.selected .sel-check { background: var(--akzent-tief); border-color: var(--akzent-tief); }
-.inv-sellbar {
-  top: calc(env(safe-area-inset-top, 0px) + 74px);
-  gap: 8px; padding: 10px 10px 10px 14px; border: 0; border-radius: 16px;
-  background: var(--karte); box-shadow: var(--schatten-2);
-}
-.inv-sellbar b { margin-right: auto; font-size: .9rem; }
-
-/* ---- Shop: Kopf in der Rang-Farbe, weisse Karten, Preis als Badge */
-#view-shop .shop-hero {
-  gap: 12px; padding: 16px 14px 16px 18px; border-radius: 18px; color: #fff;
-  background:
-    radial-gradient(90% 90% at 92% 0%, rgba(255, 255, 255, .16), transparent 60%),
-    linear-gradient(150deg, var(--kopf-k1, #0E9C64), color-mix(in srgb, var(--kopf-k1, #0E9C64) 55%, var(--kopf-k2, #12C77E)));
-  box-shadow: 0 10px 24px color-mix(in srgb, var(--akzent) 24%, transparent);
-}
-#view-shop .shop-hero-text b { font-size: 1.08rem; font-weight: 850; }
-#view-shop .shop-hero-text span { font-size: .8rem; line-height: 1.4; opacity: .92; }
-#view-shop .shop-hero-coins {
-  flex: none; padding: 7px 11px; border-radius: 10px;
-  background: rgba(255, 255, 255, .2); color: #fff; font-size: .86rem;
-}
-#view-shop .shop-hero-coins .px-icon { width: 18px; height: 18px; }
-#shop-page .gm-h { margin: 20px 0 10px; font-size: 1.05rem; font-weight: 800; letter-spacing: -.01em; }
-#shop-page .shop-grid { gap: 10px; }
-#shop-page .shop-card {
-  gap: 4px; padding: 16px 12px 14px; border: 0; border-radius: 16px;
-  background: var(--karte); box-shadow: var(--schatten-1);
+/* Rang: ganze Karte ist der Knopf zur Rang-Liste */
+#view-profile button.pf-rang {
+  display: block; width: 100%; padding: 16px 16px 14px;
+  border: 0; text-align: left; font: inherit; color: var(--text); cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
   transition: transform .2s var(--spring);
 }
-#shop-page .shop-card .px-icon.big { width: 48px; height: 48px; margin-bottom: 4px; }
-#shop-page .shop-card-name { font-size: .94rem; font-weight: 800; }
-#shop-page .shop-card-desc { font-size: .74rem; line-height: 1.35; }
-#shop-page .shop-card-meta { font-size: .7rem; opacity: 1; }
-#shop-page .shop-card .shop-price {
-  display: inline-flex; align-items: center; gap: 5px; margin-top: 8px;
-  padding: 5px 10px; border-radius: 9px;
-  background: var(--akzent-weich); color: var(--akzent-text);
-  font-size: .84rem; font-weight: 800; font-variant-numeric: tabular-nums;
+button.pf-rang:active { transform: scale(.985); }
+button.pf-rang:focus-visible { outline: 2px solid var(--akzent-text); outline-offset: 2px; }
+.pf-rang-kopf, .pf-serie-kopf { display: flex; align-items: center; gap: 12px; }
+.pf-rang-marke, .pf-serie-flamme {
+  flex: none; display: grid; place-items: center; width: 42px; height: 42px;
+  border-radius: 12px; background: var(--akzent-weich); color: var(--akzent-text);
 }
-#shop-page .shop-card .shop-price .px-icon { width: 16px; height: 16px; vertical-align: 0; }
-#shop-page > p.muted { margin-top: 16px; }
+.pf-rang-marke .icon { width: 22px; height: 22px; }
+.pf-serie-flamme .icon { width: 26px; height: 26px; }
+.pf-rang-text, .pf-serie-text { flex: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.pf-rang-text small { font-size: .78rem; font-weight: 650; color: var(--muted); }
+.pf-rang-text b { font-size: 1.12rem; font-weight: 850; letter-spacing: -.01em; line-height: 1.25; }
+.pf-rang-stufe {
+  flex: none; padding: 4px 8px; border-radius: 8px;
+  background: var(--akzent-weich); color: var(--akzent-text);
+  font-size: .74rem; font-weight: 750; white-space: nowrap;
+}
+/* Fortschritt: der Balken schiebt sich von links herein (nur transform) */
+.pf-balken {
+  display: block; position: relative; height: 8px; margin-top: 14px; overflow: hidden;
+  border-radius: 5px; background: color-mix(in srgb, var(--muted) 16%, transparent);
+}
+.pf-balken > span {
+  position: absolute; inset: 0; border-radius: 5px; background: var(--akzent);
+  transition: transform .6s cubic-bezier(.22, 1, .32, 1);
+}
+.pf-rang-fuss {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-top: 10px; font-size: .84rem; line-height: 1.35; color: var(--muted);
+}
+.pf-rang-mehr {
+  flex: none; display: inline-flex; align-items: center; gap: 2px;
+  font-weight: 750; color: var(--akzent-text); white-space: nowrap;
+}
+.pf-rang-mehr .icon { width: 14px; height: 14px; }
+
+/* Login-Serie: Zahl oben, darunter die letzten sieben Tage */
+#view-profile .pf-serie { padding: 16px; }
+.pf-serie-text b { font-size: 1.02rem; font-weight: 800; letter-spacing: -.01em; line-height: 1.3; }
+.pf-serie-text small { font-size: .8rem; color: var(--muted); }
+.pf-woche { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin-top: 14px; }
+.pf-tag { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.pf-tag i {
+  display: block; width: 100%; height: 8px; border-radius: 4px;
+  background: color-mix(in srgb, var(--muted) 16%, transparent);
+}
+.pf-tag.an i { background: var(--akzent); }
+.pf-tag small { font-size: .7rem; font-weight: 700; color: var(--muted); }
+.pf-tag.heute small { color: var(--text); }
+
+/* Lieblingsmarken: Logo-Kacheln mit Namen */
+#view-profile .pf-marken { padding: 16px; }
+.pf-h { margin: 0 0 12px; font-size: 1rem; font-weight: 800; letter-spacing: -.01em; line-height: 1.3; }
+.pf-marken-liste { display: flex; flex-wrap: wrap; gap: 8px; }
+.pf-marke {
+  display: inline-flex; align-items: center; gap: 8px; height: 40px; max-width: 100%;
+  padding: 0 12px 0 6px; border-radius: 12px; background: var(--karte-2);
+  font-size: .86rem; font-weight: 700; color: var(--text);
+}
+.pf-marke > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-marke.ohne-logo { padding: 0 12px; }
+.pf-marke .brand-chip { flex: 0 0 28px; width: 28px; height: 28px; border-radius: 8px; font-size: .62rem; }
+.pf-marke .brand-chip .brand-logo { padding: 3px; }
+.pf-leer { margin: 0; font-size: .86rem; line-height: 1.45; color: var(--muted); }
+.pf-leer .link-knopf { margin: 0; padding: 0 2px; font-size: inherit; }
+
+/* Freunde und Einladen: eine weisse Gruppe wie in den Einstellungen */
+.pf-gruppe { overflow: hidden; background: var(--karte); border-radius: 18px; box-shadow: var(--schatten-1); }
+.pf-zeile {
+  position: relative; display: flex; align-items: center; gap: 12px; width: 100%;
+  min-height: 60px; padding: 10px 16px; border: 0; background: none;
+  font: inherit; color: var(--text); text-align: left; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.pf-zeile + .pf-zeile::before {
+  content: ""; position: absolute; top: 0; left: 60px; right: 0; height: 1px; background: var(--linie);
+}
+.pf-zeile > .icon {
+  flex: none; box-sizing: border-box; width: 32px; height: 32px; padding: 6px;
+  border-radius: 10px; background: var(--akzent-weich); color: var(--akzent-text);
+}
+.pf-zeile-text { flex: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.pf-zeile-text b { font-size: .95rem; font-weight: 700; line-height: 1.3; }
+.pf-zeile-text small { font-size: .8rem; color: var(--muted); }
+.pf-zeile::after {
+  content: ""; flex: none; width: 16px; height: 16px;
+  background: var(--muted); opacity: .5;
+  -webkit-mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M9 6l6 6-6 6'/></svg>") center / contain no-repeat;
+  mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M9 6l6 6-6 6'/></svg>") center / contain no-repeat;
+}
+.pf-zeile:active { background: var(--karte-2); }
+.pf-zeile:focus-visible { outline: 2px solid var(--akzent-text); outline-offset: -2px; }
+@media (hover: hover) { .pf-zeile:hover { background: var(--karte-2); } }
+
+/* =============================================================================
+   Rang-Liste (Blatt): der eigene Rang oben, darunter alle Stufen
+   ========================================================================== */
+.rang-karte {
+  display: flex; flex-direction: column; gap: 2px; margin: 12px 0 12px; padding: 16px;
+  border-radius: 16px; background: var(--karte); box-shadow: var(--schatten-1);
+}
+.rang-karte small { font-size: .78rem; font-weight: 700; color: var(--akzent-text); }
+.rang-karte b { font-size: 1.3rem; font-weight: 850; letter-spacing: -.02em; line-height: 1.25; }
+.rang-karte .pf-balken { margin-top: 12px; }
+.rang-karte-fuss { margin-top: 8px; font-size: .84rem; color: var(--muted); }
+#sheet-content .rang-liste {
+  padding: 0 14px; border-radius: 16px; background: var(--karte); box-shadow: var(--schatten-1);
+}
+#sheet-content .rang-stufe { gap: 12px; min-height: 56px; padding: 10px 0; border-bottom-color: var(--linie); opacity: 1; }
+#sheet-content .rang-stufe:not(.erreicht, .aktuell) .rang-text { opacity: .55; }
+#sheet-content .rang-punkt { width: 12px; height: 12px; }
+#sheet-content .rang-text { gap: 1px; }
+#sheet-content .rang-text b { font-size: .92rem; font-weight: 750; }
+#sheet-content .rang-text small { font-size: .78rem; }
+#sheet-content .rang-jetzt {
+  padding: 4px 9px; border: 0; border-radius: 8px;
+  background: var(--akzent-tief); color: #fff; font-size: .74rem; font-weight: 800;
+}
+#sheet-content .rang-stufe .icon { color: var(--akzent-text); }
+.rang-hinweis {
+  display: flex; align-items: flex-start; gap: 8px; margin: 14px 2px 6px;
+  font-size: .8rem; line-height: 1.45; color: var(--muted);
+}
+.rang-hinweis .icon { flex: none; margin-top: 1px; }
+
+/* =============================================================================
+   Unterseiten
+   ========================================================================== */
 
 /* ---- Freunde: Eingabe + Knopf gleich hoch, Liste als weisse Gruppe */
 #view-friends > .form-row { flex-wrap: nowrap; gap: 8px; }
@@ -313,6 +228,13 @@
 #friends-list .friend-row + .friend-row::before {
   content: ""; position: absolute; top: 0; left: 56px; right: 0; height: 1px; background: var(--linie);
 }
+/* Bild und Name fuehren zum Profil, rechts nur "Schreiben" */
+#friends-list .friend-open {
+  flex: 1; display: flex; align-items: center; gap: 12px; min-width: 0;
+  padding: 0; border: 0; background: none; font: inherit; color: var(--text);
+  text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+#friends-list .friend-open:focus-visible { outline: 2px solid var(--akzent-text); outline-offset: 3px; border-radius: 10px; }
 #friends-list .friend-name {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: .95rem; font-weight: 750;
@@ -329,51 +251,84 @@
 #gifts-page .gift-row-info b { font-size: .95rem; font-weight: 800; }
 #gifts-page .gift-row-info .muted { font-size: .78rem; }
 
-/* ---- Freunde einladen */
-#invite-page .inv-hero {
-  gap: 8px; padding: 22px 18px 20px; border-radius: 18px;
-  background:
-    radial-gradient(90% 90% at 90% 0%, rgba(255, 255, 255, .16), transparent 60%),
-    linear-gradient(150deg, var(--kopf-k1, #0E9C64), color-mix(in srgb, var(--kopf-k1, #0E9C64) 55%, var(--kopf-k2, #12C77E)));
-  box-shadow: 0 10px 24px color-mix(in srgb, var(--akzent) 24%, transparent);
+/* ---- Freunde einladen: ehrliche Zahl, Hinweis "vorgemerkt", Link, Schritte */
+#invite-page .inv-kopf {
+  display: flex; align-items: center; gap: 14px; margin: 0; padding: 16px;
+  border-radius: 18px;
 }
-#invite-page .inv-hero b { font-size: 1.15rem; font-weight: 850; }
-#invite-page .inv-stats { gap: 10px; }
-#invite-page .inv-stat {
-  padding: 14px 10px; border: 0; border-radius: 16px;
-  background: var(--karte); box-shadow: var(--schatten-1);
+.inv-kopf-ico {
+  flex: none; display: grid; place-items: center; width: 48px; height: 48px;
+  border-radius: 14px; background: var(--akzent-weich); color: var(--akzent-text);
 }
-#invite-page .inv-stat b { font-size: 1.4rem; font-weight: 850; }
-#invite-page .gm-h { margin: 20px 0 10px; font-size: 1.05rem; font-weight: 800; letter-spacing: -.01em; }
+.inv-kopf-ico .icon { width: 24px; height: 24px; }
+.inv-kopf-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.inv-kopf-text b { font-size: 1.1rem; font-weight: 850; letter-spacing: -.01em; line-height: 1.25; }
+.inv-kopf-text small { font-size: .82rem; line-height: 1.4; color: var(--muted); }
+.inv-vorgemerkt {
+  display: flex; align-items: center; gap: 10px; margin: 10px 0 0; padding: 12px 14px;
+  border-radius: 14px; background: var(--akzent-weich); color: var(--akzent-text);
+  font-size: .86rem; font-weight: 700; line-height: 1.4;
+}
+.inv-vorgemerkt .icon { flex: none; }
+#invite-page .inv-h { margin: 22px 0 10px; font-size: 1.05rem; font-weight: 800; letter-spacing: -.01em; }
 #invite-page .inv-link {
-  min-height: 48px; padding: 0 14px; border: 0; border-radius: 14px;
+  width: 100%; min-height: 48px; padding: 0 14px; border: 0; border-radius: 14px;
   background: var(--karte); box-shadow: var(--schatten-1);
+  font: inherit; color: var(--text); text-align: left;
 }
-#invite-page .inv-link .icon { color: var(--akzent-text); }
-#invite-page .form-row { flex-wrap: nowrap; gap: 8px; }
-#invite-page .form-row .btn { margin-top: 0; min-height: 46px; font-size: .9rem; }
-#inv-share { flex: 1; }
-#invite-page #inv-copy { flex: none; padding: 0 18px; }
+#invite-page .inv-link:focus-visible { outline: 2px solid var(--akzent-text); outline-offset: 2px; }
+#invite-page .inv-knoepfe { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-top: 10px; }
+#invite-page .inv-knoepfe .btn { width: 100%; margin: 0; min-height: 46px; font-size: .9rem; }
 /* Auf dem Seitengrund braucht der ruhige Knopf eine weisse Flaeche */
-#invite-page .btn-ghost { background: var(--karte); box-shadow: var(--schatten-1); }
+#invite-page #inv-copy { padding: 0 18px; background: var(--karte); box-shadow: var(--schatten-1); }
+#invite-page .inv-steps { gap: 8px; padding-bottom: 8px; }
 #invite-page .inv-step {
   align-items: center; padding: 12px 14px; border: 0; border-radius: 14px;
   background: var(--karte); box-shadow: var(--schatten-1);
 }
 #invite-page .inv-step b { width: 26px; height: 26px; background: var(--akzent-tief); }
-#invite-page .inv-note { border-radius: 14px; background: var(--karte-2); }
 
-/* ---- Profil bearbeiten */
-#bio-card { padding: 18px; }
-#bio-card .card-h { font-size: 1.15rem; margin-bottom: 12px; }
-#bio-card .avatar-row { gap: 14px; flex-wrap: wrap; }
-#bio-card .avatar-big { width: 60px; height: 60px; font-size: 1.45rem; }
-#bio-card .avatar-row .btn { min-height: 36px; }
-#g-bio { min-height: 76px; }
-#bio-card .f-label { margin: 18px 0 8px; font-size: .86rem; font-weight: 750; opacity: 1; }
-#bio-card .f-label .opt { font-weight: 550; color: var(--muted); opacity: 1; }
-/* Die Auswahl-Zeilen teilen sich den Namen mit den Favoriten im Blatt — hier
-   ohne Kasten, nur die Chips */
+/* ---- Profil bearbeiten: eine Karte je Thema, Speichern unten */
+#view-editprofile .pe-karte { margin: 0 0 12px; padding: 16px; }
+#view-editprofile .pe-h { margin: 0 0 4px; font-size: 1rem; font-weight: 800; letter-spacing: -.01em; line-height: 1.3; }
+#view-editprofile .pe-hinweis { margin: 0 0 12px; font-size: .82rem; line-height: 1.45; color: var(--muted); }
+#view-editprofile .f-label { margin: 16px 0 8px; font-size: .86rem; font-weight: 750; opacity: 1; }
+#view-editprofile .f-label .opt { font-weight: 550; color: var(--muted); opacity: 1; }
+.pe-bild { display: flex; align-items: center; gap: 14px; }
+.pe-bild .avatar-big { width: 64px; height: 64px; font-size: 1.55rem; }
+.pe-bild-knoepfe { display: flex; flex-wrap: wrap; gap: 8px; }
+.pe-bild-waehlen { cursor: pointer; }
+#g-bio { min-height: 76px; margin-top: 0; resize: vertical; }
+
+/* Namensfarbe: Vorschau, dann sechs Farben je Zeile */
+.pe-vorschau {
+  display: flex; align-items: center; justify-content: center; min-height: 52px; margin-bottom: 14px;
+  padding: 8px 12px; border-radius: 12px; background: var(--karte-2);
+}
+#pe-farbe-name { font-size: 1.15rem; font-weight: 850; letter-spacing: -.01em; overflow-wrap: anywhere; text-align: center; }
+.pe-farben { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; justify-items: center; }
+.pe-farbe {
+  position: relative; display: grid; place-items: center;
+  width: 100%; max-width: 40px; aspect-ratio: 1; padding: 0; border: 0; border-radius: 50%;
+  background: var(--f); color: #fff; cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(16, 24, 32, .1);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .2s var(--spring);
+}
+.pe-farbe:active { transform: scale(.9); }
+/* Gewaehlt: Haken und ein Ring, der auf jedem Grund sichtbar bleibt */
+.pe-farbe.an { box-shadow: 0 0 0 2.5px var(--karte), 0 0 0 4.5px color-mix(in srgb, var(--f) 55%, var(--text)); }
+.pe-farbe:focus-visible { outline: 2px solid var(--akzent-text); outline-offset: 3px; }
+.pe-farbe .icon { width: 18px; height: 18px; stroke-width: 2.4; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .3)); }
+/* Automatisch: die feste Farbe des Namens, mit "A" gekennzeichnet */
+.pe-farbe.pe-auto { font-size: .86rem; font-weight: 850; }
+/* Eigene Farbe: Farbkreis, bis eine gewaehlt ist; der Waehler liegt unsichtbar darueber */
+.pe-eigen:not(.an) { background: conic-gradient(from 90deg, #e5484d, #f7b500, #30a46c, #0e95a3, #2d6bdb, #6b4cd9, #d6409f, #e5484d); }
+.pe-eigen input { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; opacity: 0; cursor: pointer; }
+.pe-farbe-text { margin: 12px 0 0; font-size: .8rem; line-height: 1.45; color: var(--muted); text-align: center; }
+
+/* Lieblingsmarken: nur die Chips, ohne Kasten */
+#fav-pickers .f-label:first-child { margin-top: 8px; }
 #fav-pickers .fav-row {
   gap: 8px; margin: 0; padding: 0; border: 0; border-radius: 0;
   background: none; box-shadow: none; cursor: default;
@@ -388,30 +343,39 @@
 }
 #fav-pickers .fav-opt .brand-chip { flex: none; width: 24px; height: 24px; border-radius: 7px; margin-left: -4px; }
 #fav-pickers .fav-custom { flex-basis: 100%; margin-top: 2px; }
-#bio-card .form-row .input { margin-top: 0; min-height: 44px; }
-#bio-card .form-row .btn-small { min-height: 44px; padding: 0 16px; font-size: .86rem; }
-#g-public { accent-color: var(--akzent-tief); }
+
+/* Konto: @Name und Sichtbarkeit */
+.pe-handle { flex-wrap: nowrap; gap: 8px; }
+.pe-handle .input { flex: 1; min-width: 0; margin-top: 0; min-height: 44px; }
+#view-editprofile .pe-handle .btn-small { flex: none; min-height: 44px; padding: 0 16px; font-size: .86rem; }
+.pe-check { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; font-size: .86rem; line-height: 1.4; cursor: pointer; }
+.pe-check input { flex: none; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--akzent-tief); }
+.pe-speichern { display: flex; flex-direction: column; align-items: stretch; gap: 8px; margin: 4px 0 20px; }
+#view-editprofile #g-bio-save { width: 100%; margin: 0; min-height: 50px; font-size: 1rem; }
+.pe-speichern .form-msg:empty { display: none; }
 
 /* ---- Fremdes Profil: Zurueck oben links, alles in einer weissen Karte */
 /* Abstand als Polsterung der Seite: ein Aussenabstand wuerde mit der Seite
    zusammenfallen und den Knopf mit nach unten ziehen */
-#view-user { padding-top: 54px; }
-#view-user .up-back { top: 0; left: 0; }
+#view-user { padding-top: 56px; }
+#view-user .up-back { top: 2px; left: 0; }
 #user-page {
-  padding: 4px 16px 16px; border-radius: 18px;
+  padding: 4px 16px 12px; border-radius: 18px;
   background: var(--karte); box-shadow: var(--schatten-1);
   --surface: var(--karte-2); --surface-2: var(--karte-2);
 }
 #user-page:has(> .status:only-child) { background: none; box-shadow: none; }
-#user-page .up-hero { gap: 6px; padding: 22px 0 4px; }
-#user-page .up-ava { width: 84px; height: 84px; font-size: 2rem; margin-bottom: 6px; }
-#user-page .up-ava:not([class*="pfb-"]) { box-shadow: 0 0 0 2.5px var(--karte), 0 0 0 5px var(--akzent); }
+#user-page .up-hero { gap: 2px; padding: 22px 0 4px; }
+#user-page .up-ava { width: 84px; height: 84px; font-size: 2rem; margin-bottom: 10px; }
 #user-page .up-name { font-size: 1.35rem; font-weight: 850; letter-spacing: -.02em; line-height: 1.2; overflow-wrap: anywhere; }
-#user-page .up-bio { font-size: .9rem; line-height: 1.45; }
+#user-page .up-handle { font-size: .86rem; font-weight: 650; color: var(--muted); }
+#user-page .up-bio { max-width: 320px; margin-top: 10px; font-size: .92rem; line-height: 1.45; color: var(--text); overflow-wrap: anywhere; }
+#user-page .up-bio.leer { color: var(--muted); }
 #user-page .role-mod { color: var(--akzent-text); }
-#user-page .favs-view { gap: 10px; margin-top: 14px; }
-#user-page .up-actions { gap: 8px; }
-#user-page .up-actions .btn { min-height: 38px; }
+#user-page .up-marken { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 14px; }
+#user-page .up-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 18px; }
+#user-page .up-actions .btn { width: 100%; margin: 0; min-height: 44px; padding: 0 10px; font-size: .88rem; }
+#user-page .up-melden { display: block; margin: 6px auto 0; font-size: .8rem; font-weight: 650; color: var(--muted); }
 #up-ratings { margin-top: 18px; padding-top: 4px; border-top: 1px solid var(--linie); }
 #up-ratings .up-center-h { margin: 14px 0 10px; font-size: 1rem; font-weight: 800; }
 #up-ratings .chip { height: 36px; border-radius: 11px; background: var(--karte-2); border-color: transparent; font-weight: 700; }
@@ -420,14 +384,11 @@
 #up-ratings .up-rate-row + .up-rate-row { border-top: 1px solid var(--linie); }
 #up-ratings > .status { text-align: center; }
 
-/* ---- Container-Fenster (Shop/Inventar): Knoepfe wie ueberall im Profil */
-#case-backdrop .btn { border-radius: 12px; }
-#case-backdrop .btn-small { border-radius: 10px; }
-
 /* ---- Antippen: nur transform */
-#gm-inv-open:active, #gm-shop-open:active, #btn-edit-profile:active,
-#inv-page .gm-case:active, #shop-page .shop-card:active, #gifts-page .gift-row:active { transform: scale(.97); }
-body.sparsam :is(#shop-page .shop-card, #gifts-page .gift-row) { transition: none; }
+#view-profile .pf-bearbeiten:active, #gifts-page .gift-row:active { transform: scale(.97); }
+body.sparsam :is(#gifts-page .gift-row, button.pf-rang, .pe-farbe) { transition: none; }
+body.sparsam .pf-balken > span { transition: none; }
 @media (prefers-reduced-motion: reduce) {
-  :is(#shop-page .shop-card, #gifts-page .gift-row) { transition: none; }
+  :is(#gifts-page .gift-row, button.pf-rang, .pe-farbe) { transition: none; }
+  .pf-balken > span { transition: none; }
 }
