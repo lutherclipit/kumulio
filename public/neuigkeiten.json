@@ -1,5 +1,32 @@
 [
   {
+    "v": "2026-09-25",
+    "datum": "25. September 2026",
+    "titel": "Ränge, Deals und Geschenke",
+    "punkte": [
+      {
+        "icon": "sparkle",
+        "titel": "Deine Ränge auf einen Blick",
+        "text": "Tippe auf dein Guthaben: Die neue Rang-Seite zeigt alle sieben Kumulios und wie viel bis zum nächsten Rang fehlt. Im Profil steht dein Rang jetzt mit deinem Kumulio."
+      },
+      {
+        "icon": "tag",
+        "titel": "Deals als eigene Seite",
+        "text": "Ein Deal öffnet sich jetzt wie ein Gutschein: unten „Zum Deal“ und Merken, darüber Beschreibung, Bewertung und Kommentare."
+      },
+      {
+        "icon": "gift",
+        "titel": "Rabattcodes verschenken, Coupons schicken",
+        "text": "Rabattcodes kannst du jetzt an Freunde verschenken, Marken-Coupons schickst du ihnen direkt in den Chat."
+      },
+      {
+        "icon": "list",
+        "titel": "Burger-King-Coupons zum Vorzeigen",
+        "text": "Im Burger-King-Blatt liegt immer das aktuelle Coupon-Heft als PDF, es aktualisiert sich von selbst."
+      }
+    ]
+  },
+  {
     "v": "2026-09-24.6",
     "datum": "24. September 2026",
     "titel": "Kumulio wächst mit",
