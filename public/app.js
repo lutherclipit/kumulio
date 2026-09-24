@@ -5665,7 +5665,7 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
     const n = parseFloat(String(q(sel)?.value || '').replace(/\s/g, '').replace(',', '.'));
     return Number.isFinite(n) ? n : null;
   };
-  const vorschauTeile = isCard ? ['.dk-nummer', '.dk-hinten'] : isRabatt
+  const vorschauTeile = isCard ? ['.dk-nummer', '.dk-code-feld'] : isRabatt
     ? ['.wallet-card-name', '.wallet-card-balance', '.wallet-card-sub'] : ['.vk-text', '.vk-rechts', '.vk-fuss'];
   let vorschauMarke = null;
   const vorschauQuelle = {};
@@ -5684,7 +5684,9 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
     tpl.innerHTML = html.trim();
     const neu = tpl.content.firstElementChild;
     const alt = box.firstElementChild;
-    if (!alt || vorschauMarke !== gewaehlt.toLowerCase()) {
+    // Sparkarte: kommt ein Code dazu oder faellt weg, aendert sich die Aufteilung
+    // der Karte (Code-Feld rechts) — dann einmal ganz neu statt Teile tauschen
+    if (!alt || vorschauMarke !== gewaehlt.toLowerCase() || (isCard && alt.className !== neu.className)) {
       vorschauMarke = gewaehlt.toLowerCase();
       for (const sel of vorschauTeile) vorschauQuelle[sel] = neu.querySelector(sel)?.outerHTML;
       box.replaceChildren(neu);
@@ -5696,11 +5698,7 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
       if (n && o && quelle !== vorschauQuelle[sel]) { vorschauQuelle[sel] = quelle; o.replaceWith(n); }
     }
   };
-  // Die Sparkarte dreht sich beim Antippen um (hinten der Code fuer die Kasse)
-  if (isCard) q('#wa-vorschau')?.addEventListener('click', () => {
-    q('#wa-vorschau .debitkarte')?.classList.toggle('gedreht');
-    buzz(8);
-  });
+  // (Die Sparkarte zeigt Code und Nummer vorn — sie dreht sich nicht mehr um)
 
   // ---- Was fehlt noch? Speichern ist erst aktiv, wenn alles Noetige da ist.
   // Tippt man trotzdem, sagt die Leiste, was fehlt.
@@ -6393,36 +6391,52 @@ function gutscheineZuMarke(name, max = 3) {
     .slice(0, max);
 }
 
-// Die Sparkarte sieht ueberall gleich aus: eine Bankkarte im Markenton.
-// Vorderseite Logo und Nummer, Rueckseite der Code fuer die Kasse.
-function sparkarteHtml(c, klein) {
+// Die Sparkarte sieht ueberall gleich aus: eine Bankkarte im Markenton, nur
+// Vorderseite. Links Logo, Chip, Nummer und Art, rechts auf weissem Grund der
+// Code fuer die Kasse — nichts muss umgedreht werden. Ohne Barcode-Daten steht
+// ehrlich nur die Nummer da (kein erfundener Strichcode).
+// Alle Masse haengen an der Kartenbreite (cqw): die Miniatur im Seitenkopf ist
+// dieselbe Karte in klein, die Lupe zoomt aus ihr heraus.
+// (Die Einzahl-Tabelle steht in der Funktion: renderWallet laeuft schon beim
+// Start, bevor ein const hier oben erreicht waere.)
+function sparkarteArt(name) {
+  const einzahl = { 'Supermärkte': 'Supermarkt' };
+  const k = String(name || '').trim().toLowerCase();
+  for (const sec of COUPON_SOURCES) {
+    if (sec.items.some(it => it.name.toLowerCase() === k)) return einzahl[sec.cat] || sec.cat;
+  }
+  return 'Sparkarte';
+}
+// Was die Kasse scannen kann: ein Foto vom Code oder ein EAN-13 aus der Nummer
+function sparkarteCode(c) {
+  const src = c.codeImg || c.img;
+  if (src) return `<img class="dk-code" src="${esc(src)}" alt="Code für die Kasse">`;
+  const nummer = c.number ? String(c.number).replace(/\s+/g, '') : '';
+  // Hoehere Balken fuellen das Code-Feld besser und sind leichter zu treffen
+  return nummer ? ean13Svg(nummer, 140) : '';
+}
+function sparkarteHtml(c, klein, { leer = false, leerText = 'Keine Karte hinterlegt', zeile = '' } = {}) {
   const marke = brandColor(c.name);
   // Eigene Leerzeichen raus, sonst zaehlen sie beim Vierer-Gruppieren mit
   // ("3083 7123 4567" wurde zu "3083  712 3 45 67")
   const nummer = c.number ? String(c.number).replace(/\s+/g, '') : '';
   const gruppiert = nummer.replace(/(.{4})/g, '$1 ').trim();
+  const code = leer ? '' : sparkarteCode(c);
+  const text = leer ? leerText : gruppiert || (code ? '' : 'Noch ohne Nummer');
   return `
-    <div class="debitkarte ${klein ? 'mini' : ''}" style="--bc:${marke}" data-karte="${esc(c.id)}">
+    <div class="debitkarte${klein ? ' mini' : ''}${code ? ' mit-code' : ''}${leer ? ' leer' : ''}${!leer && !nummer ? ' ohne-nummer' : ''}"
+      style="--bc:${marke}; --tc:${brandTextColor(c.name)}" data-karte="${esc(c.id || '')}">
       <div class="dk-flaeche dk-vorne">
-        <div class="dk-oben">
-          ${brandChipHtml(c.name)}
-          <span class="dk-marke">${esc(c.name)}</span>
+        <div class="dk-links">
+          <div class="dk-oben">
+            ${brandChipHtml(c.name)}
+            <span class="dk-marke">${esc(c.name)}</span>
+          </div>
+          <div class="dk-chip" aria-hidden="true"></div>
+          ${text ? `<div class="dk-nummer">${esc(text)}</div>` : ''}
+          <div class="dk-unten"><span>${esc(zeile || sparkarteArt(c.name))}</span></div>
         </div>
-        <div class="dk-chip" aria-hidden="true"></div>
-        <div class="dk-nummer">${esc(gruppiert || 'Sparkarte')}</div>
-        <div class="dk-unten">
-          <span>Sparkarte</span>
-          ${!klein ? `<span class="dk-dreh">${icon('arrow-out', 'icon icon-sm')} antippen</span>` : ''}
-        </div>
-      </div>
-      <div class="dk-flaeche dk-hinten">
-        <div class="dk-streifen" aria-hidden="true"></div>
-        ${c.codeImg || c.img
-          ? `<img class="dk-code" src="${esc(c.codeImg || c.img)}" alt="Code für die Kasse">`
-          : nummer
-            ? `<div class="dk-code-ersatz">${ean13Svg(nummer) || `<span>${esc(gruppiert)}</span>`}</div>`
-            : `<p class="dk-hinweis">Häng ein Foto vom Barcode an, dann kannst du ihn hier scannen lassen.</p>`}
-        <span class="dk-hinten-marke">${esc(c.name)}</span>
+        ${code ? `<div class="dk-code-feld">${code}</div>` : ''}
       </div>
     </div>`;
 }
@@ -6727,17 +6741,19 @@ function zeigeKarteGross({ karteObj, name, leerHtml, vonEl, aktionen = [], hinwe
   const knoepfe = lupe.querySelector('.lupe-knoepfe');
   const von = vonEl?.getBoundingClientRect();
   const nach = karte.getBoundingClientRect();
-  const drehbar = !!karteObj;
+  // Kommt die Karte aus ihrer eigenen Miniatur (Seitenkopf), hebt sie sich
+  // dort heraus: die Miniatur ist so lange leer, bis sie zurueckgefahren ist.
+  const ausMiniatur = vonEl?.classList?.contains('debitkarte') ? vonEl : null;
 
+  // Code und Nummer stehen vorn — die Karte zoomt nur noch heraus, sie dreht
+  // sich nicht mehr. Nur transform (die Karte bleibt ein eigenes Ebenenbild).
   const fahren = (auf) => {
-    if (!von || !karte.animate) return null;
+    if (!von || !von.width || !karte.animate || reducedMotion()) return null;
     const s = von.width / nach.width;
     const dx = (von.left + von.width / 2) - (nach.left + nach.width / 2);
     const dy = (von.top + von.height / 2) - (nach.top + nach.height / 2);
-    const klein = `translate(${dx}px, ${dy}px) scale(${s})`;
-    // Beim Herausfahren dreht die Karte auf dem Weg mit — das ist der
-    // "smoothe Uebergang", nicht ein Dreh NACH dem Zoom.
-    const gross = drehbar ? 'translate(0, 0) scale(1) rotateY(180deg)' : 'translate(0, 0) scale(1)';
+    const klein = `translate3d(${dx}px, ${dy}px, 0) scale(${s})`;
+    const gross = 'translate3d(0, 0, 0) scale(1)';
     return karte.animate(
       auf ? [{ transform: klein }, { transform: gross }]
           : [{ transform: gross }, { transform: klein }],
@@ -6745,21 +6761,11 @@ function zeigeKarteGross({ karteObj, name, leerHtml, vonEl, aktionen = [], hinwe
         fill: 'forwards' });
   };
 
-  // Am Ende der Zoomfahrt uebernimmt die Klasse den gedrehten Zustand. Dabei
-  // muss der CSS-Uebergang der Karte kurz aus sein: sonst faehrt er von "keine
-  // Drehung" nochmal auf 180 Grad und die Karte flippt ein zweites Mal.
-  const haltenOhneUebergang = () => {
-    karte.style.transition = 'none';
-    karte.classList.add('gedreht');
-    void karte.offsetHeight;
-    karte.style.transition = '';
-  };
-
   requestAnimationFrame(() => {
     lupe.classList.add('an');
     const a = fahren(true);
-    if (a) a.onfinish = () => { if (drehbar) haltenOhneUebergang(); a.cancel(); };
-    else if (drehbar) haltenOhneUebergang();
+    if (ausMiniatur && a) ausMiniatur.style.visibility = 'hidden';
+    if (a) a.onfinish = () => a.cancel();
   });
 
   const zu = () => {
@@ -6767,21 +6773,18 @@ function zeigeKarteGross({ karteObj, name, leerHtml, vonEl, aktionen = [], hinwe
     lupeOffen = null;
     lupe.classList.remove('an');
     knoepfe.style.opacity = '0';
-    // Beim Zurueckfahren macht die Animation die Drehung mit — die Klasse darf
-    // nicht gleichzeitig ihren eigenen Uebergang fahren.
-    karte.style.transition = 'none';
-    karte.classList.remove('gedreht');
     const a = fahren(false);
-    const weg = () => lupe.remove();
+    const weg = () => {
+      if (!lupe.isConnected) return;
+      if (ausMiniatur) ausMiniatur.style.visibility = '';
+      lupe.remove();
+    };
     if (a) { a.onfinish = weg; setTimeout(weg, 420); } else setTimeout(weg, 260);
   };
 
   lupe.querySelector('.lupe-grund').onclick = zu;
-  const drehen = () => { karte.style.transition = ''; karte.classList.toggle('gedreht'); buzz(8); };
-  if (drehbar) karte.onclick = drehen;
   aktionen.forEach((a, i) => {
     lupe.querySelector(`[data-lupe="${i}"]`).onclick = () => {
-      if (a.drehen) return drehen();
       if (a.bleibt) return a.fn?.();
       zu(); a.fn?.();
     };
@@ -6804,6 +6807,14 @@ async function karteLoeschen(c) {
   island('Karte gelöscht');
 }
 
+// Steht kein scanbarer Code auf der Karte, sagt die Lupe ehrlich, was geht
+function sparkarteHinweis(c) {
+  if (!c || sparkarteCode(c)) return '';
+  return c.number
+    ? 'Kein Barcode gespeichert: an der Kasse die Nummer nennen oder unter „Ändern“ ein Foto vom Code anhängen.'
+    : 'Häng unter „Ändern“ ein Foto vom Barcode an, dann kannst du ihn hier scannen lassen.';
+}
+
 // Aus dem Marken-Raster: Karte plus die zwei Wege, die von dort weitergehen
 function oeffneKartenLupe(key, kachel) {
   if (walletGesperrt()) { aktualisiereSperre(); return; } // gesperrte Wallet: nichts zeigen
@@ -6812,18 +6823,11 @@ function oeffneKartenLupe(key, kachel) {
   const gesperrt = b.coupons && !ccBesitzt(b.coupons);
   zeigeKarteGross({
     karteObj: b.card, name: b.name, vonEl: kachel,
-    leerHtml: `<div class="debitkarte leer" style="--bc:${brandColor(b.name)}; --tc:${brandTextColor(b.name)}">
-        <div class="dk-flaeche dk-vorne">
-          <div class="dk-oben">${brandChipHtml(b.name)}<span class="dk-marke">${esc(b.name)}</span></div>
-          <div class="dk-chip" aria-hidden="true"></div>
-          <div class="dk-nummer">Keine Karte hinterlegt</div>
-          <div class="dk-unten"><span>${esc(brandUntertitel(b))}</span></div>
-        </div>
-      </div>`,
+    leerHtml: sparkarteHtml({ name: b.name }, false, { leer: true, zeile: brandUntertitel(b) }),
     aktionen: [
       { text: 'Coupons & App', icon: 'tag', fn: () => openBrandSheet(key) },
       b.card
-        ? { text: 'Umdrehen', icon: 'arrow-out', leise: true, drehen: true }
+        ? (b.card.number ? { text: 'Nummer kopieren', icon: 'check', leise: true, bleibt: true, fn: () => copyText(b.card.number) } : null)
         : { text: 'Sparkarte hinzufügen', icon: 'plus', leise: true, fn: () => openWalletAdd('card', b.name) },
       // Verwalten steht direkt unter der Karte, in einer leisen zweiten Zeile —
       // dort sucht man es, wenn die Karte gerade vor einem liegt.
@@ -6831,14 +6835,15 @@ function oeffneKartenLupe(key, kachel) {
         { text: 'Ändern', verwalten: true, fn: () => openWalletAdd('card', b.card.name, b.card.id) },
         { text: 'Löschen', verwalten: true, gefahr: true, bleibt: true, fn: () => karteLoeschen(b.card) },
       ] : []),
-    ],
-    hinweis: gesperrt ? 'Für diese Coupons brauchst du die Sparkarte.' : '',
+    ].filter(Boolean),
+    hinweis: b.card ? sparkarteHinweis(b.card) : gesperrt ? 'Für diese Coupons brauchst du die Sparkarte.' : '',
   });
 }
 
 
 // showKarteBig ist entfallen: beide Wege zur grossen Karte laufen jetzt ueber
-// zeigeKarteGross (Zoom aus der Kachel, Rest unscharf, dreht auf dem Weg).
+// zeigeKarteGross (Zoom aus der Kachel, Rest unscharf; seit Runde 118 ohne
+// Umdrehen — der Code steht rechts auf der Vorderseite).
 
 // =============================================================================
 // Wallet-Seiten (Runde 117): Gutschein, Verschenken und Analyse sind eigene
@@ -7258,14 +7263,10 @@ function gutscheinSeiteHtml(v, karte) {
     <label class="gd-block gd-leer">${wIcon('bild')}<span>Bild vom Code hinzufügen</span>
       <input type="file" id="wv-img-file" accept="image/*" style="display:none"></label>`;
 
-  // Sparkarte: an der Kasse gehoert sie zum Gutschein dazu
-  const sparkarte = karte ? `
-    <button class="gd-block gd-zeile" type="button" id="wv-karte">
-      <span class="gd-zeile-bild">${sparkarteHtml(karte, true)}</span>
-      <span class="gd-zeile-text"><b>${esc(v.vendor)}-Sparkarte</b><small>Erst die Karte zeigen, dann mit dem Gutschein zahlen</small></span>
-      ${icon('chevron', 'icon gd-pfeil')}
-    </button>`
-    : cardApp(v.vendor)?.ohneKarte ? '' : `
+  // Sparkarte: an der Kasse gehoert sie zum Gutschein dazu. Liegt sie in der
+  // Wallet, sitzt sie oben rechts im Seitenkopf (gutscheinSeiteKopf) — ohne
+  // Scrollen griffbereit. Hier unten steht nur noch "hinzufuegen".
+  const sparkarte = karte || cardApp(v.vendor)?.ohneKarte ? '' : `
     <button class="gd-block gd-zeile" type="button" id="wv-addkarte">
       <span class="gd-zeile-plus">${brandChipHtml(v.vendor)}<i>${icon('plus')}</i></span>
       <span class="gd-zeile-text"><b>Sparkarte hinzufügen</b><small>Dann hast du die ${esc(v.vendor)}-Karte an der Kasse gleich dabei</small></span>
@@ -7362,6 +7363,7 @@ function zeichneGutscheinSeite(seite, { animFrom = null } = {}) {
   seite.stand = gdStand(v);
   el.querySelector('.wseite-titel').textContent = v.vendor;
   el.setAttribute('aria-label', `${v.vendor}-Gutschein`);
+  gutscheinSeiteKopf(el, v, karte);
   inhalt.innerHTML = gutscheinSeiteHtml(v, karte);
   el.querySelectorAll('.gd-leiste, .gd-dimm, .gd-panel').forEach(x => x.remove());
   el.classList.remove('panel-offen');
@@ -7373,6 +7375,29 @@ function zeichneGutscheinSeite(seite, { animFrom = null } = {}) {
   if (animFrom != null && v.balance != null && animFrom !== v.balance) {
     animateNumber(el.querySelector('#gd-guthaben'), animFrom, v.balance);
   }
+}
+
+// Oben rechts im Seitenkopf: die passende Sparkarte als Miniatur. Antippen
+// holt sie gross in die Mitte (zum Scannen). Gleiche Karte wie vorher: nichts
+// neu zeichnen, damit die Miniatur beim Buchen nicht flackert.
+function gutscheinSeiteKopf(el, v, karte) {
+  const kopf = el.querySelector('.wseite-kopf');
+  const platz = kopf?.querySelector('.wseite-rechts');
+  if (!platz) return;
+  const stand = karte ? JSON.stringify([karte.id, karte.name, karte.number, karte.codeImg, karte.img]) : '';
+  if (platz.dataset.karte === stand) return;
+  platz.dataset.karte = stand;
+  kopf.classList.toggle('mit-karte', !!karte);
+  if (!karte) {
+    platz.innerHTML = '';
+    platz.setAttribute('aria-hidden', 'true');
+    return;
+  }
+  platz.removeAttribute('aria-hidden');
+  platz.innerHTML = `
+    <button class="wseite-karte" type="button" aria-label="${esc(v.vendor)}-Sparkarte zeigen" title="${esc(v.vendor)}-Sparkarte zeigen">
+      ${sparkarteHtml(karte, true)}
+    </button>`;
 }
 
 // Zugeklappt ragen nur die beiden Knoepfe und der Pfeil hervor: die Leiste
@@ -7391,11 +7416,12 @@ addEventListener('resize', () => wseiten().forEach(s => { if (s.art === 'gutsche
 function verdrahteGutscheinSeite(seite, v, karte) {
   const el = seite.el;
   el.querySelectorAll('[data-copy-txt]').forEach(b => b.onclick = () => { copyText(b.dataset.copyTxt); buzz(10); });
-  // Die Sparkarte zoomt in die Mitte und dreht sich dabei um (wie im Raster)
-  el.querySelector('#wv-karte')?.addEventListener('click', e => zeigeKarteGross({
-    karteObj: karte, name: v.vendor, vonEl: e.currentTarget.querySelector('.debitkarte') || e.currentTarget,
+  // Die Sparkarte oben rechts zoomt aus ihrer Miniatur in die Mitte (wie im
+  // Raster) — Code und Nummer stehen vorn, umdrehen muss man nichts.
+  const kartenKnopf = el.querySelector('.wseite-karte');
+  if (kartenKnopf) kartenKnopf.onclick = () => zeigeKarteGross({
+    karteObj: karte, name: v.vendor, vonEl: kartenKnopf.querySelector('.debitkarte') || kartenKnopf,
     aktionen: [
-      { text: 'Umdrehen', icon: 'arrow-out', leise: true, drehen: true },
       ...(karte.number
         ? [{ text: 'Nummer kopieren', icon: 'check', leise: true, bleibt: true, fn: () => copyText(karte.number) }]
         : []),
@@ -7403,7 +7429,8 @@ function verdrahteGutscheinSeite(seite, v, karte) {
       { text: 'Ändern', verwalten: true, fn: () => openWalletAdd('card', karte.name, karte.id) },
       { text: 'Löschen', verwalten: true, gefahr: true, bleibt: true, fn: () => karteLoeschen(karte) },
     ],
-  }));
+    hinweis: sparkarteHinweis(karte) || 'Erst die Karte scannen lassen, dann mit dem Gutschein zahlen.',
+  });
   el.querySelector('#wv-addkarte')?.addEventListener('click', () => openWalletAdd('card', v.vendor));
   wireVoucherImage(v); // Bild tauschen / zuschneiden / vergroessern
   el.querySelectorAll('[data-revert]').forEach(b => b.onclick = () => gdRueckgaengig(seite, b.dataset.revert));
@@ -8289,7 +8316,7 @@ function openBrandSheet(key, richtung) {
     </div>
     ${c ? `
       <div class="karte-buehne" style="margin-top:14px">${sparkarteHtml(c)}</div>
-      <p class="muted" style="font-size:.76rem; text-align:center; margin-top:8px">Antippen dreht die Karte zum Code</p>
+      ${sparkarteHinweis(c) ? `<p class="muted" style="font-size:.76rem; text-align:center; margin-top:8px">${esc(sparkarteHinweis(c))}</p>` : ''}
       ${c.number ? `<div class="tx-row" style="margin-top:10px">
         <span class="wallet-code" style="flex:1">${esc(c.number)}</span>
         <button class="btn btn-small" data-copy-txt="${esc(c.number)}">Kopieren</button>
@@ -8318,8 +8345,6 @@ function openBrandSheet(key, richtung) {
   $('#sheet-content').querySelectorAll('[data-copy-txt]').forEach(x =>
     x.addEventListener('click', () => copyText(x.dataset.copyTxt)));
   $('#wc-addcard')?.addEventListener('click', () => openWalletAdd('card', b.name));
-  $('#sheet-content').querySelectorAll('.karte-buehne .debitkarte').forEach(k =>
-    k.addEventListener('click', () => { k.classList.toggle('gedreht'); buzz(10); }));
   $('#sheet-content').querySelectorAll('.gs-vorschlag [data-wv]').forEach(x =>
     x.addEventListener('click', () => openVoucherSheet(x.dataset.wv, null, key, 'vor')));
 

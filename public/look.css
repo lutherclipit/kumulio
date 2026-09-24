@@ -340,9 +340,10 @@ body.marken-modus #view-wallet { --wk-schein: var(--marke-k3, var(--kopf-k3, #2F
 .wk-glas .wallet-kopf-sub .sync-punkt { position: relative; left: auto; top: auto; margin: 0 0 0 1px; transform: none; flex: none; }
 
 /* Drei Griffe als gleich grosse Quadrate ohne Beschriftung — am Handy war fuer
-   drei Woerter nebeneinander kein Platz. Hinzufuegen steht vorn und ist weiss
-   (der Haupt-Griff), Verschenken und Analyse bleiben Glas. Die Zeile beginnt
-   genau unter dem Text darueber; die Namen stehen in aria-label und title. */
+   drei Woerter nebeneinander kein Platz. Alle drei sind Glas mit weissem
+   Symbol; Hinzufuegen steht vorn und hat nur eine etwas hellere Flaeche (ein
+   weisser Block passte nicht zu den anderen). Die Zeile beginnt genau unter
+   dem Text darueber; die Namen stehen in aria-label und title. */
 .wk-glas .wallet-aktionen {
   --wa-q: 44px;
   position: relative; z-index: 2;
@@ -356,13 +357,13 @@ body.marken-modus #view-wallet { --wk-schein: var(--marke-k3, var(--kopf-k3, #2F
   box-shadow: 0 3px 8px rgba(0, 0, 0, .1), inset 0 1px 0 rgba(255, 255, 255, .4);
 }
 .wk-glas .wa-haupt .wa-kreis {
-  background: #fff; border-color: #fff;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, .16);
+  background: rgba(255, 255, 255, .3); border-color: rgba(255, 255, 255, .5);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, .1), inset 0 1px 0 rgba(255, 255, 255, .5);
 }
 .wk-glas .wa-kreis .icon { width: 21px; height: 21px; stroke-width: 2; color: #fff; }
-.wk-glas .wa-haupt .wa-kreis .icon { width: 22px; height: 22px; stroke-width: 2.4; color: var(--wk-akzent); }
+.wk-glas .wa-haupt .wa-kreis .icon { width: 22px; height: 22px; stroke-width: 2.4; color: #fff; }
 .wk-glas .wa-btn:active .wa-kreis { transform: scale(.9); opacity: 1; background: rgba(255, 255, 255, .3); }
-.wk-glas .wa-haupt:active .wa-kreis { background: #fff; }
+.wk-glas .wa-haupt:active .wa-kreis { background: rgba(255, 255, 255, .4); }
 .wk-glas .wa-btn:focus-visible { outline: none; }
 .wk-glas .wa-btn:focus-visible .wa-kreis { box-shadow: 0 0 0 3px rgba(255, 255, 255, .75); }
 @media (max-width: 370px) {
@@ -590,6 +591,31 @@ body.wallet-farbe.kopf-weg .topbar .k-wordmark { color: #fff; }
 .rc-kopf .rc-neu-chip { border-radius: 11px; background: #fff; color: var(--wk-akzent); border: 0; }
 :root[data-theme="dark"] .rc-kopf .rc-neu-chip { background: var(--karte); color: var(--akzent-text); }
 #voucher-list > .status { color: rgba(255, 255, 255, .86); }
+/* Kopf eines aufgefaecherten Stapels ("REWE (4)"): steht direkt auf der
+   Rang-Farbe, also weiss wie die Ueberschriften. Das Logo bleibt auf seinem
+   weissen Kaertchen, "Stapeln" ist ein weisser Knopf wie Marke und Sortieren. */
+#view-wallet .deck-head-name { color: #fff; min-width: 0; }
+#view-wallet .deck-head-name b {
+  font-size: 1.02rem; font-weight: 800; letter-spacing: -.01em;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, .14);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#view-wallet .deck-head-name small { color: rgba(255, 255, 255, .82); font-weight: 700; flex: none; }
+#view-wallet .deck-head-name .brand-chip {
+  width: 34px; height: 34px; flex: 0 0 34px; border-radius: 10px; font-size: .62rem;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .12);
+}
+#view-wallet .deck-head .chip {
+  flex: none; border: 0; border-radius: 12px; padding: 8px 14px;
+  background: #fff; color: var(--wk-akzent); font-weight: 750;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .08);
+}
+:root[data-theme="dark"] #view-wallet .deck-head .chip { background: var(--karte); color: var(--akzent-text); }
+/* Marken-Ansicht: heller Grund, dort bleibt der Stapelkopf dunkel */
+body.marken-modus #view-wallet .deck-head-name { color: var(--text); }
+body.marken-modus #view-wallet .deck-head-name b { text-shadow: none; }
+body.marken-modus #view-wallet .deck-head-name small { color: var(--muted); }
+body.marken-modus #view-wallet .deck-head .chip { box-shadow: var(--schatten-1); }
 
 /* Beim Betreten der Wallet blendet der Farbgrund mit dem Inhalt ein, wie die
    anderen Reiter. Vorher sprang er sofort da: renderWallet setzt wallet-farbe,

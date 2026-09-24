@@ -456,9 +456,24 @@ button.gd-block:active, label.gd-block:active { transform: scale(.985); }
 .gd-bild-knopf span { overflow: hidden; text-overflow: ellipsis; }
 .gd-bild-knopf .icon { width: 17px; height: 17px; flex: none; }
 .gd-bild-lupe { padding: 0; }
-/* Sparkarte (oder: hinzufuegen) als Zeile */
+/* Die Sparkarte sitzt oben rechts im Seitenkopf: dieselbe Karte in klein, so
+   hoch wie der Zurueck-Knopf. Beide Seiten des Kopfs werden gleich breit,
+   damit der Titel mittig bleibt. Antippen zoomt sie gross in die Mitte. */
+.wseite-kopf.mit-karte { grid-template-columns: 67px minmax(0, 1fr) 67px; }
+.wseite-rechts { display: flex; justify-content: flex-end; align-items: center; min-width: 0; }
+.wseite-karte {
+  position: relative; display: block; width: 67px; padding: 0; border: 0; border-radius: 8px;
+  background: none; cursor: pointer; line-height: 0;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: transform .2s var(--spring);
+}
+/* Groessere Trefferflaeche als die kleine Karte */
+.wseite-karte::before { content: ""; position: absolute; inset: -6px -4px; }
+.wseite-karte:active { transform: scale(.92); }
+.wseite-karte:focus-visible { outline: 2px solid var(--akzent); outline-offset: 3px; }
+.wseite-karte .debitkarte.mini { width: 67px; }
+/* Sparkarte hinzufuegen als Zeile */
 .gd-zeile { display: flex; align-items: center; gap: 12px; min-height: 66px; padding: 10px 12px; }
-.gd-zeile-bild { flex: none; width: 62px; line-height: 0; }
 .gd-zeile-plus { position: relative; flex: none; width: 62px; display: grid; place-items: center; }
 .gd-zeile-plus .brand-chip { width: 42px; height: 42px; flex: 0 0 42px; border-radius: 11px; font-size: .7rem; }
 .gd-zeile-plus i {
@@ -810,17 +825,8 @@ body.sparsam .ana-paar i { animation: none; }
 #sheet-content .app-jump > .icon, #sheet-content .app-quest > .icon { color: var(--muted); }
 #sheet-content .app-quest.done { background: var(--akzent-weich); box-shadow: none; }
 #sheet-content .app-quest.done .app-quest-check { color: var(--akzent-text); }
-/* Die Sparkarte als Bankkarte: der Feed nutzt dieselben Klassennamen (.dk-marke,
-   .dk-hinweis) fuer seine Kacheln — hier gelten wieder die Kartenwerte */
-.debitkarte .dk-marke {
-  font-size: .84rem; font-weight: 800; letter-spacing: .01em; color: inherit;
-  overflow: visible; white-space: normal;
-}
-.debitkarte .dk-hinweis {
-  position: static; background: none; color: inherit; border-radius: 0;
-  padding: 0 18px; margin-top: 40px; font-size: .74rem; font-weight: 500; opacity: .8;
-}
-.sheet .dk-unten, .modal .dk-unten, .sheet .dk-hinten-marke, .modal .dk-hinten-marke { text-transform: none; letter-spacing: .01em; }
+/* Die Sparkarte (Bankkarte, Code vorn rechts) steht in style.css; der Feed
+   nutzt .dk-marke auch fuer seine Kacheln — .debitkarte .dk-marke gewinnt dort */
 
 /* =============================================================================
    Rabattcode als eigene Seite (wie die Gutschein-Seite, Klassen gd-*)
@@ -883,13 +889,12 @@ body.sparsam .ana-paar i { animation: none; }
 .wa-chip-leer .icon { width: 22px; height: 22px; }
 .rc-card .wa-chip-leer { background: rgba(255, 255, 255, .92); color: var(--bc); }
 .rc-card .wa-chip-leer .icon { width: 20px; height: 20px; }
-.wa-vorschau .debitkarte { max-width: 300px; }
+.wa-vorschau .debitkarte { max-width: 320px; }
 .debitkarte.wa-leer { --bc: #7B8794 !important; }
 /* Im Dunkeln ist der leere Platzhalter ein ruhiges Schiefergrau statt einer hellen Flaeche */
 :root[data-theme="dark"] .wa-vorschau .wallet-card.wa-leer, :root[data-theme="dark"] .debitkarte.wa-leer { --bc: #4A5563 !important; }
 .debitkarte.wa-leer .dk-oben .brand-chip { display: none; }
 .debitkarte.wa-leer .dk-marke { opacity: .6; }
-.wseite .dk-unten, .wseite .dk-hinten-marke { text-transform: none; letter-spacing: .01em; }
 
 /* Foto oder Screenshot: eine ruhige Karte mit zwei Knoepfen */
 .wa-scan { margin-top: 12px; padding: 14px; transition: box-shadow .2s ease; }
