@@ -1,1 +1,433 @@
-/* kumulio — neuer Look: profil (Runde 116). Laedt nach look.css. */
+/* =============================================================================
+   kumulio — neuer Look: Profil und Unterseiten (Runde 116). Laedt nach look.css.
+   Profilkarte, Rang/Funken/Quests/Paints, Inventar, Shop, Freunde, Geschenke,
+   Einladen, Profil bearbeiten und fremdes Profil. Weisse Karten auf hellem
+   Grund, Ecken maessig gerundet (Karten 16-18, Knoepfe 10-12, Badges 8-9),
+   Akzent in der Rang-Farbe. Nur transform/opacity animiert.
+   ========================================================================== */
+
+/* ---- Gemeinsam: Seitentitel, Karten, Knoepfe */
+#view-profile > h1,
+:is(#view-friends, #view-inventory, #view-shop, #view-invite, #view-gifts, #view-editprofile) .search-head h1 {
+  font-size: 1.35rem; font-weight: 850; letter-spacing: -.02em; line-height: 1.2;
+}
+#view-profile > h1 { margin: 2px 0 12px; }
+:is(#view-profile, #view-editprofile) .card { border-radius: 18px; }
+#view-profile > .card { margin-bottom: 14px; }
+
+:is(#auth-card, #me-card, #gami-card, #bio-card, #view-friends, #view-inventory, #view-shop, #view-gifts, #view-invite, #view-user) .btn {
+  border-radius: 12px; font-weight: 750;
+}
+:is(#auth-card, #me-card, #gami-card, #bio-card, #view-friends, #view-inventory, #view-shop, #view-gifts, #view-invite, #view-user) .btn-small {
+  min-height: 34px; padding: 0 13px; border-radius: 10px; font-size: .8rem;
+  box-shadow: none;
+}
+:is(#auth-card, #me-card, #gami-card, #bio-card, #view-friends, #view-inventory, #view-shop, #view-gifts, #view-invite, #view-user) .btn-ghost {
+  background: var(--karte-2); color: var(--text); box-shadow: none;
+}
+:is(#view-profile, #view-friends, #view-inventory, #view-shop, #view-gifts, #view-invite, #view-editprofile, #view-user) .input {
+  border-radius: 12px;
+}
+/* Abzeichen und Pillen im Profil: kleine Ecken statt Kapsel */
+:is(#view-profile, #view-user) .pill { border-radius: 8px; }
+.badge-chip { border-radius: 10px; padding: 6px 11px; }
+.badge-chip.rar-rare { border-color: color-mix(in srgb, var(--akzent) 55%, transparent); color: var(--akzent-text); }
+.badge-chip.on { box-shadow: 0 0 0 2px color-mix(in srgb, var(--akzent) 50%, transparent); }
+/* position/overflow: sonst laeuft der Shiny-Glitzer (::after, inset 0) ueber die ganze Seite */
+.sc-slot { position: relative; overflow: hidden; border-radius: 14px; background: radial-gradient(70% 60% at 50% 40%, color-mix(in srgb, var(--rc) 22%, transparent), transparent), var(--karte-2); }
+/* Fortschrittsbalken in der Rang-Farbe */
+:is(#gami-card, #view-profile) .rank-progress { border-radius: 5px; background: color-mix(in srgb, var(--muted) 16%, transparent); }
+:is(#gami-card, #view-profile) .rank-progress-fill { border-radius: 5px; background: var(--akzent); }
+
+/* ---- Anmelden (Gast) */
+#auth-card .card-h { font-size: 1.15rem; }
+#auth-card .input { min-height: 46px; }
+#auth-card .form-row .btn { flex: 1 1 auto; min-height: 46px; font-size: .9rem; }
+
+/* =============================================================================
+   Profilkarte: grosses Bild mit Ring in der Rang-Farbe, Name, @Name, Rang
+   ========================================================================== */
+#me-card { padding: 20px 18px 18px; }
+#me-card .me-head { gap: 16px; align-items: center; }
+#me-avatar { flex: none; display: grid; }
+#me-avatar .avatar-big { width: 72px; height: 72px; font-size: 1.75rem; }
+/* Ring nur, wenn kein Profilrahmen angelegt ist (der malt selbst per Schatten) */
+#me-avatar .avatar-big:not([class*="pfb-"]) { box-shadow: 0 0 0 2.5px var(--karte), 0 0 0 5px var(--akzent); }
+#me-card .me-head-text { gap: 2px; min-width: 0; }
+#me-card .me-head-text .card-h {
+  font-size: 1.35rem; font-weight: 850; letter-spacing: -.02em; line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+#me-card .me-handle { font-size: .86rem; font-weight: 650; color: var(--muted); opacity: 1; }
+/* Spar-Rang als schlichte Zeile mit Punkt statt Pille */
+#g-rank-row { margin-top: 6px; }
+#me-card .rank-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 0; border: 0; border-radius: 0; background: none;
+  font-size: .84rem; font-weight: 750; letter-spacing: 0; color: var(--akzent-text);
+}
+#me-card .rank-chip::before {
+  content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--akzent); box-shadow: 0 0 0 3px var(--akzent-weich);
+}
+#me-card .me-bio { margin: 16px 0 0; font-size: .93rem; line-height: 1.5; color: var(--text); opacity: .82; }
+#me-favs:empty, #me-showcase:empty { display: none; }
+#me-card .favs-view { margin-top: 14px; gap: 10px; }
+/* Lieblings-Eintraege ohne Logo: so hoch wie die Logos, oben buendig */
+:is(#me-card, #user-page) .favs-view { align-items: flex-start; }
+:is(#me-card, #user-page) .favs-view > .pill {
+  height: 40px; padding: 0 12px; border: 0; border-radius: 12px;
+  background: var(--karte-2); color: var(--text); font-size: .8rem; font-weight: 700;
+}
+#me-card .me-showcase { margin-top: 14px; }
+#me-card .badge-grid { margin-top: 14px; }
+#me-badges .stars-count { font-size: .8rem; }
+/* "Profil bearbeiten" als breiter, ruhiger Knopf */
+#me-card #btn-edit-profile {
+  flex: 1; min-height: 42px; border-radius: 12px;
+  background: var(--karte-2); color: var(--text); box-shadow: none;
+  font-size: .9rem; font-weight: 750;
+}
+
+/* =============================================================================
+   Rang, Funken, Inventar/Shop, Leiter, Quests, Paints
+   ========================================================================== */
+#gami-card { padding: 18px 18px 16px; }
+#gami-card .gm-info-corner {
+  top: 14px; right: 14px; width: 36px; height: 36px;
+  background: var(--karte-2); color: var(--muted); box-shadow: none;
+}
+#gami-card .gm-info-corner .icon { width: 18px; height: 18px; }
+#gm-rank-head .gm-rank-row { margin: 0 46px 0 0; gap: 12px; }
+#gm-rank-head .px-icon.big {
+  flex: none; width: 54px; height: 54px; padding: 7px;
+  background: var(--karte-2); border-radius: 13px;
+}
+#gm-rank-head .gm-rank-text { gap: 3px; min-width: 0; }
+/* "RANG:" steht gross im Text — hier in normaler Schreibweise */
+#gm-rank-head .gm-rank-text b {
+  font-size: 1.08rem; font-weight: 850; letter-spacing: -.01em; line-height: 1.25;
+  text-transform: lowercase;
+}
+#gm-rank-head .gm-rank-text b::first-letter { text-transform: uppercase; }
+#gm-rank-head .gm-rank-text b span { font-size: inherit; opacity: 1; text-transform: none; }
+#gm-rank-head .gm-rank-text > span { font-size: .8rem; line-height: 1.35; color: var(--muted); opacity: 1; }
+#gm-rank-head .rank-progress.big { height: 8px; margin-top: 14px; }
+/* Die Zeile darunter hat 10px Abstand im Markup, hier kommen 6px dazu */
+#gm-rank-head { margin-bottom: 6px; }
+
+/* Funken-Zeile (grau hinterlegt) mit Daily rechts, darunter Inventar | Shop */
+#gami-card > .form-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px;
+  align-items: stretch;
+}
+#gami-card > .form-row::before {
+  content: ""; grid-row: 1; grid-column: 1 / -1; align-self: stretch;
+  background: var(--karte-2); border-radius: 14px;
+}
+#gami-card .coin-chip {
+  grid-row: 1; grid-column: 1; align-self: center; z-index: 1;
+  padding-left: 14px; gap: 6px; white-space: nowrap;
+  font-size: .9rem; font-weight: 700; color: var(--muted);
+}
+#gami-card .coin-chip .px-icon { width: 22px; height: 22px; vertical-align: 0; }
+#gami-card .coin-chip b { font-size: 1.15rem; font-weight: 850; color: var(--text); font-variant-numeric: tabular-nums; }
+#gami-card #g-daily {
+  grid-row: 1; grid-column: 2; justify-self: end; align-self: center; z-index: 1;
+  margin: 8px 8px 8px 0; min-height: 36px; padding: 0 14px; font-size: .84rem;
+}
+#gami-card #g-daily.daily-wait { background: var(--karte); color: var(--muted); opacity: 1; letter-spacing: .02em; }
+#gami-card :is(#gm-inv-open, #gm-shop-open) {
+  grid-row: 2; justify-content: flex-start; gap: 10px;
+  min-height: 54px; padding: 0 12px; border-radius: 14px;
+  font-size: .92rem; font-weight: 750;
+}
+#gm-inv-open { grid-column: 1; }
+#gm-shop-open { grid-column: 2; }
+/* Symbol im kleinen weissen Quadrat, wie in Listen */
+#gm-inv-open .icon, #gm-shop-open .icon, #quests-fold summary > .icon:first-child {
+  flex: none; box-sizing: content-box; width: 18px; height: 18px; padding: 8px;
+  border-radius: 10px; background: var(--karte); color: var(--akzent-text);
+}
+
+/* Leiter der Aktivitaets-Raenge */
+/* Laeuft bis an den Kartenrand und blendet an beiden Seiten weich aus */
+#gm-ladder {
+  gap: 6px; margin: 4px -18px 0; padding: 12px 18px 4px; scroll-padding-inline: 18px;
+  mask-image: linear-gradient(90deg, transparent, #000 18px, #000 calc(100% - 18px), transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 18px, #000 calc(100% - 18px), transparent);
+}
+#gm-ladder .gm-step { width: 66px; gap: 3px; padding: 8px 2px 7px; border-radius: 12px; opacity: 1; }
+#gm-ladder .gm-step:not(.done) { opacity: .55; }
+:root[data-theme="dark"] #gm-ladder .gm-step:not(.done) img { filter: grayscale(1) brightness(1.9) opacity(.45); }
+#gm-ladder .gm-step span { font-size: .7rem; font-weight: 750; }
+#gm-ladder .gm-step small { font-size: .64rem; font-weight: 650; color: var(--muted); opacity: 1; }
+#gm-ladder .gm-step.current { outline: 0; background: var(--akzent-weich); }
+#gm-ladder .gm-step.current span, #gm-ladder .gm-step.current small { color: var(--akzent-text); }
+
+/* Quests: graue Klappe, Gruppen in normaler Schreibweise */
+#quests-fold { background: var(--karte-2); border: 0; border-radius: 14px; box-shadow: none; }
+#quests-fold summary {
+  min-height: 54px; padding: 8px 14px 8px 12px; gap: 10px;
+  font-size: .92rem; font-weight: 750; color: var(--text);
+}
+#quests-fold summary .chev { color: var(--muted); }
+#quests-claim-count { font-size: .8rem; font-weight: 750; color: var(--akzent-text); }
+#gm-quests .quest-group { margin: 4px 0 8px; }
+#gm-quests .quest-group > b {
+  display: block; margin: 6px 0 0;
+  font-size: .8rem; font-weight: 750; text-transform: none; letter-spacing: 0;
+  color: var(--muted); opacity: 1;
+}
+#gm-quests .quest-row { padding: 10px 0; border-bottom: 1px solid var(--linie); }
+#gm-quests .quest-group .quest-row:last-child { border-bottom: 0; }
+#gm-quests .quest-main { align-items: center; gap: 10px; margin-bottom: 7px; }
+#gm-quests .quest-main > span:first-child { font-size: .88rem; font-weight: 700; color: var(--text); opacity: 1; }
+#gm-quests .quest-main > span:first-child small { margin-left: 2px; font-size: .76rem; font-weight: 650; color: var(--muted); opacity: 1; white-space: nowrap; }
+#gm-quests .quest-main > small { font-size: .76rem; font-weight: 650; color: var(--muted); white-space: nowrap; }
+#gm-quests .quest-main .btn-small { flex: none; min-height: 30px; padding: 0 10px; font-size: .76rem; gap: 4px; }
+#gm-quests .rank-progress { height: 5px; background: color-mix(in srgb, var(--muted) 20%, transparent); }
+
+/* Namens-Paints */
+#gami-card .gm-h { margin: 20px 0 0; font-size: 1rem; font-weight: 800; letter-spacing: -.01em; }
+#gami-card .gm-h .stars-count { font-weight: 600; }
+#gm-paints .gm-paint { border: 0; border-radius: 10px; background: var(--karte-2); padding: 8px 13px; }
+#gm-paints .gm-paint.on { box-shadow: 0 0 0 2px var(--akzent); }
+#gm-paints > .form-msg { font-size: .84rem; line-height: 1.45; }
+
+/* =============================================================================
+   Unterseiten: Kopf mit Zurueck links, Titel mittig
+   ========================================================================== */
+
+/* ---- Inventar: Filter wischbar in einer Zeile, "Auswählen" oben rechts */
+#view-inventory { position: relative; }
+#inv-filters {
+  position: static; flex-wrap: nowrap; gap: 8px;
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+  margin: 0 -16px; padding: 2px 16px 8px; scroll-padding-inline: 16px;
+}
+#inv-filters::-webkit-scrollbar { display: none; }
+@media (max-width: 560px) { #inv-filters { margin-inline: -12px; padding-inline: 12px; scroll-padding-inline: 12px; } }
+#inv-filters .chip, #inv-filters .chip:not(:has(.brand-chip)) {
+  flex: none; height: 36px; padding: 0 13px; border-radius: 11px;
+  background: var(--karte); border: 1px solid var(--linie); box-shadow: none;
+  font-size: .86rem; font-weight: 700; color: var(--text);
+}
+#inv-filters .chip.active {
+  background: var(--akzent-tief); color: #fff; border-color: transparent;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--akzent) 26%, transparent);
+}
+#inv-sort { margin-left: 6px; }
+#inv-sort.active {
+  outline: 0; background: var(--akzent-weich); color: var(--akzent-text);
+  border-color: color-mix(in srgb, var(--akzent) 45%, transparent); box-shadow: none;
+}
+#inv-filters #inv-select {
+  position: absolute; top: 3px; right: 0; z-index: 2;
+  height: 36px; padding: 0 13px; border: 0; border-radius: 12px;
+  background: var(--karte); color: var(--akzent-text); box-shadow: var(--schatten-1);
+  font-weight: 750;
+}
+#inv-page .gm-h { margin: 14px 0 10px; font-size: 1.05rem; font-weight: 800; letter-spacing: -.01em; }
+#inv-page .gm-h:first-child { margin-top: 4px; }
+#inv-page .gm-cases { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; margin-top: 0; }
+#inv-page .gm-case {
+  gap: 6px; padding: 14px 8px 12px; border: 0; border-radius: 16px;
+  background: var(--karte); box-shadow: var(--schatten-1);
+  font-size: .76rem; font-weight: 750; line-height: 1.25; text-align: center;
+}
+#inv-page .inv-grid { gap: 10px; margin-top: 0; }
+#inv-page .inv-grid > .status { grid-column: 1 / -1; }
+.inv-item {
+  gap: 4px; padding: 14px 10px 12px;
+  background: radial-gradient(70% 55% at 50% 30%, color-mix(in srgb, var(--rc) 18%, transparent), transparent), var(--karte);
+  border: 0; border-bottom: 3px solid var(--rc); border-radius: 16px;
+  box-shadow: var(--schatten-1);
+}
+.inv-item b { font-size: .86rem; font-weight: 800; line-height: 1.25; }
+/* Glitzer auf dunklen Karten gedaempft, sonst wirkt die Karte grau verwaschen */
+:root[data-theme="dark"] :is(.inv-item, .sc-slot).shiny::after { opacity: .4; }
+.inv-item .inv-actions { gap: 5px; margin-top: 8px; }
+.inv-item .c-act {
+  border-radius: 8px; padding: 5px 9px; background: var(--karte-2); color: var(--text);
+  font-size: .72rem; font-weight: 700; opacity: 1;
+}
+.inv-item .c-act.on { background: var(--akzent-weich); color: var(--akzent-text); }
+.inv-item.sel-mode.selected { outline: 2px solid var(--akzent); outline-offset: 0; }
+.inv-item.sel-mode.selected .sel-check { background: var(--akzent-tief); border-color: var(--akzent-tief); }
+.inv-sellbar {
+  top: calc(env(safe-area-inset-top, 0px) + 74px);
+  gap: 8px; padding: 10px 10px 10px 14px; border: 0; border-radius: 16px;
+  background: var(--karte); box-shadow: var(--schatten-2);
+}
+.inv-sellbar b { margin-right: auto; font-size: .9rem; }
+
+/* ---- Shop: Kopf in der Rang-Farbe, weisse Karten, Preis als Badge */
+#view-shop .shop-hero {
+  gap: 12px; padding: 16px 14px 16px 18px; border-radius: 18px; color: #fff;
+  background:
+    radial-gradient(90% 90% at 92% 0%, rgba(255, 255, 255, .16), transparent 60%),
+    linear-gradient(150deg, var(--kopf-k1, #0E9C64), color-mix(in srgb, var(--kopf-k1, #0E9C64) 55%, var(--kopf-k2, #12C77E)));
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--akzent) 24%, transparent);
+}
+#view-shop .shop-hero-text b { font-size: 1.08rem; font-weight: 850; }
+#view-shop .shop-hero-text span { font-size: .8rem; line-height: 1.4; opacity: .92; }
+#view-shop .shop-hero-coins {
+  flex: none; padding: 7px 11px; border-radius: 10px;
+  background: rgba(255, 255, 255, .2); color: #fff; font-size: .86rem;
+}
+#view-shop .shop-hero-coins .px-icon { width: 18px; height: 18px; }
+#shop-page .gm-h { margin: 20px 0 10px; font-size: 1.05rem; font-weight: 800; letter-spacing: -.01em; }
+#shop-page .shop-grid { gap: 10px; }
+#shop-page .shop-card {
+  gap: 4px; padding: 16px 12px 14px; border: 0; border-radius: 16px;
+  background: var(--karte); box-shadow: var(--schatten-1);
+  transition: transform .2s var(--spring);
+}
+#shop-page .shop-card .px-icon.big { width: 48px; height: 48px; margin-bottom: 4px; }
+#shop-page .shop-card-name { font-size: .94rem; font-weight: 800; }
+#shop-page .shop-card-desc { font-size: .74rem; line-height: 1.35; }
+#shop-page .shop-card-meta { font-size: .7rem; opacity: 1; }
+#shop-page .shop-card .shop-price {
+  display: inline-flex; align-items: center; gap: 5px; margin-top: 8px;
+  padding: 5px 10px; border-radius: 9px;
+  background: var(--akzent-weich); color: var(--akzent-text);
+  font-size: .84rem; font-weight: 800; font-variant-numeric: tabular-nums;
+}
+#shop-page .shop-card .shop-price .px-icon { width: 16px; height: 16px; vertical-align: 0; }
+#shop-page > p.muted { margin-top: 16px; }
+
+/* ---- Freunde: Eingabe + Knopf gleich hoch, Liste als weisse Gruppe */
+#view-friends > .form-row { flex-wrap: nowrap; gap: 8px; }
+#fr-add-name {
+  margin-top: 0; min-height: 46px;
+  background: var(--karte); border-color: transparent; box-shadow: var(--schatten-1);
+}
+#view-friends #fr-add-send { flex: none; min-height: 46px; padding: 0 16px; border-radius: 12px; font-size: .9rem; }
+#friends-list:has(.friend-row) {
+  background: var(--karte); border-radius: 18px; box-shadow: var(--schatten-1);
+  padding: 0 14px; --surface: var(--karte-2);
+}
+#friends-list .friend-row { position: relative; gap: 12px; padding: 12px 0; border: 0; }
+/* Trennlinie erst hinter dem Profilbild */
+#friends-list .friend-row + .friend-row::before {
+  content: ""; position: absolute; top: 0; left: 56px; right: 0; height: 1px; background: var(--linie);
+}
+#friends-list .friend-name {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: .95rem; font-weight: 750;
+}
+#friends-list .btn-small { flex: none; }
+
+/* ---- Geschenke */
+#gifts-page .gift-row {
+  gap: 12px; padding: 12px 14px 12px 12px; border: 0; border-radius: 16px;
+  background: var(--karte); box-shadow: var(--schatten-1);
+  transition: transform .2s var(--spring);
+}
+#gifts-page .gift-row-img { width: 52px; height: 52px; padding: 6px; border-radius: 13px; background: var(--karte-2); }
+#gifts-page .gift-row-info b { font-size: .95rem; font-weight: 800; }
+#gifts-page .gift-row-info .muted { font-size: .78rem; }
+
+/* ---- Freunde einladen */
+#invite-page .inv-hero {
+  gap: 8px; padding: 22px 18px 20px; border-radius: 18px;
+  background:
+    radial-gradient(90% 90% at 90% 0%, rgba(255, 255, 255, .16), transparent 60%),
+    linear-gradient(150deg, var(--kopf-k1, #0E9C64), color-mix(in srgb, var(--kopf-k1, #0E9C64) 55%, var(--kopf-k2, #12C77E)));
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--akzent) 24%, transparent);
+}
+#invite-page .inv-hero b { font-size: 1.15rem; font-weight: 850; }
+#invite-page .inv-stats { gap: 10px; }
+#invite-page .inv-stat {
+  padding: 14px 10px; border: 0; border-radius: 16px;
+  background: var(--karte); box-shadow: var(--schatten-1);
+}
+#invite-page .inv-stat b { font-size: 1.4rem; font-weight: 850; }
+#invite-page .gm-h { margin: 20px 0 10px; font-size: 1.05rem; font-weight: 800; letter-spacing: -.01em; }
+#invite-page .inv-link {
+  min-height: 48px; padding: 0 14px; border: 0; border-radius: 14px;
+  background: var(--karte); box-shadow: var(--schatten-1);
+}
+#invite-page .inv-link .icon { color: var(--akzent-text); }
+#invite-page .form-row { flex-wrap: nowrap; gap: 8px; }
+#invite-page .form-row .btn { margin-top: 0; min-height: 46px; font-size: .9rem; }
+#inv-share { flex: 1; }
+#invite-page #inv-copy { flex: none; padding: 0 18px; }
+/* Auf dem Seitengrund braucht der ruhige Knopf eine weisse Flaeche */
+#invite-page .btn-ghost { background: var(--karte); box-shadow: var(--schatten-1); }
+#invite-page .inv-step {
+  align-items: center; padding: 12px 14px; border: 0; border-radius: 14px;
+  background: var(--karte); box-shadow: var(--schatten-1);
+}
+#invite-page .inv-step b { width: 26px; height: 26px; background: var(--akzent-tief); }
+#invite-page .inv-note { border-radius: 14px; background: var(--karte-2); }
+
+/* ---- Profil bearbeiten */
+#bio-card { padding: 18px; }
+#bio-card .card-h { font-size: 1.15rem; margin-bottom: 12px; }
+#bio-card .avatar-row { gap: 14px; flex-wrap: wrap; }
+#bio-card .avatar-big { width: 60px; height: 60px; font-size: 1.45rem; }
+#bio-card .avatar-row .btn { min-height: 36px; }
+#g-bio { min-height: 76px; }
+#bio-card .f-label { margin: 18px 0 8px; font-size: .86rem; font-weight: 750; opacity: 1; }
+#bio-card .f-label .opt { font-weight: 550; color: var(--muted); opacity: 1; }
+/* Die Auswahl-Zeilen teilen sich den Namen mit den Favoriten im Blatt — hier
+   ohne Kasten, nur die Chips */
+#fav-pickers .fav-row {
+  gap: 8px; margin: 0; padding: 0; border: 0; border-radius: 0;
+  background: none; box-shadow: none; cursor: default;
+}
+#fav-pickers .chip {
+  height: 36px; padding: 0 13px; border-radius: 11px;
+  background: var(--karte-2); border: 1px solid transparent; box-shadow: none;
+  font-size: .86rem; font-weight: 650; color: var(--text);
+}
+#fav-pickers .fav-row .chip.active {
+  background: var(--akzent-tief) !important; color: #fff !important; border-color: transparent !important;
+}
+#fav-pickers .fav-opt .brand-chip { flex: none; width: 24px; height: 24px; border-radius: 7px; margin-left: -4px; }
+#fav-pickers .fav-custom { flex-basis: 100%; margin-top: 2px; }
+#bio-card .form-row .input { margin-top: 0; min-height: 44px; }
+#bio-card .form-row .btn-small { min-height: 44px; padding: 0 16px; font-size: .86rem; }
+#g-public { accent-color: var(--akzent-tief); }
+
+/* ---- Fremdes Profil: Zurueck oben links, alles in einer weissen Karte */
+/* Abstand als Polsterung der Seite: ein Aussenabstand wuerde mit der Seite
+   zusammenfallen und den Knopf mit nach unten ziehen */
+#view-user { padding-top: 54px; }
+#view-user .up-back { top: 0; left: 0; }
+#user-page {
+  padding: 4px 16px 16px; border-radius: 18px;
+  background: var(--karte); box-shadow: var(--schatten-1);
+  --surface: var(--karte-2); --surface-2: var(--karte-2);
+}
+#user-page:has(> .status:only-child) { background: none; box-shadow: none; }
+#user-page .up-hero { gap: 6px; padding: 22px 0 4px; }
+#user-page .up-ava { width: 84px; height: 84px; font-size: 2rem; margin-bottom: 6px; }
+#user-page .up-ava:not([class*="pfb-"]) { box-shadow: 0 0 0 2.5px var(--karte), 0 0 0 5px var(--akzent); }
+#user-page .up-name { font-size: 1.35rem; font-weight: 850; letter-spacing: -.02em; line-height: 1.2; overflow-wrap: anywhere; }
+#user-page .up-bio { font-size: .9rem; line-height: 1.45; }
+#user-page .role-mod { color: var(--akzent-text); }
+#user-page .favs-view { gap: 10px; margin-top: 14px; }
+#user-page .up-actions { gap: 8px; }
+#user-page .up-actions .btn { min-height: 38px; }
+#up-ratings { margin-top: 18px; padding-top: 4px; border-top: 1px solid var(--linie); }
+#up-ratings .up-center-h { margin: 14px 0 10px; font-size: 1rem; font-weight: 800; }
+#up-ratings .chip { height: 36px; border-radius: 11px; background: var(--karte-2); border-color: transparent; font-weight: 700; }
+#up-ratings .up-rate-form { border: 0; border-radius: 14px; background: var(--karte-2); }
+#up-ratings .up-rate-row { padding: 10px 2px; }
+#up-ratings .up-rate-row + .up-rate-row { border-top: 1px solid var(--linie); }
+#up-ratings > .status { text-align: center; }
+
+/* ---- Container-Fenster (Shop/Inventar): Knoepfe wie ueberall im Profil */
+#case-backdrop .btn { border-radius: 12px; }
+#case-backdrop .btn-small { border-radius: 10px; }
+
+/* ---- Antippen: nur transform */
+#gm-inv-open:active, #gm-shop-open:active, #btn-edit-profile:active,
+#inv-page .gm-case:active, #shop-page .shop-card:active, #gifts-page .gift-row:active { transform: scale(.97); }
+body.sparsam :is(#shop-page .shop-card, #gifts-page .gift-row) { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  :is(#shop-page .shop-card, #gifts-page .gift-row) { transition: none; }
+}

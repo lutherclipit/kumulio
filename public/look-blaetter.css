@@ -1,1 +1,520 @@
 /* kumulio — neuer Look: blaetter (Runde 116). Laedt nach look.css. */
+/* =============================================================================
+   Blaetter und Dialoge: Deal-, Gutschein-, Marken- und Rabattcode-Blatt, das
+   Hinzufuegen-Formular, Kommentare, Dialoge (PIN, Rueckfrage), Toasts und die
+   Status-Kapsel. Grund ist --seite, Inhalte liegen auf weissen Karten.
+   Ecken maessig: Karten 16px, Felder/Knoepfe 12-13px, kleine Pillen 8-10px.
+   Kein backdrop-filter; Bewegung nur transform/opacity.
+   ========================================================================== */
+
+/* ---- Abdunkeln ohne Weichzeichner (auch auf Touch-Geraeten) */
+.overlay, .backdrop,
+:root[data-theme="dark"] .overlay, :root[data-theme="dark"] .backdrop {
+  background: rgba(14, 18, 24, .44);
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+}
+:root[data-theme="dark"] .overlay, :root[data-theme="dark"] .backdrop { background: rgba(0, 0, 0, .55); }
+
+/* ---- Blatt-Rahmen */
+.sheet {
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -10px 34px rgba(16, 24, 32, .16);
+}
+:root[data-theme="dark"] .sheet { box-shadow: 0 -10px 34px rgba(0, 0, 0, .5); }
+.sheet-handle { padding: 10px 0 8px; }
+.sheet-grabber { width: 38px; height: 5px; border-radius: 3px; background: rgba(16, 24, 32, .16); }
+:root[data-theme="dark"] .sheet-grabber { background: rgba(255, 255, 255, .26); }
+.sheet-content { padding: 6px 18px 112px; }
+.sheet.compact .sheet-content { padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px)); }
+/* Zurueck-Knopf unten rechts: runder weisser Knopf wie oben in der Kopfzeile */
+.sheet-fab {
+  width: 50px; height: 50px; right: 16px;
+  background: var(--karte); color: var(--text);
+  box-shadow: 0 1px 2px rgba(16, 24, 32, .08), 0 8px 22px rgba(16, 24, 32, .16);
+}
+:root[data-theme="dark"] .sheet-fab { background: var(--karte-2); color: #fff; box-shadow: 0 8px 22px rgba(0, 0, 0, .5); }
+.sheet-fab .icon { width: 22px; height: 22px; stroke-width: 2; }
+
+/* ---- Gemeinsame Bausteine im Blatt */
+#sheet-content .sheet-title { font-size: 1.35rem; font-weight: 800; letter-spacing: -.02em; line-height: 1.25; margin-top: 4px; }
+#sheet-content .sheet-section { margin-top: 22px; }
+#sheet-content .sheet-section h3 {
+  font-size: 1rem; font-weight: 800; color: var(--text); letter-spacing: -.01em;
+  gap: 7px; margin: 0 0 10px;
+}
+#sheet-content .sheet-section h3 .icon { width: 17px; height: 17px; color: var(--muted); }
+#sheet-content .gm-h {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 1rem; font-weight: 800; letter-spacing: -.01em; margin-bottom: 10px;
+}
+#sheet-content .gm-h .icon { width: 17px; height: 17px; color: var(--muted); }
+
+/* Knoepfe: Ecken 12-13px statt Pille */
+.sheet .btn, .modal .btn, .toast .btn, #req-toast .btn { border-radius: 12px; }
+.sheet .btn { font-weight: 750; }
+.sheet .btn-small, .modal .btn-small { padding: 8px 14px; font-size: .82rem; border-radius: 10px; }
+#sheet-content .btn-block { border-radius: 13px; padding: 15px; font-size: 1rem; font-weight: 800; }
+/* Graue Knoepfe direkt auf dem grauen Blattgrund waeren unsichtbar: dort weiss */
+#sheet-content > .btn-ghost,
+#sheet-content > .form-row > .btn-ghost,
+#sheet-content > .sheet-section > .form-row > .btn-ghost {
+  background: var(--karte); color: var(--text);
+  box-shadow: 0 1px 2px rgba(16, 24, 32, .06), 0 4px 12px rgba(16, 24, 32, .06);
+}
+/* Loeschen: ruhiger roter Knopf statt knallroter Flaeche */
+.sheet .btn-danger, .modal .btn-danger {
+  background: color-mix(in srgb, #E5484D 11%, var(--karte)) !important;
+  color: #C8363B !important; border-color: transparent !important;
+  box-shadow: none; border-radius: 13px; padding: 14px; font-size: .95rem; font-weight: 750;
+}
+:root[data-theme="dark"] .sheet .btn-danger, :root[data-theme="dark"] .modal .btn-danger {
+  background: color-mix(in srgb, #E5484D 18%, var(--karte)) !important; color: #FF8A8D !important;
+}
+/* "Karte aendern" und "Karte loeschen" nebeneinander, gleich breit */
+#sheet-content > .form-row:has(> .btn-danger) { flex-wrap: nowrap; }
+#sheet-content > .form-row:has(> .btn-danger) > .btn { flex: 1 1 0; min-width: 0; width: auto; padding: 13px 10px; font-size: .92rem; }
+
+/* Eingabefelder im Blatt: weiss auf grauem Grund, feine Kante */
+#sheet-content .input {
+  background: var(--karte); border: 1px solid var(--linie); border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(16, 24, 32, .04);
+}
+/* Einzeilige Felder gleich hoch (das Datumsfeld war sonst hoeher) */
+#sheet-content input.input { height: 46px; padding-top: 0; padding-bottom: 0; }
+#sheet-content .input:focus { border-color: var(--akzent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--akzent) 18%, transparent); }
+#sheet-content .input::placeholder { color: var(--muted); opacity: .8; }
+:root[data-theme="dark"] #sheet-content .input { border-color: rgba(255, 255, 255, .08); }
+#sheet-content .form-msg.ok { color: var(--akzent-text); }
+
+/* Kleine Pillen: 8px statt rund, ohne Kante */
+#sheet-content .pill {
+  border: 0; border-radius: 8px; padding: 4px 9px;
+  background: var(--karte); color: var(--muted);
+  font-size: .76rem; font-weight: 650; line-height: 1.3;
+}
+#sheet-content .pill .icon { width: 13px; height: 13px; }
+#sheet-content .pill-accent { background: var(--akzent-weich); color: var(--akzent-text); }
+#sheet-content .pill-warn { background: rgba(255, 200, 90, .22); color: var(--warn-text); }
+#sheet-content .pill-danger { background: color-mix(in srgb, #E5484D 12%, var(--karte)); color: #C8363B; }
+:root[data-theme="dark"] #sheet-content .pill-danger { color: #FF8A8D; }
+#sheet-content .badge { border-radius: 8px; }
+#sheet-content .badge-free { background: var(--akzent-weich); color: var(--akzent-text); }
+/* "VERMUTLICH VORBEI" kommt in Grossbuchstaben aus app.js — bis dort
+   "Vermutlich vorbei" steht, schreibt es die Anzeige normal */
+#sheet-content .badge-stale {
+  display: inline-block; text-transform: lowercase; letter-spacing: 0;
+  background: color-mix(in srgb, var(--muted) 15%, var(--karte)); color: var(--muted);
+  padding: 4px 9px; font-size: .76rem; font-weight: 700;
+}
+#sheet-content .badge-stale::first-letter { text-transform: uppercase; }
+
+.added-line, #sheet-content .added-line { font-size: .76rem; opacity: 1; color: var(--muted); margin-top: 16px; }
+
+/* ---- Kopf von Gutschein-, Marken- und Rabattcode-Blatt */
+#sheet-content .offer-head { gap: 12px; }
+#sheet-content .offer-head > .brand-chip, #sheet-content .offer-head > .brand-chip-wrap > .brand-chip {
+  width: 48px; height: 48px; flex: 0 0 48px; border-radius: 12px;
+}
+#sheet-content .offer-merchant {
+  text-transform: none; letter-spacing: -.015em;
+  font-size: 1.22rem; font-weight: 800; line-height: 1.2;
+}
+#sheet-content .offer-cat { font-size: .82rem; margin-top: 2px; }
+/* Schliessen im Marken-Blatt: runder weisser Symbolknopf */
+#sheet-content #wc-close {
+  width: 38px; height: 38px; flex: 0 0 38px; padding: 0; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--karte); color: var(--text); box-shadow: var(--schatten-1);
+}
+#sheet-content #wc-close .icon { width: 18px; height: 18px; }
+/* Sparkarte hinzufuegen (oben rechts): feine gestrichelte Kante statt dickem Rahmen */
+#sheet-content .karte-btn.neu {
+  padding: 6px; border-radius: 12px; background: var(--karte);
+  border: 1.5px dashed color-mix(in srgb, var(--muted) 45%, transparent);
+}
+#sheet-content .karte-btn.neu .brand-chip { width: 32px; height: 32px; border-radius: 9px; }
+#sheet-content .karte-plus { background: var(--akzent-tief); box-shadow: 0 0 0 2px var(--karte); }
+#sheet-content .karte-annot { font-size: .78rem; margin-top: 12px; }
+#sheet-content .zurueck-zeile { color: var(--akzent-text); }
+
+/* =============================================================================
+   Deal-Blatt
+   ========================================================================== */
+#sheet-content .gallery { margin-bottom: 16px; }
+#sheet-content .gallery-track { border-radius: 16px; }
+#sheet-content .gallery-track img { height: 240px; border-radius: 16px; background: var(--karte); }
+#sheet-content .gallery-dots i { border-radius: 50%; background: rgba(16, 24, 32, .18); }
+:root[data-theme="dark"] #sheet-content .gallery-dots i { background: rgba(255, 255, 255, .25); }
+#sheet-content .gallery-dots i.on { background: var(--akzent); }
+#sheet-content .brand-hero {
+  border: 0; border-radius: 16px; padding: 28px; margin-bottom: 16px;
+  background: color-mix(in srgb, var(--bc, #8A94A0) 12%, var(--karte));
+  box-shadow: var(--schatten-1);
+}
+#sheet-content .brand-hero img { width: 72px; height: 72px; border-radius: 16px; box-shadow: 0 6px 16px rgba(16, 24, 32, .12); }
+
+#sheet-content .sheet-subrow { gap: 6px; margin: 10px 0 2px; }
+/* Leerer Platzhalter (kein Vergleichspreis) soll keine Luecke reissen */
+#sheet-content .sheet-subrow > span:empty { display: none; }
+#sheet-content .sheet-price { font-size: 1.55rem; font-weight: 900; color: var(--preis); letter-spacing: -.02em; }
+#sheet-content .compare-price { font-size: .95rem; }
+#sheet-content .stars-meta { opacity: 1; color: var(--muted); }
+/* Senden und Teilen: runde weisse Symbolknoepfe, rechts in ihrer Zeile */
+#sheet-content .btn-share {
+  width: 34px; height: 34px; padding: 0; border-radius: 50%;
+  align-items: center; justify-content: center;
+  background: var(--karte); color: var(--text); box-shadow: var(--schatten-1);
+}
+#sheet-content .btn-share .icon { width: 17px; height: 17px; }
+:root[data-theme="dark"] #sheet-content .btn-share {
+  background: var(--karte-2); color: #fff;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .08), 0 4px 12px rgba(0, 0, 0, .4);
+}
+/* Mit Bild oben liegen beide auf dem Bild (oben rechts), sonst zusammen
+   rechtsbuendig in einer eigenen Zeile — nie auseinandergerissen */
+#sheet-content:has(> .gallery, > .brand-hero) { position: relative; }
+#sheet-content:has(> .gallery, > .brand-hero) .btn-share { position: absolute; top: 16px; z-index: 2; }
+#sheet-content:has(> .gallery, > .brand-hero) #btn-sheet-share { right: 28px; }
+#sheet-content:has(> .gallery, > .brand-hero) #btn-sheet-send { right: 70px; }
+#sheet-content:not(:has(> .gallery, > .brand-hero)) .sheet-subrow:has(> .btn-share)::after { content: ""; order: 1; flex-basis: 100%; height: 0; }
+#sheet-content:not(:has(> .gallery, > .brand-hero)) .sheet-subrow > .btn-share { order: 2; }
+#sheet-content:not(:has(> .gallery, > .brand-hero)) #btn-sheet-send { margin-left: auto; }
+#sheet-content .sheet-cta { margin-top: 18px; }
+#sheet-content .btn-compare {
+  margin-top: 10px; background: var(--karte); color: var(--text); border: 0;
+  box-shadow: var(--schatten-1); font-size: .9rem; font-weight: 750; padding: 13px;
+}
+#sheet-content .sheet-source { margin-top: 9px; }
+
+/* Merken: Herz-Knopf, gemerkt = rot gefuelltes Herz */
+#sheet-content .sheet-votebar { margin-top: 12px; }
+#sheet-content #btn-sheet-fav {
+  gap: 8px; padding: 10px 16px 10px 13px; border: 0; border-radius: 12px;
+  background: var(--karte); color: var(--text); box-shadow: var(--schatten-1);
+  font-size: .9rem; font-weight: 750; touch-action: manipulation;
+}
+#sheet-content #btn-sheet-fav .icon { width: 19px; height: 19px; stroke-width: 1.9; transition: transform .3s var(--spring); }
+#sheet-content #btn-sheet-fav.on .icon { color: #E0322B; fill: currentColor; }
+#sheet-content #btn-sheet-fav:active .icon { transform: scale(.82); }
+
+/* Preisvergleich als weisse Karte */
+#sheet-content .sheet-section.compare {
+  background: var(--karte); border-radius: 16px; padding: 14px 16px 12px; box-shadow: var(--schatten-1);
+}
+#sheet-content .compare-bar { height: 9px; border-radius: 5px; background: color-mix(in srgb, var(--muted) 30%, transparent); }
+#sheet-content .compare-bar.now { background: var(--akzent); box-shadow: none; }
+
+/* Beschreibung und Regeln: weisse Karten */
+#sheet-content .sheet-desc {
+  font-size: .93rem; line-height: 1.6; color: var(--text-soft);
+  background: var(--karte); border: 0; border-radius: 16px; padding: 14px 16px;
+  box-shadow: var(--schatten-1);
+}
+#sheet-content .desc-more { color: var(--akzent-text); font-weight: 750; }
+#sheet-content .rules-fold { background: var(--karte); border: 0; border-radius: 16px; box-shadow: var(--schatten-1); }
+#sheet-content .rules-fold summary { padding: 14px 16px; font-size: .92rem; font-weight: 750; color: var(--text); }
+#sheet-content .rules-fold summary > .icon:first-child { color: var(--muted); }
+#sheet-content .rules-fold summary .chev { color: var(--muted); }
+#sheet-content .rules-fold .rules { padding: 0 16px 14px; }
+#sheet-content .rule .icon { color: var(--akzent-text); }
+
+/* ---- Kommentare: eine Form statt drei (Karte, Antworten grau eingerueckt) */
+#sheet-content .sheet-comments { gap: 10px; }
+.sheet-comments .comment {
+  background: var(--karte); border: 0; border-radius: 16px;
+  padding: 12px 14px; margin: 0; box-shadow: var(--schatten-1);
+}
+.sheet-comments .comment .comment {
+  background: var(--karte-2); border: 0; border-radius: 12px;
+  margin: 10px 0 0; padding: 10px 12px; box-shadow: none;
+}
+.sheet-comments .comment-head { align-items: center; gap: 8px; margin: 0; }
+.sheet-comments .c-ava { width: 28px; height: 28px; font-size: .76rem; }
+.sheet-comments .comment-user { font-size: .86rem; font-weight: 800; color: var(--text); }
+.sheet-comments .comment-time { font-size: .74rem; color: var(--muted); }
+.sheet-comments .comment-text { font-size: .9rem; line-height: 1.5; margin: 7px 0 9px; }
+.sheet-comments .comment-actions { gap: 6px; margin-top: 0; }
+.sheet-comments .c-act {
+  height: 30px; padding: 0 10px; border-radius: 9px; opacity: 1;
+  background: var(--karte-2); color: var(--text-soft); font-size: .76rem; font-weight: 700;
+}
+.sheet-comments .comment .comment .c-act { background: var(--karte); }
+.sheet-comments .c-act .icon { width: 14px; height: 14px; }
+.sheet-comments .c-act.on { background: var(--akzent-weich); color: var(--akzent-text); }
+/* Geloeschter Kommentar: nur ein leiser Satz; Antworten darunter bleiben Karten */
+.sheet-comments .comment-tomb { opacity: 1; box-shadow: none; background: none; padding: 4px 2px; }
+.sheet-comments .comment-tomb > .comment-text { margin: 0; color: var(--muted); font-size: .84rem; font-style: italic; }
+.sheet-comments .comment-tomb > .comment { background: var(--karte); box-shadow: var(--schatten-1); }
+.sheet-comments .comment .comment-tomb { padding: 8px 2px 0; }
+.sheet-comments .comment-emote-pick { background: var(--karte-2); border: 0; border-radius: 12px; }
+.sheet-comments > .status { padding: 6px 2px; }
+#sheet-content #comment-text { margin-top: 12px; min-height: 64px; }
+
+/* =============================================================================
+   Gutschein-Blatt
+   ========================================================================== */
+#sheet-content .balance-big { font-size: 2.3rem; font-weight: 850; letter-spacing: -.03em; color: var(--text); line-height: 1.1; }
+#sheet-content .balance-big .stars-count { font-size: .88rem; font-weight: 650; letter-spacing: 0; margin-left: 4px; }
+/* Code-, PIN- und Verlaufszeilen: weisse Karten */
+#sheet-content .tx-row {
+  gap: 10px; min-height: 52px; margin-top: 8px; padding: 10px 10px 10px 14px;
+  background: var(--karte); border: 0; border-radius: 14px; box-shadow: var(--schatten-1);
+  font-size: .86rem;
+}
+#sheet-content .wallet-code { font-size: 1rem; letter-spacing: .07em; margin-top: 0; color: var(--text); }
+#sheet-content .tx-row .btn-small { flex: none; }
+#sheet-content .tx-row .btn, #sheet-content .rc-codefeld .btn { box-shadow: none; }
+#sheet-content .tx-row .btn-ghost { background: var(--karte-2); }
+#sheet-content .tx-amt { font-size: .95rem; min-width: 76px; }
+#sheet-content .tx-amt.minus { color: #D23A2C; }
+#sheet-content .tx-amt.plus { color: #1A9A55; }
+:root[data-theme="dark"] #sheet-content .tx-amt.minus { color: #FF7B6E; }
+:root[data-theme="dark"] #sheet-content .tx-amt.plus { color: #3FD68B; }
+#sheet-content .tx-note { color: var(--text); font-weight: 600; }
+#sheet-content .tx-note small { font-weight: 500; margin-top: 1px; }
+#sheet-content .tx-row.reverted { opacity: .55; box-shadow: none; background: var(--karte-2); }
+/* Bilder und Bild-Knoepfe */
+#sheet-content .wallet-img, #sheet-content .wallet-code-img { border-radius: 14px; box-shadow: var(--schatten-1); }
+#sheet-content .bild-aktionen { gap: 8px; margin-top: 10px; }
+#sheet-content .bild-btn {
+  min-height: 46px; padding: 0 12px; border: 0; border-radius: 13px;
+  background: var(--karte); box-shadow: var(--schatten-1); font-size: .86rem; font-weight: 750;
+}
+#sheet-content .bild-btn:active { border-color: transparent; }
+#sheet-content .bild-btn .icon { width: 18px; height: 18px; color: var(--akzent-text); }
+#sheet-content .bild-btn-rund { flex: 0 0 46px; padding: 0; }
+/* Schnellbetraege */
+#sheet-content .amt-presets { gap: 8px; margin-bottom: 2px; }
+#sheet-content .amt-presets .chip {
+  height: 38px; padding: 0 14px; border-radius: 10px; border: 0;
+  background: var(--karte); box-shadow: var(--schatten-1); font-size: .86rem; font-weight: 750;
+}
+#sheet-content .amt-presets .chip:active { transform: scale(.95); }
+#sheet-content .form-row > .input { margin-top: 0; }
+/* Abbuchen rot, Aufladen gruen (Geld raus / Geld rein), gleich breit */
+#sheet-content .btn-book-sub, #sheet-content .btn-book-add {
+  flex: 1 1 0; min-width: 0; padding: 13px 10px; border-radius: 12px; font-size: .95rem; font-weight: 800;
+}
+#sheet-content .btn-book-sub { background: #E5484D !important; box-shadow: 0 6px 16px rgba(229, 72, 77, .24); }
+#sheet-content .btn-book-add { background: #1FA85B !important; box-shadow: 0 6px 16px rgba(31, 168, 91, .24); }
+#sheet-content .btn-book-add ~ .form-msg { flex-basis: 100%; }
+/* Verschenken: ruhige weisse Zeile statt Metall-Knopf */
+#sheet-content .gift-btn {
+  justify-content: flex-start; gap: 12px; padding: 10px 14px 10px 10px; border-radius: 16px;
+  background: var(--karte); color: var(--text); box-shadow: var(--schatten-1);
+  font-size: .95rem; font-weight: 750;
+}
+#sheet-content .gift-btn .icon {
+  width: 38px; height: 38px; padding: 9px; box-sizing: border-box; border-radius: 11px;
+  background: var(--akzent-weich); color: var(--akzent-text);
+}
+#sheet-content .gift-btn:active { transform: scale(.98); box-shadow: var(--schatten-1); }
+
+/* =============================================================================
+   Marken-Blatt
+   ========================================================================== */
+#sheet-content .karte-fehlt, #sheet-content .app-hinweis, #sheet-content .cc-locked { font-size: .82rem; }
+#sheet-content .gs-vorschlag { gap: 10px; }
+#sheet-content .gs-vorschlag + .muted { margin-top: 8px !important; }
+#sheet-content .app-jump, #sheet-content .app-quest {
+  background: var(--karte); border: 0; border-radius: 16px; padding: 12px 14px;
+  box-shadow: var(--schatten-1);
+}
+#sheet-content .app-jump { box-shadow: inset 3px 0 0 var(--bc, var(--akzent)), var(--schatten-1); }
+#sheet-content .app-jump > .icon, #sheet-content .app-quest > .icon { color: var(--muted); }
+#sheet-content .app-quest.done { background: var(--akzent-weich); box-shadow: none; }
+#sheet-content .app-quest.done .app-quest-check { color: var(--akzent-text); }
+/* Die Sparkarte als Bankkarte: der Feed nutzt dieselben Klassennamen (.dk-marke,
+   .dk-hinweis) fuer seine Kacheln — hier gelten wieder die Kartenwerte */
+.debitkarte .dk-marke {
+  font-size: .84rem; font-weight: 800; letter-spacing: .01em; color: inherit;
+  overflow: visible; white-space: normal;
+}
+.debitkarte .dk-hinweis {
+  position: static; background: none; color: inherit; border-radius: 0;
+  padding: 0 18px; margin-top: 40px; font-size: .74rem; font-weight: 500; opacity: .8;
+}
+.sheet .dk-unten, .modal .dk-unten, .sheet .dk-hinten-marke, .modal .dk-hinten-marke { text-transform: none; letter-spacing: .01em; }
+
+/* =============================================================================
+   Rabattcode-Blatt
+   ========================================================================== */
+#sheet-content .rc-gross { border-radius: 16px; padding: 20px 16px; margin: 14px 0 10px; }
+#sheet-content .rc-codefeld {
+  padding: 10px 10px 10px 16px; border-radius: 14px; background: var(--karte);
+  border: 1.5px dashed color-mix(in srgb, var(--muted) 45%, transparent);
+}
+#sheet-content .rc-info { font-size: .82rem; }
+#sheet-content .rc-aktionen .btn-small { padding: 10px 16px; font-size: .86rem; }
+
+/* =============================================================================
+   Hinzufuegen-Formular
+   ========================================================================== */
+#sheet-content .wa-modus {
+  padding: 4px; margin: 12px 0 14px; border: 0; border-radius: 13px;
+  background: var(--karte); box-shadow: var(--schatten-1);
+}
+#sheet-content .wa-modus-flaeche {
+  border-radius: 10px; background: var(--akzent-tief);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--akzent) 26%, transparent);
+}
+#sheet-content .wa-modus-knopf { padding: 10px 6px; font-size: .92rem; }
+#sheet-content .wa-modus-knopf.an { color: #fff; }
+#sheet-content .wa-platz { font-size: .8rem; }
+#sheet-content .sheet-title + .wa-form > .wa-platz:first-child { margin-top: 6px; }
+/* Rabattcode: Betrag und Schalter Euro/Prozent gleich hoch in einer Zeile */
+#sheet-content .rc-wertzeile { align-items: stretch; }
+#sheet-content .rc-wertzeile .input { margin-top: 0; }
+#sheet-content .wa-modus.klein { margin: 0; }
+#sheet-content .wa-modus.klein .wa-modus-knopf { padding: 0 4px; font-size: .95rem; }
+#sheet-content .rc-eingabe::placeholder { font-family: var(--rund); letter-spacing: 0; font-weight: 500; }
+#sheet-content .rc-mbw-zeile {
+  background: var(--karte); border: 0; border-radius: 14px; box-shadow: var(--schatten-1);
+  padding: 12px 14px; margin: 16px 0 8px;
+}
+#sheet-content .dropzone {
+  border: 1.5px dashed color-mix(in srgb, var(--muted) 42%, transparent); border-radius: 16px;
+  background: var(--karte); padding: 16px 14px 14px;
+}
+#sheet-content .dropzone.drag { border-color: var(--akzent); background: var(--akzent-weich); }
+#sheet-content .dropzone-empty .icon { color: var(--akzent-text); }
+#sheet-content .dropzone .form-row { gap: 8px; }
+#sheet-content .dropzone .btn-ghost { background: var(--karte-2); }
+#sheet-content .f-label { font-size: .84rem; font-weight: 750; opacity: 1; margin: 16px 0 6px; }
+#sheet-content .f-label .opt { color: var(--muted); opacity: 1; }
+#sheet-content .f-label + .input, #sheet-content .form-grid .input { margin-top: 0; }
+#sheet-content .vendor-grid { gap: 8px; }
+#sheet-content .vendor-tile {
+  border: 0; border-radius: 13px; background: var(--karte); box-shadow: var(--schatten-1);
+  padding: 11px 4px 9px; font-size: .74rem;
+}
+#sheet-content .vendor-tile .brand-chip { border-radius: 10px; }
+#sheet-content .vendor-tile.on { box-shadow: 0 0 0 2px var(--akzent), var(--schatten-1); }
+#sheet-content .vendor-grid.err { outline-color: rgba(229, 72, 77, .45); border-radius: 14px; }
+#sheet-content .scan-frame { border-radius: 14px; }
+#sheet-content .scan-line {
+  background: linear-gradient(90deg, transparent, var(--akzent), transparent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--akzent) 70%, transparent);
+}
+#sheet-content .scan-progress-track { border-radius: 4px; }
+#sheet-content .scan-progress-fill { border-radius: 4px; background: var(--akzent); }
+#sheet-content .scan-progress.done span { color: var(--akzent-text); }
+#sheet-content #wa-save { min-width: 150px; padding: 14px 26px; border-radius: 13px; font-size: .95rem; font-weight: 800; }
+
+/* ---- Verschenken im Blatt */
+#sheet-content .back-btn { border: 0; background: var(--karte); box-shadow: var(--schatten-1); }
+#sheet-content .schenk-kopf .sheet-title { margin-top: 0; }
+#sheet-content .gp-label { font-size: .84rem; font-weight: 750; }
+#sheet-content .gp-freund {
+  border: 0; border-radius: 13px; padding: 9px 12px; background: var(--karte); box-shadow: var(--schatten-1);
+}
+#sheet-content .gp-freund.gewaehlt { background: var(--karte); box-shadow: 0 0 0 2px var(--akzent), var(--schatten-1); }
+#sheet-content .gp-freund .icon { color: var(--akzent-text); }
+#sheet-content .gp-ava { background: var(--akzent-weich); color: var(--akzent-text); }
+#sheet-content .gp-haftung { background: var(--karte); border: 0; border-radius: 12px; box-shadow: var(--schatten-1); }
+#sheet-content .gp-haftung a { color: var(--akzent-text); }
+#sheet-content .gp-senden { border-radius: 13px; width: 100%; }
+
+/* ---- Bild- und Kartenlupe: abgedunkelt statt weichgezeichnet */
+.lupe-grund { background: rgba(10, 14, 20, .78); backdrop-filter: none; -webkit-backdrop-filter: none; }
+.lupe-knoepfe .btn-ghost { backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(255, 255, 255, .14); border-radius: 12px; }
+.bl-zu { backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(255, 255, 255, .16); }
+.bl-wahl {
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+  background: rgba(18, 22, 30, .86); border-radius: 13px;
+}
+.bl-wahl-flaeche { border-radius: 10px; }
+
+/* =============================================================================
+   Dialoge
+   ========================================================================== */
+.modal, :root[data-theme="dark"] .modal {
+  background: var(--karte); border: 0; border-radius: 18px;
+  box-shadow: var(--schatten-2); padding: 24px 22px 20px;
+}
+.modal .card-h { font-size: 1.15rem; font-weight: 800; letter-spacing: -.015em; }
+.modal .form-row { gap: 8px; }
+.modal .btn-small { padding: 10px 16px; font-size: .88rem; }
+.modal .btn-ghost { background: var(--karte-2); color: var(--text); box-shadow: none; }
+.modal .input { border-radius: 12px; }
+.modal .link-knopf { color: var(--akzent-text); }
+/* Rueckfrage: Text links, Knoepfe rechts */
+.rueckfrage .modal { max-width: 400px; padding: 22px 20px 18px; }
+.rueckfrage .modal p { color: var(--text); }
+/* PIN-Dialog */
+.pin-modal { max-width: 340px; padding: 24px 18px 18px; }
+.pin-modal .pin-text { margin: 4px 0 16px; }
+.pin-fortschritt i { border-radius: 2px; }
+.pin-fortschritt i.an { background: var(--akzent); }
+.pin-modal .ws-tasten.klein { gap: 8px 18px; margin: 2px 0 12px; }
+.pin-modal .ws-tasten.klein .ws-taste { width: 60px; height: 60px; }
+.pin-modal .ws-taste:active { background: var(--karte-2); }
+/* Neu in kumulio: Kopf in der Rang-Farbe, sonst wie jede Karte */
+.neu-modal { padding: 0; }
+.neu-icon { border-radius: 10px; background: var(--akzent-weich); color: var(--akzent-text); }
+:root[data-theme="dark"] .neu-icon { color: var(--akzent-text); }
+.neu-liste li + li { border-top-color: var(--linie); }
+.neu-ok { border-radius: 13px; }
+/* Einfuehrung und Interessen-Auswahl (Dialoge beim Start) */
+.onboarding-chip { border-radius: 13px; border-color: var(--linie); background: var(--karte-2); }
+.onboarding-chip.active { border-color: var(--akzent); background: var(--akzent-weich); }
+.onboarding-chip.active .icon { color: var(--akzent-text); }
+.tut-icon { background: var(--akzent-weich); color: var(--akzent-text); }
+/* Verschenken-Fenster */
+.gift-freund { border-radius: 12px; border-color: var(--linie); background: var(--karte-2); }
+.gift-freund.on { border-color: var(--akzent); background: var(--akzent-weich); box-shadow: 0 0 0 1px var(--akzent); }
+.gift-emote:active, .gift-emote.tapped { background: var(--akzent-weich); }
+.gift-msg-box { background: var(--karte-2); border: 0; border-radius: 12px; }
+.gift-haftung a { color: var(--akzent-text); }
+.gift-go { background: var(--akzent-tief); border-radius: 13px; }
+
+/* =============================================================================
+   Toasts und Status-Kapsel
+   ========================================================================== */
+.toast, :root[data-theme="dark"] .toast {
+  background: var(--karte); border: 0; border-radius: 16px; padding: 14px 16px;
+  box-shadow: var(--schatten-2);
+}
+.toast-head { font-size: .92rem; font-weight: 800; }
+.toast-head .icon { color: var(--akzent-text); }
+.toast-text { font-size: .84rem; }
+.toast-actions { gap: 8px; }
+.toast-actions .btn { padding: 8px 14px; font-size: .82rem; border-radius: 10px; }
+
+/* Freundschaftsanfrage: Text oben, die beiden Knoepfe gleich breit darunter */
+#req-toast, :root[data-theme="dark"] #req-toast {
+  display: grid; grid-template-columns: 38px 1fr 1fr; align-items: center; gap: 10px 12px;
+  width: min(460px, calc(100vw - 24px)); padding: 14px;
+  background: var(--karte); border: 0; border-radius: 16px; box-shadow: var(--schatten-2);
+  font-size: .9rem; line-height: 1.35;
+}
+#req-toast.hidden { display: none; }
+#req-toast > .avatar-mini { width: 38px; height: 38px; font-size: .95rem; grid-row: 1; }
+#req-toast > span:nth-child(2) { grid-column: 2 / 4; min-width: 0; }
+#req-toast #rt-ok { grid-column: 2; grid-row: 2; }
+#req-toast #rt-no { grid-column: 3; grid-row: 2; }
+#req-toast .btn { padding: 10px 12px; font-size: .86rem; border-radius: 10px; }
+#req-toast .btn-ghost { background: var(--karte-2); color: var(--text); box-shadow: none; }
+
+/* Status-Kapsel oben: dunkles Schild, maessig gerundet */
+.island {
+  border-radius: 14px; padding: 9px 16px;
+  background: #1B2129; color: #fff;
+  font-size: .84rem; font-weight: 700; letter-spacing: -.005em;
+  box-shadow: 0 8px 24px rgba(16, 24, 32, .22);
+}
+:root[data-theme="dark"] .island { background: #EEF1F5; color: #14171B; box-shadow: 0 8px 24px rgba(0, 0, 0, .5); }
+
+/* Dunkelmodus: Schatten tragen dort kaum — schwebende Flaechen bekommen eine
+   feine helle Kante, damit sie sich vom Grund loesen */
+:root[data-theme="dark"] .modal,
+:root[data-theme="dark"] .toast,
+:root[data-theme="dark"] #req-toast {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .07), var(--schatten-2);
+}
+
+/* ---- Ruhige Bewegung */
+body.sparsam #sheet-content #btn-sheet-fav .icon, body.sparsam #sheet-content .amt-presets .chip { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  #sheet-content #btn-sheet-fav .icon { transition: none; }
+}

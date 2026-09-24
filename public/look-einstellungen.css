@@ -1,1 +1,283 @@
-/* kumulio — neuer Look: einstellungen (Runde 116). Laedt nach look.css. */
+/* kumulio — neuer Look: einstellungen (Runde 116). Laedt nach look.css.
+   Einstellungen als weisse Gruppen (iOS-Stil) mit Symbol-Kacheln je Zeile,
+   dazu die Seitenleiste oben links (#top-menu) im selben Stil. */
+
+/* =============================================================================
+   Einstellungen (#view-settings)
+   ========================================================================== */
+#view-settings {
+  --ein-rot: #D93036;
+  --ein-rot-weich: color-mix(in srgb, #E5484D 12%, var(--karte));
+  --ein-kachel: 32px;
+  --ein-einzug: 46px; /* Kachel + Abstand: hier beginnen Text und Trennlinie */
+}
+:root[data-theme="dark"] #view-settings {
+  --ein-rot: #FF7A73;
+  --ein-rot-weich: color-mix(in srgb, #FF5A52 16%, var(--karte));
+}
+
+/* Kopf: Titel mittig, runder weisser Zurueck-Knopf */
+#view-settings .search-head { min-height: 44px; margin: 2px 0 14px; }
+#view-settings .search-head h1 { font-size: 1.35rem; font-weight: 850; letter-spacing: -.02em; line-height: 1.2; }
+#view-settings .back-btn {
+  width: 42px; height: 42px;
+  background: var(--karte); border: 0; box-shadow: var(--schatten-1); color: var(--text);
+}
+
+/* Gruppen */
+#view-settings .card { padding: 16px 16px 4px; margin-bottom: 14px; border-radius: 18px; }
+#view-settings .card-h { font-size: 1.1rem; font-weight: 800; letter-spacing: -.015em; line-height: 1.25; margin: 0 0 4px; }
+
+/* Zeilen: Kachel links, Text, Schalter/Knoepfe rechts; Trennlinie ab dem Text */
+#view-settings .settings-row {
+  --ico: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='M4 7h8M17.5 7H20M4 17h2.5M9 17h11'/><circle cx='15' cy='7' r='2.2'/><circle cx='6.8' cy='17' r='2.2'/></svg>");
+  position: relative;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-height: 60px; padding: 12px 0 12px var(--ein-einzug);
+  border: 0;
+}
+#view-settings .settings-row + .settings-row {
+  background: linear-gradient(var(--linie), var(--linie)) no-repeat var(--ein-einzug) 0 / calc(100% - var(--ein-einzug)) 1px;
+}
+#view-settings .settings-row::before,
+#view-settings .settings-row::after {
+  content: ""; position: absolute; top: 50%; pointer-events: none;
+}
+#view-settings .settings-row::before {
+  left: 0; width: var(--ein-kachel); height: var(--ein-kachel); margin-top: calc(var(--ein-kachel) / -2);
+  border-radius: 10px; background: var(--akzent-weich);
+}
+#view-settings .settings-row::after {
+  left: 6px; width: 20px; height: 20px; margin-top: -10px;
+  background: var(--akzent-text);
+  -webkit-mask: var(--ico) center / contain no-repeat; mask: var(--ico) center / contain no-repeat;
+}
+#view-settings .settings-label { flex: 1 1 auto; min-width: 0; gap: 2px; }
+#view-settings .settings-label b { font-size: .95rem; font-weight: 700; line-height: 1.3; letter-spacing: -.005em; }
+#view-settings .settings-label span { font-size: .8rem; line-height: 1.4; color: var(--muted); opacity: 1; overflow-wrap: anywhere; }
+
+/* Symbole je Zeile (gleiche Strichstaerke wie die App-Symbole) */
+#view-settings .settings-row:has(#sw-theme) {
+  --ico: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z'/></svg>");
+}
+#view-settings .settings-row:has(#sw-sound) {
+  --ico: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 9.5h3L12 6v12l-4.5-3.5h-3z'/><path d='M15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10'/></svg>");
+}
+#view-settings .settings-row:has(#sw-push) {
+  --ico: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='M6 17h12c-1.2-1.3-1.8-2.5-1.8-4.6V10a4.2 4.2 0 1 0-8.4 0v2.4C7.8 14.5 7.2 15.7 6 17z'/><path d='M10.5 19.6a1.8 1.8 0 0 0 3 0'/></svg>");
+}
+#view-settings .settings-row:has(#sw-n-msgs) {
+  --ico: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='M12 4c5 0 9 3.4 9 7.5S17 19 12 19c-1 0-2-.1-2.9-.4L4 20l1.6-3.4C4.6 15.4 3 13.6 3 11.5 3 7.4 7 4 12 4z'/></svg>");
+}
+#view-settings .settings-row:has(#sw-n-reminder) {
+  --ico: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/><path d='M12 7.5V12l3 2'/></svg>");
+}
+#view-settings .settings-row:has(#sw-laden) {
+  --ico: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='M12 21s-6.5-5.7-6.5-11a6.5 6.5 0 0 1 13 0c0 5.3-6.5 11-6.5 11z'/><circle cx='12' cy='10' r='2.4'/></svg>");
+}
+#view-settings .settings-row:has(#si-pin-an),
+#view-settings .settings-row:has(#si-pin-aendern) {
+  --ico: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><rect x='5' y='10.5' width='14' height='9.5' rx='2'/><path d='M8 10.5V7.5a4 4 0 0 1 8 0v3M12 14v2.5'/></svg>");
+}
+#view-settings .settings-row:has(#si-bio) {
+  --ico: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='M6.5 8.5A6.5 6.5 0 0 1 18.3 10M5.5 13.5c.6-1 .9-2 .9-3.2M8.8 20c.9-1.6 1.4-3.4 1.4-5.3v-2a1.8 1.8 0 0 1 3.6 0v1.4M12 20.5c1.4-2 2.2-4.4 2.2-6.8M15.8 20.2c.9-1.7 1.4-3.6 1.5-5.6M18.8 14.2c.1-.6.1-1.2.1-1.8M8.4 11.5A3.6 3.6 0 0 1 15.6 12'/></svg>");
+}
+#view-settings .settings-row:has(#si-2fa) {
+  --ico: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.5l7 2.6v5.4c0 4.3-2.9 7.7-7 9-4.1-1.3-7-4.7-7-9V6.1z'/><path d='M9 12.2l2.1 2.1 4-4.1'/></svg>");
+}
+/* E-Mail: die Zeile hat nicht immer einen Knopf, sie folgt aber immer der 2FA-Zeile */
+#view-settings .settings-row:has(#si-2fa) + .settings-row {
+  --ico: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><rect x='3.5' y='5.5' width='17' height='13' rx='2'/><path d='M4.5 7.5l7.5 5.5 7.5-5.5'/></svg>");
+}
+#view-settings .settings-row:has(#si-aufraeumen) {
+  --ico: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM18.5 15.5l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9z'/></svg>");
+}
+#view-settings .settings-row:has(#si-korb) {
+  --ico: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 7h15M9.5 7V4.8h5V7M6.5 7l.9 12.2a1.6 1.6 0 0 0 1.6 1.5h6a1.6 1.6 0 0 0 1.6-1.5L17.5 7M10.2 11v5.5M13.8 11v5.5'/></svg>");
+}
+#view-settings .settings-row:has(#btn-logout) {
+  --ico: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='M14.5 4.5H17a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-2.5M10 8l-4 4 4 4M6 12h9.5'/></svg>");
+}
+#view-settings .settings-row:has(#btn-account-delete) {
+  --ico: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><circle cx='10' cy='8.5' r='3.5'/><path d='M3.5 19.5c1.1-2.9 3.7-4.5 6.5-4.5 1.3 0 2.5.3 3.6.9M16 15l4 4M20 15l-4 4'/></svg>");
+}
+/* Konto-Gruppe in Rot */
+#view-settings #danger-card .settings-row::before { background: var(--ein-rot-weich); }
+#view-settings #danger-card .settings-row::after { background: var(--ein-rot); }
+
+/* Schalter: weniger rund (Wunsch des Nutzers), an in der Rang-Farbe */
+#view-settings .switch { flex: 0 0 50px; }
+#view-settings .switch-slider { border-radius: 12px; background: #E1E4E9; box-shadow: none; }
+#view-settings .switch-slider::before { border-radius: 9px; box-shadow: 0 1px 3px rgba(10, 14, 18, .22), 0 2px 6px rgba(10, 14, 18, .1); }
+#view-settings .switch input:checked + .switch-slider { background: var(--akzent); }
+#view-settings .switch input:focus-visible + .switch-slider { outline: 2px solid var(--akzent-text); outline-offset: 2px; }
+:root[data-theme="dark"] #view-settings .switch-slider { background: #39414B; }
+
+/* Knoepfe in den Zeilen */
+#view-settings .sr-knoepfe { flex: none; flex-wrap: nowrap; gap: 6px; }
+#view-settings .settings-row .btn {
+  flex: none; width: auto; min-height: 34px; padding: 0 14px; border-radius: 10px;
+  font-size: .82rem; font-weight: 750; line-height: 1.2; white-space: nowrap; box-shadow: none;
+}
+#view-settings .settings-row .btn-ghost { background: var(--karte-2); color: var(--text); }
+#view-settings .settings-row .btn:disabled { opacity: .5; cursor: default; }
+/* Abmelden und Loeschen: ruhiges Rot statt knalliger Flaeche
+   (style.css setzt .btn-danger mit !important) */
+#view-settings .settings-row .btn-danger {
+  background: var(--ein-rot-weich) !important; color: var(--ein-rot) !important;
+  border-color: transparent !important; width: auto;
+}
+
+/* Hinweise unter den Schaltern (Push, Standort) */
+#view-settings .form-msg:empty { display: none; }
+#view-settings .form-msg { padding: 0 0 12px var(--ein-einzug); line-height: 1.4; }
+#view-settings .legal-line { margin-top: 18px; }
+
+/* Handys: Knoepfe rutschen unter den Text, damit Titel wie
+   "Zwei-Faktor-Anmeldung" nicht umbrechen und lange Hinweise volle Zeilen
+   haben; die Kachel steht dann beim Titel. Schalter bleiben rechts. */
+@media (max-width: 370px) {
+  #view-settings .card { padding-inline: 14px; }
+  #view-settings { --ein-einzug: 44px; }
+}
+@media (max-width: 430px) {
+  #view-settings .settings-row:has(> .btn, > .sr-knoepfe) { flex-wrap: wrap; row-gap: 10px; }
+  #view-settings .settings-row:has(> .btn, > .sr-knoepfe) > .settings-label { flex-basis: 100%; }
+  #view-settings .settings-row:has(> .btn, > .sr-knoepfe)::before { top: 6px; margin-top: 0; }
+  #view-settings .settings-row:has(> .btn, > .sr-knoepfe)::after { top: 12px; margin-top: 0; }
+}
+
+/* =============================================================================
+   Seitenleiste oben links (#top-menu): heller Grund, weisse Gruppen
+   ========================================================================== */
+#top-menu-backdrop { backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(14, 18, 24, .42); }
+#top-menu {
+  background: var(--seite); border-right: 0; border-radius: 0 18px 18px 0;
+  box-shadow: 16px 0 48px rgba(16, 24, 32, .18);
+}
+:root[data-theme="dark"] #top-menu { box-shadow: 16px 0 48px rgba(0, 0, 0, .5), 1px 0 0 var(--linie); }
+#top-menu .tm-scroll {
+  padding: calc(env(safe-area-inset-top, 0px) + 66px) 14px calc(env(safe-area-inset-bottom, 0px) + 24px) calc(env(safe-area-inset-left, 0px) + 14px);
+}
+
+/* Profil-Kopf als weisse Karte */
+#top-menu .tm-head {
+  gap: 12px; padding: 14px 12px 14px 14px;
+  background: var(--karte); border: 0; border-radius: 18px; box-shadow: var(--schatten-1);
+}
+#top-menu .tm-head:focus-visible { border-radius: 18px; }
+#top-menu .tm-head .avatar-big { width: 52px; height: 52px; font-size: 1.2rem; }
+#top-menu .tm-head > div { min-width: 0; }
+#top-menu .tm-name { font-size: 1.08rem; font-weight: 850; letter-spacing: -.01em; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#top-menu .tm-head .tm-sub { margin-top: 3px; font-size: .8rem; font-weight: 550; line-height: 1.35; color: var(--muted); opacity: 1; }
+#top-menu .tm-head > .icon { flex: none; width: 16px; height: 16px; color: var(--muted); }
+
+/* Abschnittstitel in normaler Schreibweise */
+#top-menu .tm-section {
+  margin: 22px 4px 8px; color: var(--text); opacity: 1;
+  font-size: 1rem; font-weight: 800; letter-spacing: -.01em; text-transform: none; line-height: 1.3;
+}
+#top-menu .tm-section-row { align-items: center; }
+#top-menu .tm-mini-link { padding: 4px 0; font-size: .84rem; font-weight: 700; color: var(--akzent-text); }
+
+/* Freunde: eine weisse Gruppe */
+#tm-friends { background: var(--karte); border-radius: 16px; box-shadow: var(--schatten-1); padding: 2px 12px; }
+#tm-friends:empty { display: none; }
+#tm-friends:has(> .tm-sub) { padding: 12px 14px; }
+#tm-friends > .tm-sub { font-size: .86rem; color: var(--muted); opacity: 1; }
+#top-menu .tm-req { gap: 10px; min-height: 56px; padding: 10px 0; }
+#tm-friends .tm-req + .tm-req {
+  background: linear-gradient(var(--linie), var(--linie)) no-repeat 46px 0 / calc(100% - 46px) 1px;
+}
+#top-menu .tm-req .avatar-mini { flex: none; width: 36px; height: 36px; font-size: .9rem; }
+#top-menu .tm-friend-open { min-width: 0; }
+#top-menu .tm-friend-open > span:last-child,
+#top-menu .tm-req > span:nth-child(2) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#top-menu .tm-req .btn-small {
+  flex: none; width: auto; min-height: 32px; padding: 0 12px; border-radius: 10px;
+  font-size: .8rem; font-weight: 750; box-shadow: none;
+}
+#top-menu .tm-req .btn-ghost { background: var(--karte-2); color: var(--text); }
+
+/* Anfragen und Menuepunkte sind einzelne Zeilen direkt in der Leiste (kein
+   Rahmen im Markup); sie werden per Rundung und Trennlinie zu Gruppen verbunden.
+   Der Schatten sitzt je Zeile auf einer Ebene hinter allen Zeilen (z-index -1),
+   so entstehen keine Schattenkanten zwischen den Zeilen. */
+#tm-scroll > .tm-req,
+#top-menu .tm-item { position: relative; background-color: var(--karte); }
+#tm-scroll > .tm-req::before,
+#top-menu .tm-item::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  border-radius: inherit; box-shadow: var(--schatten-1);
+}
+/* Name oben, darunter Annehmen | Ablehnen nebeneinander (sonst bleibt fuer
+   den Namen kaum Platz) */
+#tm-scroll > .tm-req {
+  display: grid; grid-template-columns: 36px minmax(0, 1fr) minmax(0, 1fr); column-gap: 10px; row-gap: 8px;
+  align-items: center; padding: 12px;
+}
+#tm-scroll > .tm-req > .avatar-mini { grid-column: 1; grid-row: 1; }
+#tm-scroll > .tm-req > span:nth-child(2) { grid-column: 2 / 4; grid-row: 1; }
+#tm-scroll > .tm-req > [data-freq-ok] { grid-column: 2; grid-row: 2; }
+#tm-scroll > .tm-req > [data-freq-no] { grid-column: 3; grid-row: 2; }
+#tm-scroll > .tm-section + .tm-req { border-radius: 16px 16px 0 0; }
+#tm-scroll > .tm-req:has(+ :not(.tm-req)) { border-bottom-left-radius: 16px; border-bottom-right-radius: 16px; }
+#tm-scroll > .tm-req + .tm-req {
+  background-image: linear-gradient(var(--linie), var(--linie));
+  background-repeat: no-repeat; background-position: 58px 0; background-size: calc(100% - 70px) 1px;
+}
+
+/* Zeilen einer Gruppe blenden gestaffelt ein, ohne seitlich zu gleiten
+   (sonst reisst die weisse Gruppe beim Oeffnen kurz auseinander) */
+#top-menu.open .tm-scroll > .tm-item, #top-menu.open .tm-scroll > .tm-req { animation-name: tmZeileRein; }
+@keyframes tmZeileRein { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  #top-menu.open .tm-scroll > .tm-item, #top-menu.open .tm-scroll > .tm-req { animation: none; }
+}
+
+/* Menuepunkte: drei Gruppen (Sammeln | Freunde & Merkliste | Einstellungen),
+   Symbol in einer getoenten Kachel, Pfeil rechts */
+#top-menu .tm-item {
+  gap: 12px; min-height: 52px; margin: 0; padding: 9px 12px; border-radius: 0; white-space: nowrap;
+  color: var(--text); font-size: .95rem; font-weight: 700; line-height: 1.25;
+  -webkit-tap-highlight-color: transparent;
+}
+#top-menu .tm-item + .tm-item {
+  background-image: linear-gradient(var(--linie), var(--linie));
+  background-repeat: no-repeat; background-position: 56px 0; background-size: calc(100% - 56px) 1px;
+}
+#top-menu .tm-item:not(.tm-item + .tm-item), #top-menu #tm-invite, #top-menu #tm-settings {
+  margin-top: 16px; border-radius: 16px 16px 0 0; background-image: none;
+}
+#top-menu #tm-quests, #top-menu #tm-favs, #top-menu .tm-item:last-child { border-bottom-left-radius: 16px; border-bottom-right-radius: 16px; }
+#top-menu #tm-settings:last-child { border-radius: 16px; }
+@media (hover: hover) { #top-menu .tm-item:hover { background-color: var(--karte-2); } }
+#top-menu .tm-item:active { background-color: var(--karte-2); }
+#top-menu .tm-item:focus-visible { outline: 2px solid var(--akzent-text); outline-offset: -2px; }
+#top-menu .tm-item > .icon {
+  flex: none; box-sizing: border-box; width: 32px; height: 32px; padding: 6px;
+  border-radius: 10px; background: var(--akzent-weich); color: var(--akzent-text); stroke-width: 1.9;
+}
+#top-menu .tm-item::after {
+  content: ""; flex: none; width: 16px; height: 16px; margin-left: auto;
+  background: var(--muted); opacity: .5;
+  -webkit-mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M9 6l6 6-6 6'/></svg>") center / contain no-repeat;
+  mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M9 6l6 6-6 6'/></svg>") center / contain no-repeat;
+}
+/* Hinweis (+1.000 Funken) und Zaehler stehen rechts, direkt vor dem Pfeil */
+#top-menu .tm-item .tm-sub-hint,
+#top-menu .tm-item .dm-unread-pill { margin-left: auto; }
+#top-menu .tm-item:has(.tm-sub-hint, .dm-unread-pill)::after { margin-left: 0; }
+#top-menu .tm-item .tm-sub-hint { display: inline-flex; align-items: center; gap: 3px; font-size: .78rem; font-weight: 700; color: var(--muted); }
+#top-menu .tm-item .dm-unread-pill {
+  min-width: 22px; height: 22px; padding: 0 7px; border-radius: 8px;
+  background: var(--akzent-tief); color: #fff; font-size: .74rem; font-weight: 800; line-height: 1;
+}
+/* Schmale Handys: etwas enger, damit "Freunde einladen +1.000" in eine Zeile passt */
+@media (max-width: 370px) {
+  #top-menu .tm-scroll { padding-right: 12px; padding-left: calc(env(safe-area-inset-left, 0px) + 12px); }
+  #top-menu .tm-item { gap: 10px; padding-inline: 10px 8px; }
+  #top-menu .tm-item + .tm-item { background-position: 52px 0; background-size: calc(100% - 52px) 1px; }
+  #top-menu .tm-item .tm-sub-hint { font-size: .72rem; }
+  #top-menu .tm-item::after { width: 14px; height: 14px; }
+}

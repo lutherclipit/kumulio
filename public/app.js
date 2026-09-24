@@ -10187,13 +10187,17 @@ function setChatMode(mode, partner) {
 }
 
 function dmMsgHtml(m) {
+  const own = m.from === state.userName;
+  // Absender und Zeit stehen am Element: chatGruppieren() fasst danach
+  // aufeinanderfolgende Nachrichten derselben Person zusammen
+  const daten = `data-mid="${esc(m.id)}" data-from="${esc(m.from)}" data-ts="${Number(m.ts) || 0}"`;
   if (m.deleted) {
-    return `<div class="chat-msg" data-mid="${esc(m.id)}">
-      <span class="chat-kopf"><span class="chat-user" style="color:${chatColor(m.from)}">${esc(m.from)}</span></span>
+    const dns = nameStyleOf(m.from, m.paint);
+    return `<div class="chat-msg dm-${own ? 'me' : 'them'}" ${daten}>
+      <span class="chat-kopf"><span class="chat-user${dns.cls}" style="${dns.style}">${esc(m.from)}</span></span>
       <span class="chat-text chat-deleted">Nachricht gelöscht</span>
     </div>`;
   }
-  const own = m.from === state.userName;
   // Rang-Icon, Badge/Rolle und Namens-Paint stehen auch im Privatchat
   const badge = m.badge && chatBadges[m.badge]
     ? `<svg class="icon icon-sm chat-badge" aria-label="${esc(chatBadges[m.badge].name)}"><use href="#i-${chatBadges[m.badge].icon}"/></svg>`
@@ -10205,13 +10209,53 @@ function dmMsgHtml(m) {
     ? `<img class="px-icon rank-badge" src="/gamification/rank-${String(rk.tier).padStart(2, '0')}-${rk.id}.svg" alt="" title="${esc(rk.name)}">`
     : '';
   const ns = nameStyleOf(m.from, m.paint);
-  return `<div class="chat-msg dm-${own ? 'me' : 'them'} ${own ? 'own' : ''}" data-mid="${esc(m.id)}">
+  return `<div class="chat-msg dm-${own ? 'me' : 'them'} ${own ? 'own' : ''}" ${daten}>
     <span class="chat-kopf">
       ${rankImg}${badge || role}<span class="chat-user${ns.cls}" style="${ns.style}">${esc(m.from)}</span>
     </span>
     <span class="chat-text">${chatBodyHtml(m.text)}</span>
     ${msgMenuHtml(own, m.id)}
   </div>`;
+}
+
+// Blasen derselben Person, die kurz nacheinander kommen, bilden eine Folge:
+// der Name steht nur ueber der ersten, die Uhrzeit (aus m.ts) unter der
+// letzten. Beim Tageswechsel steht ein Datum dazwischen. Zeit und Datum sind
+// eigene Zeilen in der Liste, nicht Teil der Blase.
+function chatGruppieren() {
+  const list = $('#chat-list');
+  if (!list || chatMode !== 'dm') return;
+  const msgs = [...list.querySelectorAll('.chat-msg[data-ts]')];
+  const tag = ts => new Date(ts).toDateString();
+  const folgt = (a, b) => a && b && a.dataset.from === b.dataset.from
+    && b.dataset.ts - a.dataset.ts < 5 * 60e3 && tag(+a.dataset.ts) === tag(+b.dataset.ts);
+  const heute = new Date(), gestern = new Date(Date.now() - 864e5);
+  const tagName = d => d.toDateString() === heute.toDateString() ? 'Heute'
+    : d.toDateString() === gestern.toDateString() ? 'Gestern'
+    : d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short', ...(d.getFullYear() !== heute.getFullYear() ? { year: 'numeric' } : {}) });
+  msgs.forEach((el, i) => {
+    const vor = msgs[i - 1], nach = msgs[i + 1];
+    const ts = +el.dataset.ts;
+    el.classList.toggle('folge', !!folgt(vor, el));
+    el.classList.toggle('ende', !folgt(el, nach));
+    // Datum ueber der ersten Nachricht eines Tages
+    const vorEl = el.previousElementSibling;
+    const neuerTag = ts && (!vor || tag(+vor.dataset.ts) !== tag(ts));
+    if (neuerTag) {
+      let d = vorEl?.classList.contains('chat-tag') ? vorEl : null;
+      if (!d) { d = document.createElement('div'); d.className = 'chat-tag'; el.before(d); }
+      d.textContent = tagName(new Date(ts));
+    } else if (vorEl?.classList.contains('chat-tag')) vorEl.remove();
+    // Uhrzeit unter der letzten Blase einer Folge
+    const nachEl = el.nextElementSibling;
+    const hatZeit = nachEl?.classList.contains('chat-zeit');
+    if (el.classList.contains('ende') && ts) {
+      const z = hatZeit ? nachEl : document.createElement('div');
+      z.className = 'chat-zeit' + (el.classList.contains('dm-me') ? ' ich' : '');
+      z.textContent = new Date(ts).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+      if (!hatZeit) el.after(z);
+    } else if (hatZeit) nachEl.remove();
+  });
 }
 
 async function pollChat(force) {
@@ -10223,30 +10267,45 @@ async function pollChat(force) {
     if (chatMode === 'dmlist') {
       if (!state.token) { $('#chat-list').innerHTML = '<div class="status">Zum Flüstern bitte anmelden.</div>'; return; }
       const r = await api('/api/dm/list');
-      const ava = (name, avatar) => avatar
-        ? `<img class="avatar-mini avatar-img" src="${sichereBildUrl(avatar)}" alt="">`
-        : `<span class="avatar-mini" style="background:${chatColor(name)}">${esc(name[0].toUpperCase())}</span>`;
+      // Profilbild mit dem gewaehlten Rahmen (pfb-…), sonst der Anfangsbuchstabe
+      const ava = (name, avatar, border) => {
+        const pb = border ? ` pfb-${esc(border)}` : '';
+        return avatar
+          ? `<img class="avatar-mini avatar-img${pb}" src="${sichereBildUrl(avatar)}" alt="">`
+          : `<span class="avatar-mini${pb}" style="background:${chatColor(name)}">${esc(name[0].toUpperCase())}</span>`;
+      };
+      // Letzte Nachricht als Vorschau: ein geteilter Deal ohne das [deal:…]-Kuerzel
+      const vorschau = t => {
+        const dl = String(t || '').match(/^\[deal:[a-z0-9]+\]\s*(.*)$/i);
+        if (dl) return `${icon('tag', 'icon dm-row-ico')}${esc(dl[1] || 'Deal')}`;
+        return t ? esc(t) : '<i>Nachricht gelöscht</i>';
+      };
       const rows = r.list.map(c => `
-        <button class="dm-row" data-dm-open="${esc(c.partner)}">
-          ${ava(c.partner, c.avatar)}
+        <button class="dm-row${c.unread ? ' ungelesen' : ''}" data-dm-open="${esc(c.partner)}">
+          ${ava(c.partner, c.avatar, c.border)}
           <span class="dm-row-main">
             <span class="dm-row-name">${esc(c.partner)}</span>
-            <span class="dm-row-last">${esc(c.lastText)}</span>
+            <span class="dm-row-last">${vorschau(c.lastText)}</span>
           </span>
-          ${c.unread ? `<span class="dm-unread-pill">${c.unread}</span>` : ''}
+          <span class="dm-row-seite">
+            ${c.lastTs ? `<span class="dm-row-zeit">${esc(timeAgo(c.lastTs))}</span>` : ''}
+            ${c.unread ? `<span class="dm-unread-pill">${c.unread}</span>` : ''}
+          </span>
         </button>`).join('');
       const friendRows = (r.friends || []).map(f => `
         <button class="dm-row" data-dm-open="${esc(f.name)}">
-          ${ava(f.name, f.avatar)}
+          ${ava(f.name, f.avatar, f.border)}
           <span class="dm-row-main"><span class="dm-row-name">${esc(f.name)}</span>
           <span class="dm-row-last">Freund, noch kein Chat</span></span>
+          ${icon('chevron', 'icon dm-row-pfeil')}
         </button>`).join('');
       // Laufende Gespraeche zuerst, darunter abgesetzt die Freunde, mit denen
-      // man noch nicht geschrieben hat — vorher lief beides in einer Reihe
-      // durch und man sah nicht, wo das eine aufhoert.
+      // man noch nicht geschrieben hat. Jede Gruppe ist eine weisse Karte.
       $('#chat-list').innerHTML = (rows || friendRows)
-        ? rows + (friendRows ? `<div class="dm-trenner">Freunde</div>${friendRows}` : '')
+        ? (rows ? `<div class="dm-gruppe">${rows}</div>` : '')
+          + (friendRows ? `<div class="dm-trenner">Freunde</div><div class="dm-gruppe">${friendRows}</div>` : '')
         : `<div class="chat-leer">
+            <span class="chat-leer-bild">${icon('message', 'icon')}</span>
             <p>Hier schreibst du mit deinen Freunden.</p>
             <p class="muted">Sobald du jemanden hinzugefügt hast, steht er hier.</p>
             <button class="btn" id="chat-freunde-finden">${icon('user', 'icon icon-sm')} Freunde finden</button>
@@ -10260,12 +10319,16 @@ async function pollChat(force) {
         if (el) { el.className = 'chat-text chat-deleted'; el.textContent = 'Nachricht gelöscht'; }
       });
       if (r.messages.length) {
-        const box = $('#chat-box'), list = $('#chat-list');
+        const list = $('#chat-list');
         r.messages.forEach(m => {
           if (!list.querySelector(`[data-mid="${m.id}"]`)) list.insertAdjacentHTML('beforeend', dmMsgHtml(m));
           dmLastTs = Math.max(dmLastTs, m.ts);
         });
-        box.scrollTop = box.scrollHeight;
+        chatGruppieren();
+        // Mit Nachzueglern: Blasen ausserhalb des Bildes haben per
+        // content-visibility erst eine geschaetzte Hoehe, ein einziger Sprung
+        // landete deshalb mitten im Verlauf statt ganz unten
+        chatToBottom(false);
       }
     }
     refreshDmBadge();
@@ -10329,6 +10392,7 @@ async function sendChat() {
     if (!$('#chat-list').querySelector(`[data-mid="${r.message.id}"]`)) {
       $('#chat-list').insertAdjacentHTML('beforeend', dmMsgHtml(r.message));
       $('#chat-list').lastElementChild?.classList.add('msg-sent');
+      chatGruppieren();
     }
     dmLastTs = Math.max(dmLastTs, r.message.ts);
     chatToBottom(true);
