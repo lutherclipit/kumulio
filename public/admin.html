@@ -136,6 +136,13 @@
 <script>
   let items = [];
   const $ = s => document.querySelector(s);
+  // Alles, was vom Server oder von Nutzern kommt (Namen, E-Mails, Titel, Links),
+  // wird vor dem Einsetzen in innerHTML maskiert — auch in Attributen. Sonst
+  // liefe z. B. eine praeparierte E-Mail als Skript mit dem Admin-Key.
+  const ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+  function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ESC_MAP[c]); }
+  // Bilder nur von http(s)-Adressen (kein javascript:/data: im src)
+  const bildUrl = u => /^https?:\/\//i.test(String(u || '')) ? String(u) : '';
   const key = () => $('#key').value.trim();
   const msg = (t, cls) => { const m = $('#msg'); m.textContent = t; m.className = 'msg ' + (cls || ''); };
 
@@ -154,7 +161,7 @@
       .forEach(id => $('#' + id).style.display = 'block');
     const chs = await (await fetch('/api/channels')).json();
     $('#d-channel').innerHTML = chs.filter(c => c.type === 'community')
-      .map(c => `<option value="${c.slug}">${c.name}</option>`).join('');
+      .map(c => `<option value="${esc(c.slug)}">${esc(c.name)}</option>`).join('');
     msg('Angemeldet, ' + items.length + ' Kachel(n).', 'ok');
     render();
     loadPosts();
@@ -183,10 +190,10 @@
     $('#posts-list').innerHTML = list.map(p => `
       <div class="item">
         <div class="info">
-          <div class="t">${p.title}${p.newCustomer ? ' <span style="color:#7aa8ff; font-size:.75rem">NEUKUNDEN</span>' : ''}</div>
-          <div class="p" style="color:#8b96a0">${p.channel} · ${new Date(p.ts).toLocaleString('de-DE')}</div>
+          <div class="t">${esc(p.title)}${p.newCustomer ? ' <span style="color:#7aa8ff; font-size:.75rem">NEUKUNDEN</span>' : ''}</div>
+          <div class="p" style="color:#8b96a0">${esc(p.channel)} · ${esc(new Date(p.ts).toLocaleString('de-DE'))}</div>
         </div>
-        <button class="danger small" data-post-del="${p.id}">✕</button>
+        <button class="danger small" data-post-del="${esc(p.id)}">✕</button>
       </div>`).join('') || '<div class="msg">Keine Deals veröffentlicht.</div>';
     document.querySelectorAll('[data-post-del]').forEach(b => b.onclick = async () => {
       await adminFetch('/api/admin/delete-post', { method: 'POST', body: JSON.stringify({ id: b.dataset.postDel }) });
@@ -202,8 +209,8 @@
     $('#users-list').innerHTML = list.map(u => `
       <div class="item">
         <div class="info">
-          <div class="t">${u.user}</div>
-          <div class="p" style="color:#8b96a0">${u.email || '–'} · seit ${new Date(u.ts).toLocaleDateString('de-DE')}
+          <div class="t">${esc(u.user)}</div>
+          <div class="p" style="color:#8b96a0">${esc(u.email || '–')} · seit ${esc(new Date(u.ts).toLocaleDateString('de-DE'))}
             ${u.newsletter ? ' · <span style="color:#39d980">Newsletter</span>' : ''}</div>
         </div>
       </div>`).join('') || '<div class="msg">Noch keine Nutzer.</div>';
@@ -300,10 +307,10 @@
     $('#count').textContent = '(' + items.length + '/8, oberste Kachel wird groß angezeigt)';
     $('#list').innerHTML = items.map((it, i) => `
       <div class="item">
-        ${it.image ? `<img src="${it.image}" alt="">` : '<img alt="">'}
+        ${bildUrl(it.image) ? `<img src="${esc(bildUrl(it.image))}" alt="" referrerpolicy="no-referrer">` : '<img alt="">'}
         <div class="info">
-          <div class="t">${it.title}</div>
-          <div class="p">${it.price || ''} ${it.tagline ? '· ' + it.tagline : ''}</div>
+          <div class="t">${esc(it.title)}</div>
+          <div class="p">${esc(it.price || '')} ${it.tagline ? '· ' + esc(it.tagline) : ''}</div>
         </div>
         <button class="ghost small" data-up="${i}">↑</button>
         <button class="danger small" data-del="${i}">✕</button>

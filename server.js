@@ -288,6 +288,20 @@ Dein kumulio-Team`,
       { text: 'Adresse bestätigen', url: link }),
   }).catch(e => console.error('[Mail] Bestaetigung:', e.message));
 }
+// Nur gewoehnliche Adressen: Buchstaben, Ziffern und ._%+- vor dem @, eine
+// Domain mit Punkt. Vorher ging alles ohne Leerzeichen durch — auch HTML wie
+// <img/src=x/onerror=…>@x.de, das dann im Admin-Panel als Skript lief.
+const EMAIL_RE = /^[a-z0-9._%+-]{1,64}@[a-z0-9.-]{1,189}\.[a-z]{2,24}$/i;
+function emailGueltig(e) {
+  const t = String(e || '');
+  return t.length <= 254 && EMAIL_RE.test(t) && !t.includes('..') && !/^[.-]|[.-]@|@[.-]|-\./.test(t);
+}
+// CSV fuer Tabellenprogramme: Zellen, die mit = + - @ beginnen, wuerden dort
+// als Formel ausgefuehrt — ein vorangestelltes ' macht sie zu Text
+function csvZelle(x) {
+  const t = String(x ?? '').replace(/[;\r\n"]/g, ' ');
+  return /^[=+\-@\t]/.test(t) ? "'" + t : t;
+}
 function emailMaske(e) {
   const [n, d] = String(e || '').split('@');
   if (!d) return '';
@@ -2272,7 +2286,7 @@ const server = http.createServer(async (req, res) => {
       const email = String(b.email || '').trim().toLowerCase();
       const pass = String(b.pass || '');
       if (!/^[a-zA-Z0-9_.-]{3,24}$/.test(user)) return send(res, 400, { error: 'Name: 3–24 Zeichen, nur Buchstaben/Zahlen/._-' });
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return send(res, 400, { error: 'Bitte eine gültige E-Mail-Adresse angeben.' });
+      if (!emailGueltig(email)) return send(res, 400, { error: 'Bitte eine gültige E-Mail-Adresse angeben.' });
       if (pass.length < 6) return send(res, 400, { error: 'Passwort: mindestens 6 Zeichen.' });
       // Namen sind ohne Groß/Klein-Unterscheidung eindeutig ("Luther" = "luther")
       if (Object.keys(users).some(k => k.toLowerCase() === user.toLowerCase()))
@@ -3777,7 +3791,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/admin/newsletter.csv' && req.method === 'GET') {
       if (!isAdmin(req)) return send(res, 403, { error: 'Admin-Key falsch.' });
       const rows = Object.entries(users).filter(([, u]) => u.newsletter && u.email)
-        .map(([name, u]) => `${name};${u.email}`);
+        .map(([name, u]) => `${csvZelle(name)};${csvZelle(u.email)}`);
       return send(res, 200, 'benutzer;email\n' + rows.join('\n'), 'text/csv; charset=utf-8');
     }
 
