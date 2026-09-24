@@ -4825,7 +4825,7 @@ function renderGiftsPage() {
     if (host.querySelector('.gifts-leer')) return; // steht schon, nicht neu einblenden
     host.innerHTML = `
       <div class="gifts-leer">
-        <img class="gifts-leer-bild" src="/brand/kumulio-rang-sammler-480.webp" width="200" height="200" alt="" decoding="async" draggable="false">
+        <img class="gifts-leer-bild" src="/brand/kumulio-rang-scout-480.webp" width="200" height="200" alt="" decoding="async" draggable="false">
         <b>Gerade wartet hier kein Geschenk</b>
         <p>Schenkt dir ein Freund einen Gutschein, liegt er hier, bis du ihn auspackst.</p>
       </div>`;
@@ -4985,7 +4985,7 @@ function openGiftReveal(gift) {
     }
   });
 }
-// Mit Tausenderpunkt: ab 1000 € (Rang Mythos) sonst "1215,00 €"
+// Mit Tausenderpunkt: ab 1000 € (Rang Mythisch) sonst "1215,00 €"
 function euroFmt(n) { return n == null ? '' : n.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ' €'; }
 
 // ---- Spielgefühl: Sounds, Vibration, Aufleuchten, Geldscheine, Zähl-Animation ----
@@ -5091,7 +5091,7 @@ const RANKS = [
   { tier: 4, slug: 'champion', name: 'Champion', min: 150.01, bis: 300 },
   { tier: 5, slug: 'meister', name: 'Meister', min: 300.01, bis: 600 },
   { tier: 6, slug: 'legende', name: 'Legende', min: 600.01, bis: 1000 },
-  { tier: 7, slug: 'mythos', name: 'Mythos', min: 1000.01, bis: Infinity },
+  { tier: 7, slug: 'mythos', name: 'Mythisch', min: 1000.01, bis: Infinity },
 ];
 function rankFor(total) {
   // In Cent vergleichen: 10,01 ist als Kommazahl nicht exakt
@@ -9651,12 +9651,12 @@ const WALLET_MASKOTTCHEN = {
   standard: { basis: '/brand/kumulio-maskottchen-standard', licht: [.268, .369] },
   // Modelle des Nutzers je Rang. Lage und Groesse stecken im Bild (1389 x 1404,
   // siehe look.css .wk-sprite); licht = Mitte der Strahlen hinter dem Kopf
-  scout: { basis: '/brand/kumulio-maskottchen-scout', licht: [0.2915, 0.3775] },
-  sammler: { basis: '/brand/kumulio-maskottchen-sammler', licht: [0.2836, 0.3775] },
+  scout: { basis: '/brand/kumulio-maskottchen-scout', licht: [0.2836, 0.3775] },
+  sammler: { basis: '/brand/kumulio-maskottchen-sammler', licht: [0.2915, 0.3775] },
   profi: { basis: '/brand/kumulio-maskottchen-profi', licht: [0.2959, 0.3775] },
-  champion: { basis: '/brand/kumulio-maskottchen-champion', licht: [0.353, 0.3775] },
-  meister: { basis: '/brand/kumulio-maskottchen-meister', licht: [0.2186, 0.3775] },
-  legende: { basis: '/brand/kumulio-maskottchen-legende', licht: [0.2248, 0.3775] },
+  champion: { basis: '/brand/kumulio-maskottchen-champion', licht: [0.2248, 0.3775] },
+  meister: { basis: '/brand/kumulio-maskottchen-meister', licht: [0.353, 0.3775] },
+  legende: { basis: '/brand/kumulio-maskottchen-legende', licht: [0.2186, 0.3775] },
   mythos: { basis: '/brand/kumulio-maskottchen-mythos', licht: [0.3117, 0.3775] },
 };
 function setzeWalletMaskottchen(slug) {
