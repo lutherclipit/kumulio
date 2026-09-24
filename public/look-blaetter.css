@@ -1234,3 +1234,290 @@ body.sparsam #sheet-content #btn-sheet-fav .icon, body.sparsam #sheet-content .a
 @media (prefers-reduced-motion: reduce) {
   #sheet-content #btn-sheet-fav .icon { transition: none; }
 }
+
+/* =============================================================================
+   Deal-Seite (Runde 120): eigene Seite statt Blatt, gebaut wie die
+   Gutschein-Seite (wseite, gd-block, gd-h, gd-leiste). Oben Bild bzw. Logo auf
+   der Markenfarbe, darunter Titel, Preis, Hinweise, Bewertung, Preisvergleich,
+   Beschreibung, Regeln und Kommentare; unten fest "Zum Deal" und Merken.
+   ========================================================================== */
+/* Bild oben: Fotos auf Weiss (ganz zu sehen), ohne Foto das Logo gross auf
+   der Markenfarbe wie auf der Kachel */
+.dl-bild {
+  position: relative; overflow: hidden; isolation: isolate;
+  height: clamp(200px, 60vw, 300px); margin-top: 4px; border-radius: 18px;
+  background: #fff; box-shadow: var(--schatten-1);
+}
+:root[data-theme="dark"] .dl-bild:not(.ohne) { background: #F3F4F6; }
+.dl-bilder {
+  display: flex; height: 100%; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory; scrollbar-width: none;
+}
+.dl-bilder::-webkit-scrollbar { display: none; }
+.dl-bilder img {
+  flex: 0 0 100%; width: 100%; height: 100%; padding: 18px; box-sizing: border-box;
+  object-fit: contain; scroll-snap-align: center; scroll-snap-stop: always; -webkit-user-drag: none;
+}
+.dl-logo { display: none; }
+.dl-bild.ohne {
+  height: clamp(180px, 50vw, 240px);
+  background:
+    radial-gradient(80% 90% at 86% 8%, color-mix(in srgb, var(--bc) 42%, #fff) 0%, transparent 62%),
+    linear-gradient(150deg, color-mix(in srgb, var(--bc) 90%, #fff), color-mix(in srgb, var(--bc) 72%, #000));
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--bc) 24%, transparent);
+}
+.dl-bild.ohne .dl-logo { position: absolute; inset: 0; display: grid; place-items: center; }
+.dl-logo .brand-chip {
+  width: 96px; height: 96px; flex: 0 0 96px; border-radius: 24px; font-size: 1.7rem;
+  background: #fff; color: var(--bc); transform: rotate(-6deg);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, .22), 0 0 0 6px rgba(255, 255, 255, .18);
+}
+.dl-logo .brand-chip .brand-logo { inset: 7%; width: 86%; height: 86%; padding: 0; background: none; border-radius: 19px; }
+.dl-bild .dk-pill { top: 12px; left: 12px; z-index: 2; padding: 5px 10px; font-size: .86rem; }
+.dl-punkte {
+  position: absolute; left: 0; right: 0; bottom: 10px; z-index: 2;
+  display: flex; justify-content: center; gap: 6px; pointer-events: none;
+}
+.dl-punkte i {
+  width: 7px; height: 7px; border-radius: 50%; background: #16191E; opacity: .2;
+  transition: opacity .25s ease, transform .25s ease;
+}
+.dl-punkte i.an { opacity: .75; transform: scale(1.25); }
+
+/* Titel, Preis und Hinweise */
+.dl-titel {
+  margin: 16px 2px 0; font-size: 1.3rem; font-weight: 850; line-height: 1.25; letter-spacing: -.015em;
+  overflow-wrap: anywhere;
+}
+.dl-preise { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; margin: 8px 2px 0; }
+.dl-preise:empty { display: none; }
+.dl-preis { font-size: 1.6rem; font-weight: 900; line-height: 1.1; letter-spacing: -.02em; color: var(--preis); font-variant-numeric: tabular-nums; }
+.dl-preise s { font-size: 1rem; font-weight: 650; color: var(--muted); font-variant-numeric: tabular-nums; }
+.dl-markt { font-size: .82rem; font-weight: 650; color: var(--muted); }
+.dl-pillen { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.dl-pille {
+  display: inline-flex; align-items: center; gap: 5px; min-height: 28px; max-width: 100%; padding: 4px 10px;
+  border-radius: 9px; background: var(--karte); color: var(--text-soft);
+  box-shadow: 0 1px 2px rgba(16, 24, 32, .07);
+  font-size: .78rem; font-weight: 700; line-height: 1.25;
+}
+:root[data-theme="dark"] .dl-pille { box-shadow: inset 0 0 0 1px var(--linie); }
+.dl-pille .icon { width: 14px; height: 14px; flex: none; color: var(--muted); }
+.dl-pille.neu { background: color-mix(in srgb, #3B82F6 12%, var(--karte)); color: #2F66C4; }
+.dl-pille.warn { background: color-mix(in srgb, #F5A524 15%, var(--karte)); color: #8F5500; }
+.dl-pille.ok { background: var(--akzent-weich); color: var(--akzent-text); }
+.dl-pille.verdienst { background: color-mix(in srgb, #D4A017 15%, var(--karte)); color: #7E6110; }
+.dl-pille.alt { background: color-mix(in srgb, var(--muted) 16%, var(--karte)); color: var(--muted); }
+.dl-pille.neu .icon, .dl-pille.warn .icon, .dl-pille.ok .icon, .dl-pille.verdienst .icon { color: inherit; }
+:root[data-theme="dark"] .dl-pille.neu { color: #8DB8FF; }
+:root[data-theme="dark"] .dl-pille.warn { color: #F5B75E; }
+:root[data-theme="dark"] .dl-pille.verdienst { color: #E6C35C; }
+/* Preisfehler-Zaehler in der Zeit-Pille: rot, ohne eigene Pille in der Pille */
+.dl-pille .pf-timer {
+  display: inline; padding: 0; border-radius: 0; background: none;
+  font: inherit; color: var(--preis); font-variant-numeric: tabular-nums;
+}
+
+/* Bewertung: Schnitt links, fuenf Sterne rechts */
+.dl-bewertung { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; padding: 8px 6px 8px 16px; }
+.dl-bew-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.dl-bew-text b { font-size: .95rem; font-weight: 800; line-height: 1.25; }
+.dl-bew-text small { font-size: .76rem; line-height: 1.3; color: var(--muted); }
+.dl-sterne { display: flex; flex: none; }
+.dl-stern {
+  width: 34px; height: 42px; padding: 0; border: 0; background: none; cursor: pointer;
+  display: grid; place-items: center; color: color-mix(in srgb, var(--muted) 50%, transparent);
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
+.dl-stern .icon { width: 24px; height: 24px; stroke-width: 1.8; transition: transform .25s var(--spring); }
+.dl-stern.an { color: #F5B301; }
+.dl-stern.an .icon { fill: currentColor; }
+.dl-stern:active .icon { transform: scale(.8); }
+.dl-stern:focus-visible { outline: 2px solid var(--akzent); outline-offset: -4px; border-radius: 10px; }
+
+/* Preisvergleich: Balken wachsen beim Erscheinen (nur transform) */
+.dl-vergleich { padding: 10px 16px 12px; }
+.dl-v-zeile { display: grid; grid-template-columns: 86px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 34px; }
+.dl-v-label { font-size: .8rem; font-weight: 650; color: var(--muted); }
+.dl-v-spur { height: 8px; border-radius: 4px; overflow: hidden; background: var(--karte-2); }
+.dl-v-spur i {
+  display: block; height: 100%; border-radius: inherit; transform-origin: left center;
+  background: color-mix(in srgb, var(--muted) 45%, transparent);
+  animation: dlBalken .6s cubic-bezier(.22, 1, .36, 1) both;
+}
+.dl-v-zeile.jetzt .dl-v-spur i { background: var(--akzent); animation-delay: .08s; }
+.dl-v-zeile b { font-size: .9rem; font-weight: 800; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dl-v-zeile.jetzt b { color: var(--preis); }
+.dl-v-zeile b small { margin-left: 2px; font-size: .74rem; font-weight: 750; }
+@keyframes dlBalken { from { transform: scaleX(0); } }
+.dl-v-quelle { margin: 8px 0 0; font-size: .74rem; line-height: 1.4; color: var(--muted); }
+.dl-v-link {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: var(--karte-2);
+  color: var(--text); text-decoration: none; -webkit-tap-highlight-color: transparent;
+  transition: transform .2s var(--spring);
+}
+.dl-v-link:active { transform: scale(.98); }
+.dl-v-link span { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.dl-v-link b { font-size: .88rem; font-weight: 800; }
+.dl-v-link small { font-size: .74rem; color: var(--muted); }
+.dl-v-link .icon { flex: none; width: 18px; height: 18px; color: var(--muted); }
+
+/* Beschreibung: einfache Markdown-Umsetzung, lange Texte erst gekuerzt */
+.dl-text { padding: 14px 16px; font-size: .93rem; line-height: 1.6; color: var(--text-soft); overflow-wrap: anywhere; }
+.dl-text.zu { position: relative; max-height: 250px; overflow: hidden; }
+.dl-text.zu::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 64px; pointer-events: none;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--karte) 0%, transparent), var(--karte) 88%);
+}
+.dl-text p { margin: 0 0 10px; }
+.dl-text .dl-md-h { margin: 16px 0 6px; font-size: .98rem; font-weight: 800; line-height: 1.35; letter-spacing: -.005em; color: var(--text); }
+.dl-text .dl-md-h.gross { font-size: 1.06rem; }
+.dl-text ul, .dl-text ol { margin: 0 0 10px; padding-left: 20px; }
+.dl-text li { margin: 3px 0; padding-left: 2px; }
+.dl-text li::marker { color: var(--muted); }
+.dl-text strong { font-weight: 750; color: var(--text); }
+.dl-text a { color: var(--akzent-text); font-weight: 700; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
+.dl-text code {
+  padding: 1px 6px; border-radius: 6px; background: var(--karte-2); color: var(--text);
+  font-family: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace; font-size: .88em;
+}
+.dl-text hr { margin: 12px 0; border: 0; border-top: 1px solid var(--linie); }
+/* Nach den Einzelregeln: oben und unten keine Extra-Luft in der Karte */
+.dl-text > :first-child, .dl-text > .dl-md-h:first-child { margin-top: 0; }
+.dl-text > :last-child, .dl-text > p:last-child, .dl-text > ul:last-child, .dl-text > ol:last-child { margin-bottom: 0; }
+.dl-mehr-text {
+  display: flex; align-items: center; gap: 4px; margin: 6px auto 0; padding: 8px 12px;
+  border: 0; background: none; cursor: pointer; color: var(--akzent-text);
+  font: inherit; font-size: .86rem; font-weight: 750; touch-action: manipulation;
+}
+.dl-mehr-text[hidden] { display: none; }
+.dl-mehr-text .icon { width: 16px; height: 16px; stroke-width: 2.2; transition: transform .3s cubic-bezier(.22, 1, .36, 1); }
+.dl-mehr-text[aria-expanded="true"] .icon { transform: rotate(180deg); }
+
+/* Regeln & Richtlinien: aufklappbare Karte */
+.dl-regeln { padding: 0; }
+.dl-regeln summary {
+  display: flex; align-items: center; gap: 10px; min-height: 54px; padding: 0 14px 0 16px;
+  list-style: none; cursor: pointer; font-size: .92rem; font-weight: 750; -webkit-tap-highlight-color: transparent;
+}
+.dl-regeln summary::-webkit-details-marker { display: none; }
+.dl-regeln summary > .icon:first-child { width: 18px; height: 18px; flex: none; color: var(--muted); }
+.dl-regeln summary > span { flex: 1; min-width: 0; }
+.dl-regeln-pfeil { width: 18px; height: 18px; flex: none; color: var(--muted); transition: transform .3s cubic-bezier(.22, 1, .36, 1); }
+.dl-regeln[open] .dl-regeln-pfeil { transform: rotate(180deg); }
+.dl-regeln-liste { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0 16px 14px; list-style: none; }
+.dl-regeln[open] .dl-regeln-liste { animation: dlRein .3s cubic-bezier(.22, 1, .36, 1) both; }
+.dl-regeln-liste li { display: flex; gap: 9px; font-size: .84rem; line-height: 1.45; color: var(--text-soft); }
+.dl-regeln-liste .icon { flex: none; width: 15px; height: 15px; margin-top: 2px; color: var(--akzent-text); }
+@keyframes dlRein { from { opacity: 0; transform: translate3d(0, -6px, 0); } }
+
+/* Kommentare: dieselben Karten wie bisher, auf der Seite ohne @ */
+.dl .sheet-comments { margin-top: 10px; }
+.dl .sheet-comments .comment-emote-pick { margin-top: 8px; padding: 6px; }
+.dl-leise { margin: 4px 2px; font-size: .86rem; color: var(--muted); }
+.dl-schreiben { margin-top: 12px; padding: 6px 6px 6px 14px; }
+.dl-antwort {
+  display: flex; align-items: center; gap: 8px; margin: 2px 0 2px -8px; padding: 4px 4px 4px 10px;
+  border-radius: 10px; background: var(--akzent-weich); color: var(--akzent-text);
+  font-size: .8rem; font-weight: 750;
+}
+.dl-antwort[hidden] { display: none; }
+.dl-antwort span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dl-antwort button {
+  flex: none; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 8px;
+  display: grid; place-items: center; background: none; color: inherit; cursor: pointer;
+}
+.dl-antwort .icon { width: 15px; height: 15px; stroke-width: 2.2; }
+.dl-eingabe { display: flex; align-items: flex-end; gap: 8px; }
+.dl-feld {
+  flex: 1; min-width: 0; height: 42px; min-height: 42px; max-height: 150px; padding: 11px 0;
+  border: 0; background: none; outline: none; resize: none; color: var(--text);
+  font: inherit; font-size: .95rem; line-height: 1.4;
+}
+.dl-feld::placeholder { color: var(--muted); opacity: .85; }
+.dl-senden {
+  flex: none; width: 42px; height: 42px; padding: 0; border: 0; border-radius: 12px; cursor: pointer;
+  display: grid; place-items: center; background: #16191E; color: #fff;
+  touch-action: manipulation; transition: transform .2s var(--spring), opacity .2s ease;
+}
+.dl-senden .icon { width: 19px; height: 19px; }
+.dl-senden:active { transform: scale(.92); }
+.dl-senden:disabled { opacity: .28; cursor: default; transform: none; }
+:root[data-theme="dark"] .dl-senden { background: #EEF1F5; color: #14171B; }
+.dl-meldung { margin: 2px 8px 6px 0; font-size: .8rem; font-weight: 650; color: #D23A2C; }
+.dl-meldung:empty { display: none; }
+:root[data-theme="dark"] .dl-meldung { color: #FF8A8D; }
+.dl-schreiben.gast {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 10px 10px 16px; font-size: .88rem; color: var(--muted);
+}
+.dl-anmelden {
+  flex: none; height: 38px; padding: 0 14px; border: 0; border-radius: 11px; cursor: pointer;
+  background: #16191E; color: #fff; font: inherit; font-size: .86rem; font-weight: 800;
+}
+:root[data-theme="dark"] .dl-anmelden { background: #EEF1F5; color: #14171B; }
+.dl-fuss { margin: 20px 2px 0; font-size: .74rem; line-height: 1.4; text-align: center; color: var(--muted); }
+
+/* Feste Leiste: "Zum Deal" breit, daneben das Herz; ohne Link wird Merken
+   der grosse Knopf */
+.dl-knoepfe { display: grid; grid-template-columns: minmax(0, 1fr) 52px; gap: 10px; }
+.dl-knoepfe.ohne-ziel { grid-template-columns: minmax(0, 1fr); }
+.dl-los { text-decoration: none; -webkit-tap-highlight-color: transparent; }
+.dl-los span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dl-los .icon { width: 18px; height: 18px; stroke-width: 2.2; }
+.dl-herz { padding: 0; background: var(--karte-2); color: var(--text); }
+.dl-herz-bild { position: relative; width: 22px; height: 22px; flex: none; }
+.gd-knopf .dl-herz-bild .icon {
+  position: absolute; inset: 0; width: 22px; height: 22px; stroke-width: 1.9;
+  transition: opacity .2s ease, transform .3s var(--spring);
+}
+.dl-herz .dl-h-f { fill: currentColor; opacity: 0; transform: scale(.4); }
+.dl-herz.on .dl-herz-bild { color: #E0322B; }
+.dl-herz.on .dl-h-f { opacity: 1; transform: none; }
+.dl-herz.on .dl-h-o { opacity: 0; }
+.ohne-ziel .dl-herz { gap: 10px; padding: 0 16px; background: #16191E; color: #fff; box-shadow: 0 6px 16px rgba(16, 24, 32, .18); }
+.ohne-ziel .dl-herz.on .dl-herz-bild { color: #FF5A4F; }
+:root[data-theme="dark"] .ohne-ziel .dl-herz { background: #EEF1F5; color: #14171B; box-shadow: none; }
+:root[data-theme="dark"] .ohne-ziel .dl-herz.on .dl-herz-bild { color: #E0322B; }
+
+/* An Freund schicken: Freunde als Zeilen mit Bild und Namen (statt Pillen mit @) */
+.dl-schicken { max-width: 380px; padding: 18px 16px 10px; }
+.dl-schicken-kopf { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-left: 4px; }
+.dl-schicken-kopf .card-h { margin: 0; }
+.dl-schicken-zu {
+  flex: none; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%; cursor: pointer;
+  display: grid; place-items: center; background: var(--karte-2); color: var(--text);
+}
+.dl-schicken-zu .icon { width: 17px; height: 17px; stroke-width: 2.2; }
+.dl-schicken-deal {
+  margin: 4px 4px 8px; font-size: .82rem; line-height: 1.4; color: var(--muted);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.dl-schicken-liste { display: flex; flex-direction: column; max-height: 50vh; overflow-y: auto; overscroll-behavior: contain; }
+.dl-schicken-freund {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 58px; padding: 8px 6px;
+  border: 0; border-radius: 12px; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.dl-schicken-freund + .dl-schicken-freund { border-top: 1px solid var(--linie); }
+.dl-schicken-freund:active { background: var(--karte-2); }
+.dl-schicken-freund:focus-visible, .dl-schicken-zu:focus-visible { outline: 2px solid var(--akzent); outline-offset: -2px; }
+.dl-schicken-freund > span:not(.avatar-mini) { flex: 1; min-width: 0; font-size: .95rem; font-weight: 750; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dl-schicken-freund > .icon { flex: none; width: 18px; height: 18px; color: var(--muted); }
+.dl-schicken-ava { width: 36px; height: 36px; flex: 0 0 36px; font-size: .9rem; }
+
+/* Schmale Handys: Sterne etwas enger, damit der Text daneben Platz hat */
+@media (max-width: 374px) {
+  .dl-titel { font-size: 1.2rem; }
+  .dl-bewertung { padding-left: 14px; }
+  .dl-stern { width: 30px; }
+  .dl-stern .icon { width: 22px; height: 22px; }
+  .dl-v-zeile { grid-template-columns: 76px minmax(0, 1fr) auto; gap: 8px; }
+}
+
+/* Ruhige Bewegung */
+@media (prefers-reduced-motion: reduce) {
+  .dl-punkte i, .dl-stern .icon, .gd-knopf .dl-herz-bild .icon, .dl-mehr-text .icon, .dl-regeln-pfeil, .dl-senden, .dl-v-link { transition: none; }
+  .dl-v-spur i, .dl-regeln[open] .dl-regeln-liste { animation: none; }
+}
