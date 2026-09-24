@@ -117,7 +117,7 @@
   <!-- Seitenleiste (Avatar oben links): Profil, Anfragen, Freunde, Funken …
        gleitet von links herein; Wischen nach links, Tippen daneben oder Esc schliesst -->
   <div id="top-menu-backdrop" class="hidden" aria-hidden="true"></div>
-  <aside id="top-menu" role="dialog" aria-modal="true" aria-label="Konto-Menü" inert>
+  <aside id="top-menu" role="dialog" aria-modal="true" aria-label="Konto-Menü" tabindex="-1" inert>
     <button class="iconbtn tm-zu" id="tm-zu" type="button" aria-label="Menü schließen">
       <svg class="icon"><use href="#i-x"/></svg>
     </button>
@@ -632,7 +632,7 @@
   <!-- Sperrbildschirm der Wallet: deckt die ganze App ab (Kopfzeile und
        Menue unten eingeschlossen), solange die Wallet-Seite offen und
        gesperrt ist. Auf Body-Ebene, sonst kaeme sie nie ueber das Menue. -->
-  <div id="wallet-sperre" class="wallet-sperre hidden" role="dialog" aria-modal="true" aria-label="Wallet gesperrt">
+  <div id="wallet-sperre" class="wallet-sperre hidden" role="dialog" aria-modal="true" aria-label="Wallet gesperrt" tabindex="-1">
     <div class="ws-inhalt">
       <!-- Oben: Logo (faellt beim Auftritt ein wie beim Start), Begruessung -->
       <div class="ws-oben">

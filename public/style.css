@@ -5664,3 +5664,6 @@ body.sparsam .wa-modus-flaeche { transition-duration: .2s; }
   .wallet-sperre .ws-taste { height: 48px; }
   .wallet-sperre .ws-tasten { gap: 2px 22px; }
 }
+
+/* Dialog-Container bekommen den Fokus, zeigen aber keinen Rahmen */
+.wallet-sperre:focus, #top-menu:focus { outline: none; }

@@ -3781,7 +3781,7 @@ function oeffneTopMenu() {
   // Dahinter ist nichts erreichbar, solange die Leiste offen ist
   for (const sel of ['main', '.topbar', '#tabbar', '#wallet-mini']) { const n = $(sel); if (n) n.inert = true; }
   host.scrollTop = 0;
-  setTimeout(() => menu.querySelector('.tm-head')?.focus({ preventScroll: true }), 80);
+  setTimeout(() => menu.focus({ preventScroll: true }), 80); // die Leiste, kein Eintrag (sonst Fokus-Ring)
   const done = () => schliesseTopMenu({ fokus: false });
   // Der Profil-Banner selbst führt zum Profil
   menu.querySelector('.tm-head').onclick = () => { done(); switchView('profile'); };
@@ -8960,7 +8960,6 @@ function oeffneMarkenMenue() {
   menu.classList.remove('hidden');
   knopf.setAttribute('aria-expanded', 'true');
   menu.scrollTop = 0;
-  (menu.querySelector('.mm-zeile.an') || menu.querySelector('.mm-zeile'))?.focus({ preventScroll: true });
   menu.querySelectorAll('[data-marke]').forEach(b => b.onclick = () => {
     state.walletFilter = b.dataset.marke;
     state.walletVal = 0;
@@ -8969,7 +8968,6 @@ function oeffneMarkenMenue() {
     schliesseMarkenMenue();
     buzz(8);
     renderWallet();
-    knopf.focus({ preventScroll: true });
   });
 }
 $('#wallet-marke')?.addEventListener('click', e => { e.stopPropagation(); oeffneMarkenMenue(); });
@@ -10605,7 +10603,9 @@ function aktualisiereSperre() {
       if (!startAuftrittOffen) setTimeout(bioAutomatisch, sperrRuhig() ? 0 : 380);
     }
     baueSperre();
-    setTimeout(() => $('#ws-tasten .ws-taste')?.focus({ preventScroll: true }), 0);
+    // Fokus auf die Sperre selbst, nicht auf eine Taste: sonst zeichnet das
+    // Handy einen Fokus-Ring um die 1. Ziffern per Tastatur gehen trotzdem.
+    setTimeout(() => $('#wallet-sperre')?.focus({ preventScroll: true }), 0);
   } else {
     clearInterval(sperrUhr);
     // Beim Entsperren blendet sich die Sperre selbst aus (siehe entsperreWallet)
