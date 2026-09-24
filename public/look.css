@@ -83,10 +83,13 @@ input, textarea, select, button { font-family: inherit; }
   background: var(--karte); border-color: transparent;
   border-radius: 22px; box-shadow: var(--schatten-1);
 }
+/* Knoepfe app-weit mit maessigen Ecken statt Pille (Wunsch des Nutzers) */
 .btn {
-  background: var(--akzent-tief); color: #fff; font-weight: 750;
+  background: var(--akzent-tief); color: #fff; font-weight: 750; border-radius: 13px;
   box-shadow: 0 6px 16px color-mix(in srgb, var(--akzent) 28%, transparent);
 }
+.btn-small { border-radius: 12px; }
+.btn-big { border-radius: 13px; }
 .btn-ghost, :root[data-theme="dark"] .btn-ghost {
   background: var(--karte-2); color: var(--text); box-shadow: none;
 }
@@ -131,13 +134,14 @@ body.wallet-farbe .topbar .iconbtn, body.wallet-farbe.kopf-weg .topbar .iconbtn 
 .has-dot::after, #btn-profile-top.has-dot::after { box-shadow: 0 0 0 2px var(--karte); }
 
 /* =============================================================================
-   Menueleiste unten: volle Breite, oben abgerundet, 4 Reiter.
+   Menueleiste unten: volle Breite, oben abgerundet, 3 Reiter (Feed | Wallet |
+   Chat), die Wallet in der Mitte. Das Profil liegt oben links am Profilbild.
    Der aktive Reiter traegt die Rang-Farbe, ein gefuelltes Symbol und waechst.
    ========================================================================== */
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; top: auto; z-index: 30;
   transform: none; width: auto;
-  display: grid; grid-template-columns: repeat(4, minmax(0, 150px)); justify-content: center; gap: 0;
+  display: grid; grid-template-columns: repeat(3, minmax(0, 150px)); justify-content: center; gap: 0;
   height: var(--leiste-gesamt);
   padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
   background: var(--leiste-bg); border: 0; border-radius: 16px 16px 0 0;
@@ -739,5 +743,18 @@ body.wallet-farbe.kopf-weg .topbar .k-wordmark { color: #fff; }
 }
 .dk-zeit .icon { width: 15px; height: 15px; flex: none; }
 .dk-zeit > span { overflow: hidden; text-overflow: ellipsis; }
-.dk-zeit .pf-timer { color: #E0322B; font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) { .dk.anim { animation: none; } .dk, .dk-herz, .feed-chip { transition: none; } }
+/* Preisfehler-Zaehler in der Zeit-Pille (Kachel und Deal-Blatt): rot, aber
+   ohne eigene Pille in der Pille */
+.dk-zeit .pf-timer, .pill-zeit .pf-timer {
+  display: inline; padding: 0; border-radius: 0; background: none;
+  font: inherit; color: var(--preis); font-variant-numeric: tabular-nums;
+}
+
+/* ---- Deal-Blatt: Hinweise in normaler Schreibweise, Zeit wie auf der Kachel */
+#sheet-content .badge { padding: 4px 9px; font-size: .76rem; font-weight: 750; letter-spacing: 0; line-height: 1.3; }
+#sheet-content .badge-pf { background: #E0322B; color: #fff; font-family: inherit; }
+#sheet-content .badge-neu { background: color-mix(in srgb, #3B82F6 13%, var(--karte)); color: #2F66C4; }
+:root[data-theme="dark"] #sheet-content .badge-neu { color: #8DB8FF; }
+#sheet-content .pill-zeit { display: inline-flex; align-items: center; gap: 5px; }
+#sheet-content .pill-zeit .icon { width: 14px; height: 14px; flex: none; }

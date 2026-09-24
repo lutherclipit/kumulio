@@ -464,14 +464,13 @@ function hideToast() { $('#toast').classList.remove('show'); }
 
 // ---------------- View-Wechsel mit Slide ----------------
 
-// Die schwarze Pille gleitet zum aktiven Tab (Feder-Physik über CSS-Transition)
-// Menueleiste: welcher Reiter gehoert zur Ansicht? Unterseiten des Profils
-// (Einstellungen, Freunde, Inventar …) lassen "Profil" aktiv
-const HAUPT_TABS = ['feed', 'wallet', 'chat', 'profile'];
+// Menueleiste: welcher Reiter gehoert zur Ansicht? Nur Feed, Wallet und Chat
+// haben einen. Profil und seine Unterseiten (Einstellungen, Freunde …) oeffnen
+// ueber das Profilbild oben links — dann ist kein Reiter markiert, und die
+// Woelbung blendet aus.
+const HAUPT_TABS = ['feed', 'wallet', 'chat'];
 function tabFuer(v) {
-  if (HAUPT_TABS.includes(v)) return v;
-  if (['settings', 'friends', 'inventory', 'shop', 'gifts', 'invite', 'editprofile', 'user'].includes(v)) return 'profile';
-  return null;
+  return HAUPT_TABS.includes(v) ? v : null;
 }
 function markiereTab(v) {
   const t = tabFuer(v);
@@ -495,11 +494,14 @@ function setzeBuckel(sofort = false) {
   const x = Math.round(aktiv.offsetLeft + aktiv.offsetWidth / 2 - (b.clientWidth || 88) / 2);
   const war = buckelX;
   buckelX = x;
+  // War sie ausgeblendet (Profil offen), erscheint sie gleich am Ziel und
+  // blendet nur ein — sonst glitte sie unsichtbar vom alten Platz herueber
+  const warWeg = b.classList.contains('weg');
   b.classList.remove('weg');
   const ziel = `translate3d(${x}px, 0, 0)`;
   b.getAnimations?.().forEach(a => a.cancel());
   b.style.transform = ziel;
-  if (sofort || war === null || war === x || reducedMotion() || document.body.classList.contains('sparsam') || !b.animate) return;
+  if (sofort || warWeg || war === null || war === x || reducedMotion() || document.body.classList.contains('sparsam') || !b.animate) return;
   const mitte = Math.round(war + (x - war) * .55);
   b.animate([
     { transform: `translate3d(${war}px, 0, 0) scale(1, 1)` },
@@ -671,33 +673,6 @@ $('#tabbar').addEventListener('click', e => {
   switchView(btn.dataset.view);
 });
 
-// ---------------- Onboarding ----------------
-
-function showOnboarding() {
-  const grid = $('#onboarding-channels');
-  const picked = new Set(['hot', 'preisfehler', 'freebies']);
-  grid.innerHTML = state.channels.map(c => `
-    <button class="onboarding-chip ${picked.has(c.slug) ? 'active' : ''}" data-slug="${esc(c.slug)}">
-      ${icon(c.icon)} ${esc(c.name)}
-    </button>`).join('');
-  grid.onclick = e => {
-    const b = e.target.closest('.onboarding-chip');
-    if (!b) return;
-    const slug = b.dataset.slug;
-    picked.has(slug) ? picked.delete(slug) : picked.add(slug);
-    b.classList.toggle('active', picked.has(slug));
-  };
-  $('#btn-onboarding-done').onclick = () => {
-    state.follows = [...picked];
-    if (!state.follows.length) state.follows = ['hot'];
-    save('follows', state.follows);
-    $('#onboarding').classList.add('hidden');
-    renderChipbar();
-    loadFeed();
-  };
-  $('#onboarding').classList.remove('hidden');
-}
-
 // ---------------- Chipbar + Feed ----------------
 
 // Feed-Filter als schlichte Pillen in einer Reihe (seitwaerts wischbar). Der
@@ -845,21 +820,20 @@ document.addEventListener('click', async e => {
 });
 
 // Spar-Badges: Rabatt / Gratis / Verdienst / Preisfehler, auf einen Blick
-function renderBadges(d, withTimer) {
+// Hinweise im Deal-Blatt, in normaler Schreibweise wie auf den Kacheln (die
+// Zeit steht als eigene Pille daneben, auch der Preisfehler-Zaehler)
+function renderBadges(d) {
   const out = [];
-  if (d.channel === 'preisfehler') {
-    out.push(`<span class="badge badge-pf"><span class="pf-glitch" data-text="PREISFEHLER">PREISFEHLER</span></span>`);
-    if (withTimer) out.push(`<span class="pf-timer" data-pf-ts="${d.ts}">${icon('clock')} <span>${pfElapsed(d.ts)}</span></span>`);
-  }
+  if (d.channel === 'preisfehler') out.push(`<span class="badge badge-pf">Preisfehler</span>`);
   if (d.free) {
-    out.push(`<span class="badge badge-free">GRATIS</span>`);
+    out.push(`<span class="badge badge-free">Gratis</span>`);
   } else if (d.discount != null) {
     out.push(d.discount >= 50
       ? `<span class="badge badge-hot">${icon('flame')} −${d.discount} %</span>`
       : `<span class="badge badge-discount">−${d.discount} %</span>`);
   }
-  if (d.earn) out.push(`<span class="badge badge-earn">+ VERDIENST</span>`);
-  if (d.newCustomer) out.push(`<span class="badge badge-free" style="background:rgba(90,150,240,.18); color:#3d6fb4">NUR NEUKUNDEN</span>`);
+  if (d.earn) out.push(`<span class="badge badge-earn">+ Verdienst</span>`);
+  if (d.newCustomer) out.push(`<span class="badge badge-neu">Nur Neukunden</span>`);
   if (d.compareChecked) out.push(`<span class="badge badge-free" title="Vergleichspreis mit billiger.de geprüft">${icon('check', 'icon icon-sm')} geprüft</span>`);
   return out.join(' ');
 }
@@ -1126,7 +1100,7 @@ function dealKachelHtml(d, { art = 'raster', i = 0, anim = false } = {}) {
     style="--bc:${brandColor(marke)}${anim ? `; animation-delay:${Math.min(i, 8) * 40}ms` : ''}">
     <div class="dk-bild${bild ? '' : ' ohne'}">
       ${bild ? `<img src="${esc(bild)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.classList.add('ohne');this.remove()">` : ''}
-      <span class="dk-ersatz" aria-hidden="true">${brandChipHtml(marke)}</span>
+      <span class="dk-ersatz" aria-hidden="true">${brandChipHtml(marke, true)}</span>
       ${rabattPill(d)}
       ${herzKnopf(d.id)}
       ${hinweis ? `<span class="dk-hinweis">${hinweis}</span>` : ''}
@@ -1185,8 +1159,8 @@ function heroSlideHtml(e, i) {
       </div>
       <span class="fh-bild${bild ? ' foto' : ' logo'}" aria-hidden="true">
         ${bild
-          ? `<img src="${esc(bild)}" alt="" loading="${i ? 'lazy' : 'eager'}" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.className='fh-bild logo';this.replaceWith(document.createRange().createContextualFragment(this.dataset.ersatz))" data-ersatz="${esc(brandChipHtml(marke || titel))}">`
-          : brandChipHtml(marke || titel)}
+          ? `<img src="${esc(bild)}" alt="" loading="${i ? 'lazy' : 'eager'}" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.className='fh-bild logo';this.replaceWith(document.createRange().createContextualFragment(this.dataset.ersatz))" data-ersatz="${esc(brandChipHtml(marke || titel, true))}">`
+          : brandChipHtml(marke || titel, true)}
       </span>
     </div>`;
 }
@@ -2320,6 +2294,9 @@ function openDealSheet(deal) {
   const cmpNum = d.compare?.priceNum || null;
   const maxNum = Math.max(priceNum || 0, origNum || 0, cmpNum || 0);
   const bar = v => Math.max(10, Math.round(v / maxNum * 150));
+  // Zeitangabe als Pille mit Uhr wie auf der Kachel (Preisfehler: Live-Zaehler).
+  // Vorbei: dann zaehlt, wann er kam — "abgelaufen" sagt schon der Hinweis davor.
+  const zeit = d.stale ? { ico: 'clock', html: esc(timeAgo(d.ts)) } : dealZeitChip(d);
 
   $('#sheet-content').innerHTML = `
     ${images.length ? `
@@ -2339,13 +2316,12 @@ function openDealSheet(deal) {
       <span id="sheet-stars-slot">${renderStarsCombined(d)}</span>
     </div>
     <div class="sheet-subrow">
-      ${d.endTs && !d.stale ? `<span class="pill pill-danger" data-cd="${d.endTs}">${cdText(d.endTs)}</span>` : ''}
-      ${d.stale ? `<span class="badge badge-stale">VERMUTLICH VORBEI</span>` : ''}
-      ${renderBadges(d, true)}
+      ${d.stale ? `<span class="badge badge-stale">Vermutlich vorbei</span>` : ''}
+      ${renderBadges(d)}
+      <span class="pill pill-zeit">${icon(zeit.ico, 'icon')}<span>${zeit.html}</span></span>
       ${d.merchant ? `<span class="pill">${esc(d.merchant)}</span>` : ''}
       ${d.user ? `<span class="pill pill-accent">@${esc(d.user)}</span>` : ''}
-      ${c ? `<span class="pill">${icon(c.icon, 'icon icon-sm')} ${esc(c.name)}</span>` : ''}
-      <span class="pill">${esc(timeAgo(d.ts))}</span>
+      ${c && c.slug !== 'preisfehler' ? `<span class="pill">${icon(c.icon, 'icon icon-sm')} ${esc(c.name)}</span>` : ''}
       ${flags}
       <button class="btn-share" id="btn-sheet-send" aria-label="An Freund schicken">${icon('send')}</button>
       <button class="btn-share" id="btn-sheet-share" aria-label="Teilen">${icon('share')}</button>
@@ -4282,143 +4258,62 @@ if (swSound) {
   el.addEventListener('change', () => { state.notif[key] = el.checked; save('notif', state.notif); });
 });
 
-// ---------------- Fullscreen-Onboarding beim ersten Start ----------------
-// Splash und Tutorial sind ein Fluss: Logo animiert, rutscht nach oben,
-// dann wird der Nutzer Schritt für Schritt begrüßt und zum Konto geführt.
+// ---------------- Einfuehrung beim ersten Start ----------------
+// Ein Fluss: das Logo faellt, rutscht nach oben, darunter begruesst Kumulio
+// (Fenster in der Rang-Farbe wie in der Wallet) und zaehlt auf, was die App
+// kann. "Jetzt loslegen" wischt alles weg zur Tour ueber die echten Reiter;
+// am Ende kommt der Startgrund mit Konto erstellen / Einloggen zurueck.
 
-// Jeder Step zeigt die Möglichkeit als kleines Stück echter UI (visual)
-const OB_STEPS = [
-  { title: 'Schön, dass du da bist.', text: 'kumulio ist deine kuratierte Spar-App: handverlesene Angebote, deine Gutschein-Wallet und alle Coupons an einem Ort, ohne Deal-Spam.', cta: 'Los geht’s' },
-  {
-    title: 'Sparen & Verdienen', text: 'Oben wechselst du zwischen Sparen, Verdienen und Neukunden-Aktionen, sauber getrennt, damit du sofort findest, was du suchst.', cta: 'Weiter',
-    visual: () => `
-      <span class="chip active">${icon('gift')} Sparen</span>
-      <span class="chip">${icon('banknote')} Verdienen</span>
-      <span class="chip">${icon('sparkle')} Neukunden</span>`,
-  },
-  {
-    title: 'Deine Wallet', text: 'Gutschein fotografieren, Felder füllen sich automatisch. Restguthaben abbuchen, PIN und Barcode griffbereit, und Sparkarten wie Payback immer dabei.', cta: 'Weiter',
-    visual: () => `
-      <div class="wallet-card ob-mini" style="--bc:${brandColor('rewe')}">
-        <div class="wallet-card-head">
-          <span class="brand-chip" style="--bc:rgba(255,255,255,.22)">RE</span>
-          <span class="wallet-card-name">REWE</span>
-          <span class="wallet-card-balance">25,00 €</span>
-        </div>
-        <div class="wallet-card-sub"><span>GUTSCHEIN-123</span><span class="pill">PIN</span><span class="pill">QR</span></div>
-      </div>`,
-  },
-  {
-    title: 'Coupons & Merken', text: 'Der Coupons-Tab bündelt Rossmann, Lidl Plus, McDonald’s & Co. Mit dem Stern merkst du dir Angebote, auf Wunsch mit Erinnerung, bevor sie ablaufen.', cta: 'Weiter',
-    visual: () => ['Rossmann', 'Lidl', 'McDonalds', 'Payback'].map(b =>
-      `<span class="brand-chip" style="--bc:${brandColor(b)}">${esc(brandInitials(b))}</span>`).join('')
-      + `<span class="ob-star">${icon('star')}</span>`,
-  },
-  {
-    title: 'Töne & Mitteilungen', text: 'Schalte gleich alles scharf: Soundeffekte beim Öffnen von Containern und Geschenken, und Push-Nachrichten für Preisfehler und Freunde.', cta: 'Weiter',
-    visual: () => `
-      <div class="ob-toggles">
-        <label class="ob-toggle"><input type="checkbox" id="ob-sound" ${soundOn() ? 'checked' : ''}><span class="switch-slider"></span> Soundeffekte</label>
-        <label class="ob-toggle"><input type="checkbox" id="ob-push"><span class="switch-slider"></span> Mitteilungen aufs Handy</label>
-      </div>`,
-    wire: () => {
-      $('#ob-sound')?.addEventListener('change', e => {
-        lsSetzen('ra.sound', e.target.checked ? '1' : '0');
-        const sw = $('#sw-sound'); if (sw) sw.checked = e.target.checked;
-        if (e.target.checked) { initSfx(); playSfx('plop'); }
-      });
-      $('#ob-push')?.addEventListener('change', async e => {
-        if (!e.target.checked) return;
-        try { await enablePushNow(); } catch (err) { e.target.checked = false; island(err.message); }
-      });
-    },
-  },
-  {
-    title: 'Bleib verbunden.', text: 'Mit deinem Profil sicherst du Wallet und Bewertungen. Den Newsletter kannst du optional dazunehmen, damit du keinen Top-Deal verpasst.', cta: 'Konto erstellen', final: true,
-    visual: () => `
-      <span class="avatar-mini" style="width:34px;height:34px;font-size:1rem">du</span>
-      <span class="pill pill-accent">${icon('bell', 'icon icon-sm')} Newsletter optional</span>`,
-  },
-];
-let obStep = 0;
-
-// Läuft die App schon als Home-Bildschirm-App? Sonst zeigen wir die Anleitung.
+// Läuft die App schon als Home-Bildschirm-App? Sonst zeigt die Tour die Anleitung.
 const isStandalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 const uaIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
 const uaAndroid = /android/i.test(navigator.userAgent);
-if (!isStandalone && (uaIOS || uaAndroid)) {
-  OB_STEPS.splice(OB_STEPS.length - 1, 0, {
-    title: 'Mach kumulio zur App',
-    text: uaIOS
-      ? 'Füg kumulio zum Home-Bildschirm hinzu, dann läuft alles im Vollbild und der Preisfehler-Alarm funktioniert.'
-      : 'Installier kumulio über das Browser-Menü, dann läuft alles im Vollbild wie eine echte App.',
-    cta: 'Weiter',
-    visual: () => uaIOS ? `
-      <div class="ob-install">
-        <div class="ob-install-step"><b>1</b> Unten das ${icon('share', 'icon icon-sm')} Teilen-Symbol antippen</div>
-        <div class="ob-install-step"><b>2</b> "Zum Home-Bildschirm" wählen</div>
-        <div class="ob-install-step"><b>3</b> Oben rechts auf "Hinzufügen"</div>
-      </div>` : `
-      <div class="ob-install">
-        <div class="ob-install-step"><b>1</b> Oben rechts das Menü (⋮) öffnen</div>
-        <div class="ob-install-step"><b>2</b> "App installieren" antippen</div>
-        <div class="ob-install-step"><b>3</b> Bestätigen, fertig</div>
-      </div>`,
-  });
-}
 
-function renderObStep() {
-  const s = OB_STEPS[obStep];
-  const stepEl = $('#ob-step');
-  stepEl.innerHTML = `
-    <div class="ob-step">
-      ${s.visual ? `<div class="ob-visual">${s.visual()}</div>` : ''}
-      <h2>${esc(s.title)}</h2>
-      <p>${esc(s.text)}</p>
+// Fenster in der Rang-Farbe; rechts schaut Kumulio heraus (Oberkoerper, der
+// Kopf ragt oben ueber den Rand) — derselbe Auftritt wie die Wallet-Karte
+function introFensterHtml(titel, text) {
+  return `
+    <div class="intro-fenster">
+      <div class="intro-fenster-text"><h2>${esc(titel)}</h2><p>${esc(text)}</p></div>
+      <span class="intro-figur" aria-hidden="true"><img src="/brand/kumulio-maskottchen-wallet-480.webp"
+        srcset="/brand/kumulio-maskottchen-wallet-480.webp 480w, /brand/kumulio-maskottchen-wallet-960.webp 960w"
+        sizes="200px" width="200" height="211" alt="" decoding="async" draggable="false"></span>
     </div>`;
-  $('#ob-dots').innerHTML = OB_STEPS.map((_, i) => `<i class="${i === obStep ? 'on' : ''}"></i>`).join('');
-  const next = $('#ob-next');
-  next.textContent = s.cta;
-  // Animationen neu anstoßen (Step-by-Step-Gefühl)
-  next.style.animation = 'none';
-  requestAnimationFrame(() => { next.style.animation = ''; });
-  $('#ob-extra').innerHTML = s.final ? `
-    <button class="ob-alt" id="ob-login">Schon angemeldet? Hier einloggen</button>
-    <button class="ob-alt" id="ob-continue">Ohne Konto fortfahren</button>
-    <p class="legal-line">Mit dem Konto akzeptierst du die
-      <a href="/agb.html" target="_blank" rel="noopener">AGB</a> und die
-      <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutzerklärung</a>.</p>` : '';
-  s.wire?.();
-  $('#ob-continue')?.addEventListener('click', () => finishOnboarding(false));
-  $('#ob-login')?.addEventListener('click', () => { finishOnboarding(false); switchView('profile'); });
-  $('#ob-skip').classList.toggle('hidden', !!s.final);
+}
+// Was die App kann: Symbol im Rang-Ton, fett die Sache, darunter ein Satz
+function introPunkteHtml(punkte) {
+  return `<ul class="intro-punkte">${punkte.map(([ico, titel, text]) => `
+    <li><span class="intro-punkt-ico">${icon(ico)}</span>
+      <span class="intro-punkt-text"><b>${esc(titel)}</b><span>${esc(text)}</span></span></li>`).join('')}
+  </ul>`;
 }
 
-function finishOnboarding(openRegister) {
+function finishOnboarding() {
   lsSetzen('ra.tutorialDone', '1');
-  $('#onboard').classList.add('done');
-  setTimeout(() => $('#onboard').classList.add('hidden'), 520);
-  if (openRegister && !state.token) $('#btn-register-open').click();
+  const ob = $('#onboard');
+  ob.classList.add('done');
+  setTimeout(() => { ob.classList.add('hidden'); ob.classList.remove('done', 'step', 'finale'); }, 520);
 }
 
 function maybeShowOnboarding() {
   if (localStorage.getItem('ra.tutorialDone')) return;
-  // Markenmoment: Logo faellt, rutscht hoch, dann die Begruessung auf dem
-  // Splash-Hintergrund. "Jetzt loslegen" wischt alles nach oben weg zur Tour.
-  $('#onboard').classList.remove('hidden');
+  // Markenmoment: das Logo faellt in der Mitte ein und gleitet nach oben,
+  // dann baut sich die Begruessung darunter auf
+  const ob = $('#onboard');
+  ob.classList.remove('hidden');
   setTimeout(() => {
-    $('#onboard').classList.add('step');
-    $('#ob-step').innerHTML = `
-      <div class="ob-step">
-        <h2>Schön, dass du da bist.</h2>
-        <p>kumulio ist deine Spar-App: kuratierte Deals und Preisfehler, deine Gutschein-Wallet und deine Leute, alles an einem Ort.</p>
-      </div>`;
-    $('#ob-dots').innerHTML = '';
+    ob.classList.add('step');
+    $('#ob-step').innerHTML = introFensterHtml('Schön, dass du da bist.', 'Das kann kumulio:')
+      + introPunkteHtml([
+        ['deals', 'Deals, die sich lohnen', 'Handverlesene Angebote und Preisfehler, ohne Deal-Spam.'],
+        ['wallet', 'Deine Gutschein-Wallet', 'Restguthaben, Code und PIN immer griffbereit.'],
+        ['message', 'Mit Freunden', 'Deals weiterschicken und zusammen sparen.'],
+      ]);
     $('#ob-extra').innerHTML = '';
     const next = $('#ob-next');
     next.textContent = 'Jetzt loslegen';
+    next.classList.remove('hidden');
     next.onclick = () => {
-      const ob = $('#onboard');
       ob.classList.add('swipe');
       setTimeout(() => { ob.classList.add('hidden'); ob.classList.remove('swipe', 'step'); startTour(); }, 640);
     };
@@ -4427,41 +4322,46 @@ function maybeShowOnboarding() {
   }, 1600);
 }
 
-// Finale der Tour: der Start-Hintergrund kommt von unten zurueck, das Logo
-// blendet animiert ein, Konto erstellen / einloggen liegt auf einem Slider
+// Finale der Tour: der Startgrund kommt von unten zurueck, das Logo faellt
+// wieder ein, darunter Konto erstellen, Einloggen oder ohne Konto weiter
 function showTourFinale() {
+  // Schon angemeldet (neues Geraet): kein Konto-Angebot, direkt in den Feed
+  if (state.token) {
+    lsSetzen('ra.tutorialDone', '1');
+    if (state.activeView !== 'feed') switchView('feed');
+    return;
+  }
   const ob = $('#onboard');
-  // Wie beim Start: Logo erst GROSS in der Mitte, dann gleitet es hoch,
-  // erst danach faedeln sich Text und Konto-Slider animiert ein
   ob.classList.remove('hidden', 'done', 'swipe', 'step');
   ob.classList.add('finale');
+  ob.scrollTop = 0;
   $('#ob-content').classList.add('hidden');
   const logo = ob.querySelector('.ob-logo');
   logo.style.animation = 'none';
   void logo.offsetWidth;
   logo.style.animation = '';
-  $('#ob-step').innerHTML = `
-    <div class="ob-step">
-      <h2>Bereit?</h2>
-      <p>Mit Konto sind Wallet, Funken und Fortschritt sicher, auf jedem Gerät.</p>
-    </div>`;
-  $('#ob-dots').innerHTML = '';
+  $('#ob-step').innerHTML = introFensterHtml('Bereit zum Sparen?', 'Mit Konto ist deine Wallet gesichert und auf jedem Gerät dabei.')
+    + introPunkteHtml([
+      ['wallet', 'Wallet auf jedem Gerät', 'Gutscheine und Karten liegen sicher in deinem Konto.'],
+      ['message', 'Mit Freunden schreiben', 'Chatten und Deals teilen geht mit Konto.'],
+      ['thumb-up', 'Mitreden', 'Deals bewerten und kommentieren.'],
+    ]);
   const next = $('#ob-next');
   next.classList.add('hidden');
   $('#ob-extra').innerHTML = `
-    <div class="ob-slider">
-      <button class="ob-slider-opt primary" id="obf-register">Konto erstellen</button>
-      <button class="ob-slider-opt" id="obf-login">Einloggen</button>
+    <div class="intro-knoepfe">
+      <button class="btn btn-big" id="obf-register" type="button">Konto erstellen</button>
+      <button class="btn btn-big btn-ghost" id="obf-login" type="button">Einloggen</button>
     </div>
-    <button class="ob-alt" id="obf-guest">Ohne Konto weiter</button>`;
+    <button class="intro-link" id="obf-guest" type="button">Ohne Konto weiter</button>`;
   const closeOb = () => {
-    lsSetzen('ra.tutorialDone', '1');
-    ob.classList.add('done');
-    setTimeout(() => { ob.classList.add('hidden'); ob.classList.remove('done', 'step', 'finale'); next.classList.remove('hidden'); }, 520);
+    finishOnboarding();
+    setTimeout(() => next.classList.remove('hidden'), 520);
   };
-  $('#obf-register').onclick = () => { closeOb(); switchView('profile'); setTimeout(() => $('#btn-register-open')?.click(), 400); };
+  // Registrieren geht als Fenster ueber dem Feed; Einloggen hat seine Seite
+  $('#obf-register').onclick = () => { closeOb(); switchView('feed'); setTimeout(() => $('#btn-register-open')?.click(), 400); };
   $('#obf-login').onclick = () => { closeOb(); switchView('profile'); };
-  $('#obf-guest').onclick = () => closeOb();
+  $('#obf-guest').onclick = () => { closeOb(); switchView('feed'); };
   $('#ob-skip').classList.add('hidden');
   // Der Logo-Moment darf atmen, dann rutscht es hoch und der Inhalt kommt
   setTimeout(() => {
@@ -4470,60 +4370,34 @@ function showTourFinale() {
   }, 950);
 }
 
-// ---- Interaktive Tour: Spotlight wandert ueber die echte App, Hinweise in
-// Kreis-Bubbles, alles andere ist abgedunkelt. Kein Karten-Gespamme mehr.
+// ---- Tour: ein Lichtfeld wandert ueber die echten Reiter, daneben eine
+// weisse Karte mit Vorschau aus den echten Bausteinen der App. Das Feld
+// bewegt sich nur per transform.
 function startTour() {
-  // Prototypen mit dem ECHTEN App-Markup: so sieht es nachher wirklich aus
-  const walletDemo = `<div class="tour-visual">
-    <div class="tour-proto">
-      <div class="wallet-card" style="--bc:${brandColor('rewe')}">
-        <div class="wallet-card-head">
-          ${brandChipHtml('REWE')}
-          <span class="wallet-card-name">REWE</span>
-          <span class="wallet-card-balance">25,00 €</span>
-        </div>
-        <div class="wallet-card-sub"><span>2094 4258 9452</span><span class="pill">PIN 3374</span></div>
-        <span class="wallet-card-date">16.08.26</span>
-      </div>
-    </div>
-    <span class="tour-mini-note">Foto vom Gutschein reicht, die Felder füllen sich selbst. Sparkarten und Coupons wohnen hier auch.</span>
-  </div>`;
-  const feedDemo = `<div class="tour-visual">
-    <div class="tour-proto">
-      <article class="deal offer deal-pf" style="display:block">
-        <div class="offer-head">
-          ${brandChipHtml('MediaMarkt')}
-          <div class="offer-brand">
-            <div class="offer-merchant">MediaMarkt</div>
-            <div class="offer-cat">Preisfehler · gerade eben</div>
-          </div>
-        </div>
-        <div class="deal-title" style="margin-top:8px">4K-Fernseher 55 Zoll für 111 €</div>
-        <div class="deal-sub">
-          <span class="price">111 €</span>
-          <span class="badge badge-pf"><span class="pf-glitch" data-text="PREISFEHLER">PREISFEHLER</span></span>
-          <span class="badge badge-hot">${icon('flame')} −86 %</span>
-          <span class="pf-timer" data-pf-ts="${Date.now() - 2 * 60000}">${icon('clock')} <span>${pfElapsed(Date.now() - 2 * 60000)}</span></span>
-        </div>
-      </article>
-    </div>
-    <span class="tour-mini-note">Dazu Neukunden-Deals und Wege, nebenbei etwas zu verdienen.</span>
-  </div>`;
-  const chatDemo = `<div class="tour-visual"><div class="win-ctx chat-demo" style="margin:0; padding:8px 14px">
-    <svg class="icon icon-sm chat-badge"><use href="#i-flame"/></svg>
-    <span class="chat-user paint pn-anim" style="--paint:linear-gradient(90deg,#8A5A00 0%,#E8A317 30%,#FFF3C4 50%,#E8A317 70%,#8A5A00 100%); color:#c28f00">Milena</span>
-    <span class="chat-text"><img class="emote" src="https://cdn.7tv.app/emote/01GAZ199Z8000FEWHS6AT5QZV0/2x.webp" alt=""></span>
-  </div></div>`;
-  const lookDemo = `<div class="tour-visual" style="flex-direction:row; gap:12px; align-items:center">
-    <span class="avatar-mini pfb-goldring" style="background:#3f51b5">M</span>
-    <span class="chat-user paint pn-anim" style="--paint:linear-gradient(90deg,#12C77E,#3B82F6,#8B5CF6,#EC4899,#F5B301,#12C77E); color:#7c6bd8; font-size:1.05rem">Milena</span>
-    <img class="emote" style="height:28px" src="https://cdn.7tv.app/emote/01FE3XY508000AA32JP519W2EW/2x.webp" alt="">
-  </div>`;
+  // Feed: zwei echte Deal-Kacheln (am liebsten mit Foto)
+  const offen = state.deals.filter(d => !d.stale);
+  const mitBild = offen.filter(d => dealBild(d));
+  const deals = (mitBild.length >= 2 ? mitBild : offen).slice(0, 2);
+  const feedDemo = deals.length
+    ? `<div class="tour-deals${deals.length === 1 ? ' einzeln' : ''}">${deals.map(d => dealKachelHtml(d, { art: 'reihe' })).join('')}</div>`
+    : '';
+  // Wallet: eine Gutschein-Karte, genau wie in der Wallet (Beispielwerte)
+  const walletDemo = `<div class="tour-karte">${voucherCardHtml({ id: 'tour-beispiel', vendor: 'REWE', amount: 25, balance: 25, code: '2094 4258 9452', pin: '3374' })}</div>
+    <span class="tour-notiz">So sieht ein Gutschein in deiner Wallet aus.</span>`;
+  // Chat: ein geteilter Deal und die Antwort darauf
+  const geteilt = offen[0];
+  const chatDemo = `<div class="tour-chat">
+      <div class="tc-zeile"><span class="tc-ava" style="background:${chatColor('Milena')}">M</span>
+        <span class="tc-blase">${geteilt ? `<span class="tc-deal">${icon('deals', 'icon')}<span>${esc(geteilt.title)}</span></span>` : ''}Schau mal, lohnt sich!</span></div>
+      <div class="tc-zeile ich"><span class="tc-blase">Danke, gleich gemerkt.</span></div>
+    </div>`;
   const steps = [
-    { view: 'feed', sel: '.tabbtn[data-view="feed"] .tab-ico', title: 'Deals, die sich lohnen', text: 'Preisfehler als Alarm aufs Handy, Neukunden-Deals und Wege, nebenbei etwas zu verdienen.', visual: feedDemo },
-    { view: 'wallet', sel: '.tabbtn[data-view="wallet"] .tab-ico', title: 'Deine Wallet', text: 'Gutschein fotografieren, fertig: Guthaben, PIN und Barcode griffbereit, Restsummen immer im Blick.', visual: walletDemo },
-    { view: 'chat', sel: '.tabbtn[data-view="chat"] .tab-ico', title: 'Chat und Freunde', text: 'Mit Freunden schreiben: Deals direkt weiterschicken und zusammen zuschlagen.', visual: chatDemo },
-    { center: true, title: 'Dein Look', text: 'Mit Spar-Aktivität erspielst du Container: Emotes, Namens-Paints, Sticker und Profilrahmen. Nie für Geld.', visual: lookDemo },
+    { view: 'feed', tab: 'feed', title: 'Deals, die sich lohnen', text: 'Oben die Highlights, darunter die Top Deals für dich. Preisfehler meldet kumulio auf Wunsch sofort aufs Handy.', visual: feedDemo },
+    { view: 'wallet', tab: 'wallet', title: 'Deine Wallet', text: 'Gutschein abfotografieren, den Rest füllt kumulio aus. Karten & Coupons deiner Läden liegen gleich daneben.', visual: walletDemo },
+    { view: 'chat', tab: 'chat', title: 'Mit Freunden', text: 'Schick Deals direkt an Freunde und schreibt zusammen.', visual: chatDemo },
+    { sel: '#btn-profile-top', title: 'Dein Profil', text: state.token
+      ? 'Oben links über dein Profilbild: Profil, Freunde und Einstellungen.'
+      : 'Oben links meldest du dich an. Danach findest du dort dein Profil, Freunde und Einstellungen.' },
     ...(!isStandalone && (uaIOS || uaAndroid) ? [{
       center: true, title: 'Als App auf den Home-Bildschirm', text: uaIOS
         ? 'Tipp unten auf Teilen und wähle „Zum Home-Bildschirm“: Vollbild, schneller Start und der Preisfehler-Alarm funktioniert.'
@@ -4536,12 +4410,12 @@ function startTour() {
   tour.id = 'tour';
   tour.innerHTML = `
     <div class="tour-spot"></div>
-    <div class="tour-bubble">
-      <span class="tour-num">1</span>
-      <h3></h3><p></p>
-      <div class="tour-media"></div>
+    <div class="tour-bubble leave" role="dialog" aria-modal="true" aria-labelledby="tour-titel">
+      <div class="tour-kopf"><span class="tour-num">1</span><h3 id="tour-titel"></h3></div>
+      <p></p>
+      <div class="tour-media" aria-hidden="true"></div>
       <div class="tour-btns"></div>
-      <button class="tour-alt tour-skip-inline">Tour überspringen</button>
+      <button class="tour-alt tour-skip-inline" type="button">Tour überspringen</button>
     </div>`;
   document.body.appendChild(tour);
   const spot = tour.querySelector('.tour-spot');
@@ -4553,6 +4427,29 @@ function startTour() {
   tour.querySelector('.tour-skip-inline').onclick = () => {
     lsSetzen('ra.tutorialDone', '1');
     end();
+    if (state.activeView !== 'feed') switchView('feed');
+  };
+  // Das Lichtfeld: Groesse direkt, Lage per transform (gleitet weich hinueber)
+  let spotDa = false;
+  const setzeSpot = (x, y, b, h) => {
+    spot.style.width = Math.round(b) + 'px';
+    spot.style.height = Math.round(h) + 'px';
+    spot.style.transform = `translate3d(${Math.round(x)}px, ${Math.round(y)}px, 0)`;
+    if (!spotDa) { spotDa = true; void spot.offsetWidth; spot.classList.add('gleitet'); }
+  };
+  // Lichtfeld: beim Reiter Symbol und Beschriftung zusammen — gemessen am
+  // Knopf, nicht am Symbol (das waechst gerade noch). Alle Reiter ergeben so
+  // dieselbe Groesse, das Feld gleitet nur. Sonst das Element mit etwas Luft.
+  const zielRect = s => {
+    if (s.tab) {
+      const btn = document.querySelector(`.tabbtn[data-view="${s.tab}"]`);
+      const k = btn?.getBoundingClientRect(), t = btn?.querySelector('.tab-txt')?.getBoundingClientRect();
+      if (!k || !t) return null;
+      const mitte = k.left + k.width / 2, breite = Math.min(k.width - 16, 92);
+      return { x: mitte - breite / 2, y: k.top - 12, b: breite, h: t.bottom + 7 - (k.top - 12) };
+    }
+    const r = s.sel && document.querySelector(s.sel)?.getBoundingClientRect();
+    return r ? { x: r.left - 6, y: r.top - 6, b: r.width + 12, h: r.height + 12 } : null;
   };
   const show = () => {
     const s = steps[i];
@@ -4562,68 +4459,69 @@ function startTour() {
     tour.querySelector('h3').textContent = s.title;
     tour.querySelector('p').textContent = s.text;
     try { tour.querySelector('.tour-media').innerHTML = s.visual || ''; }
-    catch (e) { tour.querySelector('.tour-media').innerHTML = ''; console.warn('Tour: Demo', e); }
+    catch (e) { tour.querySelector('.tour-media').innerHTML = ''; console.warn('Tour: Vorschau', e); }
     const btns = tour.querySelector('.tour-btns');
-    btns.innerHTML = `<button class="btn btn-big" data-t="next">${s.cta || 'Weiter'}</button>`;
+    btns.innerHTML = `<button class="btn btn-big" data-t="next" type="button">${esc(s.cta || (i === steps.length - 1 ? 'Fertig' : 'Weiter'))}</button>`;
     btns.querySelector('[data-t]').onclick = () => {
       i++;
       if (i < steps.length) showSmooth();
       else { end(); showTourFinale(); }
     };
-    // Erst rendern, dann MESSEN und ordentlich platzieren: die Bubble sitzt
-    // mittig im freien Raum, klebt nie am Rand oder am Kreis
-    requestAnimationFrame(() => { try {
-      const M = 18;
+    // Erst rendern (nach einem View-Wechsel kurz setzen lassen), dann MESSEN
+    // und die Karte mittig in den freien Raum setzen — nie an den Rand oder
+    // aufs Feld. Bis dahin bleibt sie abgetaucht (kein Aufblitzen am alten Platz).
+    setTimeout(() => requestAnimationFrame(() => { try {
+      const M = 16;
       const safeTop = 64;
       const bh = bubble.offsetHeight;
-      const el = s.sel && document.querySelector(s.sel);
-      if (el && !s.center) {
-        const rct = el.getBoundingClientRect();
-        const r = Math.max(rct.width, rct.height) / 2 + 16;
-        const cx = rct.left + rct.width / 2, cy = rct.top + rct.height / 2;
-        spot.style.left = (cx - r) + 'px';
-        spot.style.top = (cy - r) + 'px';
-        spot.style.width = spot.style.height = (r * 2) + 'px';
-        const spotTop = cy - r;
-        const spotBottom = cy + r;
-        const roomAbove = spotTop - safeTop;
+      const r = !s.center && zielRect(s);
+      if (r) {
+        const { x, y, b, h } = r;
+        setzeSpot(x, y, b, h);
+        spot.classList.remove('weg');
+        spot.classList.toggle('rund', !s.tab && Math.abs(b - h) < 4);
+        const roomAbove = y - safeTop;
         if (roomAbove >= bh + M) {
-          // mittig im Raum zwischen Kopfzeile und Kreis
           bubble.style.top = (safeTop + (roomAbove - bh) / 2) + 'px';
           bubble.style.transformOrigin = 'center bottom';
         } else {
-          bubble.style.top = Math.min(innerHeight - bh - M, spotBottom + M) + 'px';
+          bubble.style.top = Math.min(innerHeight - bh - M, y + h + M) + 'px';
           bubble.style.transformOrigin = 'center top';
         }
       } else {
-        spot.style.left = '50%'; spot.style.top = '42%';
-        spot.style.width = spot.style.height = '0px';
+        // Kein Ziel: das Feld schliesst sich, alles bleibt gedimmt
+        setzeSpot(innerWidth / 2, innerHeight * .45, 0, 0);
+        spot.classList.add('weg');
         bubble.style.top = Math.max(safeTop, (innerHeight - bh) / 2 - 24) + 'px';
         bubble.style.transformOrigin = 'center center';
       }
-      bubble.style.bottom = '';
-      bubble.classList.remove('pop');
+      bubble.classList.remove('pop', 'leave');
       void bubble.offsetWidth;
       bubble.classList.add('pop');
     } catch (e) {
-      // Notnagel: Bubble mittig zeigen statt gar nichts
+      // Notnagel: Karte mittig zeigen statt gar nichts
       console.warn('Tour: Platzierung', e);
-      spot.style.width = spot.style.height = '0px';
-      bubble.style.top = '30%'; bubble.style.bottom = '';
+      setzeSpot(innerWidth / 2, innerHeight * .45, 0, 0);
+      spot.classList.add('weg');
+      bubble.style.top = '30%';
+      bubble.classList.remove('leave');
       bubble.classList.add('pop');
-    } });
+    } }), s.view ? 60 : 0);
   };
-  // Zwischen den Steps taucht die Bubble kurz ab und kommt federnd wieder
+  // Zwischen den Schritten taucht die Karte kurz ab und kommt federnd wieder
   const showSmooth = () => {
     bubble.classList.add('leave');
-    setTimeout(() => { bubble.classList.remove('leave'); show(); }, 170);
+    setTimeout(show, 170);
   };
   show();
 }
 
-// (Der Karten-Stepper ist Geschichte: Begrüßung + Tour übernehmen)
-$('#ob-skip').addEventListener('click', () => finishOnboarding(false));
+// Ueberspringen: ohne Tour direkt in die App
+$('#ob-skip').addEventListener('click', () => finishOnboarding());
+// Wallet ohne Konto: Anmelden fuehrt zur Anmeldung, "Konto erstellen" oeffnet
+// die Registrierung gleich hier
 $('#btn-wallet-login').addEventListener('click', () => switchView('profile'));
+$('#btn-wallet-register')?.addEventListener('click', () => $('#btn-register-open')?.click());
 
 // ---------------- Wallet 2.0: Gutscheine mit Guthaben + Sparkarten ----------------
 
@@ -6283,11 +6181,15 @@ const BRAND_DOMAINS = {
   netflix: 'netflix.com', disney: 'disneyplus.com', 'uber eats': 'ubereats.com',
   "mcdonald's": 'mcdonalds.com', "domino's": 'dominos.de', 'about you': 'aboutyou.de',
 };
-function brandChipHtml(name) {
+// gross = true holt das Logo in 128 px (fuer grosse Flaechen wie im Feed-Banner).
+// Laedt es nicht, nimmt der Chip auch "hat-logo" weg — sonst blieben die
+// Initialen darunter unsichtbar (transparente Schrift) und der Chip leer.
+function brandChipHtml(name, gross = false) {
   const domain = BRAND_DOMAINS[String(name || '').toLowerCase()];
+  const px = gross ? 128 : 64;
   const logo = domain
-    ? `<img class="brand-logo" src="https://www.google.com/s2/favicons?domain=${domain}&sz=64" alt=""
-         loading="lazy" decoding="async" fetchpriority="low" width="64" height="64" onerror="this.remove()">`
+    ? `<img class="brand-logo" src="https://www.google.com/s2/favicons?domain=${domain}&sz=${px}" alt=""
+         loading="lazy" decoding="async" fetchpriority="low" width="${px}" height="${px}" onerror="this.parentNode?.classList.remove('hat-logo');this.remove()">`
     : '';
   // Mit Logo traegt der Chip Weiss statt Markenfarbe — sonst blitzt an den
   // Rundungen ein farbiger Rand um das Bild
