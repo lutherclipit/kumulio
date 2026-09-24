@@ -1215,49 +1215,7 @@ const GAMI_WEG = new Set([
   '/api/item/sell-many', '/api/sticker/use', '/api/shop/buy', '/api/border', '/api/paint',
 ]);
 
-// Freischaltbare Chat-Emotes (7TV, verifizierte IDs) als Kisten-Items
-// Ziehbarer Emote-Pool: 21 Emotes aus dem offiziellen 7TV-Global-Set (Stand
-// 08/2026), so gross wie eine CS-Sticker-Kapsel. Bekanntheit = Stufe: die
-// Twitch-Ikonen (EZ, Clap) sind episch. Der Sticker-Pool nutzt die ANDEREN 21.
-const UNLOCK_EMOTES = {
-  EZ: { id: '01GB4CK01800090V9B3D8CGEEX', rarity: 'epic' },
-  Clap: { id: '01GAM8EFQ00004MXFXAJYKA859', rarity: 'epic' },
-  FeelsDankMan: { id: '01GB9W8JN80004CKF2H1TWA99H', rarity: 'rare' },
-  WAYTOODANK: { id: '01G98W833R0000BRQD106P0ZNT', rarity: 'rare' },
-  gachiBASS: { id: '01GB4P2HX0000BJ5HR8F6XV9Q0', rarity: 'rare' },
-  PepePls: { id: '01GAFTZ9K80003DHH026MC7JW0', rarity: 'rare' },
-  peepoHappy: { id: '01GAZ199Z8000FEWHS6AT5QZV0', rarity: 'uncommon' },
-  peepoSad: { id: '01GAZ4SBX80007YCE2RXBT44B2', rarity: 'uncommon' },
-  FeelsOkayMan: { id: '01GB46137R000BJ5HR8F6XV8J1', rarity: 'uncommon' },
-  FeelsStrongMan: { id: '01GB4EV0Q800090V9B3D8CGEHV', rarity: 'uncommon' },
-  ApuApustaja: { id: '01GGCQPCGR000C7MT8JZGP6E89', rarity: 'uncommon' },
-  BillyApprove: { id: '01GB2S7H7000018VJGJ4A9BMFS', rarity: 'uncommon' },
-  forsenPls: { id: '01GB8EQNJ8000497KFBZWNSDFZ', rarity: 'uncommon' },
-  Clap2: { id: '01GB2TN09G000AZXHZ8HNEZX6G', rarity: 'common' },
-  ppL: { id: '01GGD5PJA8000FH13S498E9D8X', rarity: 'common' },
-  Stare: { id: '01GG3YGWK8000DWE419062SG28', rarity: 'common' },
-  aceStare: { id: '01JY2MX5BE5BVWWFV153ANMMHZ', rarity: 'common' },
-  xdx: { id: '01FZBTBQDG000DX0N9GHCRXYPH', rarity: 'common' },
-  FeelsWeirdMan: { id: '01GB4FWTR8000DGEZ8VYY59RBN', rarity: 'common' },
-  reckH: { id: '01F014S6KG0007E4VV006YKSM3', rarity: 'common' },
-  Gayge: { id: '01G4GQC5H0000D3DGNAYJJP8EB', rarity: 'common' },
-};
-// Frueher gezogene Emotes bleiben anzeig-, nutz- und verkaufbar, aber der Pool
-// zieht NUR noch aus UNLOCK_EMOTES
-const LEGACY_EMOTES = {
-  LOL: { id: '01M02624P6ENNGSVJHAMTMGZX1', rarity: 'uncommon' },
-  LO: { id: '01JEB26JCY13R8BPZP6YMGAB1A', rarity: 'uncommon' },
-  GIGACHAD: { id: '01KYE940CV1QMK2KVMZHRJAZ8W', rarity: 'legendary' },
-  meow: { id: '01KZ59N97F1KY2PXMKDJAF7C47', rarity: 'uncommon' },
-  agahi: { id: '01J244ERJG000A78Z503AX8PTC', rarity: 'rare' },
-  MUGA: { id: '01GPSNNQKR00081V29Z3EHDCJ5', rarity: 'epic' },
-  peepoLove: { id: '01KN4C1AGRRG7QSWH4RSWFMY5G', rarity: 'rare' },
-  uwu: { id: '01M00WM6M941HSGKREJYN4JZCP', rarity: 'uncommon' },
-  ong: { id: '01FWS83HG0000ASC1GQNZR38QV', rarity: 'rare' },
-  AINTNOWAY: { id: '01KXR0GEPAF1ZWH9ESQ3NYGRJ9', rarity: 'epic' },
-};
 const markLegacy = obj => Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, { ...v, legacy: true }]));
-const EMOTES_ALL = { ...markLegacy(LEGACY_EMOTES), ...UNLOCK_EMOTES };
 // Nachrichten werden beim AUSLIEFERN mit der aktuellen Namensfarbe ihres
 // Autors angereichert (Feld "paint", #rrggbb oder null): ein Farbwechsel wirkt
 // damit sofort auf alle alten Nachrichten, gespeichert wird nichts um. Was
@@ -1271,11 +1229,6 @@ function withLiveLook(msgs, field) {
   });
 }
 
-// Frueher: stand im Text ein ziehbares Emote, das der Nutzer nicht besass?
-// Seit Runde 117 hat jeder alle Emotes (CHAT_EMOTES) — gesperrt wird nichts.
-function lockedEmoteIn(text, prof) {
-  return '';
-}
 // Sticker: kuratierter, austauschbarer Pool (7TV-Global-Set, IDs verifiziert).
 // Sticker klebt man auf Gutscheine in der Wallet — Position frei, max 4 pro Karte.
 const STICKERS = {
@@ -2542,9 +2495,6 @@ const server = http.createServer(async (req, res) => {
       chatBurst['dm:' + me].push(Date.now());
       const key = dmKey(me, to);
       dms[key] = dms[key] || { msgs: [], reads: {} };
-      const dmProf = profileOf(me);
-      const lockedDm = lockedEmoteIn(text, dmProf);
-      if (lockedDm) return send(res, 400, { error: `Du hast ${lockedDm} noch nicht gezogen.` });
       // Gespeichert wird nur die Rolle; die Namensfarbe kommt beim Ausliefern
       // frisch dazu (withLiveLook), Raenge gehen nie mit raus
       const msg = {

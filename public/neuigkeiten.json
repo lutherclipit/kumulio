@@ -1,5 +1,37 @@
 [
   {
+    "v": "2026-09-24.5",
+    "datum": "24. September 2026",
+    "titel": "Aufgeräumt und klarer",
+    "punkte": [
+      {
+        "icon": "banknote",
+        "titel": "Gutscheine als eigene Seite",
+        "text": "Ein Tipp auf einen Gutschein öffnet seine Seite. Abbuchen und Aufladen sind unten immer griffbereit, Verschenken und Notizen stecken im Pfeil daneben. Zurück geht es mit dem Pfeil oben links oder per Wisch."
+      },
+      {
+        "icon": "chart",
+        "titel": "Analyse und zuletzt verwendet",
+        "text": "Die Analyse hat eine eigene Seite, und dein zuletzt benutzter Gutschein steht oben griffbereit, solange noch Guthaben drauf ist."
+      },
+      {
+        "icon": "user",
+        "titel": "Neues Profil und neue Ränge",
+        "text": "Dein Rang richtet sich jetzt nach deinem Wallet-Guthaben, vom Anfänger bis zum Spitzenverdiener, und nur du siehst ihn. Dazu zählt kumulio deine Login-Serie, und deine Namensfarbe wählst du frei."
+      },
+      {
+        "icon": "message",
+        "titel": "Ruhigerer Chat",
+        "text": "Der Chat fügt sich jetzt ohne Kästen in die App ein. Emotes gibt es als Katzen und Peepos, für alle."
+      },
+      {
+        "icon": "sparkle",
+        "titel": "Weniger ist mehr",
+        "text": "Kisten, Inventar, Shop und Funken sind raus. Einladungen merken wir dir vor, Belohnungen folgen."
+      }
+    ]
+  },
+  {
     "v": "2026-09-24.4",
     "datum": "24. September 2026",
     "titel": "kumulio hat einen neuen Look",

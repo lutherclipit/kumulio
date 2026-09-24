@@ -2520,12 +2520,6 @@ async function sendComment() {
 let myProfile = null;
 let profSeq = 0;
 let peFarbe = '';        // Namensfarbe, wie sie auf "Profil bearbeiten" gerade gewaehlt ist
-// Rest aus der Kisten-Zeit: der Chat liest hier noch den Emote-Besitz
-// (gami?.emotes …). Der Wert bleibt leer — es hat jeder alle Emotes.
-let gami = null;
-// Sticker auf Gutscheinen gibt es nicht mehr; alte Karten behalten ihre
-// Daten, gezeigt wird nichts (die Wallet ruft das noch je Karte auf)
-function voucherStickerHtml() { return ''; }
 
 function refreshProfileTab() {
   // Oben links: "Anmelden"-Button (Gast) bzw. Avatar mit Initiale (angemeldet)
@@ -7913,7 +7907,6 @@ function voucherCardHtml(v, { mehr = false } = {}) {
         ${mehr ? `<button class="vk-mehr" type="button" data-wv-mehr="${esc(v.id)}" aria-label="Aktionen für ${esc(v.vendor)}">${icon('mehr', 'icon')}</button>` : ''}
       </div>
       <div class="vk-fuss">${entferntAmHtml(v)}${fuss ? `<span>${fuss}</span>` : ''}</div>
-      ${(v.stickers || []).map(voucherStickerHtml).join('')}
       ${v.giftFrom ? `<span class="gift-corner${v.giftSeen ? '' : ' unopened'}" role="img" aria-label="Geschenk von @${esc(v.giftFrom)}"><img src="/gamification/gift-tag.svg" alt=""></span>` : ''}
     </div>`;
 }
@@ -9664,9 +9657,6 @@ function handleOpenParams(qs) {
 // ---------------- Chat: Fluestern mit Freunden ----------------
 
 let chatEmotes = {};
-let chatBadges = {};
-let chatPaints = [];
-let chatRanks = [];
 
 const CHAT_COLORS = ['#e91e63', '#9c27b0', '#3f51b5', '#03a9f4', '#009688', '#4caf50', '#ff9800', '#f44336', '#8d6e63', '#607d8b'];
 function chatColor(name) {
@@ -11884,12 +11874,9 @@ window.addEventListener('online', () => { if ($('#conn-screen')) location.reload
   });
   pruefeKontoLinks();
   initTurnstile();
-  // Emotes, Badges, Paints und Ränge früh laden, damit Profile und Chats sie kennen
+  // Emotes und Wallet-Grenzen früh laden, damit Profile und Chats sie kennen
   api('/api/meta').then(r => {
     chatEmotes = r.emotes || {};
-    chatBadges = r.badges || {};
-    chatPaints = r.paints || chatPaints;
-    chatRanks = r.ranks || chatRanks;
     if (r.walletLimit) { Object.assign(WALLET_LIMIT, r.walletLimit); if (state.activeView === 'wallet') renderWallet(); }
   }).catch(() => { });
   if (state.token) {
