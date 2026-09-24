@@ -5,6 +5,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const zlib = require('zlib');
 
 // Hosting: PORT kommt vom Anbieter (Railway/Render/...), Datenverzeichnis
 // per RA_DATA_DIR auf ein persistentes Volume legen
@@ -810,6 +811,47 @@ function walletIndex(w) {
   return { v: (w.vouchers || []).filter(x => x && x.id).map(zeile), c: (w.cards || []).filter(x => x && x.id).map(zeile) };
 }
 
+// ---- Rabattcodes verschenken. Eingeloest oder abgelaufen geht nicht: sonst
+// kaeme beim Freund ein toter Code an. Geprueft wird die Fassung, die
+// tatsaechlich rausginge (die gewinnende aus Konto und Geraet).
+function rabattNichtVerschenkbar(v) {
+  if (!v) return 'Rabattcode nicht gefunden.';
+  if (v.eingeloest) return 'Eingelöste Rabattcodes kann man nicht verschenken.';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(v.end || '')) && v.end < berlinTag(Date.now())) return 'Abgelaufene Rabattcodes kann man nicht verschenken.';
+  return '';
+}
+// Hat der Empfaenger denselben Code derselben Marke schon (Wallet oder
+// wartendes Geschenk)? Ohne Code ist nichts doppelt.
+function rabattSchonDa(user, v) {
+  const code = String(v && v.code || '').replace(/\s+/g, '').toLowerCase();
+  if (!code) return false;
+  const marke = String(v.vendor || '').trim().toLowerCase();
+  const gleich = x => x && x.art === 'rabatt' && !x.eingeloest
+    && String(x.code || '').replace(/\s+/g, '').toLowerCase() === code
+    && String(x.vendor || '').trim().toLowerCase() === marke;
+  return ((wallets[user] && wallets[user].vouchers) || []).some(gleich) || (gifts[user] || []).some(gleich);
+}
+// Felder eines verschenkten Rabattcodes wie beim Anlegen in der App: Zahlen
+// groesser 0 (auf Cent), feste Einheit, Code ohne Leerzeichen, nie Guthaben
+function rabattFelderSaeubern(v) {
+  const zahl = x => {
+    const n = Number(x);
+    return x == null || x === '' || !Number.isFinite(n) || n <= 0 ? null : Math.round(Math.min(n, 1e6) * 100) / 100;
+  };
+  v.art = 'rabatt';
+  v.rabatt = zahl(v.rabatt);
+  v.rabattArt = v.rabattArt === 'pct' ? 'pct' : 'eur';
+  v.mbw = zahl(v.mbw);
+  v.code = String(v.code || '').replace(/\s+/g, '').slice(0, 40);
+  v.end = /^\d{4}-\d{2}-\d{2}$/.test(String(v.end || '')) ? v.end : '';
+  v.eingeloest = 0;
+  v.pin = '';
+  v.amount = null;
+  v.balance = null;
+  v.tx = [];
+  return v;
+}
+
 // ---- Papierkorb: jede Fassung, die aus einer Wallet verschwindet (geloescht,
 // verschenkt, abgeschnitten), liegt hier ein Jahr lang und laesst sich
 // wiederherstellen. Genau das fehlte, als ein ausgepacktes Geschenk
@@ -1451,6 +1493,466 @@ async function scanMccheap() {
 }
 scanMccheap();
 setInterval(scanMccheap, 60 * 60 * 1000).unref?.();
+
+// ---------------------------------------------------------------- Burger-King-PDF
+// einfach-sparsam.de legt die aktuellen Burger-King-Papiercoupons als PDF aus.
+// Wir holen die Seite einmal am Tag und gleich nach Ablauf der alten PDF,
+// suchen den PDF-Eintrag, folgen den Weiterleitungen bis zur Datei und legen
+// sie im Datenordner ab (bk-coupons.pdf, dazu bk-coupons.json). Geht etwas
+// schief, bleibt die alte Datei liegen — und der naechste Versuch wartet
+// laenger, damit wir die Seite nicht haemmern.
+const BK_QUELLE = 'https://www.einfach-sparsam.de/burger-king-coupons-ausdrucken.htm';
+const BK_PDF = 'bk-coupons.pdf';
+const BK_META = 'bk-coupons.json';
+const BK_MAX_BYTES = 15 * 1024 * 1024;
+const BK_MONATE = ['januar', 'februar', 'maerz', 'april', 'mai', 'juni', 'juli', 'august', 'september', 'oktober', 'november', 'dezember'];
+let bkMeta = loadJson(BK_META, null);
+const bkLauf = { aktiv: null, versuch: 0, fehler: 0, letzterFehler: '' };
+
+// "06.11.2026", "6. November 2026" oder ohne Jahr ("bis 6. November") ->
+// "2026-11-06". Ohne Jahr gilt das naechste solche Datum (hoechstens zwei
+// Monate zurueck). Unlesbares ergibt ''.
+function bkDatumLesen(text, bezug = new Date()) {
+  let t = String(text || '').toLowerCase().replace(/ä/g, 'ae');
+  const nachBis = t.split(/\bbis\b/).slice(1).join(' ');
+  if (nachBis) t = nachBis;
+  let tag, monat, jahr;
+  let m = t.match(/\b(\d{1,2})\.(\d{1,2})\.(\d{4}|\d{2})\b/);
+  if (m) {
+    tag = +m[1]; monat = +m[2]; jahr = +m[3] < 100 ? 2000 + +m[3] : +m[3];
+  } else {
+    m = t.match(/\b(\d{1,2})\.?\s*(januar|februar|maerz|april|mai|juni|juli|august|september|oktober|november|dezember)\b(?:\s+(\d{4}))?/);
+    if (!m) return '';
+    tag = +m[1];
+    monat = BK_MONATE.indexOf(m[2]) + 1;
+    jahr = m[3] ? +m[3] : bezug.getFullYear();
+    if (!m[3] && Date.UTC(jahr, monat - 1, tag) < bezug.getTime() - 60 * 864e5) jahr++;
+  }
+  if (!(tag >= 1 && tag <= 31 && monat >= 1 && monat <= 12 && jahr >= 2020 && jahr <= 2100)) return '';
+  const d = new Date(Date.UTC(jahr, monat - 1, tag));
+  if (d.getUTCDate() !== tag) return '';   // 31.02. o. ae.
+  return d.toISOString().slice(0, 10);
+}
+
+// Den PDF-Eintrag auf der Seite finden: jeder Gutschein steht in einem Block
+// ab <span class="anchor" id="voucher-…">, der PDF-Eintrag hat "PDF" im Titel.
+function bkSeiteLesen(html) {
+  html = String(html || '');
+  const sauber = s => decodeEntities(String(s || '').replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+  let e = null;
+  for (const b of html.split(/<span[^>]*class="anchor"[^>]*id="voucher-/i).slice(1)) {
+    const titel = sauber((b.match(/class="voucher-title"[^>]*>([\s\S]*?)<\/div>/i) || [])[1]);
+    const ziel = (b.match(/data-voucher-url="(\d{1,6}-\d{1,9})"/) || [])[1];
+    if (!ziel || !/\bpdf\b/i.test(titel)) continue;
+    e = {
+      ziel,
+      titel: titel.replace(/[^\p{L}\p{N}\s().,:–-]+/gu, '').replace(/\s+/g, ' ').trim().slice(0, 120),
+      unter: sauber((b.match(/class="vou[a-z]*-subtitle"[^>]*>([\s\S]*?)<\/div>/i) || [])[1]).slice(0, 200),
+      ende: sauber((b.match(/class="voucher-end-date"[^>]*>([\s\S]*?)<\/span>\s*<\/div>/i) || [])[1]).slice(0, 60),
+    };
+    break;
+  }
+  // Seite umgebaut: der Knopf traegt den Titel auch im aria-label
+  if (!e) {
+    const m = html.match(/data-voucher-url="(\d{1,6}-\d{1,9})"[^>]*aria-label="[^"]*\bPDF\b[^"]*"/i);
+    if (m) e = { ziel: m[1], titel: 'Burger King Gutscheine (PDF)', unter: '', ende: '' };
+  }
+  if (!e) return null;
+  const seitenTitel = sauber((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1]);
+  e.gueltigBis = bkDatumLesen(e.unter) || bkDatumLesen(e.ende) || bkDatumLesen(seitenTitel);
+  return e;
+}
+
+// Nur Adressen von einfach-sparsam.de, nur https — eine Weiterleitung
+// woandershin holen wir nicht
+function bkUrlOk(u) {
+  try { const x = new URL(u); return x.protocol === 'https:' && /(^|\.)einfach-sparsam\.de$/i.test(x.hostname); } catch { return false; }
+}
+function bkDatei(name) { return path.join(DATA, name); }
+function bkDa() { return !!(bkMeta && bkMeta.groesse) && fs.existsSync(bkDatei(BK_PDF)); }
+
+// Faellig? Taeglich; ist die PDF abgelaufen, alle zwei Stunden, bis die neue
+// da ist. Nach Fehlern waechst die Pause (30 min, 1 h, 2 h … hoechstens 12 h),
+// zwischen zwei Versuchen liegen immer mindestens 10 Minuten.
+function bkFaellig(jetzt = Date.now()) {
+  if (bkLauf.aktiv || jetzt - bkLauf.versuch < 10 * 60e3) return false;
+  if (bkLauf.fehler && jetzt - bkLauf.versuch < Math.min(12 * 3600e3, 30 * 60e3 * 2 ** (bkLauf.fehler - 1))) return false;
+  if (!bkDa() || !bkMeta.geprueft) return true;
+  const abgelaufen = !!bkMeta.gueltigBis && bkMeta.gueltigBis < berlinTag(jetzt);
+  return jetzt - bkMeta.geprueft > (abgelaufen ? 2 * 3600e3 : 22 * 3600e3);
+}
+function bkPruefen({ sofort = false } = {}) {
+  if (!sofort && !bkFaellig()) return bkLauf.aktiv || Promise.resolve(false);
+  if (bkLauf.aktiv) return bkLauf.aktiv;
+  bkLauf.versuch = Date.now();
+  bkLauf.aktiv = bkHolen()
+    .then(neu => { bkLauf.fehler = 0; bkLauf.letzterFehler = ''; return neu; })
+    .catch(err => {
+      bkLauf.fehler = Math.min(bkLauf.fehler + 1, 10);
+      bkLauf.letzterFehler = String(err && err.message || err).slice(0, 200);
+      console.error('[BK-PDF]', bkLauf.letzterFehler);
+      return false;
+    })
+    .finally(() => { bkLauf.aktiv = null; });
+  return bkLauf.aktiv;
+}
+async function bkHolen() {
+  // Ein Lauf darf hoechstens 90 s dauern (Seite, Weiterleitungen, Download)
+  const ctrl = new AbortController();
+  const uhr = setTimeout(() => ctrl.abort(), 90e3);
+  const kopf = accept => ({ 'User-Agent': BROWSER_UA, 'Accept': accept, 'Accept-Language': 'de-DE,de;q=0.9', 'Referer': BK_QUELLE });
+  try {
+    const seite = await fetch(BK_QUELLE, { headers: kopf('text/html,application/xhtml+xml'), redirect: 'follow', signal: ctrl.signal });
+    if (!seite.ok) throw new Error('Seite antwortet mit ' + seite.status);
+    const eintrag = bkSeiteLesen((await seite.text()).slice(0, 1_500_000));
+    if (!eintrag) throw new Error('Kein PDF-Eintrag auf der Seite gefunden');
+
+    // Den Weiterleitungen selbst folgen: jede muss bei einfach-sparsam bleiben
+    let url = `https://www.einfach-sparsam.de/shop/gehe-zu-${eintrag.ziel}`;
+    let res = null;
+    for (let schritt = 0; ; schritt++) {
+      if (schritt > 5) throw new Error('Zu viele Weiterleitungen');
+      if (!bkUrlOk(url)) throw new Error('Weiterleitung auf eine fremde Seite');
+      res = await fetch(url, { headers: kopf('application/pdf,*/*;q=0.8'), redirect: 'manual', signal: ctrl.signal });
+      if (res.status < 300 || res.status >= 400) break;
+      const ziel = res.headers.get('location');
+      await res.body?.cancel().catch(() => { });
+      if (!ziel) throw new Error('Weiterleitung ohne Ziel');
+      url = new URL(ziel, url).href;
+    }
+    if (!res.ok) throw new Error('PDF antwortet mit ' + res.status);
+    const typ = String(res.headers.get('content-type') || '').toLowerCase();
+    if (!/application\/(pdf|octet-stream)/.test(typ)) { await res.body?.cancel().catch(() => { }); throw new Error('Keine PDF (' + typ + ')'); }
+    const laenge = Number(res.headers.get('content-length')) || 0;
+    if (laenge > BK_MAX_BYTES) { await res.body?.cancel().catch(() => { }); throw new Error('PDF zu groß'); }
+    const dateiname = (() => { try { return decodeURIComponent(path.basename(new URL(url).pathname)); } catch { return ''; } })().slice(0, 120);
+    const gueltigBis = eintrag.gueltigBis || bkDatumLesen(dateiname.replace(/\.pdf$/i, ''));
+    const quelleEtag = String(res.headers.get('etag') || '').slice(0, 100);
+
+    // Dieselbe Datei wie beim letzten Mal: nichts laden, nur nachtragen
+    if (bkDa() && bkMeta.pdfUrl === url && ((quelleEtag && quelleEtag === bkMeta.quelleEtag) || (laenge && laenge === bkMeta.groesse))) {
+      await res.body?.cancel().catch(() => { });
+      bkMeta = { ...bkMeta, gueltigBis: gueltigBis || bkMeta.gueltigBis, titel: eintrag.titel, unter: eintrag.unter, geprueft: Date.now() };
+      saveJson(BK_META, bkMeta);
+      return false;
+    }
+
+    const teile = [];
+    let n = 0;
+    for await (const stueck of res.body) {
+      n += stueck.length;
+      if (n > BK_MAX_BYTES) { ctrl.abort(); throw new Error('PDF zu groß'); }
+      teile.push(stueck);
+    }
+    const buf = Buffer.concat(teile);
+    if (buf.length < 1000 || buf.subarray(0, 5).toString('latin1') !== '%PDF-') throw new Error('Datei ist keine PDF');
+
+    // Erst vollstaendig schreiben, dann umbenennen: nie eine halbe Datei
+    await fs.promises.mkdir(DATA, { recursive: true });
+    const hash = crypto.createHash('sha1').update(buf).digest('hex').slice(0, 16);
+    const seiten = bkVorschauBauen(buf, hash);
+    await fs.promises.writeFile(bkDatei(BK_PDF + '.tmp'), buf);
+    await fs.promises.rename(bkDatei(BK_PDF + '.tmp'), bkDatei(BK_PDF));
+    const altSeiten = (bkMeta && bkMeta.seiten) || [];
+    bkMeta = {
+      gueltigBis, titel: eintrag.titel, unter: eintrag.unter, quelle: BK_QUELLE, pdfUrl: url, dateiname,
+      quelleEtag, groesse: buf.length, hash, abgerufen: Date.now(), geprueft: Date.now(), seiten,
+    };
+    saveJson(BK_META, bkMeta);
+    // Vorschaubilder der alten PDF wegraeumen
+    for (const s of altSeiten) if (!seiten.some(x => x.datei === s.datei)) fs.promises.rm(bkDatei(s.datei), { force: true }).catch(() => { });
+    console.log(`[BK-PDF] neue PDF geladen (${Math.round(buf.length / 1024)} KB, gültig bis ${gueltigBis || '?'})`);
+    return true;
+  } finally {
+    clearTimeout(uhr);
+  }
+}
+
+// ---- Vorschau der Seiten als Bild, ohne Zusatzpaket. Die PDF ist ein Scan:
+// jede Seite besteht aus genau einem Bild. Wir lesen die Objekte (auch aus
+// komprimierten Objekt-Stroemen), nehmen je Seite das groesste Bild und
+// machen daraus ein PNG (Flate) oder reichen das JPEG durch (DCT). Klappt das
+// nicht (echte Vektor-PDF, unbekanntes Format), gibt es eben keine Vorschau.
+const BK_VORSCHAU_BREITE = 900;
+function bkVorschauBauen(buf, hash) {
+  const seiten = [];
+  try {
+    const bilder = pdfSeitenBilder(buf).slice(0, 4);
+    bilder.forEach((b, i) => {
+      if (!b) return;
+      const datei = `bk-coupons-${hash}-${i + 1}.${b.typ === 'image/jpeg' ? 'jpg' : 'png'}`;
+      fs.mkdirSync(DATA, { recursive: true });
+      fs.writeFileSync(bkDatei(datei), b.daten);
+      seiten.push({ n: i + 1, datei, typ: b.typ, w: b.w, h: b.h, groesse: b.daten.length });
+    });
+  } catch (err) {
+    console.error('[BK-PDF] keine Vorschau:', err.message);
+  }
+  // Nur zusammenhaengend ab Seite 1 — eine Luecke waere verwirrend
+  const bis = seiten.findIndex((s, i) => s.n !== i + 1);
+  return bis < 0 ? seiten : seiten.slice(0, bis);
+}
+
+// Minimaler PDF-Leser: Objekte mit Woerterbuch und Strom
+function pdfObjekte(buf) {
+  const s = buf.toString('latin1');
+  const objekte = new Map();
+  const kopf = /(\d+)\s+(\d+)\s+obj\b/g;
+  let m;
+  while ((m = kopf.exec(s))) {
+    const nr = +m[1];
+    let i = kopf.lastIndex;
+    while (i < s.length && /\s/.test(s[i])) i++;
+    let dict = '';
+    if (s.startsWith('<<', i)) {
+      const ende = pdfKlammerEnde(s, i);
+      if (ende < 0) continue;
+      dict = s.slice(i, ende);
+      i = ende;
+    }
+    let strom = null;
+    const rest = s.slice(i, i + 20);
+    const sm = rest.match(/^\s*stream(\r\n|\n|\r)/);
+    if (sm) {
+      const start = i + sm[0].length;
+      const len = pdfZahl(dict, 'Length');
+      // /Length stimmt, wenn danach (nach hoechstens etwas Leerraum) endstream folgt
+      let ende = len != null && len >= 0 && /^\s*endstream/.test(s.slice(start + len, start + len + 14)) ? start + len : -1;
+      if (ende < 0) {
+        ende = s.indexOf('endstream', start);
+        if (ende < 0) continue;
+        // Zeilenende vor "endstream" gehoert nicht zum Strom
+        if (s[ende - 1] === '\n') ende--;
+        if (s[ende - 1] === '\r') ende--;
+      }
+      strom = buf.subarray(start, ende);
+      kopf.lastIndex = ende;
+    } else if (!dict) {
+      // Kein Woerterbuch (Zahl, Feld …): bis endobj
+      const e = s.indexOf('endobj', i);
+      dict = s.slice(i, e < 0 ? i : e).trim();
+    }
+    if (!objekte.has(nr)) objekte.set(nr, { dict, strom });
+  }
+  // Komprimierte Objekt-Stroeme (PDF 1.5+) auspacken
+  for (const [, o] of [...objekte]) {
+    if (!o.strom || !/\/Type\s*\/ObjStm\b/.test(o.dict)) continue;
+    let daten;
+    try { daten = pdfStromDaten(o, objekte).toString('latin1'); } catch { continue; }
+    const n = pdfZahl(o.dict, 'N') || 0, erste = pdfZahl(o.dict, 'First') || 0;
+    const zahlen = daten.slice(0, erste).trim().split(/\s+/).map(Number);
+    for (let k = 0; k < n; k++) {
+      const nr = zahlen[2 * k], ab = erste + zahlen[2 * k + 1];
+      const bis = k + 1 < n ? erste + zahlen[2 * k + 3] : daten.length;
+      if (!Number.isFinite(nr) || objekte.has(nr)) continue;
+      objekte.set(nr, { dict: daten.slice(ab, bis).trim(), strom: null });
+    }
+  }
+  return objekte;
+}
+// Ende eines << … >>-Woerterbuchs (verschachtelt), -1 wenn keins
+function pdfKlammerEnde(s, i) {
+  let tiefe = 0;
+  for (let k = i; k < s.length - 1; k++) {
+    if (s[k] === '<' && s[k + 1] === '<') { tiefe++; k++; }
+    else if (s[k] === '>' && s[k + 1] === '>') { tiefe--; k++; if (!tiefe) return k + 1; }
+    else if (s[k] === '(') {           // Text in Klammern ueberspringen
+      let t = 1;
+      for (k++; k < s.length && t; k++) { if (s[k] === '\\') k++; else if (s[k] === '(') t++; else if (s[k] === ')') t--; }
+      k--;
+    }
+  }
+  return -1;
+}
+// Wert eines Schluessels im Woerterbuch (oberste Ebene reicht hier)
+function pdfWert(dict, key) {
+  const re = new RegExp('/' + key + '(?![A-Za-z0-9])\\s*', 'g');
+  const m = re.exec(dict);
+  if (!m) return null;
+  const i = re.lastIndex;
+  if (dict.startsWith('<<', i)) { const e = pdfKlammerEnde(dict, i); return e < 0 ? null : dict.slice(i, e); }
+  if (dict[i] === '[') { const e = dict.indexOf(']', i); return e < 0 ? null : dict.slice(i, e + 1); }
+  const r = dict.slice(i).match(/^(\d+\s+\d+\s+R|\/[^\s/<>\[\]()]+|[-\d.]+)/);
+  return r ? r[1] : null;
+}
+function pdfZahl(dict, key) { const v = pdfWert(dict, key); return v != null && /^[-\d.]+$/.test(v) ? Number(v) : null; }
+// Verweis "12 0 R" aufloesen (sonst der Wert selbst)
+function pdfAuf(wert, objekte) {
+  const m = String(wert || '').match(/^(\d+)\s+\d+\s+R$/);
+  return m ? (objekte.get(+m[1]) || null) : (wert != null ? { dict: String(wert), strom: null } : null);
+}
+function pdfStromDaten(o, objekte) {
+  const filter = String(pdfWert(o.dict, 'Filter') || '');
+  if (!filter) return o.strom;
+  // Obergrenze gegen aufgeblasene Stroeme (30 MB reichen fuer jede Seite)
+  if (/^\/FlateDecode$|^\[\s*\/FlateDecode\s*\]$/.test(filter)) return zlib.inflateSync(o.strom, { maxOutputLength: 30e6 });
+  throw new Error('Filter nicht unterstuetzt: ' + filter);
+}
+// Je Seite das groesste Bild als { typ, daten, w, h } (oder null)
+function pdfSeitenBilder(buf) {
+  const objekte = pdfObjekte(buf);
+  const s = buf.toString('latin1');
+  const wurzel = [...s.matchAll(/\/Root\s+(\d+)\s+\d+\s+R/g)].pop();
+  if (!wurzel) throw new Error('Kein Katalog');
+  const katalog = objekte.get(+wurzel[1]);
+  const seiten = [];
+  const sammle = (knoten, tiefe) => {
+    if (!knoten || tiefe > 8 || seiten.length >= 6) return;
+    if (/\/Type\s*\/Page\b(?!s)/.test(knoten.dict)) { seiten.push(knoten); return; }
+    const kinder = String(pdfWert(knoten.dict, 'Kids') || '').match(/\d+\s+\d+\s+R/g) || [];
+    for (const k of kinder) sammle(pdfAuf(k, objekte), tiefe + 1);
+  };
+  sammle(pdfAuf(pdfWert(katalog?.dict || '', 'Pages'), objekte), 0);
+  return seiten.map(seite => {
+    try {
+      const res = pdfAuf(pdfWert(seite.dict, 'Resources'), objekte);
+      const xo = res && pdfAuf(pdfWert(res.dict, 'XObject'), objekte);
+      if (!xo) return null;
+      let bestes = null;
+      for (const ref of xo.dict.match(/\d+\s+\d+\s+R/g) || []) {
+        const b = pdfAuf(ref, objekte);
+        if (!b || !b.strom || !/\/Subtype\s*\/Image\b/.test(b.dict)) continue;
+        const w = pdfZahl(b.dict, 'Width') || 0, h = pdfZahl(b.dict, 'Height') || 0;
+        if (!bestes || w * h > bestes.w * bestes.h) bestes = { o: b, w, h };
+      }
+      return bestes ? pdfBildAlsDatei(bestes.o, bestes.w, bestes.h, objekte) : null;
+    } catch { return null; }
+  });
+}
+function pdfBildAlsDatei(o, w, h, objekte) {
+  const filter = String(pdfWert(o.dict, 'Filter') || '');
+  if (/DCTDecode/.test(filter)) {
+    if (!/^\/DCTDecode$|^\[\s*\/DCTDecode\s*\]$/.test(filter)) return null;
+    return o.strom[0] === 0xFF && o.strom[1] === 0xD8 ? { typ: 'image/jpeg', daten: Buffer.from(o.strom), w, h } : null;
+  }
+  const px = pdfBildPixel(o, w, h, objekte);
+  if (!px) return null;
+  // Halbtransparenz (SMask) auf Weiss legen — so saehe die Seite gedruckt aus
+  const maske = pdfAuf(pdfWert(o.dict, 'SMask'), objekte);
+  if (maske && maske.strom) {
+    const a = pdfBildPixel(maske, pdfZahl(maske.dict, 'Width'), pdfZahl(maske.dict, 'Height'), objekte);
+    if (a && a.k === 1 && a.w === w && a.h === h) {
+      for (let p = 0, q = 0; q < a.daten.length; q++) {
+        const al = a.daten[q];
+        for (let c = 0; c < px.k; c++, p++) px.daten[p] = (px.daten[p] * al + 255 * (255 - al)) / 255 | 0;
+      }
+    }
+  }
+  const klein = pngVerkleinern(px, BK_VORSCHAU_BREITE);
+  return { typ: 'image/png', daten: pngBauen(klein), w: klein.w, h: klein.h };
+}
+// Flate-Bild -> rohe Pixel (8 Bit, Grau oder RGB), PNG-Praediktoren aufgeloest
+function pdfBildPixel(o, w, h, objekte) {
+  if (!w || !h || w > 3000 || h > 3000) return null;
+  if ((pdfZahl(o.dict, 'BitsPerComponent') || 8) !== 8) return null;
+  let raum = String(pdfWert(o.dict, 'ColorSpace') || '/DeviceGray');
+  if (/^\d+\s+\d+\s+R$/.test(raum)) raum = pdfAuf(raum, objekte)?.dict || '';
+  let k = /DeviceRGB/.test(raum) ? 3 : /DeviceGray/.test(raum) ? 1 : 0;
+  if (!k && /ICCBased/.test(raum)) {
+    const icc = pdfAuf((raum.match(/\d+\s+\d+\s+R/) || [])[0], objekte);
+    k = icc ? (pdfZahl(icc.dict, 'N') === 3 ? 3 : pdfZahl(icc.dict, 'N') === 1 ? 1 : 0) : 0;
+  }
+  if (!k) return null;
+  const roh = pdfStromDaten(o, objekte);
+  const parm = pdfAuf(pdfWert(o.dict, 'DecodeParms'), objekte);
+  const praed = parm ? pdfZahl(parm.dict, 'Predictor') || 1 : 1;
+  const zeile = w * k;
+  const daten = Buffer.alloc(zeile * h);
+  if (praed >= 10) {
+    if (roh.length < (zeile + 1) * h) return null;
+    pngFilterAuf(roh, daten, w, h, k);
+  } else if (praed === 1) {
+    if (roh.length < zeile * h) return null;
+    roh.copy(daten, 0, 0, zeile * h);
+  } else return null;
+  return { w, h, k, daten };
+}
+function pngPaeth(a, b, c) { const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c); return pa <= pb && pa <= pc ? a : pb <= pc ? b : c; }
+function pngFilterAuf(roh, ziel, w, h, k) {
+  const zeile = w * k;
+  for (let y = 0; y < h; y++) {
+    const f = roh[y * (zeile + 1)], q = y * (zeile + 1) + 1, z = y * zeile;
+    for (let x = 0; x < zeile; x++) {
+      const a = x >= k ? ziel[z + x - k] : 0, b = y ? ziel[z - zeile + x] : 0, c = x >= k && y ? ziel[z - zeile + x - k] : 0;
+      const v = roh[q + x];
+      ziel[z + x] = (f === 1 ? v + a : f === 2 ? v + b : f === 3 ? v + ((a + b) >> 1) : f === 4 ? v + pngPaeth(a, b, c) : v) & 255;
+    }
+  }
+}
+// Flaechenmittel auf hoechstens maxB Pixel Breite
+function pngVerkleinern(px, maxB) {
+  if (px.w <= maxB) return px;
+  const f = px.w / maxB, w = maxB, h = Math.max(1, Math.round(px.h / f)), k = px.k;
+  const daten = Buffer.alloc(w * h * k);
+  for (let y = 0; y < h; y++) {
+    const y0 = Math.floor(y * f), y1 = Math.max(y0 + 1, Math.min(px.h, Math.floor((y + 1) * f)));
+    for (let x = 0; x < w; x++) {
+      const x0 = Math.floor(x * f), x1 = Math.max(x0 + 1, Math.min(px.w, Math.floor((x + 1) * f)));
+      for (let c = 0; c < k; c++) {
+        let sum = 0;
+        for (let yy = y0; yy < y1; yy++) for (let xx = x0; xx < x1; xx++) sum += px.daten[(yy * px.w + xx) * k + c];
+        daten[(y * w + x) * k + c] = Math.round(sum / ((y1 - y0) * (x1 - x0)));
+      }
+    }
+  }
+  return { w, h, k, daten };
+}
+const CRC_TAFEL = (() => {
+  const t = new Int32Array(256);
+  for (let n = 0; n < 256; n++) { let c = n; for (let j = 0; j < 8; j++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c; }
+  return t;
+})();
+function crc32(b) { let c = -1; for (let i = 0; i < b.length; i++) c = CRC_TAFEL[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ -1) >>> 0; }
+function pngStueck(typ, daten) {
+  const td = Buffer.concat([Buffer.from(typ, 'latin1'), daten]);
+  const len = Buffer.alloc(4); len.writeUInt32BE(daten.length);
+  const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(td));
+  return Buffer.concat([len, td, crc]);
+}
+// PNG mit Paeth-Filter je Zeile (fuer Fotos meist am kleinsten)
+function pngBauen({ w, h, k, daten }) {
+  const zeile = w * k;
+  const roh = Buffer.alloc((zeile + 1) * h);
+  for (let y = 0; y < h; y++) {
+    const z = y * zeile, q = y * (zeile + 1);
+    roh[q] = 4;
+    for (let x = 0; x < zeile; x++) {
+      const a = x >= k ? daten[z + x - k] : 0, b = y ? daten[z - zeile + x] : 0, c = x >= k && y ? daten[z - zeile + x - k] : 0;
+      roh[q + 1 + x] = (daten[z + x] - pngPaeth(a, b, c)) & 255;
+    }
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4);
+  ihdr[8] = 8; ihdr[9] = k === 3 ? 2 : 0; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
+    pngStueck('IHDR', ihdr), pngStueck('IDAT', zlib.deflateSync(roh, { level: 9 })), pngStueck('IEND', Buffer.alloc(0)),
+  ]);
+}
+// Fuer die App: was liegt vor, bis wann gilt es? (ohne interne Pfade)
+function bkOeffentlich() {
+  const da = bkDa();
+  const m = bkMeta || {};
+  return {
+    da,
+    gueltigBis: da ? m.gueltigBis || '' : '',
+    abgelaufen: da && !!m.gueltigBis && m.gueltigBis < berlinTag(Date.now()),
+    titel: da ? m.titel || '' : '',
+    abgerufen: da ? m.abgerufen || 0 : 0,
+    geprueft: m.geprueft || 0,
+    groesse: da ? m.groesse || 0 : 0,
+    version: da ? m.hash || '' : '',
+    seiten: da ? (m.seiten || []).filter(s => fs.existsSync(bkDatei(s.datei))).map(s => ({ n: s.n, w: s.w, h: s.h })) : [],
+    quelle: 'einfach-sparsam.de',
+    quelleUrl: BK_QUELLE,
+  };
+}
+if (!process.env.RA_TEST) {
+  // Nicht sofort beim Start (dann ist noch nicht alles geladen), danach
+  // alle 15 Minuten nachsehen, ob etwas faellig ist
+  setTimeout(() => bkPruefen(), 20e3).unref?.();
+  setInterval(() => bkPruefen(), 15 * 60e3).unref?.();
+}
 
 // ---------------------------------------------------------------- Netto-Wochencoupons
 // Die Rabatt-Barcodes von Netto folgen einem Muster, das sich aus der
@@ -2553,7 +3055,9 @@ const server = http.createServer(async (req, res) => {
       saveJsonSoon('dms.json', dms);
       ssePush('dm', to); // Empfänger sieht die Nachricht sofort
       // Aufs Handy, auch wenn die App zu ist; der Client blendet es im offenen Chat selbst aus
-      pushToUser(to, { title: `@${me}`, body: msg.text.slice(0, 120), url: '/?chat=dm&user=' + encodeURIComponent(me), tag: 'dm-' + me, kind: 'dm', from: me });
+      // Geteilte Deals und Coupons ohne ihr [deal:…]/[coupon:…]-Kuerzel
+      const pushText = msg.text.replace(/^\[(?:deal|coupon):[^\]]{1,80}\]\s*/i, '') || msg.text;
+      pushToUser(to, { title: `@${me}`, body: pushText.slice(0, 120), url: '/?chat=dm&user=' + encodeURIComponent(me), tag: 'dm-' + me, kind: 'dm', from: me });
       return send(res, 201, { ok: true, message: { ...msg, paint: namensfarbe(me) } });
     }
     // Freunde: Anfrage senden, annehmen, ablehnen, entfernen (beidseitig)
@@ -2968,17 +3472,29 @@ const server = http.createServer(async (req, res) => {
       const idx = w.vouchers.findIndex(v => v.id === gid);
       const tot = (w.deleted || []).some(t => t && t.id === gid);
       if (idx < 0 && (!vomGeraet || tot)) return send(res, 404, { error: 'Gutschein nicht gefunden. Kurz warten, bis die Wallet gesichert ist, und nochmal versuchen.' });
-      // Beide Fassungen pruefen: gewinnen kann beim Vereinigen die vom Geraet
-      if (w.vouchers[idx]?.art === 'rabatt' || vomGeraet?.art === 'rabatt') return send(res, 400, { error: 'Rabattcodes kann man nicht verschenken.' });
+      // Erst pruefen, dann aus der Wallet nehmen: gewinnen kann beim Vereinigen
+      // die Fassung vom Geraet (waehleFassung veraendert keine der beiden)
+      const kontoV = idx >= 0 ? w.vouchers[idx] : null;
+      const kandidat = kontoV && vomGeraet ? waehleFassung(vomGeraet, kontoV) : (kontoV || vomGeraet);
+      // Rabattcode ist, was in einer der beiden Fassungen einer ist
+      const rabatt = kontoV?.art === 'rabatt' || vomGeraet?.art === 'rabatt';
+      if (rabatt) {
+        const grund = rabattNichtVerschenkbar(kandidat);
+        if (grund) return send(res, 400, { error: grund });
+        // Hat der Freund genau diesen Code schon, ginge er hier nur verloren
+        if (rabattSchonDa(to, kandidat)) return send(res, 409, { error: `@${to} hat diesen Rabattcode schon.` });
+      }
       let v;
       if (idx >= 0) [v] = w.vouchers.splice(idx, 1);
-      if (v && vomGeraet) v = waehleFassung(vomGeraet, v);
-      else if (!v) v = vomGeraet;
-      // Was bei jemand anderem landet, ist nur ein Gutschein: Bildfelder nur als
-      // Bild, keine Rabattcode-Felder, und nie die private Notiz — egal, welche
-      // Fassung (Geraet oder Konto) gewonnen hat
+      v = kandidat || v;
+      // Was bei jemand anderem landet: Bildfelder nur als Bild und nie die
+      // private Notiz — egal, welche Fassung (Geraet oder Konto) gewonnen hat.
+      // Ein Gutschein verliert alle Rabattcode-Felder; ein Rabattcode behaelt
+      // sie, geprueft und gekuerzt wie beim Anlegen in der App.
       for (const f of ['img', 'codeImg']) if (v[f] && !bildFeldOk(v[f])) v[f] = '';
-      delete v.art; delete v.rabatt; delete v.rabattArt; delete v.mbw; delete v.eingeloest; delete v.notiz;
+      delete v.notiz;
+      if (rabatt) rabattFelderSaeubern(v);
+      else { delete v.art; delete v.rabatt; delete v.rabattArt; delete v.mbw; delete v.eingeloest; }
       v.vendor = String(v.vendor || '').slice(0, 30);
       v.code = String(v.code || '').slice(0, 40);
       v.pin = String(v.pin || '').slice(0, 16);
@@ -3001,7 +3517,9 @@ const server = http.createServer(async (req, res) => {
       ssePush('gift', to);
       pushToUser(to, {
         title: `Geschenk von @${me}!`,
-        body: `Ein ${v.vendor}-Gutschein${v.amount != null ? ` über ${String(v.amount).replace('.', ',')} €` : ''} wartet in deiner Wallet.`,
+        body: rabatt
+          ? `Ein ${v.vendor}-Rabattcode${v.rabatt != null ? ` über ${String(v.rabatt).replace('.', ',')} ${v.rabattArt === 'pct' ? '%' : '€'}` : ''} wartet auf dich.`
+          : `Ein ${v.vendor}-Gutschein${v.amount != null ? ` über ${String(v.amount).replace('.', ',')} €` : ''} wartet in deiner Wallet.`,
         url: '/?tab=wallet', tag: 'gift-' + me, kind: 'gift', from: me,
       });
       return send(res, 200, { ok: true });
@@ -3513,6 +4031,37 @@ const server = http.createServer(async (req, res) => {
       scanMccheap();
       return send(res, 200, { ok: mccheap.ok, checked: mccheap.checked, items: mccheap.items });
     }
+    // Burger-King-Coupons zum Ausdrucken (PDF von einfach-sparsam.de): was
+    // liegt vor, bis wann gilt es? Holt nur nach, wenn es faellig ist.
+    if (p === '/api/bk-coupons' && req.method === 'GET') {
+      bkPruefen();
+      return send(res, 200, bkOeffentlich());
+    }
+    // Die Datei selbst und die Vorschau ihrer Seiten. Offen fuer alle (die
+    // Quelle ist oeffentlich) und ohne Anmeldung, weil ein neuer Tab kein
+    // Token mitschickt.
+    if ((p === '/bk-coupons.pdf' || /^\/bk-coupons\/seite-[1-9]$/.test(p)) && (req.method === 'GET' || req.method === 'HEAD')) {
+      if (!bkDa()) return send(res, 404, { error: 'Gerade liegt keine Burger-King-PDF vor.' });
+      let datei = BK_PDF, typ = 'application/pdf';
+      if (p !== '/bk-coupons.pdf') {
+        const s = (bkMeta.seiten || []).find(x => x.n === Number(p.slice(-1)));
+        if (!s) return send(res, 404, { error: 'Keine Vorschau für diese Seite.' });
+        datei = s.datei; typ = s.typ;
+      }
+      let st;
+      try { st = await fs.promises.stat(bkDatei(datei)); } catch { return send(res, 404, { error: 'Nicht gefunden' }); }
+      const etag = `"${bkMeta.hash || st.size}-${datei === BK_PDF ? 'pdf' : p.slice(-1)}"`;
+      const kopf = {
+        'Content-Type': typ, 'ETag': etag, 'Cache-Control': 'public, max-age=600',
+        'Access-Control-Allow-Origin': '*', 'X-Content-Type-Options': 'nosniff',
+        ...(datei === BK_PDF ? { 'Content-Disposition': 'inline; filename="burger-king-coupons.pdf"' } : {}),
+      };
+      if (String(req.headers['if-none-match'] || '') === etag) { res.writeHead(304, kopf); return res.end(); }
+      res.writeHead(200, { ...kopf, 'Content-Length': st.size });
+      if (req.method === 'HEAD') return res.end();
+      fs.createReadStream(bkDatei(datei)).on('error', () => res.destroy()).pipe(res);
+      return;
+    }
     // Die Coupons selbst: nur mit passender Sparkarte in der Wallet
     if (p === '/api/cardcoupons' && req.method === 'GET') {
       const user = authUser(req);
@@ -3776,7 +4325,9 @@ if (process.env.RA_TEST) {
     // fuer scripts/test-wallet.js
     bilderAufraeumen, bildDateien, bildAblegen, vereinigeWallet, archiviere, archivFlush, wallets, gifts, walletIndex, waehleFassung,
     totpCode, totpPruefen, base32, base32Lesen, ersatzcodeEinloesen, neueErsatzcodes, aufgebrauchtWeg, raeumeAufgebrauchteAuf, drossel,
-    zuVieleFehler, fehlerMerken, statistikMerken, AUFRAEUMEN_AB };
+    zuVieleFehler, fehlerMerken, statistikMerken, AUFRAEUMEN_AB,
+    // Burger-King-PDF (scripts/test-wallet.js)
+    bkSeiteLesen, bkDatumLesen, pdfSeitenBilder, bkPruefen, bkOeffentlich };
 } else {
   server.listen(PORT, () => {
     console.log(`kumulio läuft auf http://localhost:${PORT}`);
