@@ -2435,7 +2435,8 @@ function commentHtml(c, replies) {
   const role = c.role === 'admin' ? `<svg class="icon icon-sm chat-badge role-admin"><use href="#i-crown"/></svg>` : '';
   const rx = c.reactions || {};
   const mine = k => (rx[k] || []).includes(state.userName);
-  const emoteRx = Object.keys(rx).filter(k => k !== 'like' && k !== 'helpful');
+  // Reaktionen mit Emotes, die es nicht mehr gibt, fallen weg
+  const emoteRx = Object.keys(rx).filter(k => k !== 'like' && k !== 'helpful' && emoteOwned(k));
   const canDelete = state.userName === c.user || ['admin', 'mod'].includes(state.role);
   // Jeder Kommentar traegt Profilbild und Namensfarbe seines Autors — der
   // Server liefert den jeweils AKTUELLEN Stand mit
@@ -2484,7 +2485,8 @@ async function refreshComments() {
     react(b.closest('.comment').dataset.cid, b.dataset.creact));
   box.querySelectorAll('[data-cemote]').forEach(b => b.onclick = () => {
     // Kleine Emote-Auswahl direkt unterm Kommentar
-    const names = Object.keys(chatEmotes).slice(0, 12);
+    const eg = emoteGruppen();
+    const names = [...eg.katzen.slice(0, 6), ...eg.peepo.slice(0, 6)];
     const cid = b.closest('.comment').dataset.cid;
     const pick = document.createElement('div');
     pick.className = 'comment-emote-pick';
@@ -9169,29 +9171,34 @@ function lesbareFarbe(hex, dunkel) {
   cache.set(key, out);
   return out;
 }
-// Alle bekannten Emote-Quellen in einer Map: Chat-Basisset + ziehbare Emotes
-// + Sticker (Sticker SIND Emotes und im Chat nutzbar, wenn gezogen)
-function allEmoteIds() {
-  const map = { ...chatEmotes };
-  for (const [n, v] of Object.entries(gami?.emotesAll || {})) map[n] = v.id;
-  for (const [n, v] of Object.entries(gami?.stickersAll || {})) map[n] = v.id;
-  return map;
-}
-function emoteOwned(name) {
-  const drawable = (gami?.emotesAll || {})[name] || (gami?.stickersAll || {})[name];
-  if (!drawable) return true; // Basisset ohne Ziehung
-  return (gami?.emotes || []).includes(name) || (gami?.stickers || []).includes(name);
+// Emotes: nur Katzen und Peepo, und jeder hat alle (kein Ziehen, keine
+// Sperre). Die Liste kommt vom Server (/api/meta) in Auswahl-Reihenfolge.
+// Was frueher ein Emote war, steht in alten Nachrichten einfach als Text.
+function allEmoteIds() { return chatEmotes; }
+// Gibt es das Emote (noch)? Besitz gibt es nicht mehr, alle sind frei.
+// Name bleibt, weil das Verschenken ihn noch fragt.
+function emoteOwned(name) { return Object.hasOwn(chatEmotes, name); }
+// Die zwei Gruppen der Auswahl; Peepo-Namen beginnen immer mit "peepo"
+function emoteGruppen() {
+  const namen = Object.keys(chatEmotes);
+  const peepo = namen.filter(n => /^peepo/i.test(n));
+  return { katzen: namen.filter(n => !peepo.includes(n)), peepo };
 }
 function emoteHtml(name) {
-  const id = allEmoteIds()[name] || chatEmotes[name];
+  const id = Object.hasOwn(chatEmotes, name) ? chatEmotes[name] : '';
+  if (!id) return esc(name); // unbekannt (z. B. entferntes Emote): als Text
   return `<img class="emote" src="https://cdn.7tv.app/emote/${id}/2x.webp" alt="${esc(name)}" title="${esc(name)}" loading="lazy">`;
 }
+// Ein Ausdruck fuer alle Namen statt einer Schleife je Emote; neu gebaut nur,
+// wenn die Liste wechselt
+let emoteMuster = null, emoteMusterQuelle = null;
 function withEmotes(escapedText) {
-  let t = escapedText;
-  for (const name of Object.keys(allEmoteIds())) {
-    t = t.replace(new RegExp(`\\b${name}\\b`, 'g'), emoteHtml(name));
+  if (emoteMusterQuelle !== chatEmotes) {
+    emoteMusterQuelle = chatEmotes;
+    const namen = Object.keys(chatEmotes).filter(n => /^[A-Za-z0-9]+$/.test(n));
+    emoteMuster = namen.length ? new RegExp(`\\b(${namen.join('|')})\\b`, 'g') : null;
   }
-  return t;
+  return emoteMuster ? escapedText.replace(emoteMuster, n => emoteHtml(n)) : escapedText;
 }
 // "…" zum Löschen eigener Nachrichten (Web: beim Drüberfahren, Handy: gedrückt halten)
 function msgMenuHtml(own, id) {
@@ -9201,13 +9208,20 @@ function msgMenuHtml(own, id) {
 let chatMode = 'dmlist';
 let dmPartner = '';
 let dmLastTs = 0;
+// Angefangene Nachrichten je Gespraech: ein Entwurf fuer A landet nie bei B
+const chatEntwuerfe = new Map();
 
 function setChatMode(mode, partner) {
   const vorherMode = chatMode;
+  const inp = $('#chat-input');
+  if (vorherMode === 'dm' && dmPartner) chatEntwuerfe.set(dmPartner, inp.value);
   chatMode = mode;
   dmPartner = partner || '';
   dmLastTs = 0;
+  inp.value = mode === 'dm' ? chatEntwuerfe.get(dmPartner) || '' : '';
   $('#chat-list').innerHTML = '';
+  // Die Emote-Auswahl gehoert zum einzelnen Chat: beim Wechsel schliesst sie
+  if (!$('#chat-emotes').classList.contains('hidden')) toggleEmotes();
   // Die Liste schiebt in die Richtung herein, in die man geht: in einen Chat
   // hinein von rechts, zurueck zur Liste von links.
   const rang = { dmlist: 1, dm: 2 };
@@ -9217,25 +9231,34 @@ function setChatMode(mode, partner) {
     void box.offsetWidth;
     box.classList.add(rang[mode] > rang[vorherMode] ? 'kommt-rechts' : 'kommt-links');
   }
+  $('#view-chat').classList.toggle('im-dm', mode === 'dm');
   $('#dm-head').classList.toggle('hidden', mode !== 'dm');
   $('#chat-titel')?.classList.toggle('hidden', mode === 'dm');
   $('#chat-input-row').style.display = mode === 'dmlist' ? 'none' : 'flex';
   if (mode === 'dm') {
-    $('#dm-partner-name').textContent = dmPartner;
-    // Profilbild + Namens-Paint der Person im Chat-Kopf
+    // Kopf: Profilbild, Name in seiner Namensfarbe, bei Admin/Mod das Zeichen
+    const el = $('#dm-partner-name');
+    el.textContent = dmPartner;
+    el.className = '';
+    el.removeAttribute('style');
+    $('#dm-partner-rolle').innerHTML = '';
     $('#dm-partner-ava').innerHTML = `<span class="avatar-mini" style="background:${chatColor(dmPartner)}">${esc(dmPartner[0].toUpperCase())}</span>`;
+    const fuer = dmPartner;
     api('/api/user?name=' + encodeURIComponent(dmPartner)).then(u => {
-      const pb = u.activeBorder ? ` pfb-${u.activeBorder}` : '';
-      if (u.avatar) $('#dm-partner-ava').innerHTML = `<img class="avatar-mini avatar-img${pb}" src="${sichereBildUrl(u.avatar)}" alt="">`;
-      else if (pb) $('#dm-partner-ava').querySelector('.avatar-mini')?.classList.add('pfb-' + u.activeBorder);
+      if (fuer !== dmPartner) return; // inzwischen ein anderer Chat offen
+      if (u.avatar) $('#dm-partner-ava').innerHTML = `<img class="avatar-mini avatar-img" src="${sichereBildUrl(u.avatar)}" alt="">`;
       const ns = nameStyleOf(dmPartner, u.activePaint);
-      const el = $('#dm-partner-name');
       el.className = ns.cls.trim();
       el.setAttribute('style', ns.style);
+      const rolle = $('#dm-partner-rolle');
+      rolle.innerHTML = u.role === 'admin' ? icon('crown', 'icon role-admin')
+        : u.role === 'mod' ? icon('check', 'icon role-mod') : '';
+      rolle.title = u.role === 'admin' ? 'Admin' : u.role === 'mod' ? 'Moderation' : '';
     }).catch(() => { });
   } else {
     $('#dm-partner-ava').innerHTML = '';
   }
+  chatEingabeStand();
   // Moduswechsel gleitet weich
   const cl = $('#chat-list');
   cl.classList.add('enter-drop');
@@ -9244,33 +9267,24 @@ function setChatMode(mode, partner) {
   pollChat(true);
 }
 
+// Eine Blase. Ueber der ersten einer Folge steht der Name der anderen Person
+// in ihrer Namensfarbe; Rang, Abzeichen und Rollen-Zeichen stehen im Chat
+// nicht mehr (Raenge sind privat).
 function dmMsgHtml(m) {
   const own = m.from === state.userName;
   // Absender und Zeit stehen am Element: chatGruppieren() fasst danach
   // aufeinanderfolgende Nachrichten derselben Person zusammen
   const daten = `data-mid="${esc(m.id)}" data-from="${esc(m.from)}" data-ts="${Number(m.ts) || 0}"`;
+  const ns = nameStyleOf(m.from, m.paint);
+  const kopf = `<span class="chat-kopf"><span class="chat-user${ns.cls}" style="${ns.style}">${esc(m.from)}</span></span>`;
   if (m.deleted) {
-    const dns = nameStyleOf(m.from, m.paint);
     return `<div class="chat-msg dm-${own ? 'me' : 'them'}" ${daten}>
-      <span class="chat-kopf"><span class="chat-user${dns.cls}" style="${dns.style}">${esc(m.from)}</span></span>
+      ${kopf}
       <span class="chat-text chat-deleted">Nachricht gelöscht</span>
     </div>`;
   }
-  // Rang-Icon, Badge/Rolle und Namens-Paint stehen auch im Privatchat
-  const badge = m.badge && chatBadges[m.badge]
-    ? `<svg class="icon icon-sm chat-badge" aria-label="${esc(chatBadges[m.badge].name)}"><use href="#i-${chatBadges[m.badge].icon}"/></svg>`
-    : '';
-  const role = m.role === 'admin' ? `<svg class="icon icon-sm chat-badge role-admin" aria-label="Admin"><use href="#i-crown"/></svg>`
-    : m.role === 'mod' ? `<svg class="icon icon-sm chat-badge role-mod" aria-label="Mod"><use href="#i-check"/></svg>` : '';
-  const rk = chatRanks.find(x => x.tier === (m.rank || 1));
-  const rankImg = rk && rk.tier > 1
-    ? `<img class="px-icon rank-badge" src="/gamification/rank-${String(rk.tier).padStart(2, '0')}-${rk.id}.svg" alt="" title="${esc(rk.name)}">`
-    : '';
-  const ns = nameStyleOf(m.from, m.paint);
   return `<div class="chat-msg dm-${own ? 'me' : 'them'} ${own ? 'own' : ''}" ${daten}>
-    <span class="chat-kopf">
-      ${rankImg}${badge || role}<span class="chat-user${ns.cls}" style="${ns.style}">${esc(m.from)}</span>
-    </span>
+    ${kopf}
     <span class="chat-text">${chatBodyHtml(m.text)}</span>
     ${msgMenuHtml(own, m.id)}
   </div>`;
@@ -9316,6 +9330,17 @@ function chatGruppieren() {
   });
 }
 
+// Zeit in der Gespraechsliste wie in Messengern: heute die Uhrzeit, dann
+// "Gestern", in der letzten Woche der Wochentag, sonst das Datum
+function chatListenZeit(ts) {
+  const d = new Date(ts), jetzt = new Date();
+  const tage = Math.round((new Date(jetzt.toDateString()) - new Date(d.toDateString())) / 864e5);
+  if (tage <= 0) return d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  if (tage === 1) return 'Gestern';
+  if (tage < 7) return d.toLocaleDateString('de-DE', { weekday: 'long' });
+  return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', ...(d.getFullYear() !== jetzt.getFullYear() ? { year: '2-digit' } : {}) });
+}
+
 async function pollChat(force) {
   // Ausserhalb des Chats wird nur noch die Zahl ungelesener Nachrichten
   // nachgesehen. Frueher lief hier alle vier Sekunden der ganze Global-Chat
@@ -9325,43 +9350,47 @@ async function pollChat(force) {
     if (chatMode === 'dmlist') {
       if (!state.token) { $('#chat-list').innerHTML = '<div class="status">Zum Flüstern bitte anmelden.</div>'; return; }
       const r = await api('/api/dm/list');
-      // Profilbild mit dem gewaehlten Rahmen (pfb-…), sonst der Anfangsbuchstabe
-      const ava = (name, avatar, border) => {
-        const pb = border ? ` pfb-${esc(border)}` : '';
-        return avatar
-          ? `<img class="avatar-mini avatar-img${pb}" src="${sichereBildUrl(avatar)}" alt="">`
-          : `<span class="avatar-mini${pb}" style="background:${chatColor(name)}">${esc(name[0].toUpperCase())}</span>`;
-      };
-      // Letzte Nachricht als Vorschau: ein geteilter Deal ohne das [deal:…]-Kuerzel
-      const vorschau = t => {
-        const dl = String(t || '').match(/^\[deal:[a-z0-9]+\]\s*(.*)$/i);
-        if (dl) return `${icon('tag', 'icon dm-row-ico')}${esc(dl[1] || 'Deal')}`;
-        return t ? esc(t) : '<i>Nachricht gelöscht</i>';
+      // Profilbild, sonst der Anfangsbuchstabe auf der Chat-Farbe
+      const ava = (name, avatar) => avatar
+        ? `<img class="avatar-mini avatar-img" src="${sichereBildUrl(avatar)}" alt="">`
+        : `<span class="avatar-mini" style="background:${chatColor(name)}">${esc(name[0].toUpperCase())}</span>`;
+      // Letzte Nachricht als Vorschau: Emotes als kleine Bilder, ein geteilter
+      // Deal ohne das [deal:…]-Kuerzel, eigene mit "Du:" davor
+      const vorschau = c => {
+        const t = String(c.lastText || '');
+        const du = c.lastMine && t ? '<span class="dm-row-du">Du:</span> ' : '';
+        const dl = t.match(/^\[deal:[a-z0-9]+\]\s*(.*)$/i);
+        if (dl) return `${du}${icon('tag', 'icon dm-row-ico')}${esc(dl[1] || 'Deal')}`;
+        return t ? du + withEmotes(esc(t)) : '<i>Nachricht gelöscht</i>';
       };
       const rows = r.list.map(c => `
         <button class="dm-row${c.unread ? ' ungelesen' : ''}" data-dm-open="${esc(c.partner)}">
-          ${ava(c.partner, c.avatar, c.border)}
+          ${ava(c.partner, c.avatar)}
           <span class="dm-row-main">
-            <span class="dm-row-name">${esc(c.partner)}</span>
-            <span class="dm-row-last">${vorschau(c.lastText)}</span>
-          </span>
-          <span class="dm-row-seite">
-            ${c.lastTs ? `<span class="dm-row-zeit">${esc(timeAgo(c.lastTs))}</span>` : ''}
-            ${c.unread ? `<span class="dm-unread-pill">${c.unread}</span>` : ''}
+            <span class="dm-row-oben">
+              <span class="dm-row-name">${esc(c.partner)}</span>
+              ${c.lastTs ? `<span class="dm-row-zeit">${esc(chatListenZeit(c.lastTs))}</span>` : ''}
+            </span>
+            <span class="dm-row-unten">
+              <span class="dm-row-last">${vorschau(c)}</span>
+              ${c.unread ? `<span class="dm-unread-pill" aria-label="${c.unread} ungelesen">${c.unread > 99 ? '99+' : c.unread}</span>` : ''}
+            </span>
           </span>
         </button>`).join('');
       const friendRows = (r.friends || []).map(f => `
         <button class="dm-row" data-dm-open="${esc(f.name)}">
-          ${ava(f.name, f.avatar, f.border)}
-          <span class="dm-row-main"><span class="dm-row-name">${esc(f.name)}</span>
-          <span class="dm-row-last">Freund, noch kein Chat</span></span>
+          ${ava(f.name, f.avatar)}
+          <span class="dm-row-main">
+            <span class="dm-row-oben"><span class="dm-row-name">${esc(f.name)}</span></span>
+            <span class="dm-row-unten"><span class="dm-row-last">Noch keine Nachrichten</span></span>
+          </span>
           ${icon('chevron', 'icon dm-row-pfeil')}
         </button>`).join('');
-      // Laufende Gespraeche zuerst, darunter abgesetzt die Freunde, mit denen
-      // man noch nicht geschrieben hat. Jede Gruppe ist eine weisse Karte.
+      // Laufende Gespraeche zuerst, darunter die Freunde, mit denen man noch
+      // nicht geschrieben hat. Alles liegt direkt auf der Seite, keine Kaesten.
       $('#chat-list').innerHTML = (rows || friendRows)
         ? (rows ? `<div class="dm-gruppe">${rows}</div>` : '')
-          + (friendRows ? `<div class="dm-trenner">Freunde</div><div class="dm-gruppe">${friendRows}</div>` : '')
+          + (friendRows ? `<h3 class="dm-trenner">${rows ? 'Freunde' : 'Deine Freunde'}</h3><div class="dm-gruppe">${friendRows}</div>` : '')
         : `<div class="chat-leer">
             <span class="chat-leer-bild">${icon('message', 'icon')}</span>
             <p>Hier schreibst du mit deinen Freunden.</p>
@@ -9452,6 +9481,7 @@ async function sendChat() {
     }
     dmLastTs = Math.max(dmLastTs, r.message.ts);
     chatToBottom(true);
+    chatEingabeStand(); // Feld ist leer, Senden wird wieder leise
   } catch (e) { island(e.message); }
 }
 
@@ -9612,42 +9642,42 @@ function updateChatGate() {
   $('#chat-send').disabled = guest;
 }
 $('#chat-gate-login').addEventListener('click', () => switchView('profile'));
+// Senden leuchtet erst, wenn etwas im Feld steht
+function chatEingabeStand() {
+  $('#chat-input-row').classList.toggle('hat-text', !!$('#chat-input').value.trim());
+}
+$('#chat-input').addEventListener('input', chatEingabeStand);
+// Emote-Auswahl: alle Emotes fuer alle, Katzen und Peepo als zwei Bloecke im
+// selben Raster, getrennt durch eine feine Linie
 function toggleEmotes() {
   const el = $('#chat-emotes');
-  // Box macht Platz, damit die letzten Nachrichten sichtbar bleiben
   const opening = el.classList.contains('hidden');
   $('#view-chat').classList.toggle('emotes-open', opening);
+  $('#chat-emote-btn').setAttribute('aria-expanded', String(opening));
   if (opening) {
-    // ALLE Emotes zeigen: Gezogene normal, der Rest grau mit Schloss.
-    // Antippen eines gesperrten Emotes gibt eine kleine Fehler-Animation.
-    const names = Object.keys(allEmoteIds());
-    const sorted = [...names.filter(n => emoteOwned(n)), ...names.filter(n => !emoteOwned(n))];
-    el.innerHTML = sorted.length
-      ? sorted.map(n => {
-        const owned = emoteOwned(n);
-        return `<button class="emote-pick ${owned ? '' : 'emote-locked'}" data-emote="${esc(n)}" data-owned="${owned ? 1 : 0}" aria-label="${esc(n)}${owned ? '' : ' (noch nicht gezogen)'}">
-          ${emoteHtml(n)}${owned ? '' : `<span class="emote-lock">${icon('lock', 'icon')}</span>`}
-        </button>`;
-      }).join('')
+    const g = emoteGruppen();
+    const knopf = n => `<button class="emote-pick" data-emote="${esc(n)}" aria-label="${esc(n)}">${emoteHtml(n)}</button>`;
+    el.innerHTML = g.katzen.length || g.peepo.length
+      ? g.katzen.map(knopf).join('')
+        + (g.katzen.length && g.peepo.length ? '<span class="emote-trenner" aria-hidden="true"></span>' : '')
+        + g.peepo.map(knopf).join('')
       : '<span class="form-msg">Emotes laden …</span>';
     el.classList.remove('hidden');
     // Nachrichten nachziehen: die letzten bleiben beim Schreiben sichtbar
     setTimeout(() => { const box = $('#chat-box'); box.scrollTop = box.scrollHeight; }, 320);
     el.querySelectorAll('[data-emote]').forEach(b => b.onclick = () => {
-      if (b.dataset.owned !== '1') {
-        b.classList.remove('shake');
-        void b.offsetWidth; // Animation neu anstossen
-        b.classList.add('shake');
-        buzz([25, 30, 25]);
-        island('Du hast dieses Emote noch nicht');
-        return;
-      }
       const i = $('#chat-input');
       i.value = (i.value + ' ' + b.dataset.emote + ' ').replace(/\s{2,}/g, ' ').trimStart();
-      i.focus();
+      chatEingabeStand();
+      // Am Handy bleibt die Tastatur zu, sonst schiebt sie die Auswahl weg
+      if (matchMedia('(hover: hover)').matches) i.focus();
     });
   } else el.classList.add('hidden');
 }
+// Antippen des Verlaufs schliesst die Auswahl wieder
+$('#chat-box').addEventListener('click', () => {
+  if (!$('#chat-emotes').classList.contains('hidden')) toggleEmotes();
+});
 $('#chat-send').addEventListener('click', sendChat);
 $('#chat-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
 $('#chat-emote-btn').addEventListener('click', toggleEmotes);
