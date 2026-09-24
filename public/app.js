@@ -231,7 +231,7 @@ const BRAND_COLORS = {
   'deutsche bahn': '#ec0016', db: '#ec0016', 'nintendo eshop': '#e60012',
   'müller': '#e85d00', mueller: '#e85d00', subway: '#008c15', 'lidl plus': '#0050aa',
   'uber eats': '#06c167', "mcdonald's": '#ffbc0d', "domino's": '#006491', dominos: '#006491',
-  'about you': '#1f1f1f', temu: '#fb7701', shein: '#222222', nike: '#111111',
+  'about you': '#1f1f1f', temu: '#fb7701', shein: '#222222', nike: '#111111', 'peter pane': '#ffd400',
 };
 function brandColor(name) {
   const key = (name || '').toLowerCase().trim();
@@ -5681,7 +5681,7 @@ const BRAND_DOMAINS = {
   adidas: 'adidas.de', zara: 'zara.com', shein: 'shein.com', saturn: 'saturn.de',
   mcdonalds: 'mcdonalds.com', 'burger king': 'burgerking.de', subway: 'subway.com',
   netflix: 'netflix.com', disney: 'disneyplus.com', 'uber eats': 'ubereats.com',
-  "mcdonald's": 'mcdonalds.com', "domino's": 'dominos.de', 'about you': 'aboutyou.de',
+  "mcdonald's": 'mcdonalds.com', "domino's": 'dominos.de', 'about you': 'aboutyou.de', 'peter pane': 'peterpane.de',
 };
 // Logos in hoher Aufloesung vom Nutzer (public/brand/logos, 384 px, quadratisch
 // mit durchsichtigem Rand). Fuer alle anderen Marken bleibt der Favicon-Dienst.
@@ -5689,7 +5689,7 @@ const MARKEN_LOGOS = {
   rossmann: 'rossmann', ikea: 'ikea', 'ikea family': 'ikea', subway: 'subway', lieferando: 'lieferando',
   kaufland: 'kaufland', mcdonalds: 'mcdonalds', "mcdonald's": 'mcdonalds', 'burger king': 'burger-king',
   netto: 'netto', edeka: 'edeka', dm: 'dm', lidl: 'lidl', 'lidl plus': 'lidl', 'müller': 'mueller',
-  mueller: 'mueller', wolt: 'wolt',
+  mueller: 'mueller', wolt: 'wolt', 'peter pane': 'peter-pane',
 };
 function markenLogoUrl(name, px = 64) {
   const key = String(name || '').toLowerCase().trim();
@@ -5730,7 +5730,7 @@ let waApi = null;
 // Bekannte Marken fuer die Suche hinter "Weitere". Nur Vorschlaege —
 // eintippen laesst sich jeder Name.
 const WA_SHOPS_EXTRA = ['ALDI', 'PENNY', 'Kaufland', 'Globus', 'tegut', 'NORMA', 'Saturn', 'Otto', 'eBay',
-  'Adidas', 'Zara', 'Shein', 'Temu', 'Spotify', 'Netflix', 'Steam', 'Nintendo eShop', 'Deutsche Bahn'];
+  'Adidas', 'Zara', 'Shein', 'Temu', 'Spotify', 'Netflix', 'Steam', 'Nintendo eShop', 'Deutsche Bahn', 'Peter Pane'];
 function waShopListe(art) {
   const basis = art === 'card' ? CARD_GRID : art === 'rabatt' ? RABATT_GRID : VENDOR_GRID;
   const weitere = art === 'card'

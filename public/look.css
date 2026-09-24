@@ -542,6 +542,9 @@ body.marken-modus #view-wallet { --wk-schein: var(--marke-k3, var(--kopf-k3, #2F
 .vk-fuss .pill { background: color-mix(in srgb, var(--tc, #fff) 20%, transparent); color: inherit; }
 /* Heller Markenton (Netto, McDonald's): dunkles Motiv */
 .wallet-card.vk.hell > .vk-motiv { filter: grayscale(1) brightness(.2); }
+/* Dunkle Schrift auf hellen Markenfarben (Netto, EDEKA, McDonald's, Peter Pane):
+   kein dunkler Schatten dahinter — der wirkte wie ein grauer Kasten */
+.wallet-card.vk.hell :is(.wallet-card-name, .wallet-card-balance, .vk-art, .vk-code, .vk-pin, .vk-fuss) { text-shadow: none; }
 /* Fuellstand ohne backdrop-filter (billiger beim Scrollen) */
 .wallet-card.vk.has-fill::after, :root[data-theme="dark"] .wallet-card.vk.has-fill::after {
   backdrop-filter: none; -webkit-backdrop-filter: none; border-radius: inherit;
