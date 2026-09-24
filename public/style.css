@@ -3702,20 +3702,19 @@ body.wallet-farbe.kopf-weg .topbar .iconbtn {
 /* Die beiden Seiten schieben seitwaerts — kein 3D mehr, nur Verschiebung */
 .kopf-geld-inner { will-change: auto; }
 
-/* --- Sparkarte als Bankkarte --- */
-.karte-buehne { perspective: 1100px; }
+/* --- Sparkarte als Bankkarte (Runde 118: nur noch eine Seite) ---
+   Links Logo, Chip, Nummer und Art, rechts auf weissem Grund der Code fuer
+   die Kasse. Kein Umdrehen mehr. Alle Masse haengen an der Kartenbreite
+   (cqw), damit die Miniatur im Seitenkopf dieselbe Karte in klein ist und die
+   Lupe nahtlos aus ihr herauszoomt. */
 .debitkarte {
   position: relative; width: 100%; max-width: 340px; margin: 0 auto;
   aspect-ratio: 1.586 / 1;          /* echtes Kartenformat */
-  transform-style: preserve-3d;
-  transition: transform .6s cubic-bezier(.22, 1, .32, 1);
-  cursor: pointer;
+  container-type: inline-size;
 }
-.debitkarte.gedreht { transform: rotateY(180deg); }
 .dk-flaeche {
-  position: absolute; inset: 0; border-radius: 16px;
-  backface-visibility: hidden; -webkit-backface-visibility: hidden;
-  padding: 14px 16px; display: flex; flex-direction: column;
+  position: absolute; inset: 0; border-radius: max(7px, 4.7cqw);
+  padding: 4.6cqw 4.6cqw 4.4cqw; display: flex; gap: 3.4cqw;
   box-shadow: 0 8px 24px rgba(10, 14, 18, .28);
   overflow: hidden;
 }
@@ -3724,7 +3723,7 @@ body.wallet-farbe.kopf-weg .topbar .iconbtn {
     color-mix(in srgb, var(--bc) 92%, #000 20%) 0%,
     var(--bc) 52%,
     color-mix(in srgb, var(--bc) 70%, #fff 30%) 100%);
-  color: #fff;
+  color: var(--tc, #fff);
 }
 /* Feiner Lichtstreifen wie auf einer echten Karte */
 .dk-vorne::after {
@@ -3733,46 +3732,71 @@ body.wallet-farbe.kopf-weg .topbar .iconbtn {
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .13), transparent);
   pointer-events: none;
 }
-.dk-oben { display: flex; align-items: center; gap: 8px; }
-.dk-oben .brand-chip { width: 34px; height: 34px; background: rgba(255, 255, 255, .92); }
-.dk-marke { font-size: .84rem; font-weight: 800; letter-spacing: .01em; }
+.dk-links {
+  position: relative; z-index: 1; flex: 1 1 auto; min-width: 0;
+  display: flex; flex-direction: column;
+}
+.dk-oben { display: flex; align-items: center; gap: 2.4cqw; min-width: 0; }
+.dk-oben .brand-chip {
+  width: 10cqw; height: 10cqw; flex: 0 0 10cqw; border-radius: 2.8cqw; font-size: 3.2cqw;
+  background: rgba(255, 255, 255, .92);
+}
+.dk-oben .brand-chip.hat-logo { background: #fff; box-shadow: none; }
+/* Ohne Logo stehen die Initialen in Markenfarbe auf dem weissen Kaertchen */
+.dk-oben .brand-chip:not(.hat-logo) { color: var(--bc); box-shadow: none; }
+.debitkarte .dk-marke {
+  min-width: 0; font-size: 4.2cqw; font-weight: 800; letter-spacing: .01em; line-height: 1.2;
+  color: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .dk-chip {
-  width: 34px; height: 25px; border-radius: 5px; margin-top: auto;
+  flex: none; width: 10cqw; height: 7.4cqw; border-radius: 1.5cqw; margin-top: auto;
   background: linear-gradient(135deg, #E8C766, #C9A227 55%, #F2DE96);
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .16);
 }
 .dk-nummer {
-  font-family: ui-monospace, monospace; font-size: .92rem; font-weight: 700;
-  letter-spacing: .08em; margin-top: 8px; text-shadow: 0 1px 4px rgba(0, 0, 0, .2);
+  margin-top: 2.6cqw;
+  font-family: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+  font-size: 4.5cqw; font-weight: 700; letter-spacing: .08em; line-height: 1.25;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, .2); overflow-wrap: anywhere;
+}
+/* Mit Code rechts ist links weniger Platz: die Nummer steht kleiner, wie auf
+   einer Bankkarte, und darf umbrechen */
+.debitkarte.mit-code .dk-nummer { font-size: 3.4cqw; letter-spacing: .04em; margin-top: 2.2cqw; }
+/* Ohne Karte oder ohne Nummer steht dort ein Satz — keine Schreibmaschine */
+.debitkarte.leer .dk-nummer, .debitkarte.ohne-nummer .dk-nummer {
+  font-family: inherit; font-size: 4.1cqw; letter-spacing: .01em; opacity: .92;
 }
 .dk-unten {
-  display: flex; justify-content: space-between; align-items: center;
-  font-size: .64rem; text-transform: uppercase; letter-spacing: .08em;
-  opacity: .8; margin-top: 4px;
+  margin-top: 1.2cqw; font-size: 3.2cqw; font-weight: 650; line-height: 1.25;
+  letter-spacing: .01em; opacity: .85;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.dk-dreh { display: flex; align-items: center; gap: 4px; text-transform: none; letter-spacing: 0; }
-.dk-hinten {
-  transform: rotateY(180deg); background: #1B2027; color: #fff;
-  padding: 0; justify-content: center; align-items: center;
+/* Der Code: weisser Grund, gross, randscharf — so liest ihn der Scanner.
+   Das Barcode-Bild bringt seine Ruhezone selbst mit, daher wenig Polster. */
+.dk-code-feld {
+  position: relative; z-index: 1; flex: 0 0 58%;
+  background: #fff; border-radius: max(4px, 2.8cqw);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .14);
 }
-.dk-streifen { position: absolute; top: 16px; left: 0; right: 0; height: 34px; background: #0B0E12; }
-.dk-code { max-width: 84%; max-height: 54%; margin-top: 34px; background: #fff; border-radius: 6px; padding: 5px; }
-.dk-code-ersatz { margin-top: 34px; width: 84%; background: #fff; border-radius: 6px; padding: 6px; }
-.dk-code-ersatz .ean { width: 100%; height: auto; }
-.dk-code-ersatz span { color: #111; font-family: ui-monospace, monospace; font-size: .8rem; }
-.dk-hinweis { margin-top: 40px; padding: 0 18px; font-size: .74rem; text-align: center; opacity: .8; }
+.dk-code-feld > .dk-code, .dk-code-feld > .ean {
+  position: absolute; inset: 2cqw; width: calc(100% - 4cqw); height: calc(100% - 4cqw);
+  max-width: none; max-height: none; margin: 0; padding: 0; border-radius: 0; background: none;
+  object-fit: contain; display: block;
+}
+.dk-code-feld > .ean { inset: 1.4cqw; width: calc(100% - 2.8cqw); height: calc(100% - 2.8cqw); }
 
-/* Miniatur oben rechts im Gutschein */
-.karte-btn { width: auto; height: auto; border-radius: 12px; padding: 0; border: none; background: none; box-shadow: none; }
+/* Miniatur (Seitenkopf der Gutschein-Seite, fruehere Zeilen): dieselbe Karte,
+   nur ohne Schrift */
 .debitkarte.mini { width: 62px; max-width: none; margin: 0; pointer-events: none; }
-.debitkarte.mini .dk-flaeche { border-radius: 8px; padding: 5px 6px; box-shadow: 0 3px 10px rgba(10, 14, 18, .3); }
-.debitkarte.mini .dk-oben .brand-chip { width: 17px; height: 17px; font-size: .46rem; }
+.debitkarte.mini .dk-flaeche { box-shadow: 0 3px 10px rgba(10, 14, 18, .26); }
 .debitkarte.mini .dk-marke, .debitkarte.mini .dk-nummer, .debitkarte.mini .dk-unten { display: none; }
-.debitkarte.mini .dk-chip { width: 15px; height: 11px; border-radius: 2px; margin-top: auto; }
+.debitkarte.mini .dk-oben .brand-chip { width: 13cqw; height: 13cqw; flex-basis: 13cqw; border-radius: 3.4cqw; }
+.debitkarte.mini .dk-oben .brand-chip .brand-logo { padding: 1px; }
+.debitkarte.mini .dk-chip { width: 12cqw; height: 9cqw; }
+.debitkarte.mini .dk-code-feld { border-radius: 3px; box-shadow: none; }
 .karte-modal { max-width: 400px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .debitkarte { transition: none; }
   .sync-punkt.laeuft { animation: none; }
 }
 
@@ -4147,10 +4171,6 @@ body.wallet-farbe .topbar::after { content: none; }
 }
 .marken-karte { position: relative; perspective: 1100px; cursor: pointer; }
 .marken-karte .debitkarte { max-width: none; }
-/* Karten ohne hinterlegte Sparkarte zeigen nur die Vorderseite */
-.debitkarte.leer { transform: none; }
-.debitkarte.leer .dk-vorne { justify-content: space-between; }
-.debitkarte.leer .dk-unten { margin-top: auto; opacity: .85; }
 /* Der Pfeil oeffnet das Marken-Blatt, ohne die Karte zu drehen */
 .marken-info {
   position: absolute; right: 8px; top: 8px; z-index: 3;
@@ -4173,24 +4193,6 @@ body.wallet-farbe .topbar::after { content: none; }
   color: var(--muted);
 }
 .marken-add:active { transform: scale(.97); }
-
-/* --- Rueckseite: der Code nutzt die Flaeche, statt darin zu schwimmen --- */
-.dk-hinten { padding: 0; }
-.dk-streifen { top: 13px; height: 30px; }
-.dk-code, .dk-code-ersatz {
-  margin-top: 48px; width: 88%; max-width: none; max-height: none;
-  background: #fff; border-radius: 7px; padding: 7px;
-}
-.dk-code { object-fit: contain; height: auto; }
-.dk-code-ersatz .ean { width: 100%; height: auto; display: block; }
-.dk-hinten-marke {
-  position: absolute; bottom: 8px; left: 0; right: 0; text-align: center;
-  font-size: .6rem; letter-spacing: .1em; text-transform: uppercase;
-  color: rgba(255, 255, 255, .5);
-}
-/* In der Miniatur bleibt die Rueckseite schlicht */
-.debitkarte.mini .dk-hinten-marke { display: none; }
-.debitkarte.mini .dk-code, .debitkarte.mini .dk-code-ersatz { margin-top: 20px; width: 82%; padding: 3px; }
 
 /* ================= Chat: Abzeichen sitzen beim Namen ======================== */
 /* Rang-Bild und Badge standen als eigene Elemente VOR der Namenszeile und
@@ -4286,9 +4288,8 @@ body.wallet-farbe .topbar::after { content: none; }
   opacity: 0; transition: opacity .32s ease;
 }
 .karten-lupe.an .lupe-grund { opacity: 1; }
-.lupe-mitte { position: relative; z-index: 1; width: min(360px, 86vw); }
-.lupe-buehne { perspective: 1400px; }
-.lupe-buehne .debitkarte { max-width: none; cursor: pointer; }
+.lupe-mitte { position: relative; z-index: 1; width: min(400px, calc(100vw - 32px)); }
+.lupe-buehne .debitkarte { max-width: none; }
 .lupe-knoepfe {
   display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;
   margin-top: 18px; opacity: 0; transform: translateY(8px);
@@ -4396,13 +4397,6 @@ body.wallet-farbe main { padding-bottom: calc(var(--menue-luft) + 34px + env(saf
   backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
 }
 .lupe-knoepfe .btn-ghost:active { background: rgba(255, 255, 255, .26); }
-
-/* Ohne hinterlegte Karte steht dort ein Satz, keine Nummer — Schreibmaschine
-   passt dazu nicht. */
-.debitkarte.leer .dk-nummer {
-  font-family: inherit; font-size: .84rem; font-weight: 700;
-  letter-spacing: .01em; opacity: .92;
-}
 
 /* ============ Runde 99: Filterwechsel gleitet ============================== */
 /* Der aktive Filter wird nicht mehr eingefaerbt — dahinter gleitet eine Pille
