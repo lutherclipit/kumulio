@@ -1,43 +1,66 @@
 // kumulio Logo-System – eine Quelle für Wortmarke, Icon, Splash, Loader, Erfolg.
-// Es bewegt sich immer nur der Punkt. Animiert wird ausschließlich transform/opacity.
+// Wortmarke: Buchstaben springen ein, Münzen fallen, Funken blitzen; im Ruhezustand
+// funkeln nur die Funken. Animiert wird ausschließlich transform/opacity.
 // Beim Port nach Native wird nur dieses Modul neu implementiert – Aufrufstellen bleiben.
 
 import { brand, applyBrandVars } from './tokens.js';
 
 applyBrandVars();
 
-// ---- Geometrie der Wortmarke (Pfade konvertiert, kein Font) ----
-const VIEWBOX = '49.00 -1560.00 7086.00 1680.00';
-const DOT = { cx: 5715.0, cy: -1267.5, r: 159.38 };
-const LETTER_PATHS = [
-  'M139.00 0.00H320.00V-520.00L811.00 0.00H1060.00L527.00 -540.00L1004.00 -1080.00H773.00L320.00 -560.00V-1440.00H140.00Z',
-  'M1530.00 28.00Q1766.00 28.00 1890.00 -139.00V0.00H2049.00V-1080.00H1870.00V-511.00Q1870.00 -324.00 1788.50 -232.50Q1707.00 -141.00 1573.00 -141.00Q1459.00 -141.00 1395.50 -198.00Q1332.00 -255.00 1306.00 -346.50Q1280.00 -438.00 1280.00 -539.00V-1080.00H1100.00V-483.00Q1100.00 -406.00 1118.50 -317.50Q1137.00 -229.00 1184.50 -150.50Q1232.00 -72.00 1316.00 -22.00Q1400.00 28.00 1530.00 28.00Z',
-  'M2288.00 0.00H2467.00V-686.00Q2467.00 -805.00 2531.50 -877.00Q2596.00 -949.00 2702.00 -949.00Q2808.00 -949.00 2872.00 -878.00Q2936.00 -807.00 2936.00 -684.00L2935.00 0.00H3112.00L3113.00 -686.00Q3113.00 -777.00 3147.00 -835.00Q3181.00 -893.00 3235.00 -921.00Q3289.00 -949.00 3349.00 -949.00Q3451.00 -949.00 3516.00 -880.50Q3581.00 -812.00 3581.00 -691.00L3580.00 0.00H3758.00L3759.00 -730.00Q3759.00 -903.00 3662.00 -1005.50Q3565.00 -1108.00 3396.00 -1108.00Q3289.00 -1108.00 3203.00 -1060.50Q3117.00 -1013.00 3069.00 -930.00Q3025.00 -1015.00 2944.00 -1061.50Q2863.00 -1108.00 2754.00 -1108.00Q2657.00 -1108.00 2577.50 -1069.50Q2498.00 -1031.00 2447.00 -965.00V-1080.00H2288.00Z',
-  'M4389.00 28.00Q4625.00 28.00 4749.00 -139.00V0.00H4908.00V-1080.00H4729.00V-511.00Q4729.00 -324.00 4647.50 -232.50Q4566.00 -141.00 4432.00 -141.00Q4318.00 -141.00 4254.50 -198.00Q4191.00 -255.00 4165.00 -346.50Q4139.00 -438.00 4139.00 -539.00V-1080.00H3959.00V-483.00Q3959.00 -406.00 3977.50 -317.50Q3996.00 -229.00 4043.50 -150.50Q4091.00 -72.00 4175.00 -22.00Q4259.00 28.00 4389.00 28.00Z',
-  'M5168.00 0.00H5346.00V-1470.00H5168.00Z',
-  'M5626.00 0.00H5804.00V-1080.00H5626.00Z',
-  'M6524.00 30.00Q6685.00 30.00 6801.50 -42.00Q6918.00 -114.00 6981.50 -243.00Q7045.00 -372.00 7045.00 -541.00Q7045.00 -708.00 6982.50 -836.50Q6920.00 -965.00 6803.00 -1037.50Q6686.00 -1110.00 6524.00 -1110.00Q6366.00 -1110.00 6249.00 -1038.50Q6132.00 -967.00 6068.00 -839.00Q6004.00 -711.00 6004.00 -541.00Q6004.00 -374.00 6066.50 -245.00Q6129.00 -116.00 6246.00 -43.00Q6363.00 30.00 6524.00 30.00ZM6524.00 -139.00Q6361.00 -139.00 6277.00 -248.50Q6193.00 -358.00 6193.00 -541.00Q6193.00 -718.00 6274.00 -829.50Q6355.00 -941.00 6524.00 -941.00Q6690.00 -941.00 6773.00 -832.00Q6856.00 -723.00 6856.00 -541.00Q6856.00 -363.00 6773.50 -251.00Q6691.00 -139.00 6524.00 -139.00Z',
+// ---- Geometrie der Wortmarke (Entwurf 24.09.2026) ----
+// Runde Striche statt Font: jeder Buchstabe ein eigener Pfad (einzeln animierbar),
+// dazu zwei Muenzen und zwei Funken. Statische Fassung: /brand/kumulio-logo.svg
+const VIEWBOX = '110 118 1810 450';
+const STRICH = 94;
+const BUCHSTABEN = [
+  'M168 226V500M318 338L204 420L318 500',                                    // k
+  'M418 347V428.5A74.5 74.5 0 0 0 567 428.5V347M567 428V503',                // u
+  'M667 347V503M667 415A72.5 72.5 0 0 1 812 415V503M812 415A72.5 72.5 0 0 1 957 415V503', // m
+  'M1062 347V423A80 80 0 0 0 1222 423V347M1222 423V503',                     // u
+  'M1331 229V503',                                                           // l
+  'M1446 347V503',                                                           // i
 ];
+const FUNKE = 'M0-1Q.13-.13 1 0Q.13 .13 0 1Q-.13 .13-1 0Q-.13-.13 0-1Z';
+// Muenze: Rand (dunkler) + Flaeche + Innenring; gekippt ueber rotate
+function muenzeSvg(x, y, grad, rx, ry, dicke, glanz) {
+  return `<g transform="translate(${x} ${y}) rotate(${grad})">
+      <ellipse cy="${dicke}" rx="${rx}" ry="${ry}" fill="#F29A00"/>
+      <rect x="${-rx}" width="${rx * 2}" height="${dicke}" fill="#F29A00"/>
+      <ellipse rx="${rx}" ry="${ry}" fill="#FFC21F"/>
+      <ellipse rx="${Math.round(rx * .72)}" ry="${Math.round(ry * .68)}" fill="#FFCD3C" stroke="#F7AC00" stroke-width="${Math.round(rx / 10)}"/>
+      ${glanz ? `<path d="M${-Math.round(rx * .55)} ${-Math.round(ry * .38)}A${Math.round(rx * .72)} ${Math.round(ry * .68)} 0 0 1 ${Math.round(rx * .25)} ${-Math.round(ry * .65)}" fill="none" stroke="#FFE58A" stroke-width="8" stroke-linecap="round"/>` : ''}
+    </g>`;
+}
 
 export function prefersReducedMotion() {
   return matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
-// ---- Wortmarke als Inline-SVG (Punkt = eigenes Element, per Klasse ansprechbar) ----
-// tone 'auto': Buchstaben folgen currentColor (Ink hell / Weiß im Darkmode via CSS)
+// ---- Wortmarke als Inline-SVG ----
+// Buchstaben folgen currentColor (Markenblau per CSS, Weiss auf farbigem Grund);
+// Muenzen und Funken bleiben immer gold. Klassen fuer die Animation:
+// .k-l (Buchstabe, --i = Reihenfolge), .k-mz1/.k-mz2 (Muenzen), .k-fk1/.k-fk2 (Funken)
+// withDot bleibt als Schalter: false = nur Buchstaben (sehr kleine Groessen)
 export function wordmarkHTML({ height = 26, withDot = true, withRipple = false } = {}) {
   const width = Math.round(height * brand.logo.aspect);
-  // unter minWidthPx automatisch mono (ohne Akzentpunkt)
-  const dot = width < brand.logo.minWidthPx ? false : withDot;
-  const rippleStroke = (DOT.r * 0.28).toFixed(1);
+  const gold = width < brand.logo.minWidthPx ? false : withDot;
   return `<svg class="k-wordmark" role="img" aria-label="kumulio" viewBox="${VIEWBOX}"
       width="${width}" height="${height}" fill="none">
-    <g class="k-letters" fill="currentColor" aria-hidden="true">
-      ${LETTER_PATHS.map(d => `<path d="${d}"/>`).join('')}
+    <g class="k-letters" aria-hidden="true">
+      <g fill="none" stroke="currentColor" stroke-width="${STRICH}" stroke-linecap="round" stroke-linejoin="round">
+        ${BUCHSTABEN.map((d, i) => `<path class="k-l" style="--i:${i}" d="${d}"/>`).join('')}
+        <circle class="k-l" style="--i:6" cx="1645" cy="424" r="91"/>
+      </g>
+      <circle class="k-l k-ipunkt" style="--i:5" cx="1446" cy="231" r="51" fill="currentColor"/>
     </g>
-    ${withRipple ? `<circle class="k-ripple" cx="${DOT.cx}" cy="${DOT.cy}" r="${DOT.r}"
-      fill="none" stroke="var(--k-accent)" stroke-width="${rippleStroke}" aria-hidden="true"/>` : ''}
-    ${dot ? `<circle class="k-dot" cx="${DOT.cx}" cy="${DOT.cy}" r="${DOT.r}" fill="var(--k-accent)" aria-hidden="true"/>` : ''}
+    ${gold ? `<g class="k-gold" aria-hidden="true">
+      ${withRipple ? `<circle class="k-ripple" cx="1775" cy="222" r="84" fill="none" stroke="#FFC400" stroke-width="22"/>` : ''}
+      <g class="k-mz k-mz1">${muenzeSvg(1775, 217, -40, 80, 57, 16, true)}</g>
+      <g class="k-mz k-mz2">${muenzeSvg(1845, 366, 40, 62, 45, 14, false)}</g>
+      <path class="k-strich" d="M1846 283L1880 263" stroke="#FFC400" stroke-width="22" stroke-linecap="round"/>
+      <g class="k-fk k-fk1"><path transform="translate(1641 206) scale(62 66)" d="${FUNKE}" fill="#FFC400" stroke="#FFC400" stroke-width=".14" stroke-linejoin="round"/></g>
+      <g class="k-fk k-fk2"><path transform="translate(1832 492) scale(52 56)" d="${FUNKE}" fill="#FFC400" stroke="#FFC400" stroke-width=".14" stroke-linejoin="round"/></g>
+    </g>` : ''}
   </svg>`;
 }
 
@@ -60,7 +83,7 @@ export function iconHTML({ size = 60 } = {}) {
   </svg>`;
 }
 
-// ---- Splash: der Punkt fällt wie eine Münze – bei jedem App-Start ----
+// ---- Splash: Buchstaben springen ein, die Münzen fallen – bei jedem App-Start ----
 let appReadyResolve = null;
 const appReadyPromise = new Promise(r => { appReadyResolve = r; });
 export function appReady() { appReadyResolve?.(); }
@@ -111,8 +134,7 @@ export function createLoader(host, { mode = 'inline' } = {}) {
       <span class="k-sr">Lädt</span>`;
   } else {
     el.innerHTML = `${wordmarkHTML({ height: 22 })}<span class="k-sr">Lädt</span>`;
-    if (!reduced) el.querySelector('.k-dot')?.classList.add('k-pulse');
-    else el.querySelector('.k-dot')?.classList.add('k-static');
+    el.querySelector('.k-wordmark')?.classList.add(reduced ? 'k-static' : 'k-laedt');
   }
   let shown = false;
   const t = setTimeout(() => { shown = true; host.appendChild(el); }, brand.motion.loadingDelay);

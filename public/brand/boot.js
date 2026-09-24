@@ -6,8 +6,20 @@ import * as KBrand from './brand.js';
 window.KBrand = KBrand;
 window.__kbrandResolve?.(KBrand);
 
-// Header: Wortmarke statisch, ~26 px, Klick geht zur Startseite (aria im Button)
-KBrand.mountWordmark(document.getElementById('brand-wordmark'), { height: 26 });
+// Header: Wortmarke ~26 px, Klick geht zur Startseite (aria im Button).
+// Im Ruhezustand funkeln die Funken; Antippen laesst die Muenzen einmal drehen.
+const kopfLogo = KBrand.mountWordmark(document.getElementById('brand-wordmark'), { height: 26 });
+if (kopfLogo && !KBrand.prefersReducedMotion()) {
+  kopfLogo.classList.add('k-lebt');
+  kopfLogo.closest('button, a, .brand')?.addEventListener('pointerdown', () => {
+    kopfLogo.classList.remove('k-klick');
+    void kopfLogo.getBoundingClientRect(); // Animation neu starten
+    kopfLogo.classList.add('k-klick');
+  }, { passive: true });
+  kopfLogo.addEventListener('animationend', e => {
+    if (e.animationName === 'k-dreh' && e.target.closest?.('.k-mz2')) kopfLogo.classList.remove('k-klick');
+  });
+}
 
 // Onboarding (Erstnutzer): Wortmarke groß, der Punkt fällt dort als Markenmoment
 const obLogo = document.getElementById('ob-logo');

@@ -1,24 +1,50 @@
-/* kumulio Logo-System.
-   Regel: Es bewegt sich immer nur der Punkt. Animiert wird ausschließlich
-   transform und opacity. Alle Werte kommen aus tokens.js (CSS-Variablen). */
+/* kumulio Logo-System (Wortmarke vom 24.09.2026).
+   Buchstaben blau (currentColor), Muenzen und Funken gold. Animiert wird
+   ausschliesslich transform und opacity. Werte kommen aus tokens.js. */
 
 /* ---------- Wortmarke ---------- */
-.k-wordmark { display: block; color: var(--k-ink); }
-:root[data-theme="dark"] .k-wordmark { color: var(--k-paper); }
-
-.k-wordmark .k-dot,
-.k-wordmark .k-ripple {
-  transform-box: fill-box;
-  transform-origin: center;
+.k-wordmark { display: block; color: var(--k-blau, #0B76FF); overflow: visible; }
+:root[data-theme="dark"] .k-wordmark { color: #3D8FFF; }
+.k-wordmark .k-l, .k-wordmark .k-mz, .k-wordmark .k-fk, .k-wordmark .k-strich, .k-wordmark .k-ripple {
+  transform-box: fill-box; transform-origin: 50% 100%;
 }
+.k-wordmark .k-fk, .k-wordmark .k-ripple, .k-wordmark .k-mz { transform-origin: center; }
+.k-wordmark .k-ripple { opacity: 0; }
 
-/* ---------- Header: statisch; einziges Detail = Punkt-Hover (nur Desktop) ---------- */
+/* ---------- Ruhezustand (Kopfzeile): nur die Funken blitzen ab und zu,
+   die Muenzen schweben kaum merklich ---------- */
+.k-lebt .k-fk1 { animation: k-funkeln 5.2s ease-in-out 1.6s infinite; }
+.k-lebt .k-fk2 { animation: k-funkeln 5.2s ease-in-out 4.2s infinite; }
+.k-lebt .k-mz1 { animation: k-schweben 3.6s ease-in-out infinite alternate; }
+.k-lebt .k-mz2 { animation: k-schweben 3.6s ease-in-out -1.8s infinite alternate; }
+@keyframes k-funkeln {
+  0%, 78%, 100% { transform: none; opacity: 1; }
+  85% { transform: scale(.4) rotate(45deg); opacity: .55; }
+  93% { transform: scale(1.22) rotate(90deg); opacity: 1; }
+}
+@keyframes k-schweben { to { transform: translate3d(0, -7%, 0) rotate(-5deg); } }
+
+/* Antippen: die Muenzen drehen sich einmal (wie eine geworfene Muenze) */
+.k-klick .k-mz1 { animation: k-dreh .62s cubic-bezier(.3, 1.3, .5, 1); }
+.k-klick .k-mz2 { animation: k-dreh .62s cubic-bezier(.3, 1.3, .5, 1) .08s; }
+.k-klick .k-fk { animation: k-blitz .5s var(--k-ease-settle) .12s; }
+@keyframes k-dreh {
+  0% { transform: none; }
+  30% { transform: translate3d(0, -22%, 0) scaleX(.15); }
+  60% { transform: translate3d(0, -12%, 0) scaleX(-1); }
+  80% { transform: translate3d(0, 0, 0) scaleX(.3); }
+  100% { transform: none; }
+}
+@keyframes k-blitz { 40% { transform: scale(1.35) rotate(45deg); } }
+
+/* ---------- Header: Hover (nur Desktop) laesst die Muenzen kurz hopsen ---------- */
 @media (hover: hover) {
-  .brand .k-dot { transition: transform var(--k-hover-dot) var(--k-ease-out); }
-  .brand:hover .k-dot { transform: scale(1.12); }
+  .brand .k-mz { transition: transform var(--k-hover-dot) var(--k-ease-out); }
+  .brand:hover .k-mz1 { transform: translate3d(0, -8%, 0) rotate(-6deg); }
+  .brand:hover .k-mz2 { transform: translate3d(0, -6%, 0) rotate(6deg); }
 }
 
-/* ---------- Splash: der Punkt fällt wie eine Münze ---------- */
+/* ---------- Splash: Buchstaben springen ein, Muenzen fallen, Funken blitzen ---------- */
 .k-splash {
   position: fixed; inset: 0; z-index: 100;
   display: flex; align-items: center; justify-content: center;
@@ -28,22 +54,45 @@
 :root[data-theme="dark"] .k-splash { background: var(--k-ink); }
 .k-splash.k-out { opacity: 0; pointer-events: none; }
 
-.k-anim-splash .k-letters {
-  animation: k-word-in var(--k-splash-wordmark) var(--k-ease-out) both;
+.k-anim-splash .k-l {
+  animation: k-buchstabe .5s var(--k-ease-settle) both;
+  animation-delay: calc(var(--i, 0) * 38ms);
 }
-.k-anim-splash .k-dot {
-  animation: k-dot-fall var(--k-splash-dot-fall) var(--k-ease-settle) var(--k-splash-dot-delay) both;
+.k-anim-splash .k-mz1 {
+  animation: k-muenze-fall var(--k-splash-dot-fall) cubic-bezier(.3, 1.2, .5, 1) var(--k-splash-dot-delay) both;
 }
-@keyframes k-word-in {
-  from { opacity: 0; transform: translateY(6px); }
+.k-anim-splash .k-mz2 {
+  animation: k-muenze-fall var(--k-splash-dot-fall) cubic-bezier(.3, 1.2, .5, 1) calc(var(--k-splash-dot-delay) + 110ms) both;
+}
+.k-anim-splash .k-strich { animation: k-einblenden .3s ease-out calc(var(--k-splash-dot-delay) + 420ms) both; }
+.k-anim-splash .k-fk1 { animation: k-funke-rein .5s var(--k-ease-settle) calc(var(--k-splash-dot-delay) + 300ms) both; }
+.k-anim-splash .k-fk2 { animation: k-funke-rein .5s var(--k-ease-settle) calc(var(--k-splash-dot-delay) + 400ms) both; }
+@keyframes k-buchstabe {
+  from { opacity: 0; transform: translate3d(0, 38%, 0) scale(.6); }
   to { opacity: 1; transform: none; }
 }
-@keyframes k-dot-fall {
-  from { opacity: 0; transform: translateY(-180%) scale(0.7); }
+@keyframes k-muenze-fall {
+  0% { opacity: 0; transform: translate3d(0, -170%, 0) scaleX(.2); }
+  35% { opacity: 1; }
+  60% { transform: translate3d(0, 6%, 0) scaleX(-1); }
+  80% { transform: translate3d(0, -4%, 0) scaleX(.6); }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes k-funke-rein {
+  from { opacity: 0; transform: scale(0) rotate(-120deg); }
   to { opacity: 1; transform: none; }
 }
+@keyframes k-einblenden { from { opacity: 0; } }
 
-/* ---------- Ladezustand: der Punkt ersetzt den Spinner ---------- */
+/* ---------- Ladezustand: die Muenzen huepfen (inline), drei Punkte (voll) ---------- */
+.k-laedt .k-mz1 { animation: k-huepf var(--k-loading-cycle) var(--k-ease-inout) infinite; }
+.k-laedt .k-mz2 { animation: k-huepf var(--k-loading-cycle) var(--k-ease-inout) 180ms infinite; }
+.k-laedt .k-fk { animation: k-funkeln calc(var(--k-loading-cycle) * 2) ease-in-out infinite; }
+@keyframes k-huepf {
+  0%, 100% { transform: none; }
+  45% { transform: translate3d(0, -28%, 0) scaleX(-1); }
+}
+.k-wordmark.k-static .k-gold { opacity: .7; }
 .k-loader-inline {
   display: flex; justify-content: center; padding: 22px 0;
 }
@@ -83,7 +132,7 @@
   transform-origin: center;
 }
 .k-success .k-ripple { opacity: 0; }
-.k-success.k-go .k-dot {
+.k-success.k-go .k-dot, .k-success.k-go .k-mz1 {
   animation: k-success-dot var(--k-success-ripple) var(--k-ease-settle) both;
 }
 .k-success.k-go .k-ripple {
@@ -101,6 +150,9 @@
 
 /* ---------- prefers-reduced-motion: keine einzige Animation (Pflicht) ---------- */
 @media (prefers-reduced-motion: reduce) {
+  .k-anim-splash .k-l, .k-anim-splash .k-mz, .k-anim-splash .k-fk, .k-anim-splash .k-strich,
+  .k-lebt .k-fk, .k-lebt .k-mz, .k-klick .k-mz, .k-klick .k-fk,
+  .k-laedt .k-mz, .k-laedt .k-fk, .k-success.k-go .k-mz1,
   .k-anim-splash .k-letters,
   .k-anim-splash .k-dot,
   .k-pulse,
@@ -109,6 +161,7 @@
     animation: none;
   }
   .k-pulse { opacity: 0.6; }
-  .brand .k-dot { transition: none; }
+  .brand .k-dot, .brand .k-mz { transition: none; }
+  .brand:hover .k-mz1, .brand:hover .k-mz2 { transform: none; }
   .k-splash { transition: none; }
 }

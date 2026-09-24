@@ -1,0 +1,743 @@
+/* =============================================================================
+   kumulio — neuer Look (Runde 116, nach den Entwuerfen des Nutzers)
+   Weisse Karten mit weichem Schatten auf hellem Grund, Akzent in der Farbe des
+   Spar-Rangs (--kopf-k1..3), runde Schrift, volle Menueleiste unten.
+   Laedt NACH style.css und brand.css und ueberstimmt dort, was nicht passt.
+   Animationen nur transform/opacity; keine backdrop-filter mehr (Tempo).
+   ========================================================================== */
+
+:root {
+  --seite: #F3F4F7;
+  --karte: #FFFFFF;
+  --karte-2: #F1F2F5;
+  --linie: rgba(16, 24, 32, .08);
+  --schatten-1: 0 1px 2px rgba(16, 24, 32, .05), 0 8px 24px rgba(16, 24, 32, .07);
+  --schatten-2: 0 14px 38px rgba(16, 24, 32, .14);
+  --akzent: var(--kopf-k2, #12C77E);
+  --akzent-tief: var(--kopf-k1, #0E9C64);
+  --akzent-text: var(--kopf-k1, #0E9C64);
+  --akzent-weich: color-mix(in srgb, var(--akzent) 13%, var(--karte));
+  --preis: #E0322B;
+  --badge-gelb: #FFD23F;
+  --r-xl: 28px;
+  --leiste-h: 64px;
+  --leiste-gesamt: calc(var(--leiste-h) + env(safe-area-inset-bottom, 0px));
+  --leiste-bg: #FFFFFF;
+  --leiste-aktiv: var(--kopf-k1, #0E9C64);
+  --rund: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", Roboto, sans-serif;
+  /* Alte Namen zeigen auf die neuen Werte — so zieht die ganze App mit */
+  --glass: var(--karte);
+  --glass-strong: var(--karte);
+  --surface: var(--karte);
+  --surface-2: var(--karte-2);
+  --stroke-light: var(--linie);
+  --glass-edge: 0 0 #0000;
+  --shadow: var(--schatten-1);
+  --blur: none;
+  --accent: var(--akzent);
+  --accent-strong: var(--akzent-text);
+  --chip-active-bg: var(--akzent-tief);
+  --chip-active-fg: #fff;
+  --pill-dark: var(--akzent-tief);
+}
+:root[data-theme="dark"] {
+  --seite: #0E1114;
+  --karte: #171C22;
+  --karte-2: #1F252D;
+  --linie: rgba(255, 255, 255, .07);
+  --schatten-1: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .32);
+  --schatten-2: 0 14px 38px rgba(0, 0, 0, .55);
+  --akzent-text: var(--kopf-k3, #23D992);
+  --preis: #FF6B5E;
+  --leiste-bg: #161A20;
+  --leiste-aktiv: var(--kopf-k3, #23D992);
+  --glass: var(--karte);
+  --glass-strong: var(--karte);
+  --surface: var(--karte);
+  --surface-2: var(--karte-2);
+  --stroke-light: var(--linie);
+  --glass-edge: 0 0 #0000;
+  --shadow: var(--schatten-1);
+  --accent: var(--akzent);
+  --accent-strong: var(--akzent-text);
+  --chip-active-bg: var(--akzent-tief);
+  --chip-active-fg: #fff;
+  --pill-dark: var(--akzent-tief);
+  color-scheme: dark;
+}
+
+/* ---- Grund und Schrift */
+body, :root[data-theme="dark"] body {
+  background: var(--seite);
+  --seitengrund: var(--seite);
+  font-family: var(--rund);
+}
+body::before, body::after { display: none; }
+input, textarea, select, button { font-family: inherit; }
+
+/* Innerhalb weisser Karten sind Eingaben und Kacheln leicht grau */
+.card, .modal, .pin-empfehlung { --surface: var(--karte-2); --surface-2: var(--karte-2); }
+
+/* ---- Grundbausteine */
+.card {
+  background: var(--karte); border-color: transparent;
+  border-radius: 22px; box-shadow: var(--schatten-1);
+}
+.btn {
+  background: var(--akzent-tief); color: #fff; font-weight: 750;
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--akzent) 28%, transparent);
+}
+.btn-ghost, :root[data-theme="dark"] .btn-ghost {
+  background: var(--karte-2); color: var(--text); box-shadow: none;
+}
+.iconbtn {
+  width: 42px; height: 42px;
+  background: var(--karte); border: 0; box-shadow: var(--schatten-1);
+}
+.chip { background: var(--karte); border-color: var(--linie); box-shadow: none; font-weight: 650; }
+.chip.active, :root[data-theme="dark"] .chip.active {
+  background: var(--akzent-tief); color: #fff; border-color: transparent;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--akzent) 26%, transparent);
+}
+.input { background: var(--karte-2); border-color: transparent; box-shadow: none; border-radius: 14px; }
+.input:focus { border-color: var(--akzent); background: var(--karte); }
+.bereich-titel { font-size: 1.35rem; font-weight: 850; letter-spacing: -.02em; }
+.card-h { font-weight: 800; letter-spacing: -.01em; }
+.modal { background: var(--karte); border: 0; box-shadow: var(--schatten-2); border-radius: 28px; }
+.overlay { background: rgba(14, 18, 24, .42); backdrop-filter: none; -webkit-backdrop-filter: none; }
+.sheet {
+  background: var(--seite); border: 0;
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+  border-radius: 28px 28px 0 0; box-shadow: 0 -12px 40px rgba(16, 24, 32, .18);
+}
+.switch input:checked + .switch-slider { background: var(--akzent); }
+
+/* ---- Kopfzeile: Profilbild links, Logo Mitte, Suche rechts (runde weisse Knoepfe).
+   Der Inhalt sitzt 2px tiefer als frueher, die Leiste bleibt gleich hoch. */
+.topbar { padding-top: calc(14px + env(safe-area-inset-top, 0px)); padding-bottom: 10px; }
+body.gescrollt .topbar { padding-top: calc(9px + env(safe-area-inset-top, 0px)); padding-bottom: 5px; }
+body.wallet-farbe .topbar .iconbtn, body.wallet-farbe.kopf-weg .topbar .iconbtn {
+  color: #1B2430; background: rgba(255, 255, 255, .94); border: 0;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .1);
+}
+:root[data-theme="dark"] body.wallet-farbe .topbar .iconbtn { color: #fff; background: rgba(23, 28, 34, .9); }
+/* Logo: auf dem Rang-Verlauf weisse Buchstaben (Blau hat dort zu wenig Kontrast),
+   sonst Markenblau; Muenzen und Funken bleiben gold */
+
+#btn-profile-top { padding: 0; overflow: visible; box-shadow: 0 0 0 2.5px #fff, 0 4px 14px rgba(0, 0, 0, .12); }
+:root[data-theme="dark"] #btn-profile-top { box-shadow: 0 0 0 2.5px rgba(255, 255, 255, .85), 0 4px 14px rgba(0, 0, 0, .3); }
+#btn-profile-top .avatar-mini { width: 100%; height: 100%; font-size: .95rem; }
+#btn-profile-top img.avatar-mini { width: 100%; height: 100%; }
+.has-dot::after, #btn-profile-top.has-dot::after { box-shadow: 0 0 0 2px var(--karte); }
+
+/* =============================================================================
+   Menueleiste unten: volle Breite, oben abgerundet, 4 Reiter.
+   Der aktive Reiter traegt die Rang-Farbe, ein gefuelltes Symbol und waechst.
+   ========================================================================== */
+.tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; top: auto; z-index: 30;
+  transform: none; width: auto;
+  display: grid; grid-template-columns: repeat(4, minmax(0, 150px)); justify-content: center; gap: 0;
+  height: var(--leiste-gesamt);
+  padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  background: var(--leiste-bg); border: 0; border-radius: 16px 16px 0 0;
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+  box-shadow: 0 -1px 0 var(--linie), 0 -8px 30px rgba(16, 24, 32, .08);
+}
+body.sparsam .tabbar { backdrop-filter: none; -webkit-backdrop-filter: none; }
+.tab-pill { display: none !important; }
+.tabbtn, :root[data-theme="dark"] .tabbtn {
+  position: relative; width: auto; height: var(--leiste-h); padding: 0; border-radius: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  background: none; color: var(--muted);
+  font-size: .7rem; font-weight: 700; letter-spacing: .005em;
+  transition: color .25s ease;
+}
+.tabbtn.active, :root[data-theme="dark"] .tabbtn.active { color: var(--leiste-aktiv); }
+.tab-ico {
+  position: relative; width: 26px; height: 26px; display: block;
+  transform-origin: 50% 70%;
+  transition: transform .45s cubic-bezier(.34, 1.45, .55, 1);
+}
+.tabbtn.active .tab-ico { transform: translate3d(0, -9px, 0) scale(1.32); }
+.tabbtn:active .tab-ico { transform: scale(.88); }
+.tabbtn.active:active .tab-ico { transform: translate3d(0, -9px, 0) scale(1.18); }
+.tabbtn.active .tab-txt { font-weight: 800; }
+/* Woelbung ueber dem aktiven Reiter: dieselbe Flaeche wie die Leiste, oben
+   mit derselben feinen Kante; sie sitzt 3px tief, damit keine Naht bleibt */
+.tab-buckel {
+  position: absolute; left: 0; bottom: calc(100% - 3px); z-index: 0;
+  width: 94px; height: 19px; overflow: visible; pointer-events: none;
+  transform-origin: 50% 100%; will-change: transform;
+  filter: drop-shadow(0 -6px 10px rgba(16, 24, 32, .06));
+  transition: opacity .25s ease;
+}
+.tab-buckel.weg { opacity: 0; }
+.tb-flaeche { fill: var(--leiste-bg); }
+.tb-kante { fill: none; stroke: var(--linie); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.tabbtn { z-index: 1; }
+.tab-ico .icon { position: absolute; inset: 0; width: 26px; height: 26px; transition: opacity .22s ease; }
+.tab-f { opacity: 0; fill: currentColor; }
+.tabbtn.active .tab-f { opacity: 1; }
+.tabbtn.active .tab-o { opacity: 0; }
+.tab-txt { transition: transform .45s cubic-bezier(.34, 1.45, .55, 1); }
+.tab-zahl { top: 7px; left: calc(50% + 6px); right: auto; box-shadow: 0 0 0 2px var(--leiste-bg); }
+@keyframes menueRein { from { transform: translate3d(0, 100%, 0); } }
+body.sparsam .tab-ico, body.sparsam .tab-txt { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .tab-ico, .tab-txt, .tab-ico .icon { transition: none; }
+}
+
+/* Alles, was ueber der Leiste schwebt, richtet sich nach ihrer Hoehe */
+main { --menue-luft: calc(var(--leiste-h) + 18px); }
+#bottom-fade { display: none !important; }
+#wallet-mini { bottom: calc(var(--leiste-gesamt) + 12px); }
+.admin-fab { bottom: calc(var(--leiste-gesamt) + 16px); }
+.toast { bottom: calc(var(--leiste-gesamt) + 12px); }
+#req-toast { bottom: calc(var(--leiste-gesamt) + 10px); }
+#achv-stack { bottom: calc(var(--leiste-gesamt) + 12px); }
+#fps-anzeige { bottom: calc(var(--leiste-gesamt) + 8px); }
+#view-chat { --chat-boden: calc(var(--leiste-gesamt) + 12px); }
+
+/* =============================================================================
+   Wallet (zweiter Entwurf): Glas-Karte mit Maskottchen, quadratische Griffe,
+   Schieber als Pille, Suche und Marke getrennt, weisse PIN-Karte, neue Karten
+   ========================================================================== */
+#view-wallet { --wk-akzent: var(--kopf-k1, #0E9C64); }
+body.marken-modus #view-wallet { --wk-akzent: var(--marke-k1); }
+#kopf-vorne, #kopf-hinten { min-height: 0; }
+/* Das Maskottchen ragt oben ueber die Karte hinaus. Der Rahmen, der beim
+   Einklappen beschneidet (.kopf-geld-inner, overflow: hidden), beginnt deshalb
+   44px hoeher; die negative Marge hebt das im Layout wieder auf. */
+#kopf-vorne { padding: 44px 14px 26px; margin: -44px -14px -26px; }
+/* Eingeklappt (Karten & Coupons) bleibt die Polsterung stehen — unsichtbar und
+   nicht antippbar, damit nichts darunter blockiert wird */
+#wallet-kopf-geld.zu { pointer-events: none; }
+/* Rueckseite (Analyse): gleiche Polsterung, damit der Schatten nicht
+   abgeschnitten wird, und kompakt — etwa so hoch wie die Vorderseite */
+#kopf-hinten { padding: 0 14px 26px; margin: 0 -14px -26px; }
+.wk-glas .stat-kopf { min-height: 30px; }
+.wk-glas .stat-kopf > .wallet-kopf-sub { font-size: .95rem; font-weight: 750; opacity: 1; margin: 0; }
+.wk-glas .stat-ranges .chip { height: 28px; padding: 0 11px; font-size: .74rem; border-radius: 9px; }
+.wk-glas .stat-zahlen { margin: 8px 0 0; gap: 14px; }
+.wk-glas .verlauf-svg { height: 58px; margin-top: 2px; }
+.wk-glas .stat-zurueck { margin: 6px auto 0; padding: 6px 13px; font-size: .72rem; border-radius: 10px; }
+
+/* Kompakte Karte wie im Entwurf — kein Glas, sondern ein Fenster: die Flaeche
+   liegt etwas tiefer als der Grund, der Schatten faellt nach innen, unten
+   faengt eine helle Kante das Licht. Rechts schaut Kumulio heraus. */
+.wk-glas {
+  --wk-rand: 18px;
+  --wk-radius: 18px;
+  position: relative; text-align: left;
+  border-radius: var(--wk-radius); padding: 14px var(--wk-rand) 12px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, .15) 0%, rgba(0, 0, 0, .07) 42%, rgba(0, 0, 0, .02) 100%);
+  border: 0;
+  box-shadow:
+    inset 0 5px 14px rgba(0, 0, 0, .16),
+    inset 0 1px 3px rgba(0, 0, 0, .2),
+    inset 0 -1px 0 rgba(255, 255, 255, .28),
+    0 1px 0 rgba(255, 255, 255, .38);
+}
+.wk-titel {
+  position: relative; z-index: 2; display: block;
+  font-size: .95rem; font-weight: 750; line-height: 1.2; color: rgba(255, 255, 255, .96);
+}
+/* Rahmen fuer das Maskottchen: nur OBEN offen (der Kopf schaut aus dem
+   Fenster), rechts und unten schneidet der Fensterrand mit denselben runden
+   Ecken. Unten laeuft die Figur weich aus, statt hart abzubrechen. */
+.wk-sprite-rahmen {
+  position: absolute; z-index: 1; pointer-events: none;
+  top: -44px; bottom: 0; left: 0; right: 0;
+  overflow: hidden; border-radius: 0 0 var(--wk-radius) var(--wk-radius);
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 30px), rgba(0, 0, 0, .35) calc(100% - 6px), rgba(0, 0, 0, .15) 100%);
+          mask-image: linear-gradient(to bottom, #000 calc(100% - 30px), rgba(0, 0, 0, .35) calc(100% - 6px), rgba(0, 0, 0, .15) 100%);
+}
+/* Das universelle Maskottchen (Daumen hoch, Zuschnitt 1139 x 1204): die rechte
+   Wange sitzt bei 83 % der Breite knapp am Kartenrand, der Daumen steht links
+   daneben neben dem Betrag. Unten schneidet die Karte — nur der Oberkoerper
+   ist zu sehen. Eigene Modelle je Rang: WALLET_MASKOTTCHEN in app.js. */
+.wk-glas { --sb: var(--sprite-breite, clamp(232px, 62.5vw, 256px)); }
+.wk-sprite {
+  position: absolute; top: 8px; left: calc(100% - 6px - var(--sb) * .8341);
+  width: var(--sb); height: auto;
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, .16));
+  transform-origin: 55% 100%;
+}
+.wk-sprite-rahmen { isolation: isolate; }
+/* Schein: klare Lichtstrahlen in der Akzentfarbe hinter dem Kopf, die sich
+   langsam drehen. Sie leuchten nur im Fenster (eigene Ebene mit den runden
+   Kartenecken), laufen nach aussen weich aus und haben keine sichtbaren Raender. */
+.wk-licht {
+  position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  border-radius: inherit; overflow: hidden;
+}
+.wk-licht::before {
+  content: ""; position: absolute;
+  left: calc(100% - 6px - var(--sb) * .268); top: calc(var(--sb) * .369 - 36px);
+  width: calc(var(--sb) * .98); aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  background: repeating-conic-gradient(from 4deg,
+    color-mix(in srgb, var(--wk-schein) 55%, #fff) 0deg 5deg, transparent 5deg 18deg);
+  -webkit-mask-image: radial-gradient(closest-side, rgba(0, 0, 0, .55) 0%, rgba(0, 0, 0, .3) 38%, transparent 82%);
+          mask-image: radial-gradient(closest-side, rgba(0, 0, 0, .55) 0%, rgba(0, 0, 0, .3) 38%, transparent 82%);
+  opacity: .72;
+  animation: wkStrahlen 70s linear infinite;
+}
+@keyframes wkStrahlen { to { transform: translate(-50%, -50%) rotate(360deg); } }
+/* Funken wie im Logo: gold, klein, blitzen versetzt auf */
+.wk-funken {
+  position: absolute; top: 8px; left: calc(100% - 6px - var(--sb) * .8341);
+  width: var(--sb); aspect-ratio: 1139 / 1204; pointer-events: none;
+}
+.wk-f {
+  position: absolute; width: 15px; height: 15px; fill: #FFD23F;
+  filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, .18));
+  opacity: 0; animation: wkFunkeln 3.6s ease-in-out infinite;
+}
+.wk-f1 { left: 1%; top: 17%; }
+.wk-f2 { left: 33%; top: 4%; width: 10px; height: 10px; animation-delay: 1.2s; }
+.wk-f3 { left: 81%; top: 13%; width: 12px; height: 12px; animation-delay: 2.3s; }
+@keyframes wkFunkeln {
+  0%, 62%, 100% { opacity: 0; transform: scale(.3) rotate(0deg); }
+  14% { opacity: 1; transform: scale(1.1) rotate(25deg); }
+  30% { opacity: .95; transform: scale(.9) rotate(45deg); }
+  46% { opacity: 0; transform: scale(.35) rotate(70deg); }
+}
+body.sparsam .wk-licht::before, body.sparsam .wk-f { animation: none; }
+body.sparsam .wk-f { opacity: .9; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .wk-licht::before { animation: none; }
+  .wk-f { animation: none; opacity: .9; }
+}
+#view-wallet { --wk-schein: var(--kopf-k3, #2FE09C); }
+body.marken-modus #view-wallet { --wk-schein: var(--marke-k3, var(--kopf-k3, #2FE09C)); }
+
+.wk-sprite.auftritt { animation: spriteRein .7s var(--spring) backwards; animation-delay: var(--ad, 0ms); }
+@keyframes spriteRein { from { opacity: 0; transform: translate3d(0, 30px, 0) scale(.92); } }
+
+.wk-glas .balance-flip-btn { position: relative; z-index: 2; display: block; width: auto; max-width: 48%; text-align: left; }
+.wk-glas .balance-big { text-shadow: 0 2px 12px rgba(0, 0, 0, .16); }
+.wk-glas .balance-big, .wallet-kopf .wk-glas .balance-big {
+  font-size: clamp(1.95rem, 9.2vw, 2.3rem); line-height: 1.06; text-align: left; margin-top: 2px; white-space: nowrap;
+}
+/* Lange Betraege werden kleiner, damit sie nicht unter das Maskottchen laufen */
+.wk-glas .balance-big[data-laenge="m"], .wallet-kopf .wk-glas .balance-big[data-laenge="m"] { font-size: clamp(1.7rem, 8vw, 1.95rem); }
+.wk-glas .balance-big[data-laenge="l"], .wallet-kopf .wk-glas .balance-big[data-laenge="l"] { font-size: clamp(1.45rem, 6.8vw, 1.6rem); }
+.wk-glas .balance-big[data-laenge="xl"], .wallet-kopf .wk-glas .balance-big[data-laenge="xl"] { font-size: clamp(1.3rem, 6vw, 1.42rem); }
+.wk-glas .wallet-kopf-sub {
+  display: flex; flex-wrap: nowrap; align-items: center; justify-content: flex-start; gap: 5px;
+  max-width: 100%; margin-top: 2px; text-align: left;
+  font-size: .84rem; font-weight: 550; line-height: 1.3; opacity: .95; white-space: nowrap;
+}
+.wk-glas .wallet-kopf-sub > * { margin: 0; flex: none; }
+/* Den Rang zeigt die Kartenfarbe; der Name steht nicht mehr in der Zeile (im
+   Entwurf fehlt er, und rechts steht das Maskottchen). Antippen des Betrags
+   oeffnet weiterhin die Rang-Uebersicht. */
+.wk-glas .wallet-kopf-sub .rang-klein, .wk-glas .wallet-kopf-sub .rang-trenner { display: none; }
+
+/* Drei Griffe in gleich breiten Spalten: Quadrat mittig, Beschriftung darunter
+   mit Luft zur Nachbarin. Die Zeile rueckt um die halbe Luft nach links, damit
+   das erste Quadrat genau unter dem Text beginnt. */
+.wk-glas .wallet-aktionen {
+  --wa-spalte: 66px; --wa-q: 40px;
+  position: relative; z-index: 2;
+  display: grid; grid-template-columns: repeat(3, var(--wa-spalte)); column-gap: 2px;
+  justify-items: center; justify-content: start; align-items: start;
+  max-width: none; margin: 10px 0 0 calc((var(--wa-q) - var(--wa-spalte)) / 2);
+}
+.wk-glas .wa-btn {
+  width: var(--wa-spalte); gap: 6px; padding: 0;
+  font-size: .66rem; font-weight: 700; line-height: 1.1; letter-spacing: 0; text-align: center;
+}
+.wk-glas .wa-btn > span:last-child { white-space: nowrap; opacity: .96; text-shadow: 0 1px 4px rgba(0, 0, 0, .14); }
+.wk-glas .wa-kreis, .wk-glas .wa-haupt .wa-kreis {
+  width: var(--wa-q); height: var(--wa-q); border-radius: 10px;
+  background: rgba(255, 255, 255, .22); border: 1px solid rgba(255, 255, 255, .4);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, .1), inset 0 1px 0 rgba(255, 255, 255, .5);
+}
+.wk-glas .wa-kreis .icon, .wk-glas .wa-haupt .wa-kreis .icon { width: 20px; height: 20px; stroke-width: 2; }
+@media (max-width: 370px) {
+  .wk-glas { --wk-rand: 15px; }
+  .wk-glas .wallet-aktionen { --wa-spalte: 62px; }
+  .wk-glas .wa-btn { font-size: .62rem; }
+}
+
+/* Schieber Gutscheine | Karten & Coupons — eckiger, dicht unter der Karte */
+.wallet-kopf-inner { padding-bottom: 4px; }
+.wallet-kopf #wallet-modes {
+  margin-top: 10px; padding: 4px; border-radius: 13px;
+  background: rgba(255, 255, 255, .2); border: 1px solid rgba(255, 255, 255, .3);
+}
+.wm-flaeche { border-radius: 10px; top: 4px; bottom: 4px; left: 4px; width: calc(50% - 4px); }
+.wm-titel { padding: 9px 6px; font-size: .92rem; line-height: 1.2; border-radius: 10px; }
+
+/* Suche und Marke als zwei eigene Felder, gleiche Hoehe, Symbole mittig */
+.wallet-suchleiste { background: none; border: 0; padding: 0; gap: 8px; align-items: stretch; }
+.wsl-suche {
+  display: flex; align-items: center; gap: 9px;
+  border-radius: 13px; min-height: 44px; padding: 0 14px 0 14px;
+  background: rgba(255, 255, 255, .92); color: var(--muted);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .07);
+}
+.wsl-suche > .icon { flex: none; width: 18px; height: 18px; }
+.wsl-suche:focus-within { background: #fff; }
+.wsl-suche input { color: var(--text); font-size: .92rem; line-height: 1.2; padding: 0; }
+.wsl-suche input::placeholder { color: var(--muted); font-weight: 550; }
+.wsl-suche input::-webkit-search-cancel-button { filter: none; opacity: .6; }
+.wsl-marke {
+  display: inline-flex; align-items: center; gap: 6px;
+  border-radius: 13px; min-height: 44px; padding: 0 12px 0 15px;
+  font-size: .9rem; color: var(--wk-akzent);
+}
+.wsl-marke .wsl-pfeil { flex: none; width: 16px; height: 16px; }
+#wallet-marken-menue, .marken-menue { border-radius: 14px; }
+:root[data-theme="dark"] .wsl-suche { background: rgba(23, 28, 34, .92); }
+:root[data-theme="dark"] .wsl-marke { background: var(--karte); color: var(--akzent-text); }
+
+/* PIN-Karte: weiss, Schloss links, Fingerabdruck rechts */
+.pin-empfehlung {
+  grid-template-columns: 46px 1fr 78px; gap: 6px 14px; padding: 16px;
+  background: var(--karte); border: 0; border-radius: 24px; box-shadow: var(--schatten-1);
+}
+.pe-icon { width: 46px; height: 46px; background: color-mix(in srgb, var(--wk-akzent) 14%, var(--karte)); }
+.pe-icon .icon { color: var(--wk-akzent); }
+.pe-text b { font-size: 1rem; }
+.pe-bild { grid-column: 3; grid-row: 1 / 3; position: relative; display: grid; place-items: center; align-self: center; }
+.pe-bild > .icon { width: 58px; height: 58px; color: color-mix(in srgb, var(--wk-akzent) 55%, transparent); stroke-width: 1.3; }
+.pe-schild {
+  position: absolute; right: 0; bottom: 4px; width: 26px; height: 26px; border-radius: 9px;
+  display: grid; place-items: center; background: var(--wk-akzent); color: #fff;
+  box-shadow: 0 4px 10px color-mix(in srgb, var(--wk-akzent) 40%, transparent);
+}
+.pe-schild .icon { width: 14px; height: 14px; }
+.pe-knoepfe { grid-column: 1 / 3; }
+.pe-knoepfe .btn { width: auto; padding: 10px 20px; font-size: .88rem; }
+#pe-ja { background: var(--wk-akzent); }
+
+/* Ueberschrift, Zaehler und runder Sortier-Knopf */
+#wallet-content .bereich-zeile { align-items: center; gap: 8px 10px; flex-wrap: wrap; margin-top: 18px; }
+#wallet-content .bereich-zeile .bereich-titel { font-size: 1.32rem; white-space: nowrap; }
+#wallet-content .bereich-zeile .wallet-platz { font-size: .74rem; white-space: nowrap; }
+#wallet-sort-btn { margin-left: auto; }
+#wallet-val-chips { order: 3; flex-basis: 100%; }
+
+/* ---- Gutschein-Karte (vk), kompakt wie im Entwurf:
+   [Logo] Name / Gutschein / Code / PIN        Betrag (…)
+                                               Gültig bis …            */
+.wallet-card.vk {
+  display: grid; grid-template-columns: 50px minmax(0, 1fr) auto; grid-template-rows: auto 1fr;
+  column-gap: 12px; align-items: start;
+  min-height: 86px; padding: 12px 12px 11px 13px; border-radius: 22px;
+  color: var(--tc, #fff); border: 0;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--bc) 94%, #fff), color-mix(in srgb, var(--bc) 74%, #000));
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--bc) 26%, transparent), inset 0 1px 0 rgba(255, 255, 255, .22);
+}
+.wallet-card.vk > * { position: relative; z-index: 1; }
+.wallet-card.vk > .vk-motiv {
+  position: absolute; z-index: 0; right: 30%; top: 50%; width: 92px; height: 92px;
+  transform: translateY(-50%) rotate(-10deg); opacity: .1; pointer-events: none;
+  display: grid; place-items: center; filter: grayscale(1) brightness(3);
+}
+.vk-motiv img { width: 100%; height: 100%; object-fit: contain; }
+.vk-motiv i { font-style: normal; font-weight: 900; font-size: 3.2rem; color: #fff; }
+.vk-logo { grid-column: 1; grid-row: 1 / 3; align-self: center; }
+.brand-chip.hat-logo,
+.vk-logo .brand-chip.hat-logo, .dk-ersatz .brand-chip.hat-logo, .fh-bild.logo .brand-chip.hat-logo { color: transparent; }
+.vk-logo .brand-chip {
+  width: 50px; height: 50px; border-radius: 14px; font-size: .82rem;
+  background: #fff; color: var(--bc); box-shadow: 0 3px 10px rgba(0, 0, 0, .12);
+}
+.vk-logo .brand-chip .brand-logo { inset: 6%; width: 88%; height: 88%; padding: 0; background: none; border-radius: 10px; }
+.vk-text {
+  grid-column: 2; grid-row: 1 / 3; align-self: center;
+  display: flex; flex-direction: column; gap: 0; min-width: 0;
+}
+.vk-text .wallet-card-name {
+  font-size: 1.04rem; font-weight: 850; letter-spacing: -.01em; line-height: 1.2; flex: none;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vk-art { font-size: .78rem; font-weight: 600; line-height: 1.3; opacity: .9; }
+.vk-code, .vk-pin {
+  font-size: .78rem; font-weight: 650; line-height: 1.3; letter-spacing: .05em;
+  font-variant-numeric: tabular-nums; opacity: .96;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vk-code { margin-top: 1px; }
+.vk-rechts { grid-column: 3; grid-row: 1; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.vk .wallet-card-balance {
+  font-size: 1.28rem; font-weight: 850; letter-spacing: -.02em; line-height: 1.2; white-space: nowrap;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, .12);
+}
+.vk-mehr {
+  width: 30px; height: 30px; flex: 0 0 30px; border-radius: 50%; border: 0; cursor: pointer;
+  display: grid; place-items: center; color: inherit; padding: 0;
+  background: color-mix(in srgb, var(--tc, #fff) 22%, transparent); touch-action: manipulation;
+  transition: transform .2s var(--spring);
+}
+/* Groessere Trefferflaeche als der sichtbare Kreis */
+.vk-mehr::before { content: ""; position: absolute; inset: -8px; }
+.vk-mehr { position: relative; }
+.vk-mehr:active { transform: scale(.88); }
+.vk-mehr .icon { width: 18px; height: 18px; }
+.vk-fuss {
+  grid-column: 3; grid-row: 2; align-self: end; justify-self: end;
+  display: flex; gap: 6px; align-items: center; justify-content: flex-end; flex-wrap: wrap;
+  font-size: .7rem; font-weight: 600; line-height: 1.3; opacity: .9; margin-top: 6px; text-align: right;
+}
+.vk-fuss .pill { background: color-mix(in srgb, var(--tc, #fff) 20%, transparent); color: inherit; }
+/* Heller Markenton (Netto, McDonald's): dunkles Motiv */
+.wallet-card.vk.hell > .vk-motiv { filter: grayscale(1) brightness(.2); }
+/* Fuellstand ohne backdrop-filter (billiger beim Scrollen) */
+.wallet-card.vk.has-fill::after, :root[data-theme="dark"] .wallet-card.vk.has-fill::after {
+  backdrop-filter: none; -webkit-backdrop-filter: none; border-radius: inherit;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, .18));
+}
+.deck .vk-mehr { visibility: hidden; }
+.deck::before, .deck::after { border-radius: 20px; }
+
+/* "…"-Menue an der Karte */
+.vk-menue {
+  position: fixed; z-index: 70; min-width: 210px; padding: 6px;
+  background: var(--karte); border-radius: 18px; box-shadow: var(--schatten-2);
+  transform-origin: top right; animation: mmAuf .28s cubic-bezier(.3, 1.25, .45, 1) both;
+}
+.vk-menue-zeile {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 11px 12px;
+  border: 0; border-radius: 12px; background: none; color: var(--text);
+  font: inherit; font-size: .92rem; font-weight: 650; text-align: left; cursor: pointer;
+}
+.vk-menue-zeile:hover, .vk-menue-zeile:focus-visible { background: var(--karte-2); outline: none; }
+.vk-menue-zeile .icon { color: var(--akzent-text); }
+@media (prefers-reduced-motion: reduce) { .vk-menue, .wk-sprite.auftritt { animation: none; } }
+
+/* =============================================================================
+   Wallet-Seite ganz in der Rang-Farbe: der Verlauf oben laeuft in einen
+   ruhigen, etwas tieferen Grundton aus, der bis unten traegt. Ueberschriften
+   und Hinweise darauf sind weiss (Wunsch des Nutzers: schwarz passte nicht).
+   ========================================================================== */
+body.wallet-farbe {
+  --wallet-grund: color-mix(in srgb, var(--kopf-k2, #12C77E) 70%, var(--kopf-k1, #0E9C64));
+  background-color: var(--wallet-grund);
+}
+:root[data-theme="dark"] body.wallet-farbe {
+  --wallet-grund: color-mix(in srgb, var(--kopf-k1, #0E9C64) 58%, #0B0E11);
+}
+body { transition: background-color .35s ease; }
+body.wallet-farbe #wallet-farbfeld::after {
+  background:
+    radial-gradient(circle at 84% 6%, rgba(255, 255, 255, .15), transparent 46%),
+    linear-gradient(176deg, var(--kopf-k1, #0E9C64) 0%, var(--kopf-k2, #12C77E) 46%, var(--wallet-grund) 100%);
+}
+/* Kopfzeile nach dem Wegscrollen: dieselbe Farbe statt weissem Schleier,
+   Logo und Knoepfe bleiben wie oben */
+:root body.wallet-farbe.kopf-weg .topbar::before { background: var(--wallet-grund); }
+body.wallet-farbe.kopf-weg .topbar .k-wordmark { color: #fff; }
+:root[data-theme="dark"] body.wallet-farbe.kopf-weg .topbar .k-wordmark { color: #fff; }
+
+#view-wallet .bereich-titel { color: #fff; text-shadow: 0 1px 10px rgba(0, 0, 0, .12); }
+#view-wallet .rc-hinweis,
+#wallet-content > .status, #coupons-content > .status, #coupons-content .cc-cards > .status,
+#view-wallet .voucher-list > .status { color: rgba(255, 255, 255, .86); }
+/* Zaehler neben "Deine Gutscheine": weiss auf leichtem Glas, kaum gerundet */
+.wallet-platz, :root[data-theme="dark"] .wallet-platz {
+  background: rgba(255, 255, 255, .2); color: #fff; border: 0; border-radius: 8px;
+  font-weight: 750; padding: 4px 9px;
+}
+/* Sortieren: dieselbe Form wie Suche und Marke */
+#wallet-sort-btn { border-radius: 12px; width: 42px; height: 42px; }
+/* "+ Rabattcode" auf dem farbigen Grund */
+.rc-kopf .rc-neu-chip { border-radius: 11px; background: #fff; color: var(--wk-akzent); border: 0; }
+:root[data-theme="dark"] .rc-kopf .rc-neu-chip { background: var(--karte); color: var(--akzent-text); }
+/* Karten und Kacheln: weniger rund */
+.wallet-card.vk { border-radius: 16px; }
+.rc-card, .cc-card, .mk-kachel, .used-fold, .wallet-card-add { border-radius: 16px; }
+.vk-logo .brand-chip { border-radius: 12px; }
+.deck::before, .deck::after { border-radius: 14px; }
+
+/* =============================================================================
+   Feed (erster Entwurf): Banner-Karussell, Filter-Pillen, "Top Deals für dich"
+   als Reihe, "Weitere starke Angebote" als Raster. Ecken bewusst nur maessig
+   gerundet (Wunsch des Nutzers).
+   ========================================================================== */
+#feed-hero:empty { display: none; }
+.fh { position: relative; margin: 0 0 12px; }
+.fh-track {
+  display: grid; grid-auto-flow: column; grid-auto-columns: 100%; gap: 12px;
+  overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory;
+  scrollbar-width: none; border-radius: 20px;
+}
+.fh-track::-webkit-scrollbar { display: none; }
+.fh-track:focus-visible { outline: 2px solid var(--akzent); outline-offset: 3px; }
+.fh-slide {
+  position: relative; overflow: hidden; scroll-snap-align: center; scroll-snap-stop: always;
+  display: grid; grid-template-columns: minmax(0, 1fr) 40%; min-height: 196px;
+  padding: 18px 0 18px 18px; border-radius: 20px; color: #fff; cursor: pointer;
+  background:
+    radial-gradient(90% 80% at 88% 18%, color-mix(in srgb, var(--bc) 45%, #fff) 0%, transparent 60%),
+    linear-gradient(150deg, color-mix(in srgb, var(--bc) 90%, #fff), color-mix(in srgb, var(--bc) 76%, #000));
+  -webkit-tap-highlight-color: transparent;
+}
+.fh-slide.hell { color: #14151A; }
+.fh-text { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; }
+.fh-marke {
+  font-size: 1.6rem; font-weight: 900; font-style: italic; letter-spacing: -.02em; line-height: 1.05;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.fh-text .dk-pill { position: static; }
+.fh-titel {
+  font-size: 1.12rem; font-weight: 850; line-height: 1.2; letter-spacing: -.01em;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.fh-sub {
+  font-size: .8rem; line-height: 1.35; opacity: .92;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.fh-cta {
+  margin-top: auto; display: inline-flex; align-items: center; gap: 6px;
+  padding: 9px 15px; border: 0; border-radius: 12px; cursor: pointer;
+  background: #fff; color: color-mix(in srgb, var(--bc) 78%, #000);
+  font: inherit; font-size: .88rem; font-weight: 800; text-decoration: none;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .14);
+}
+.fh-slide.hell .fh-cta { background: #14151A; color: #fff; }
+.fh-cta .icon { width: 16px; height: 16px; }
+.fh-bild { position: relative; z-index: 1; align-self: end; justify-self: end; width: 118%; margin: -10px -12px -30px 0; }
+.fh-bild img { display: block; width: 100%; height: auto; filter: drop-shadow(0 12px 18px rgba(0, 0, 0, .22)); }
+.fh-bild.foto {
+  align-self: center; justify-self: center; width: 124px; height: 124px; margin: 0 12px 0 0;
+  border-radius: 18px; background: #fff; overflow: hidden; display: grid; place-items: center;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, .18);
+}
+.fh-bild.foto img { width: 86%; height: 86%; object-fit: contain; filter: none; }
+.fh-bild.logo { align-self: center; justify-self: center; width: auto; margin: 0 16px 0 0; }
+.fh-bild.logo .brand-chip {
+  width: 112px; height: 112px; border-radius: 26px; font-size: 1.9rem;
+  background: #fff; color: var(--bc); transform: rotate(-7deg);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, .22), 0 0 0 6px rgba(255, 255, 255, .18);
+}
+.fh-bild.logo .brand-chip .brand-logo { inset: 7%; width: 86%; height: 86%; padding: 0; background: none; border-radius: 20px; }
+.fh-dots { position: absolute; left: 0; right: 0; bottom: 9px; z-index: 3; display: flex; justify-content: center; gap: 6px; pointer-events: none; }
+.fh-dots i { width: 7px; height: 7px; border-radius: 50%; background: rgba(255, 255, 255, .5); transition: transform .25s ease, background .25s ease; }
+.fh-dots i.on { background: #fff; transform: scale(1.3); }
+
+/* Filter: schlichte Pillen, seitwaerts wischbar */
+#chipbar {
+  display: flex; gap: 8px; height: auto; overflow-x: auto; overflow-y: hidden; perspective: none;
+  margin: 0 -16px 4px; padding: 2px 16px 8px; scrollbar-width: none; scroll-padding-inline: 16px;
+}
+#chipbar::-webkit-scrollbar { display: none; }
+.feed-chip {
+  flex: none; display: inline-flex; align-items: center; gap: 6px;
+  height: 36px; padding: 0 13px; border-radius: 11px; font-size: .86rem; font-weight: 750;
+  transition: background-color .2s ease, color .2s ease, transform .2s var(--spring);
+}
+.feed-chip .icon { width: 16px; height: 16px; }
+.feed-chip:active { transform: scale(.95); }
+@media (max-width: 560px) { #chipbar { margin-inline: -12px; padding-inline: 12px; } }
+
+/* Abschnitte */
+.fsek-kopf { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 14px 0 10px; }
+.fsek-kopf .bereich-titel { margin: 0; font-size: 1.2rem; }
+.fsek-alle {
+  display: inline-flex; align-items: center; gap: 2px; flex: none;
+  border: 0; background: none; padding: 6px 0; cursor: pointer;
+  font: inherit; font-size: .84rem; font-weight: 650; color: var(--muted);
+}
+.fsek-alle .icon { width: 16px; height: 16px; }
+.fsek-zurueck {
+  display: inline-flex; align-items: center; gap: 6px; margin: 10px 0 4px;
+  border: 0; background: var(--karte); border-radius: 11px; padding: 8px 12px; cursor: pointer;
+  font: inherit; font-size: .88rem; font-weight: 750; color: var(--text); box-shadow: var(--schatten-1);
+}
+
+/* Reihe "Top Deals für dich" */
+.drow {
+  display: grid; grid-auto-flow: column; grid-auto-columns: 158px; gap: 12px;
+  overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity;
+  /* Unten Luft fuer den Kartenschatten (der Scrollbereich schneidet sonst ab) */
+  margin: 0 -16px -14px; padding: 2px 16px 28px; scroll-padding-inline: 16px; scrollbar-width: none;
+}
+.drow::-webkit-scrollbar { display: none; }
+.drow > .dk { scroll-snap-align: start; }
+@media (max-width: 560px) { .drow { margin-inline: -12px; padding-inline: 12px; scroll-padding-inline: 12px; } }
+
+/* Raster "Weitere starke Angebote" */
+.dgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+#search-results .dgrid, #coupons-content .dgrid { margin-top: 8px; }
+.feed-mehr { height: 1px; }
+
+/* Deal-Kachel */
+.dk {
+  position: relative; display: flex; flex-direction: column; min-width: 0;
+  background: var(--karte); border-radius: 16px; overflow: hidden; cursor: pointer;
+  box-shadow: var(--schatten-1); -webkit-tap-highlight-color: transparent;
+  transition: transform .2s var(--spring);
+}
+.dk:active { transform: scale(.97); }
+.dk.alt { opacity: .6; }
+.dk.anim { animation: cardIn .45s cubic-bezier(.22, 1, .32, 1) both; }
+#feed-raster > .dk { content-visibility: auto; contain-intrinsic-size: auto 270px; }
+.dk-bild {
+  position: relative; aspect-ratio: 1 / .82; overflow: hidden;
+  background: color-mix(in srgb, var(--bc) 12%, var(--karte-2));
+}
+.dk-raster .dk-bild { aspect-ratio: 16 / 11; }
+.dk-bild > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.dk-ersatz { display: none; }
+/* Ohne Foto: Markenfarbe mit grossem Logo in der Mitte */
+.dk-bild.ohne { background: linear-gradient(150deg, color-mix(in srgb, var(--bc) 88%, #fff), color-mix(in srgb, var(--bc) 72%, #000)); }
+.dk-bild.ohne .dk-ersatz { position: absolute; inset: 0; display: grid; place-items: center; }
+.dk-ersatz .brand-chip {
+  width: 58px; height: 58px; border-radius: 15px; font-size: 1rem;
+  background: #fff; color: var(--bc); box-shadow: 0 8px 20px rgba(0, 0, 0, .16);
+}
+.dk-ersatz .brand-chip .brand-logo { inset: 6%; width: 88%; height: 88%; padding: 0; background: none; border-radius: 11px; }
+.dk-pill {
+  position: absolute; top: 9px; left: 9px; z-index: 1;
+  padding: 4px 9px; border-radius: 9px; background: var(--badge-gelb); color: #1B1C20;
+  font-size: .8rem; font-weight: 850; letter-spacing: -.01em; line-height: 1.2;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, .12);
+}
+.dk-pill.pf { background: #E0322B; color: #fff; }
+.dk-herz {
+  position: absolute; top: 7px; right: 7px; z-index: 1;
+  width: 34px; height: 34px; border-radius: 50%; border: 0; padding: 0; cursor: pointer;
+  display: grid; place-items: center; color: #1B2430;
+  background: rgba(255, 255, 255, .88); box-shadow: 0 3px 10px rgba(0, 0, 0, .12);
+  touch-action: manipulation; transition: transform .25s var(--spring), color .2s ease;
+}
+.dk-herz::before { content: ""; position: absolute; inset: -6px; }
+.dk-herz .icon { position: absolute; width: 19px; height: 19px; transition: opacity .2s ease, transform .3s var(--spring); }
+.dk-h-f { fill: currentColor; opacity: 0; transform: scale(.4); }
+.dk-herz.on { color: #E0322B; }
+.dk-herz.on .dk-h-f { opacity: 1; transform: none; }
+.dk-herz.on .dk-h-o { opacity: 0; }
+.dk-herz:active { transform: scale(.86); }
+.dk-hinweis {
+  position: absolute; left: 8px; bottom: 8px; z-index: 1;
+  padding: 3px 8px; border-radius: 8px; background: rgba(20, 21, 26, .72); color: #fff;
+  font-size: .68rem; font-weight: 750;
+}
+.dk-info { display: flex; flex-direction: column; gap: 6px; padding: 10px 11px 11px; flex: 1; }
+.dk-kopf { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.dk-logo .brand-chip { width: 26px; height: 26px; border-radius: 8px; font-size: .56rem; flex: none; }
+.dk-bild.ohne ~ .dk-info .dk-logo { display: none; }
+.dk-namen { display: flex; flex-direction: column; min-width: 0; }
+.dk-titel {
+  font-size: .9rem; font-weight: 800; line-height: 1.22; letter-spacing: -.005em; color: var(--text);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.dk-marke { font-size: .76rem; font-weight: 600; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dk-preise { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+.dk-preis { font-size: 1.08rem; font-weight: 900; color: var(--preis); letter-spacing: -.01em; }
+.dk-preise s { font-size: .8rem; font-weight: 600; color: var(--muted); }
+.dk-zeit {
+  margin-top: auto; display: flex; align-items: center; gap: 6px;
+  padding: 5px 9px; border-radius: 9px; background: var(--karte-2); color: var(--muted);
+  font-size: .76rem; font-weight: 650; white-space: nowrap; overflow: hidden;
+}
+.dk-zeit .icon { width: 15px; height: 15px; flex: none; }
+.dk-zeit > span { overflow: hidden; text-overflow: ellipsis; }
+.dk-zeit .pf-timer { color: #E0322B; font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { .dk.anim { animation: none; } .dk, .dk-herz, .feed-chip { transition: none; } }

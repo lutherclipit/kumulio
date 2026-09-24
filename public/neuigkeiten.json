@@ -1,5 +1,32 @@
 [
   {
+    "v": "2026-09-24.4",
+    "datum": "24. September 2026",
+    "titel": "kumulio hat einen neuen Look",
+    "punkte": [
+      {
+        "icon": "sparkle",
+        "titel": "Neues Logo und Kumulio",
+        "text": "Das neue kumulio-Logo mit Münzen, und in deiner Wallet schaut ab jetzt Kumulio das Chamäleon vorbei."
+      },
+      {
+        "icon": "banknote",
+        "titel": "Aufgeräumte Wallet",
+        "text": "Kompakte Guthaben-Karte, klarere Gutscheine mit Code, PIN und Gültigkeit, und über „…“ kopierst du Code oder PIN direkt."
+      },
+      {
+        "icon": "tag",
+        "titel": "Neuer Feed",
+        "text": "Oben die Highlights zum Durchwischen, darunter „Top Deals für dich“ und weitere Angebote. Mit dem Herz merkst du dir einen Deal."
+      },
+      {
+        "icon": "user",
+        "titel": "Menüleiste mit Profil",
+        "text": "Unten findest du jetzt Feed, Wallet, Chat und dein Profil. Der aktive Punkt hebt sich sichtbar ab."
+      }
+    ]
+  },
+  {
     "v": "2026-09-24.3",
     "datum": "24. September 2026",
     "titel": "Eine PIN für alle Geräte",

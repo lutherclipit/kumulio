@@ -3,6 +3,8 @@
 
 export const brand = {
   color: {
+    blue: '#0B76FF',   // Wortmarke (Entwurf 24.09.2026)
+    gold: '#FFC400',   // Münzen und Funken
     ink: '#14151A',
     accent: '#12C77E',
     surface: '#F6F7F8',
@@ -11,11 +13,11 @@ export const brand = {
   motion: {
     // Dauer in ms
     splashWordmark: 420,
-    splashDotFall: 460,
-    splashDotDelay: 220,
-    splashHold: 320,
+    splashDotFall: 640,
+    splashDotDelay: 300,
+    splashHold: 240,
     splashOut: 260,
-    splashMax: 1400,
+    splashMax: 1700,
     loadingCycle: 1100,
     loadingDelay: 200,
     successRipple: 620,
@@ -26,14 +28,16 @@ export const brand = {
     easeInOut: 'cubic-bezier(0.65, 0, 0.35, 1)',
   },
   logo: {
-    minWidthPx: 72, // darunter: mono-Variante verwenden
-    aspect: 4.22,
+    minWidthPx: 72, // darunter: nur Buchstaben (ohne Münzen/Funken)
+    aspect: 4.02,
   },
 };
 
 // Tokens als CSS-Variablen bereitstellen – brand.css nutzt ausschließlich diese
 export function applyBrandVars(root = document.documentElement) {
   const s = root.style;
+  s.setProperty('--k-blau', brand.color.blue);
+  s.setProperty('--k-gold', brand.color.gold);
   s.setProperty('--k-ink', brand.color.ink);
   s.setProperty('--k-accent', brand.color.accent);
   s.setProperty('--k-surface', brand.color.surface);

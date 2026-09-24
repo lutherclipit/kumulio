@@ -91,7 +91,7 @@ const fmtFunken = n => (Math.round(Number(n)) || 0).toLocaleString('de-DE');
 const funkeIcon = (small = false) =>
   `<img class="px-icon${small ? ' px-16' : ''}" src="${small ? '/gamification/currency-funke-16.svg' : CUR.icon}" alt="${CUR.name}">`;
 
-const VIEW_ORDER = ['feed', 'wallet', 'chat', 'search', 'profile', 'settings', 'friends', 'user', 'inventory', 'shop', 'gifts', 'invite', 'editprofile'];
+const VIEW_ORDER = ['feed', 'wallet', 'chat', 'profile', 'search', 'settings', 'friends', 'user', 'inventory', 'shop', 'gifts', 'invite', 'editprofile'];
 const FEED_LIMIT = 40;
 
 // Menüpunkte oben: Sparen / Verdienen / Neukunden / Coupons.
@@ -465,15 +465,52 @@ function hideToast() { $('#toast').classList.remove('show'); }
 // ---------------- View-Wechsel mit Slide ----------------
 
 // Die schwarze Pille gleitet zum aktiven Tab (Feder-Physik über CSS-Transition)
-function moveTabPill() {
-  const active = document.querySelector('.tabbtn.active');
-  const pill = $('#tab-pill');
-  if (!pill) return;
-  if (!active) { pill.style.width = '0px'; return; } // z. B. Profil-View (oben rechts)
-  pill.style.width = active.offsetWidth + 'px';
-  pill.style.transform = `translateX(${active.offsetLeft}px)`;
+// Menueleiste: welcher Reiter gehoert zur Ansicht? Unterseiten des Profils
+// (Einstellungen, Freunde, Inventar …) lassen "Profil" aktiv
+const HAUPT_TABS = ['feed', 'wallet', 'chat', 'profile'];
+function tabFuer(v) {
+  if (HAUPT_TABS.includes(v)) return v;
+  if (['settings', 'friends', 'inventory', 'shop', 'gifts', 'invite', 'editprofile', 'user'].includes(v)) return 'profile';
+  return null;
 }
-window.addEventListener('resize', moveTabPill);
+function markiereTab(v) {
+  const t = tabFuer(v);
+  document.querySelectorAll('.tabbtn').forEach(b => {
+    const an = b.dataset.view === t;
+    b.classList.toggle('active', an);
+    if (an) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  });
+  setzeBuckel();
+}
+// Die Woelbung der Leiste folgt dem aktiven Reiter. Beim Wechsel gleitet sie
+// hinueber, dehnt sich unterwegs etwas in die Breite und federt am Ziel nach —
+// als wuerde die Leiste physisch mitgezogen. Nur transform, also billig.
+let buckelX = null;
+function setzeBuckel(sofort = false) {
+  const b = $('#tab-buckel');
+  const aktiv = document.querySelector('.tabbtn.active');
+  if (!b) return;
+  if (!aktiv) { b.classList.add('weg'); return; }
+  // SVG hat kein offsetWidth — clientWidth liefert die CSS-Breite
+  const x = Math.round(aktiv.offsetLeft + aktiv.offsetWidth / 2 - (b.clientWidth || 88) / 2);
+  const war = buckelX;
+  buckelX = x;
+  b.classList.remove('weg');
+  const ziel = `translate3d(${x}px, 0, 0)`;
+  b.getAnimations?.().forEach(a => a.cancel());
+  b.style.transform = ziel;
+  if (sofort || war === null || war === x || reducedMotion() || document.body.classList.contains('sparsam') || !b.animate) return;
+  const mitte = Math.round(war + (x - war) * .55);
+  b.animate([
+    { transform: `translate3d(${war}px, 0, 0) scale(1, 1)` },
+    { transform: `translate3d(${mitte}px, 0, 0) scale(1.32, .72)`, offset: .45 },
+    { transform: `translate3d(${x}px, 0, 0) scale(.92, 1.12)`, offset: .78 },
+    { transform: `${ziel} scale(1, 1)` },
+  ], { duration: 540, easing: 'cubic-bezier(.3, .75, .35, 1)' });
+}
+addEventListener('resize', () => setzeBuckel(true), { passive: true });
+// Frueher glitt eine Pille zum aktiven Reiter; jetzt markiert der Reiter sich selbst
+function moveTabPill() { markiereTab(state.activeView); }
 
 let viewCleanupTimer = null;
 
@@ -498,12 +535,11 @@ function switchView(next, animClass) {
   const newView = $('#view-' + next);
   const dir = VIEW_ORDER.indexOf(next) > VIEW_ORDER.indexOf(state.activeView) ? 1 : -1;
   // Zwischen den Reitern unten: ruhiges Ueberblenden statt Gleiten
-  const hauptreiter = ['feed', 'wallet', 'chat'];
+  const hauptreiter = HAUPT_TABS;
   const weich = hauptreiter.includes(next) && hauptreiter.includes(state.activeView);
   state.activeView = next;
 
-  document.querySelectorAll('.tabbtn').forEach(t => t.classList.toggle('active', t.dataset.view === next));
-  moveTabPill();
+  markiereTab(next);
 
   oldView.classList.add('hidden');
   window.scrollTo(0, 0);
@@ -627,9 +663,11 @@ $('#tabbar').addEventListener('click', e => {
   if (!btn) return;
   // Nochmal auf den aktiven Tab tippen = smooth nach ganz oben
   if (btn.dataset.view === state.activeView) {
+    if (btn.dataset.view === 'feed' && state.feedAlle) { state.feedAlle = false; renderFeed(true); }
     window.scrollTo({ top: 0, behavior: 'smooth' });
     return;
   }
+  buzz(6);
   switchView(btn.dataset.view);
 });
 
@@ -662,61 +700,51 @@ function showOnboarding() {
 
 // ---------------- Chipbar + Feed ----------------
 
-// Chip-Leiste: Beliebt + angeheftete Kanäle, Rest hinter "Mehr" ausklappbar.
-// Was angeheftet ist, stellt der Nutzer im Kanäle-Sheet selbst ein.
-// Genau drei Menüpunkte: Für dich · Luthers Picks · Gespeichert
-// Feed-Chips als 3D-Karussell: der aktive sitzt mittig, die Nachbarn
-// rutschen kleiner und leicht nach hinten, antippen dreht durch
-function renderChipbar() {
-  $('#chipbar').innerHTML = SEGMENTS.map(c =>
-    `<button class="chip carousel-chip" data-slug="${esc(c.slug)}">${icon(c.icon)} ${esc(c.name)}</button>`).join('');
-  requestAnimationFrame(layoutChipCarousel);
+// Feed-Filter als schlichte Pillen in einer Reihe (seitwaerts wischbar). Der
+// aktive traegt die Rang-Farbe. "Gemerkt" erscheint, sobald etwas gemerkt ist.
+function feedSegmente() {
+  return Object.keys(state.favs).length
+    ? [...SEGMENTS, { slug: 'saved', name: 'Gemerkt', icon: 'heart' }]
+    : SEGMENTS;
 }
+function renderChipbar() {
+  if (state.activeChip === 'saved' && !Object.keys(state.favs).length) state.activeChip = 'fuer-dich';
+  $('#chipbar').innerHTML = feedSegmente().map(c =>
+    `<button class="chip feed-chip" type="button" data-slug="${esc(c.slug)}" aria-pressed="false">${icon(c.icon, 'icon icon-sm')}<span>${esc(c.name)}</span></button>`).join('');
+  layoutChipCarousel();
+}
+// Name bleibt (wird an mehreren Stellen gerufen): markiert nur noch den aktiven Chip
 function layoutChipCarousel() {
-  const chips = [...document.querySelectorAll('#chipbar .carousel-chip')];
-  let ai = SEGMENTS.findIndex(s => s.slug === state.activeChip);
-  if (ai < 0) ai = 0;
-  const GAP = 14;
-  const scaleOf = o => o === 0 ? 1 : Math.max(.68, .84 - Math.abs(o) * .06);
-  // Mittelpunkte aus den ECHTEN (skalierten) Chip-Breiten aufsummieren, damit
-  // die Lücke zwischen allen Nachbarn gleich groß ist (feste 112px waren es nicht)
-  const centers = chips.map(() => 0);
-  for (let i = ai + 1; i < chips.length; i++) {
-    centers[i] = centers[i - 1]
-      + (chips[i - 1].offsetWidth * scaleOf(i - 1 - ai)) / 2 + GAP
-      + (chips[i].offsetWidth * scaleOf(i - ai)) / 2;
-  }
-  for (let i = ai - 1; i >= 0; i--) {
-    centers[i] = centers[i + 1]
-      - ((chips[i + 1].offsetWidth * scaleOf(i + 1 - ai)) / 2 + GAP
-      + (chips[i].offsetWidth * scaleOf(i - ai)) / 2);
-  }
-  chips.forEach((ch, i) => {
-    const o = i - ai;
-    ch.style.transform = `translateX(calc(-50% + ${Math.round(centers[i])}px)) scale(${scaleOf(o)})`;
-    ch.style.opacity = o === 0 ? 1 : Math.max(.3, .6 - Math.abs(o) * .14);
-    ch.style.zIndex = 20 - Math.abs(o);
-    ch.classList.toggle('active', o === 0 && state.activeChip === SEGMENTS[i]?.slug);
+  document.querySelectorAll('#chipbar .feed-chip').forEach(ch => {
+    const an = ch.dataset.slug === state.activeChip;
+    ch.classList.toggle('active', an);
+    ch.setAttribute('aria-pressed', String(an));
   });
 }
 
-function moveChipPill() {
-  const active = $('#chipbar .chip.active');
-  const pill = $('#chip-pill');
-  if (!pill) return;
-  if (!active) { pill.style.width = '0px'; return; }
-  pill.style.width = active.offsetWidth + 'px';
-  pill.style.transform = `translateX(${active.offsetLeft}px)`;
-}
-window.addEventListener('resize', moveChipPill);
-
 $('#chipbar').addEventListener('click', e => {
-  const chip = e.target.closest('.chip');
-  if (!chip) return;
+  const chip = e.target.closest('.feed-chip');
+  if (!chip || chip.dataset.slug === state.activeChip) return;
   state.activeChip = chip.dataset.slug;
+  state.feedAlle = false;
   layoutChipCarousel();
+  buzz(6);
   renderFeed(true);
+  // Den gewaehlten Chip ganz in den sichtbaren Bereich holen
+  const bar = $('#chipbar');
+  const links = chip.offsetLeft - 16, rechts = chip.offsetLeft + chip.offsetWidth + 16 - bar.clientWidth;
+  if (bar.scrollLeft > links) bar.scrollTo({ left: links, behavior: 'smooth' });
+  else if (bar.scrollLeft < rechts) bar.scrollTo({ left: rechts, behavior: 'smooth' });
 });
+
+// Hervorgehobene Angebote (Admin-Panel) fuer das Banner oben im Feed
+async function loadFeatured() {
+  try {
+    const r = await api('/api/featured');
+    state.featured = Array.isArray(r) ? r : (r.items || r.featured || []);
+  } catch { state.featured = []; }
+  renderFeedHero();
+}
 
 async function loadFeed() {
   // Ladezustand: der kumulio-Punkt ersetzt den Spinner (zeigt sich erst nach 200 ms)
@@ -749,7 +777,7 @@ function renderSearch() {
   const hits = state.deals.filter(d =>
     (d.title + ' ' + (d.merchant || '') + ' ' + (d.excerpt || '')).toLowerCase().includes(s));
   box.innerHTML = hits.length
-    ? hits.slice(0, FEED_LIMIT).map((d, i) => renderOfferCard(d, i, false)).join('')
+    ? `<div class="dgrid">${hits.slice(0, FEED_LIMIT).map(d => dealKachelHtml(d)).join('')}</div>`
     : `<div class="status">Nichts gefunden für „${esc(s)}".</div>`;
 }
 $('#search').addEventListener('input', renderSearch);
@@ -909,6 +937,11 @@ function segmentDeals() {
 function computeOrder() {
   state.orderIds = segmentDeals().map(d => d.id);
   state.orderKey = state.activeChip;
+  // "Top Deals für dich": nach eigenem Verhalten (forYouScore), ohne Abgelaufenes
+  state.topIds = state.deals.filter(d => !d.stale)
+    .map(d => ({ id: d.id, s: forYouScore(d) }))
+    .sort((a, b) => b.s - a.s)
+    .map(x => x.id);
 }
 
 // Karten & Coupons: ein Raster mit allen Marken. Hinter jeder Kachel liegt
@@ -971,7 +1004,7 @@ function renderCoupons(host) {
     </div>
     <h2 class="bereich-titel">Geld zurück</h2>
     ${gzg.length
-      ? gzg.map((d, i) => renderOfferCard(d, i, false)).join('')
+      ? `<div class="dgrid">${gzg.map(d => dealKachelHtml(d)).join('')}</div>`
       : '<div class="status">Aktuelle GzG-Aktionen postet die Redaktion über das Admin-Panel, sie erscheinen dann hier.</div>'}`;
 
   // Beim Wechsel auf "Karten & Coupons" wurde bisher JEDES Mal die ganze Liste
@@ -1036,119 +1069,254 @@ function mccheapBlockHtml() {
       : '<p class="muted" style="font-size:.76rem; margin-top:10px">Aktuell nichts Auffälliges bei McCheap gefunden.</p>'}`;
 }
 
-function renderFeed(reorder = false) {
-  const ch = channelBySlug(state.activeChip);
-  const isCommunity = ch?.type === 'community';
-  $('#community-banner').classList.toggle('hidden', !isCommunity);
+// ---------------- Feed nach dem Entwurf des Nutzers ----------------
+// Oben ein Banner-Karussell (hervorgehobene Angebote), darunter die Filter,
+// "Top Deals für dich" als seitwaerts wischbare Reihe und "Weitere starke
+// Angebote" als zweispaltiges Raster. Alles aus echten Daten: kein Bild =
+// Markenfarbe mit Logo, keine Laufzeit = "vor 2 Std.", kein Rabatt = keine Pille.
+const FEED_SEITE = 20;        // so viele Kacheln laedt das Raster auf einmal nach
+const TOP_ANZAHL = 10;        // Karten in "Top Deals für dich"
 
+function dealBild(d) {
+  const u = d.image || (Array.isArray(d.images) && d.images[0]) || '';
+  return /^https?:\/\//.test(u) ? u : '';
+}
+// "12,99€" -> "12,99 €"
+function preisFmt(s) {
+  return String(s || '').trim().replace(/\s*€$/, ' €');
+}
+// Ehrliche Zeitangabe: Laufzeit nur, wenn der Deal ein Ende hat
+function dealZeitChip(d) {
+  if (d.channel === 'preisfehler' && !d.stale) {
+    return { ico: 'clock', html: `<span class="pf-timer" data-pf-ts="${d.ts}">seit <span>${pfElapsed(d.ts)}</span></span>` };
+  }
+  if (d.stale) return { ico: 'clock', html: 'abgelaufen' };
+  if (d.endTs) {
+    const rest = d.endTs - Date.now();
+    if (rest <= 0) return { ico: 'clock', html: 'abgelaufen' };
+    if (rest < 3600e3) return { ico: 'clock', html: `${Math.max(1, Math.round(rest / 60e3))} Min. übrig` };
+    if (rest < 86400e3) return { ico: 'clock', html: `${Math.round(rest / 3600e3)} Std. übrig` };
+    const t = Math.floor(rest / 86400e3);
+    return { ico: 'clock', html: `${t} ${t === 1 ? 'Tag' : 'Tage'} übrig` };
+  }
+  return { ico: 'clock', html: esc(timeAgo(d.ts)) };
+}
+// Gelbe Pille oben links — nur mit echtem Rabatt
+function rabattPill(d) {
+  if (d.channel === 'preisfehler') return '<span class="dk-pill pf">Preisfehler</span>';
+  if (d.free) return '<span class="dk-pill">Gratis</span>';
+  if (d.discount != null && d.discount > 0) return `<span class="dk-pill">-${Math.round(d.discount)} %</span>`;
+  return '';
+}
+function herzKnopf(id) {
+  const an = !!state.favs[id];
+  return `<button class="dk-herz${an ? ' on' : ''}" type="button" data-bm="${esc(id)}" aria-pressed="${an}"
+    aria-label="${an ? 'Nicht mehr merken' : 'Merken'}">${icon('heart', 'icon dk-h-o')}${icon('heart-f', 'icon dk-h-f')}</button>`;
+}
+// Eine Deal-Kachel. art 'reihe' = schmale Karte in "Top Deals", 'raster' = Raster
+function dealKachelHtml(d, { art = 'raster', i = 0, anim = false } = {}) {
+  const c = channelBySlug(d.channel);
+  const marke = d.merchant || c?.name || 'Deal';
+  const bild = dealBild(d);
+  const zeit = dealZeitChip(d);
+  const orig = d.free ? '' : (d.origPrice || '');
+  const hinweis = d.newCustomer ? 'Nur Neukunden' : d.earn ? 'Verdienen' : '';
+  return `
+  <article class="dk dk-${art}${d.stale ? ' alt' : ''}${anim ? ' anim' : ''}" data-deal="${esc(d.id)}"
+    style="--bc:${brandColor(marke)}${anim ? `; animation-delay:${Math.min(i, 8) * 40}ms` : ''}">
+    <div class="dk-bild${bild ? '' : ' ohne'}">
+      ${bild ? `<img src="${esc(bild)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.classList.add('ohne');this.remove()">` : ''}
+      <span class="dk-ersatz" aria-hidden="true">${brandChipHtml(marke)}</span>
+      ${rabattPill(d)}
+      ${herzKnopf(d.id)}
+      ${hinweis ? `<span class="dk-hinweis">${hinweis}</span>` : ''}
+    </div>
+    <div class="dk-info">
+      <div class="dk-kopf">
+        <span class="dk-logo">${brandChipHtml(marke)}</span>
+        <span class="dk-namen"><b class="dk-titel">${esc(d.title)}</b><span class="dk-marke">${esc(marke)}</span></span>
+      </div>
+      ${d.price || orig ? `<div class="dk-preise">${d.price ? `<span class="dk-preis">${esc(preisFmt(d.price))}</span>` : ''}${orig ? `<s>${esc(preisFmt(orig))}</s>` : ''}</div>` : ''}
+      <span class="dk-zeit">${icon(zeit.ico, 'icon')}<span>${zeit.html}</span></span>
+    </div>
+  </article>`;
+}
+
+// ---- Banner oben: hervorgehobene Angebote, aufgefuellt mit den besten Deals
+let heroSchluessel = '';
+function heroEintraege() {
+  const aus = [];
+  const genutzt = new Set();
+  for (const f of state.featured || []) {
+    const d = f.dealId && state.deals.find(x => x.id === f.dealId);
+    if (d) { genutzt.add(d.id); aus.push({ deal: d }); }
+    else if (f.title) aus.push({ featured: f });
+  }
+  if (aus.length < 3) {
+    const kandidaten = state.deals.filter(d => !d.stale && !genutzt.has(d.id))
+      .map(d => ({ d, s: forYouScore(d) + (dealBild(d) ? 1.5 : 0) }))
+      .sort((a, b) => b.s - a.s)
+      .slice(0, 3 - aus.length);
+    kandidaten.forEach(k => aus.push({ deal: k.d }));
+  }
+  return aus.slice(0, 5);
+}
+function heroSlideHtml(e, i) {
+  const d = e.deal, f = e.featured;
+  const marke = d ? (d.merchant || channelBySlug(d.channel)?.name || 'Deal') : '';
+  const titel = d ? d.title : f.title;
+  const sub = d ? (d.excerpt || '').replace(/\s+/g, ' ').slice(0, 110) : (f.tagline || '');
+  const bild = d ? dealBild(d) : (/^https?:\/\//.test(f.image || '') ? f.image : '');
+  const farbe = brandColor(d ? marke : f.title);
+  const hell = brandHelligkeit(farbe) > 0.62;
+  const pille = d ? rabattPill(d) : (f.price ? `<span class="dk-pill">${esc(f.price)}</span>` : '');
+  // Deal-Folien: die ganze Folie oeffnet den Deal (onOfferClick ueber data-deal)
+  const cta = d
+    ? `<button class="fh-cta" type="button">Zum Deal ${icon('arrow-right', 'icon icon-sm')}</button>`
+    : (f.link ? `<a class="fh-cta" href="${esc(f.link)}" target="_blank" rel="noopener noreferrer">Zum Deal ${icon('arrow-right', 'icon icon-sm')}</a>` : '');
+  return `
+    <div class="fh-slide${hell ? ' hell' : ''}" style="--bc:${farbe}"${d ? ` data-deal="${esc(d.id)}"` : ''} role="group" aria-roledescription="Folie" aria-label="${i + 1}">
+      <div class="fh-text">
+        ${marke ? `<span class="fh-marke">${esc(marke)}</span>` : ''}
+        ${pille}
+        <b class="fh-titel">${esc(titel)}</b>
+        ${sub && sub !== titel ? `<span class="fh-sub">${esc(sub)}</span>` : ''}
+        ${cta}
+      </div>
+      <span class="fh-bild${bild ? ' foto' : ' logo'}" aria-hidden="true">
+        ${bild
+          ? `<img src="${esc(bild)}" alt="" loading="${i ? 'lazy' : 'eager'}" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.className='fh-bild logo';this.replaceWith(document.createRange().createContextualFragment(this.dataset.ersatz))" data-ersatz="${esc(brandChipHtml(marke || titel))}">`
+          : brandChipHtml(marke || titel)}
+      </span>
+    </div>`;
+}
+function renderFeedHero() {
+  const host = $('#feed-hero');
+  if (!host) return;
+  const eintraege = heroEintraege();
+  const schluessel = eintraege.map(e => e.deal ? 'd' + e.deal.id + ':' + e.deal.title : 'f' + e.featured.id + ':' + e.featured.title).join('|');
+  if (schluessel === heroSchluessel && host.firstElementChild) return;
+  heroSchluessel = schluessel;
+  if (!eintraege.length) { host.innerHTML = ''; return; }
+  host.innerHTML = `
+    <div class="fh">
+      <div class="fh-track" tabindex="0" aria-label="Hervorgehobene Angebote">${eintraege.map(heroSlideHtml).join('')}</div>
+      ${eintraege.length > 1 ? `<div class="fh-dots" aria-hidden="true">${eintraege.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>` : ''}
+    </div>`;
+  const track = host.querySelector('.fh-track');
+  const dots = [...host.querySelectorAll('.fh-dots i')];
+  let raf = 0;
+  if (dots.length) track.addEventListener('scroll', () => {
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      raf = 0;
+      const i = Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
+      dots.forEach((el, j) => el.classList.toggle('on', j === i));
+    });
+  }, { passive: true });
+}
+
+// ---- Listen darunter
+function feedSektionKopf(titel, alle) {
+  return `<div class="fsek-kopf"><h2 class="bereich-titel">${esc(titel)}</h2>${alle
+    ? `<button class="fsek-alle" type="button" data-feed-alle>Alle anzeigen ${icon('chevron', 'icon icon-sm')}</button>` : ''}</div>`;
+}
+let feedRasterRest = [];
+let feedBeobachter = null;
+function feedRasterNachladen() {
+  const raster = $('#feed-raster');
+  if (!raster || !feedRasterRest.length) { $('#feed-mehr')?.remove(); return; }
+  const teil = feedRasterRest.splice(0, FEED_SEITE);
+  raster.insertAdjacentHTML('beforeend', teil.map(d => dealKachelHtml(d)).join(''));
+  if (!feedRasterRest.length) $('#feed-mehr')?.remove();
+}
+function beobachteFeedEnde() {
+  feedBeobachter?.disconnect();
+  const mehr = $('#feed-mehr');
+  if (!mehr) return;
+  if (!('IntersectionObserver' in window)) { while (feedRasterRest.length) feedRasterNachladen(); return; }
+  feedBeobachter = new IntersectionObserver(es => {
+    if (es.some(x => x.isIntersecting)) feedRasterNachladen();
+  }, { rootMargin: '600px 0px' });
+  feedBeobachter.observe(mehr);
+}
+
+function renderFeed(reorder = false) {
   // Sortierung nur bei Chip-Wechsel/Neuladen neu berechnen, ein Vote soll den
   // Feed nicht sofort umwürfeln, das pendelt sich beim nächsten Laden ein
   if (reorder || !state.orderIds || state.orderKey !== state.activeChip) computeOrder();
-  const deals = state.orderIds
-    .map(id => state.deals.find(d => d.id === id) || state.favs[id]?.deal)
-    .filter(Boolean);
-  const shown = deals.slice(0, FEED_LIMIT);
+  renderFeedHero();
+  const finde = id => state.deals.find(d => d.id === id) || state.favs[id]?.deal;
+  const deals = state.orderIds.map(finde).filter(Boolean);
+  const feed = $('#feed');
+  feedBeobachter?.disconnect();
 
-  if (!shown.length) {
-    $('#feed').innerHTML = `<div class="status">${state.activeChip === 'saved'
-      ? 'Noch nichts gespeichert, tippe auf den Stern eines Angebots oder wische die Karte nach links.'
+  if (!deals.length) {
+    feed.innerHTML = `<div class="status">${state.activeChip === 'saved'
+      ? 'Noch nichts gemerkt, tippe auf das Herz eines Angebots.'
       : state.activeChip === 'neukunden'
         ? 'Aktuell keine Neukunden-Aktionen, neue kommen über das Admin-Panel.'
         : 'Noch keine Angebote in diesem Bereich, neue kommen über das Admin-Panel.'}</div>`;
     return;
   }
+  const kachel = art => (d, i) => dealKachelHtml(d, { art, i, anim: reorder });
 
-  $('#feed').innerHTML = shown.map((d, i) => renderOfferCard(d, i, reorder)).join('')
-    + (deals.length > FEED_LIMIT ? `<div class="status">Zeige die neuesten ${FEED_LIMIT} von ${deals.length}.</div>` : '');
-}
-
-function renderOfferCard(d, i, reorder) {
-  {
-    const c = channelBySlug(d.channel);
-    const q = quality(d);
-    const isFav = !!state.favs[d.id];
-    const cta = d.dealUrl || d.sourceUrl;
-    const brand = d.merchant || c?.name || 'Deal';
-    return `
-    <div class="deal-wrap ${reorder ? 'anim' : ''}" data-deal="${esc(d.id)}" ${reorder ? `style="animation-delay:${Math.min(i, 8) * 45}ms"` : ''}>
-      <div class="fav-hint">${icon('star')}</div>
-      <article class="deal offer ${d.channel === 'preisfehler' ? 'deal-pf' : ''} ${d.stale ? 'stale' : ''} ${isFav ? 'faved' : ''}" style="display:block">
-        <div class="offer-head">
-          ${brandChipHtml(brand)}
-          <div class="offer-brand">
-            <div class="offer-merchant">${esc(brand)}</div>
-            <div class="offer-cat">${esc(d.kind === 'gutschein' ? 'Gutscheine' : (c?.name || 'Angebot'))} · ${esc(timeAgo(d.ts))}</div>
-          </div>
-          <div class="offer-side">
-            ${renderStars(d)}
-            <span class="stars-count">${icon('message', 'icon icon-sm')} ${d.comments || 0}</span>
-          </div>
-        </div>
-        <div class="deal-title" style="margin-top:8px">${esc(d.title)}</div>
-        <div class="deal-sub">
-          ${d.price ? `<span class="price">${esc(d.price)}</span>` : ''}
-          <span class="compare-slot">${renderComparePrice(d)}</span>
-          ${renderBadges(d)}
-          ${d.endTs && !d.stale ? `<span class="pill pill-danger" data-cd="${d.endTs}">${cdText(d.endTs)}</span>` : ''}
-          ${d.stale ? `<span class="badge badge-stale">VERMUTLICH VORBEI</span>` : ''}
-        </div>
-        <div class="offer-actions">
-          ${cta ? `<a class="cta-mini" href="${esc(cta)}" target="_blank" rel="noopener noreferrer" data-cta="${esc(d.id)}">zum Deal ${icon('arrow-right')}</a>` : ''}
-          <button class="offer-iconbtn ${isFav ? 'on' : ''}" data-bm="${esc(d.id)}" aria-label="Merken">${icon('star')}</button>
-          <button class="offer-iconbtn" data-share="${esc(d.id)}" aria-label="Teilen">${icon('share')}</button>
-        </div>
-      </article>
-    </div>`;
+  let html = '';
+  let raster = deals;
+  if (state.activeChip === 'fuer-dich' && state.feedAlle) {
+    // "Alle anzeigen": die ganze Top-Liste als Raster, mit Weg zurueck
+    raster = state.topIds.map(finde).filter(Boolean);
+    html += `<button class="fsek-zurueck" type="button" data-feed-zurueck>${icon('arrow-back', 'icon icon-sm')} Top Deals für dich</button>`;
+  } else if (state.activeChip === 'fuer-dich') {
+    const top = state.topIds.map(finde).filter(Boolean);
+    // Bei wenigen Deals teilt sich die Liste, damit beide Bereiche etwas zeigen
+    const n = top.length >= TOP_ANZAHL * 2 ? TOP_ANZAHL : Math.min(TOP_ANZAHL, Math.max(3, Math.ceil(top.length / 2)));
+    const zeigen = top.slice(0, n);
+    if (zeigen.length) {
+      html += feedSektionKopf('Top Deals für dich', top.length > zeigen.length)
+        + `<div class="drow" role="list">${zeigen.map(kachel('reihe')).join('')}</div>`;
+    }
+    // Bei wenigen Deals doppelt nichts: das Raster zeigt nur, was oben fehlt.
+    // Sind es sehr wenige, reicht die Reihe allein.
+    const oben = new Set(zeigen.map(d => d.id));
+    raster = deals.filter(d => !oben.has(d.id));
+    if (raster.length) html += feedSektionKopf('Weitere starke Angebote', false);
+  } else {
+    const seg = feedSegmente().find(s => s.slug === state.activeChip);
+    html += feedSektionKopf(seg ? seg.name : 'Angebote', false);
   }
+  const erste = raster.slice(0, FEED_SEITE);
+  feedRasterRest = raster.slice(FEED_SEITE);
+  if (erste.length) {
+    html += `<div class="dgrid" id="feed-raster">${erste.map(kachel('raster')).join('')}</div>`
+      + (feedRasterRest.length ? '<div id="feed-mehr" class="feed-mehr" aria-hidden="true"></div>' : '');
+  }
+  feed.innerHTML = html;
+  beobachteFeedEnde();
+}
+$('#feed').addEventListener('click', e => {
+  if (e.target.closest('[data-feed-alle]')) {
+    state.feedAlle = true; renderFeed(true);
+    $('#chipbar')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  } else if (e.target.closest('[data-feed-zurueck]')) {
+    state.feedAlle = false; renderFeed(true);
+  }
+});
+
+// Nach dem Merken nur die Herzen umschalten — kein Neuaufbau des Feeds
+function aktualisiereHerzen(id) {
+  const an = !!state.favs[id];
+  document.querySelectorAll(`[data-bm="${CSS.escape(id)}"]`).forEach(b => {
+    b.classList.toggle('on', an);
+    b.setAttribute('aria-pressed', String(an));
+    if (b.classList.contains('dk-herz')) b.setAttribute('aria-label', an ? 'Nicht mehr merken' : 'Merken');
+  });
+  const hatteChip = !!$('#chipbar [data-slug="saved"]');
+  if (hatteChip !== !!Object.keys(state.favs).length) renderChipbar();
+  if (state.activeChip === 'saved') renderFeed();
 }
 
-// ---------------- Swipe nach links = merken ----------------
-
-const drag = { id: null, el: null, startX: 0, startY: 0, dx: 0, active: false };
 let suppressClickUntil = 0;
-
-$('#feed').addEventListener('pointerdown', e => {
-  const wrap = e.target.closest('.deal-wrap');
-  if (!wrap) return;
-  drag.id = wrap.dataset.deal;
-  drag.el = wrap;
-  drag.startX = e.clientX;
-  drag.startY = e.clientY;
-  drag.dx = 0;
-  drag.active = false;
-});
-
-$('#feed').addEventListener('pointermove', e => {
-  if (!drag.el) return;
-  const dx = e.clientX - drag.startX;
-  const dy = e.clientY - drag.startY;
-  if (!drag.active) {
-    if (Math.abs(dx) < 10 || Math.abs(dx) < Math.abs(dy)) return;
-    drag.active = true;
-    drag.el.classList.add('dragging');
-    document.body.classList.add('no-select');
-    try { drag.el.setPointerCapture(e.pointerId); } catch { /* synthetische Pointer */ }
-  }
-  drag.dx = Math.min(0, dx);
-  drag.el.querySelector('.deal').style.transform = `translateX(${drag.dx}px)`;
-});
-
-function endDrag() {
-  if (!drag.el) return;
-  const card = drag.el.querySelector('.deal');
-  if (drag.active) {
-    suppressClickUntil = Date.now() + 350;
-    if (drag.dx < -80) toggleFav(drag.id);
-    card.style.transform = '';
-    drag.el.classList.remove('dragging');
-    document.body.classList.remove('no-select');
-  }
-  drag.el = null;
-  drag.active = false;
-  drag.dx = 0;
-}
-$('#feed').addEventListener('pointerup', endDrag);
-$('#feed').addEventListener('pointercancel', endDrag);
 
 // Deal als Fluesternachricht an einen Freund: kompakte Karte im Chat,
 // antippen oeffnet den Deal
@@ -1856,7 +2024,7 @@ function onOfferClick(e) {
   if (bm) { toggleFav(bm.dataset.bm); return; }
   const ctaLink = e.target.closest('a[data-cta]');
   if (ctaLink) { trackClick(state.deals.find(x => x.id === ctaLink.dataset.cta)); return; } // Link öffnet, kein Sheet
-  const wrap = e.target.closest('.deal-wrap');
+  const wrap = e.target.closest('[data-deal]');
   if (wrap) {
     const d = state.deals.find(x => x.id === wrap.dataset.deal);
     if (!d) return;
@@ -1869,7 +2037,9 @@ function onOfferClick(e) {
   }
 }
 $('#feed').addEventListener('click', onOfferClick);
+$('#feed-hero').addEventListener('click', onOfferClick);
 $('#search-results').addEventListener('click', onOfferClick);
+$('#coupons-content').addEventListener('click', onOfferClick);
 
 // ---------------- Favoriten + Erinnerungen ----------------
 
@@ -1879,18 +2049,19 @@ function toggleFav(dealId) {
   if (state.favs[dealId]) {
     delete state.favs[dealId];
     save('favs', state.favs);
-    renderFeed();
+    aktualisiereHerzen(dealId);
     showToast({ title: 'Aus der Merkliste entfernt', iconName: 'x', text: d.title.slice(0, 60) }, 3000);
     return;
   }
   state.favs[dealId] = { deal: d, ts: Date.now(), remindAt: null, notified: false };
   bumpAff(d, 2);
   save('favs', state.favs);
-  renderFeed();
+  aktualisiereHerzen(dealId);
+  buzz(10);
   showToast({
     title: 'Deal gemerkt',
     text: 'Wann sollen wir dich erinnern, damit er nicht untergeht?',
-    iconName: 'star',
+    iconName: 'heart',
     success: true,
     actions: [
       { label: 'In 1 Std.', fn: () => setReminder(dealId, 60) },
@@ -2102,8 +2273,7 @@ function renderCompareBtn(d) {
 }
 
 function patchCompare(d) {
-  const slot = document.querySelector(`.deal-wrap[data-deal="${d.id}"] .compare-slot`);
-  if (slot) slot.innerHTML = renderComparePrice(d);
+  document.querySelectorAll(`[data-deal="${CSS.escape(d.id)}"] .compare-slot`).forEach(slot => { slot.innerHTML = renderComparePrice(d); });
   if (state.sheetMode === 'deal' && state.currentDeal?.id === d.id) openDealSheet(d);
 }
 
@@ -2199,7 +2369,7 @@ function openDealSheet(deal) {
       <div class="sheet-source" style="text-align:left; margin-top:6px">${cmpNum ? 'Marktpreis live von billiger.de (günstigstes Angebot)' : 'Vergleichspreis aus den Deal-Angaben'} · Preishistorie folgt mit dem Backend</div>
     </div>` : ''}
     <div class="sheet-votebar">
-      <button class="votebtn" id="btn-sheet-fav">${icon('star')} ${isFav ? 'Gemerkt, entfernen' : 'Merken'}</button>
+      <button class="votebtn${isFav ? ' on' : ''}" id="btn-sheet-fav">${icon(isFav ? 'heart-f' : 'heart')} ${isFav ? 'Gemerkt, entfernen' : 'Merken'}</button>
     </div>
     ${d.excerpt ? `
     <div class="sheet-section">
@@ -2361,107 +2531,6 @@ async function sendComment() {
     msg.className = 'form-msg error';
     msg.textContent = e.message;
   }
-}
-
-// ---------------- Feeds & Kanäle-Menü (Chip neben den Tabs) ----------------
-
-function openChannelsSheet() {
-  state.sheetMode = 'channels';
-  const pinRow = (c, extra = '') => {
-    const pinned = state.pins.includes(c.slug);
-    return `
-    <div class="channel-row">
-      <div class="channel-icon ${c.type === 'community' ? 'community' : ''}">${icon(c.icon)}</div>
-      <div class="channel-info">
-        <div class="channel-name">${esc(c.name)} ${extra}</div>
-        ${c.desc ? `<div class="channel-desc">${esc(c.desc)}</div>` : ''}
-      </div>
-      <button class="iconbtn ${pinned ? 'pinned' : ''}" data-pin="${esc(c.slug)}" title="${pinned ? 'Aus der Leiste lösen' : 'Oben anheften'}">${icon('pin')}</button>
-    </div>`;
-  };
-  const specials = SPECIAL_CHIPS.slice(1); // Für dich ist immer da
-  $('#sheet-content').innerHTML = `
-    <div class="sheet-title">Feeds anpassen</div>
-    <p class="muted" style="font-size:.85rem; margin-top:6px; line-height:1.5">
-      „Für dich" ist immer oben. Mit dem Pin bestimmst du, welche Feeds und Kanäle
-      daneben stehen, so viele oder wenige du willst.</p>
-    <div class="channel-list">
-      ${specials.map(s => pinRow({ ...s, desc: s.slug === 'beliebt' ? 'Am meisten geliked und geklickt.' : s.slug === 'trending' ? 'Was gerade Fahrt aufnimmt.' : 'Alles, chronologisch.' })).join('')}
-      ${state.channels.map(c => pinRow(
-        c.slug === 'freebies' ? { ...c, name: 'Gratis' } : c,
-        c.type === 'rss'
-          ? '<span class="pill pill-accent">automatisch</span>'
-          : `<span class="pill pill-warn">${icon('warning', 'icon icon-sm')} Community</span>`
-      )).join('')}
-    </div>`;
-
-  $('#sheet-content').querySelectorAll('[data-pin]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const slug = btn.dataset.pin;
-      if (state.pins.includes(slug)) {
-        state.pins = state.pins.filter(s => s !== slug);
-        if (state.activeChip === slug) state.activeChip = 'fuer-dich';
-      } else {
-        state.pins.push(slug);
-        if (!state.follows.includes(slug) && channelBySlug(slug)) state.follows.push(slug);
-        save('follows', state.follows);
-      }
-      save('pins', state.pins);
-      renderChipbar();
-      loadFeed();
-      openChannelsSheet();
-    });
-  });
-
-  openSheetShell();
-}
-
-// ---------------- Favoriten-Sheet ----------------
-
-// Goldener Stern oben (aktuell aus dem Header entfernt, Gespeichert bleibt über Karten-Sterne erreichbar)
-$('#btn-favs')?.addEventListener('click', () => {
-  state.activeChip = 'saved';
-  renderChipbar();
-  renderFeed(true);
-  if (state.activeView !== 'feed') switchView('feed');
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-});
-
-function openFavsSheet() {
-  state.sheetMode = 'favs';
-  const favs = Object.entries(state.favs).sort((a, b) => b[1].ts - a[1].ts);
-  $('#sheet-content').innerHTML = `
-    <div class="sheet-title">Gemerkte Deals</div>
-    <p class="muted" style="font-size:.85rem; margin:6px 0 14px; line-height:1.5">
-      Karten im Feed nach links ziehen, um Deals hier zu sammeln.</p>
-    ${favs.length ? favs.map(([id, f]) => `
-      <div class="fav-row" data-fav-open="${esc(id)}">
-        ${f.deal.image ? `<img class="fav-img" src="${esc(f.deal.image)}" alt="">` : `<div class="fav-img"></div>`}
-        <div class="fav-info">
-          <div class="fav-title">${esc(f.deal.title)}</div>
-          <div class="fav-meta">
-            ${f.deal.price ? `<span class="price">${esc(f.deal.price)}</span>` : ''}
-            ${f.remindAt && !f.notified ? `<span class="pill">${icon('bell', 'icon icon-sm')} ${new Date(f.remindAt).toLocaleString('de-DE', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}</span>` : ''}
-          </div>
-        </div>
-        <button class="fav-remove" data-fav-remove="${esc(id)}" aria-label="Entfernen">${icon('x', 'icon icon-sm')}</button>
-      </div>`).join('')
-    : '<div class="status">Noch nichts gemerkt.</div>'}`;
-
-  $('#sheet-content').querySelectorAll('[data-fav-remove]').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      delete state.favs[btn.dataset.favRemove];
-      save('favs', state.favs);
-      renderFeed();
-      openFavsSheet();
-    });
-  });
-  $('#sheet-content').querySelectorAll('[data-fav-open]').forEach(row => {
-    row.addEventListener('click', () => openDealSheet(state.favs[row.dataset.favOpen].deal));
-  });
-
-  openSheetShell();
 }
 
 // ---------------- Profil: Registrieren / Anmelden ----------------
@@ -4451,9 +4520,9 @@ function startTour() {
     <img class="emote" style="height:28px" src="https://cdn.7tv.app/emote/01FE3XY508000AA32JP519W2EW/2x.webp" alt="">
   </div>`;
   const steps = [
-    { view: 'feed', sel: '.tabbtn[data-view="feed"]', title: 'Deals, die sich lohnen', text: 'Preisfehler als Alarm aufs Handy, Neukunden-Deals und Wege, nebenbei etwas zu verdienen.', visual: feedDemo },
-    { view: 'wallet', sel: '.tabbtn[data-view="wallet"]', title: 'Deine Wallet', text: 'Gutschein fotografieren, fertig: Guthaben, PIN und Barcode griffbereit, Restsummen immer im Blick.', visual: walletDemo },
-    { view: 'chat', sel: '.tabbtn[data-view="chat"]', title: 'Chat und Freunde', text: 'Mit Freunden schreiben: Deals direkt weiterschicken und zusammen zuschlagen.', visual: chatDemo },
+    { view: 'feed', sel: '.tabbtn[data-view="feed"] .tab-ico', title: 'Deals, die sich lohnen', text: 'Preisfehler als Alarm aufs Handy, Neukunden-Deals und Wege, nebenbei etwas zu verdienen.', visual: feedDemo },
+    { view: 'wallet', sel: '.tabbtn[data-view="wallet"] .tab-ico', title: 'Deine Wallet', text: 'Gutschein fotografieren, fertig: Guthaben, PIN und Barcode griffbereit, Restsummen immer im Blick.', visual: walletDemo },
+    { view: 'chat', sel: '.tabbtn[data-view="chat"] .tab-ico', title: 'Chat und Freunde', text: 'Mit Freunden schreiben: Deals direkt weiterschicken und zusammen zuschlagen.', visual: chatDemo },
     { center: true, title: 'Dein Look', text: 'Mit Spar-Aktivität erspielst du Container: Emotes, Namens-Paints, Sticker und Profilrahmen. Nie für Geld.', visual: lookDemo },
     ...(!isStandalone && (uaIOS || uaAndroid) ? [{
       center: true, title: 'Als App auf den Home-Bildschirm', text: uaIOS
@@ -8330,28 +8399,96 @@ function entferntAmHtml(v) {
   return `<span class="pill pill-verfall">${am <= Date.now() ? 'wird bald entfernt'
     : 'wird am ' + new Date(am).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }) + ' entfernt'}</span>`;
 }
-function voucherCardHtml(v) {
-    const pct = v.amount ? Math.max(0, Math.min(100, Math.round(((v.balance || 0) / v.amount) * 100))) : 100;
-    return `
-    <div class="wallet-card has-fill${pct < 18 ? ' fast-leer' : ''}" data-wv="${esc(v.id)}"
-      style="--bc:${brandColor(v.vendor)}; --fill:${pct}%">
-      <div class="wallet-card-head">
-        ${brandChipHtml(v.vendor)}
-        <span class="wallet-card-name">${esc(v.vendor)}</span>
+// Gutschein-Karte (Entwurf des Nutzers): weisses Logo-Feld links, Name,
+// "Gutschein", Code und PIN; rechts der Betrag und "…"; unten "Gültig bis".
+// Hinten liegt das Marken-Logo gross und blass als Motiv.
+function voucherCardHtml(v, { mehr = false } = {}) {
+  const pct = v.amount ? Math.max(0, Math.min(100, Math.round(((v.balance || 0) / v.amount) * 100))) : 100;
+  const farbe = brandColor(v.vendor);
+  const domain = BRAND_DOMAINS[String(v.vendor || '').toLowerCase()];
+  const motiv = domain
+    ? `<img src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128" alt="" loading="lazy" decoding="async" onerror="this.remove()">`
+    : `<i>${esc(brandInitials(v.vendor))}</i>`;
+  const tag = d => d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  // Mittags parsen: "2026-09-23" als UTC-Mitternacht rutschte sonst einen Tag
+  const ende = v.end ? new Date(v.end + 'T12:00:00') : null;
+  const fuss = ende && !isNaN(ende)
+    ? (Date.parse(v.end + 'T23:59:59') < Date.now() ? `abgelaufen am ${tag(ende)}` : `Gültig bis ${tag(ende)}`)
+    : v.added ? `hinzugefügt ${tag(new Date(v.added))}` : '';
+  return `
+    <div class="wallet-card vk has-fill${pct < 18 ? ' fast-leer' : ''}${brandHelligkeit(farbe) > 0.62 ? ' hell' : ''}" data-wv="${esc(v.id)}"
+      style="--bc:${farbe}; --tc:${brandTextColor(v.vendor)}; --fill:${pct}%">
+      <span class="vk-motiv" aria-hidden="true">${motiv}</span>
+      <span class="vk-logo">${brandChipHtml(v.vendor)}</span>
+      <div class="vk-text">
+        <b class="wallet-card-name">${esc(v.vendor)}</b>
+        <span class="vk-art">${v.giftFrom ? `Geschenk von @${esc(v.giftFrom)}` : 'Gutschein'}</span>
+        <span class="vk-code">${esc(v.code || 'Ohne Code')}</span>
+        ${v.pin ? `<span class="vk-pin">PIN ${esc(v.pin)}</span>` : ''}
+      </div>
+      <div class="vk-rechts">
         ${v.balance != null ? `<span class="wallet-card-balance">${euroFmt(v.balance)}</span>` : ''}
+        ${mehr ? `<button class="vk-mehr" type="button" data-wv-mehr="${esc(v.id)}" aria-label="Aktionen für ${esc(v.vendor)}">${icon('mehr', 'icon')}</button>` : ''}
       </div>
-      <div class="wallet-card-sub">
-        <span>${esc(v.code || 'Ohne Code')}</span>
-        ${v.giftFrom ? `<span class="pill">${icon('gift', 'icon icon-sm')} von @${esc(v.giftFrom)}</span>` : ''}
-        ${v.end ? `<span class="pill">bis ${new Date(v.end).toLocaleDateString('de-DE')}</span>` : ''}
-        ${entferntAmHtml(v)}
-      </div>
-      ${v.pin ? `<div class="wallet-card-pin">PIN ${esc(v.pin)}</div>` : ''}
+      <div class="vk-fuss">${entferntAmHtml(v)}${fuss ? `<span>${fuss}</span>` : ''}</div>
       ${(v.stickers || []).map(voucherStickerHtml).join('')}
       ${v.giftFrom ? `<span class="gift-corner${v.giftSeen ? '' : ' unopened'}" role="img" aria-label="Geschenk von @${esc(v.giftFrom)}"><img src="/gamification/gift-tag.svg" alt=""></span>` : ''}
-      ${v.added ? `<span class="wallet-card-date">${new Date(v.added).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>` : ''}
     </div>`;
 }
+// Maskottchen in der Wallet-Karte. Je Rang kommt spaeter ein eigenes Modell;
+// bis dahin traegt jeder Rang das universelle (Daumen hoch). Eintrag = Dateiname
+// ohne Breite, es gibt je eine -480.webp und -960.webp.
+const WALLET_MASKOTTCHEN = { standard: '/brand/kumulio-maskottchen-wallet' };
+function setzeWalletMaskottchen(tier) {
+  const img = $('.wk-sprite');
+  if (!img) return;
+  const basis = WALLET_MASKOTTCHEN['rang-' + tier] || WALLET_MASKOTTCHEN.standard;
+  if (img.dataset.basis === basis) return;
+  img.dataset.basis = basis;
+  img.srcset = `${basis}-480.webp 480w, ${basis}-960.webp 960w`;
+  img.src = `${basis}-480.webp`;
+}
+
+// "…" an der Karte: Code/PIN kopieren, Verschenken, Details — ohne das Blatt
+function schliesseVkMenue() { document.querySelectorAll('.vk-menue').forEach(m => m.remove()); }
+function oeffneVkMenue(id, knopf) {
+  const offen = document.querySelector('.vk-menue');
+  schliesseVkMenue();
+  if (offen && offen.dataset.id === id) return;
+  const v = state.wallet.vouchers.find(x => x.id === id);
+  if (!v || walletGesperrt()) return;
+  const eintraege = [
+    v.code && ['code', 'Code kopieren', 'list'],
+    v.pin && ['pin', 'PIN kopieren', 'lock'],
+    v.balance != null && v.balance > 0 && ['schenken', 'Verschenken', 'gift'],
+    ['details', 'Buchen und Details', 'arrow-right'],
+  ].filter(Boolean);
+  const m = document.createElement('div');
+  m.className = 'vk-menue';
+  m.dataset.id = id;
+  m.setAttribute('role', 'menu');
+  m.innerHTML = eintraege.map(([k, t, ic]) =>
+    `<button class="vk-menue-zeile" type="button" role="menuitem" data-vk="${k}">${icon(ic, 'icon icon-sm')}<span>${t}</span></button>`).join('');
+  document.body.appendChild(m);
+  const r = knopf.getBoundingClientRect();
+  const h = m.offsetHeight;
+  const unten = innerHeight - (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--leiste-h')) || 64) - 12;
+  m.style.top = (r.bottom + 6 + h > unten ? Math.max(8, r.top - h - 6) : r.bottom + 6) + 'px';
+  m.style.right = Math.max(8, innerWidth - r.right) + 'px';
+  m.querySelectorAll('[data-vk]').forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    schliesseVkMenue();
+    const k = b.dataset.vk;
+    if (k === 'code') { copyText(v.code); buzz(10); }
+    else if (k === 'pin') { copyText(v.pin); buzz(10); }
+    else if (k === 'schenken') { zeigeSchenkSchritt(v, 'vor'); openSheetShell(); }
+    else openVoucherSheet(v.id);
+  });
+}
+document.addEventListener('pointerdown', e => {
+  if (!e.target.closest?.('.vk-menue') && !e.target.closest?.('[data-wv-mehr]')) schliesseVkMenue();
+}, { capture: true, passive: true });
+addEventListener('scroll', schliesseVkMenue, { passive: true });
 
 // ---------------- Rabattcodes ----------------
 // Liegen in der Wallet neben den Gutscheinen (art: 'rabatt'), damit Sichern,
@@ -8803,6 +8940,9 @@ function renderWallet() {
   const markenGs = markenTreffer.length ? markenTreffer : null;
   const markeName = markenGs ? markenGs[0].vendor : '';
   const anzeige = markenGs ? Math.round(markenGs.reduce((x, v) => x + (v.balance || 0), 0) * 100) / 100 : total;
+  // Lange Betraege etwas kleiner, damit sie links neben dem Maskottchen bleiben
+  const betragLaenge = euroFmt(anzeige).length;
+  $('#wallet-total').dataset.laenge = betragLaenge >= 11 ? 'xl' : betragLaenge >= 10 ? 'l' : betragLaenge >= 8 ? 'm' : '';
   animateNumber($('#wallet-total'), renderWallet.lastAnzeige ?? renderWallet.lastTotal, anzeige);
   renderWallet.lastTotal = total;
   renderWallet.lastAnzeige = anzeige;
@@ -8836,6 +8976,7 @@ function renderWallet() {
       if (wert) document.documentElement.style.setProperty('--kopf-' + n, wert);
     });
     setzeLeistenfarbe();   // Statusleiste traegt die Stufenfarbe mit
+    setzeWalletMaskottchen(rank.tier);
     messeKopfzeile();
     // Der Rang steht klein neben der Gutschein-Zahl, mehr braucht es nicht
     const rangEl = $('#wallet-rank');
@@ -8848,7 +8989,7 @@ function renderWallet() {
   }
   // Gutschein-Karte: der Hintergrund füllt sich nach Restguthaben (rechts wird
   // durchsichtig, was schon ausgegeben ist), PIN steht unter der Kartennummer
-  const vCard = voucherCardHtml;
+  const vCard = v => voucherCardHtml(v, { mehr: true });
 
   // Kartendeck pro Haendler: viele Gutscheine desselben Shops stapeln sich zu
   // EINER Karte (nur die oberste wird wirklich gerendert). Antippen faechert
@@ -8966,6 +9107,11 @@ function renderWallet() {
     el.style.animationDelay = Math.min(i * 45, 300) + 'ms';
   });
   $('#view-wallet').querySelectorAll('[data-wv]').forEach(el => el.onclick = () => openVoucherSheet(el.dataset.wv));
+  $('#view-wallet').querySelectorAll('[data-wv-mehr]').forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    if (walletGesperrt()) { aktualisiereSperre(); return; }
+    oeffneVkMenue(b.dataset.wvMehr, b);
+  });
   // Deck auf/zu + portionsweise nachladen (auch automatisch beim Scrollen)
   $('#view-wallet').querySelectorAll('[data-deck]').forEach(el => el.onclick = () => {
     walletDeckOpen.add(el.dataset.deck);
@@ -9185,9 +9331,11 @@ function walletVerlauf(monate = 6) {
 }
 
 // Balkenpaare als SVG — leicht genug fuer jedes Handy, kein Diagramm-Paket
-function verlaufSvg(felder) {
+// hoch = Balkenhoehe in Einheiten; die Karte (Rueckseite) ist kompakt und
+// nimmt 40, damit die Beschriftung nicht gestaucht wird
+function verlaufSvg(felder, { hoch = 78 } = {}) {
   const max = Math.max(1, ...felder.map(f => Math.max(f.rein, f.raus)));
-  const B = 44, H = 78, luecke = 5, bb = 13;
+  const B = 44, H = hoch, luecke = 5, bb = 13;
   const w = felder.length * B;
   const balken = felder.map((f, i) => {
     const x = i * B + (B - bb * 2 - luecke) / 2;
@@ -9208,7 +9356,7 @@ function renderWalletStats(range) {
   const felder = walletVerlauf(6);
   const host = $('#kopf-hinten');
   if (!host) return;
-  host.innerHTML = `
+  host.innerHTML = `<div class="wk-glas">
     <div class="stat-kopf">
       <span class="wallet-kopf-sub">Rein und raus</span>
       <div class="stat-ranges">
@@ -9221,9 +9369,9 @@ function renderWalletStats(range) {
       <div><span class="stat-punkt raus"></span>Ausgegeben<b>${euroFmt(s.spent) || '0,00 €'}</b></div>
     </div>
     ${felder.some(f => f.rein || f.raus)
-      ? verlaufSvg(felder)
+      ? verlaufSvg(felder, { hoch: 40 })
       : `<p class="wallet-kopf-sub" style="margin-top:10px">Noch keine Bewegungen — buch etwas ab, dann füllt sich der Verlauf.</p>`}
-    <button class="stat-zurueck" id="stat-zurueck">${icon('arrow-back', 'icon icon-sm')} Zurück zum Guthaben</button>`;
+    <button class="stat-zurueck" id="stat-zurueck">${icon('arrow-back', 'icon icon-sm')} Zurück zum Guthaben</button></div>`;
   host.querySelectorAll('[data-strange]').forEach(b => b.onclick = e => {
     e.stopPropagation();
     renderWalletStats(b.dataset.strange);
@@ -10781,6 +10929,7 @@ function sperreAuftritt(el) {
 // Auspacken
 function schliesseWalletAnsichten() {
   schliesseMarkenMenue();
+  schliesseVkMenue();
   if (state.sheetMode) closeSheet();
   // Das zugeklappte Blatt behaelt sonst Code, PIN und Knoepfe im Baum
   const inhalt = $('#sheet-content');
@@ -10932,6 +11081,7 @@ function walletAuftritt({ menue = false } = {}) {
   const coupons = walletTab === 'coupons';
   const teile = [
     $('.balance-flip-btn'),
+    $('.wk-sprite'),
     ...document.querySelectorAll('.wallet-aktionen .wa-btn'),
     $('#wallet-modes'),
     ...(coupons
@@ -12053,7 +12203,7 @@ function showConnScreen(kind) {
       ? 'Dauert gerade etwas länger, langsame Verbindung …'
       : 'Keine Verbindung. kumulio braucht kurz Internet, damit nichts verloren geht.'}</p>
     ${kind === 'slow' ? '' : '<button class="btn" id="conn-retry">Erneut versuchen</button>'}`;
-  el.querySelector('.k-dot')?.classList.add('k-jump');
+  el.querySelector('.k-wordmark')?.classList.add('k-laedt');
   $('#conn-retry')?.addEventListener('click', () => location.reload());
 }
 function hideConnScreen() { $('#conn-screen')?.remove(); }
@@ -12069,8 +12219,7 @@ window.addEventListener('online', () => { if ($('#conn-screen')) location.reload
     const q = new URLSearchParams(location.search);
     const woanders = q.get('chat') || (q.get('tab') && q.get('tab') !== 'wallet');
     if (!woanders && state.activeView !== 'wallet') switchView('wallet', 'start-ohne-anim');
-    document.querySelectorAll('.tabbtn').forEach(t => t.classList.toggle('active', t.dataset.view === state.activeView));
-    moveTabPill();
+    markiereTab(state.activeView);
   }
   renderWallet();
   aktualisiereSperre();
@@ -12120,6 +12269,7 @@ window.addEventListener('online', () => { if ($('#conn-screen')) location.reload
   state.channels = channels;
   renderChipbar();
   loadFeed();
+  loadFeatured();
   checkReminders();
   handleOpenParams(location.search);
   // App ist bereit → der kumulio-Splash darf weg, sobald seine Animation durch ist

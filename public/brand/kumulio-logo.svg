@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="110 118 1810 450" width="362" height="90" role="img" aria-label="kumulio">
+  <!-- kumulio Wortmarke (Entwurf 24.09.2026): runde Striche in Blau, zwei Muenzen, zwei Funken.
+       Quelle fuer brand.js — dort dieselbe Geometrie als Inline-SVG (animierbar). -->
+  <g fill="none" stroke="#0B76FF" stroke-width="94" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M168 226V500M318 338L204 420L318 500"/>
+    <path d="M418 347V428.5A74.5 74.5 0 0 0 567 428.5V347M567 428V503"/>
+    <path d="M667 347V503M667 415A72.5 72.5 0 0 1 812 415V503M812 415A72.5 72.5 0 0 1 957 415V503"/>
+    <path d="M1062 347V423A80 80 0 0 0 1222 423V347M1222 423V503"/>
+    <path d="M1331 229V503"/>
+    <path d="M1446 347V503"/>
+    <circle cx="1645" cy="424" r="91"/>
+  </g>
+  <circle cx="1446" cy="231" r="51" fill="#0B76FF"/>
+  <g transform="translate(1775 217) rotate(-40)">
+    <ellipse cx="0" cy="16" rx="80" ry="57" fill="#F29A00"/>
+    <rect x="-80" y="0" width="160" height="16" fill="#F29A00"/>
+    <ellipse cx="0" cy="0" rx="80" ry="57" fill="#FFC21F"/>
+    <ellipse cx="0" cy="0" rx="58" ry="39" fill="#FFCD3C" stroke="#F7AC00" stroke-width="7"/>
+    <path d="M-44 -22A58 39 0 0 1 20 -37" fill="none" stroke="#FFE58A" stroke-width="8" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(1845 366) rotate(40)">
+    <ellipse cx="0" cy="14" rx="62" ry="45" fill="#F29A00"/>
+    <rect x="-62" y="0" width="124" height="14" fill="#F29A00"/>
+    <ellipse cx="0" cy="0" rx="62" ry="45" fill="#FFC21F"/>
+    <ellipse cx="0" cy="0" rx="44" ry="30" fill="#FFCD3C" stroke="#F7AC00" stroke-width="6"/>
+  </g>
+  <path d="M1846 283L1880 263" stroke="#FFC400" stroke-width="22" stroke-linecap="round"/>
+  <path transform="translate(1641 206) scale(62 66)" d="M0-1Q.13-.13 1 0Q.13 .13 0 1Q-.13 .13-1 0Q-.13-.13 0-1Z" fill="#FFC400" stroke="#FFC400" stroke-width=".14" stroke-linejoin="round"/>
+  <path transform="translate(1832 492) scale(52 56)" d="M0-1Q.13-.13 1 0Q.13 .13 0 1Q-.13 .13-1 0Q-.13-.13 0-1Z" fill="#FFC400" stroke="#FFC400" stroke-width=".14" stroke-linejoin="round"/>
+</svg>
