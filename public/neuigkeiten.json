@@ -1,0 +1,39 @@
+[
+  {
+    "v": "2026-09-24",
+    "datum": "24. September 2026",
+    "titel": "Deine Wallet ist jetzt das Zuhause",
+    "punkte": [
+      {
+        "icon": "banknote",
+        "titel": "Wallet als Startseite",
+        "text": "Die App öffnet direkt in deiner Wallet, und sie sitzt in der Mitte der Menüleiste. Der Feed hat ein neues Symbol."
+      },
+      {
+        "icon": "lock",
+        "titel": "PIN und Face ID",
+        "text": "Sichere deine Wallet mit einer PIN (4 bis 6 Ziffern). Face ID oder Fingerabdruck starten beim Öffnen von selbst."
+      },
+      {
+        "icon": "tag",
+        "titel": "Rabattcodes",
+        "text": "Lieferando, Subway & Co. mit oder ohne Mindestbestellwert, unter „Karten & Coupons“. Sie zählen nicht zu deinem Guthaben."
+      },
+      {
+        "icon": "user",
+        "titel": "Dein Profil als Seitenleiste",
+        "text": "Tipp oben links auf dein Profilbild. Die Suche sitzt jetzt oben rechts."
+      },
+      {
+        "icon": "search",
+        "titel": "Suchen und Marke wählen",
+        "text": "Eine Leiste für beides: Marke antippen und sofort sehen, wie viel Guthaben du dort hast."
+      },
+      {
+        "icon": "check",
+        "titel": "Mehr Schutz und Ordnung",
+        "text": "Zwei-Faktor-Anmeldung per Authenticator-App. Aufgebrauchte Gutscheine räumen sich 30 Tage nach der letzten Buchung selbst auf, ein Jahr lang holst du sie im Papierkorb zurück."
+      }
+    ]
+  }
+]

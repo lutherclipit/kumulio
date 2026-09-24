@@ -385,6 +385,8 @@ let sperrBeschaeftigt = false;   // PIN wird gerade geprueft bzw. die Punkte wac
 let sperreGehtUhr = 0, sperreKommtUhr = 0;
 let startAuftrittOffen = true;   // bis der Start-Splash geht, wartet jeder Auftritt
 let bioLaeuft = false;           // Face ID fragt gerade (nie zwei Abfragen gleichzeitig)
+let neuGeprueft = false;         // Update-Log: pro Sitzung und Konto hoechstens einmal pruefen
+let neuListe = null;             // public/neuigkeiten.json, neueste Fassung zuerst
 let bioBrauchtTippen = false;    // Browser liess Face ID nicht ohne Antippen starten
 // So viel passt in eine Wallet. Gerechnet: ein Gutschein mit Kassen-Code und
 // Originalfoto braucht komprimiert rund 50-130 KB. 500 Stueck sind dann auf
@@ -4064,7 +4066,8 @@ function authOk(r, { welcome = false } = {}) {
   refreshProfileTab();
   pullWallet(); // Wallet vom Konto holen (Gerätewechsel/Neuinstallation)
   connectStream(); // Echtzeit-Stream mit dem frischen Token neu verbinden
-  api('/api/me').then(x => { kontoInfo = x; state.role = x.role || ''; refreshAdminUi(); renderWallet(); }).catch(() => { });
+  neuGeprueft = false; // anderes Konto: eigener Stand beim Update-Log
+  api('/api/me').then(x => { kontoInfo = x; state.role = x.role || ''; refreshAdminUi(); renderWallet(); pruefeNeuigkeiten(); }).catch(() => { });
   if (welcome) {
     // Willkommens-Moment: der Punkt quittiert das neue Konto
     $('#welcome-title').textContent = `Willkommen, ${r.user}!`;
@@ -10730,6 +10733,7 @@ function entsperreWallet() {
   lsSetzen(PIN_FEHL_KEY, JSON.stringify({ n: 0, bis: 0 }));
   const el = $('#wallet-sperre');
   const sichtbar = el && !el.classList.contains('hidden') && !el.classList.contains('geht');
+  setTimeout(() => pruefeNeuigkeiten(), 1000); // Update-Log wartete auf das Entsperren
   if (!sichtbar || sperrRuhig()) {
     if (el) { el.classList.remove('offen', 'geht'); $('#ws-text')?.classList.remove('fehler'); }
     aktualisiereSperre();
@@ -11476,6 +11480,85 @@ function pruefeKontoLinks() {
   } else passwortVergessenDialog();
 }
 
+// ---------------- Neu in kumulio (Update-Log) ----------------
+// Nach jedem Update sieht jedes Konto EINMAL, was neu ist. Gemerkt wird das am
+// Konto (neuGesehen), damit es auf dem zweiten Geraet nicht nochmal kommt —
+// dazu lokal als Rueckfallebene, falls das Melden ans Konto gerade nicht klappt.
+// Neue Konten starten beim aktuellen Stand und sehen erst das naechste Update.
+// Inhalt: public/neuigkeiten.json (bei jedem Update oben einen Eintrag ergaenzen).
+async function ladeNeuigkeiten() {
+  if (neuListe) return neuListe;
+  try {
+    const r = await fetch('/neuigkeiten.json?x=' + Date.now(), { cache: 'no-store' });
+    const l = await r.json();
+    neuListe = Array.isArray(l) ? l.filter(e => e && e.v && Array.isArray(e.punkte) && e.punkte.length) : [];
+  } catch { neuListe = []; }
+  return neuListe;
+}
+async function pruefeNeuigkeiten(versuch = 0) {
+  if (neuGeprueft || !state.token || !kontoInfo || !state.userName) return;
+  // Nie ueber etwas anderes legen: gesperrte Wallet (kommt nach dem Entsperren),
+  // Start-Splash, Einfuehrung, offene Blaetter und Dialoge
+  if (!$('#wallet-sperre')?.classList.contains('hidden')) return;
+  const belegt = startAuftrittOffen || state.sheetMode || document.querySelector('.k-splash, #tour, .overlay:not(.hidden)')
+    || !$('#onboard')?.classList.contains('hidden') || topMenuOffen();
+  if (belegt) {
+    if (versuch < 40) setTimeout(() => pruefeNeuigkeiten(versuch + 1), 1500);
+    return;
+  }
+  const liste = await ladeNeuigkeiten();
+  if (!liste.length || neuGeprueft || !state.token || !kontoInfo) return;
+  const user = state.userName;
+  let lokal = '';
+  try { lokal = localStorage.getItem('ra.neuGesehen:' + user) || ''; } catch { }
+  // Der neuere der beiden Staende gilt (Konto oder dieses Geraet)
+  const stellen = [kontoInfo.neuGesehen, lokal].filter(Boolean).map(v => liste.findIndex(e => e.v === v)).filter(i => i >= 0);
+  const bis = stellen.length ? Math.min(...stellen) : -1;
+  // Nie gesehen (Bestandskonto vor dem ersten Log): nur das aktuelle Update
+  const neue = bis === -1 ? liste.slice(0, 1) : liste.slice(0, bis);
+  neuGeprueft = true;
+  if (!neue.length) return;
+  zeigeNeuigkeiten(neue.slice(0, 3));
+  const v = liste[0].v;
+  kontoInfo.neuGesehen = v;
+  lsSetzen('ra.neuGesehen:' + user, v);
+  api('/api/neuigkeiten/gesehen', { method: 'POST', body: JSON.stringify({ v }) }).catch(() => { });
+}
+function zeigeNeuigkeiten(eintraege) {
+  const iconName = n => (/^[a-z-]{2,20}$/.test(n || '') ? n : 'sparkle');
+  let i = 0;
+  const wrap = document.createElement('div');
+  wrap.className = 'overlay neu-overlay';
+  wrap.innerHTML = `<div class="modal neu-modal" role="dialog" aria-modal="true" aria-labelledby="neu-titel" tabindex="-1">
+    <div class="neu-kopf">
+      <div class="neu-logo" aria-hidden="true">${window.KBrand?.wordmarkHTML ? window.KBrand.wordmarkHTML({ height: 26 }) : ''}</div>
+      <h2 id="neu-titel">Neu in kumulio</h2>
+      <p>${esc(eintraege[0].titel || 'Das hat sich getan')}</p>
+    </div>
+    <div class="neu-inhalt">
+      ${eintraege.map(e => `
+        <div class="neu-datum">${esc(e.datum || e.v)}</div>
+        <ul class="neu-liste">${e.punkte.map(pt => `
+          <li style="--i:${i++}">
+            <span class="neu-icon">${icon(iconName(pt.icon), 'icon')}</span>
+            <span class="neu-txt"><b>${esc(pt.titel || '')}</b><span>${esc(pt.text || '')}</span></span>
+          </li>`).join('')}</ul>`).join('')}
+    </div>
+    <button class="btn btn-big neu-ok" type="button" data-neu-ok>Alles klar</button>
+  </div>`;
+  document.body.appendChild(wrap);
+  const taste = e => { if (e.key === 'Escape') { e.stopPropagation(); zu(); } };
+  const zu = () => {
+    removeEventListener('keydown', taste, true);
+    wrap.classList.add('closing');
+    setTimeout(() => wrap.remove(), 280);
+  };
+  addEventListener('keydown', taste, true);
+  wrap.addEventListener('click', e => { if (e.target === wrap || e.target.closest('[data-neu-ok]')) zu(); });
+  // Fokus auf das Fenster selbst (auf einem Knopf zeichnet das Handy einen Ring)
+  setTimeout(() => wrap.querySelector('.neu-modal')?.focus({ preventScroll: true }), 60);
+}
+
 // ---------------- Start ----------------
 
 // Tastatur auf dem Handy: die sichtbare Höhe als CSS-Variable, damit der Chat
@@ -11583,7 +11666,7 @@ window.addEventListener('online', () => { if ($('#conn-screen')) location.reload
   }).catch(() => { });
   if (state.token) {
     pullWallet(); // parallel statt hinter /api/me: Guthaben ist schneller aktuell
-    api('/api/me').then(r => { kontoInfo = r; state.userName = r.user; state.role = r.role || ''; refreshProfileTab(); refreshAdminUi(); renderWallet(); })
+    api('/api/me').then(r => { kontoInfo = r; state.userName = r.user; state.role = r.role || ''; refreshProfileTab(); refreshAdminUi(); renderWallet(); pruefeNeuigkeiten(); })
       .catch(e => {
         // Nur bei ECHTEM 401 abmelden; ist der Server kurz weg, bleibt der Login stehen
         if (/401|anmelden/i.test(String(e.message))) {

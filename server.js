@@ -855,6 +855,15 @@ const AUFGEBRAUCHT_TAGE = 30;
 // Eingefuehrt am 24.09.2026: davor Aufgebrauchtes zaehlt ab diesem Tag — so
 // sieht jeder den Hinweis "wird am … entfernt" 30 Tage vorher und kann es abschalten
 const AUFRAEUMEN_AB = Date.parse('2026-09-24T00:00:00Z');
+// Update-Log (public/neuigkeiten.json, neueste Fassung zuerst). Gelesen beim
+// Start — jedes Update ist ein neuer Deploy und damit ein neuer Start.
+function ladeNeuVersionen() {
+  try {
+    const l = JSON.parse(fs.readFileSync(path.join(PUBLIC, 'neuigkeiten.json'), 'utf8'));
+    return Array.isArray(l) ? l.map(e => String((e && e.v) || '')).filter(Boolean) : [];
+  } catch { return []; }
+}
+const NEU_VERSIONEN = ladeNeuVersionen();
 // Letzte Bewegung eines Gutscheins: juengste Buchung, sonst angelegt am
 // (Schleife statt Spread: sehr viele Buchungen sprengten sonst den Stack)
 function letzteBewegung(v) {
@@ -2177,6 +2186,8 @@ const server = http.createServer(async (req, res) => {
       if (Object.values(users).some(u => u.email === email)) return send(res, 409, { error: 'E-Mail wird schon verwendet.' });
       const salt = crypto.randomBytes(12).toString('hex');
       users[user] = { hash: hashPass(pass, salt), salt, email, newsletter: !!b.newsletter, ts: Date.now() };
+      // Neue Konten sehen erst das naechste Update im Update-Log, nicht die alten
+      if (NEU_VERSIONEN[0]) profileOf(user).neuGesehen = NEU_VERSIONEN[0];
       setTimeout(() => emailBestaetigungSchicken(user), 0);
       // Freunde werben Freunde: kam die Registrierung ueber einen Einladungslink,
       // bekommt der Werber 1000 Funken (Mitmach-Belohnung, kein Echtgeld-Pfad;
@@ -3416,7 +3427,19 @@ const server = http.createServer(async (req, res) => {
         emailMaske: emailMaske(u.email),
         mailBereit: mailBereit(),
         autoAufraeumen: profileOf(user).autoAufraeumen !== false,
+        neuGesehen: profileOf(user).neuGesehen || '',
       });
+    }
+    // Update-Log gesehen: nur bekannte Fassungen, damit hier nichts Beliebiges landet
+    if (p === '/api/neuigkeiten/gesehen' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      const v = String(b.v || '');
+      if (!NEU_VERSIONEN.includes(v)) return send(res, 400, { error: 'Unbekannte Fassung.' });
+      const prof = profileOf(user);
+      if (prof.neuGesehen !== v) { prof.neuGesehen = v; saveJson('users.json', users); }
+      return send(res, 200, { ok: true, v });
     }
 
     // ---- Startseiten-Kacheln (Admin pflegt sie über /admin.html)

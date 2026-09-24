@@ -5667,3 +5667,40 @@ body.sparsam .wa-modus-flaeche { transition-duration: .2s; }
 
 /* Dialog-Container bekommen den Fokus, zeigen aber keinen Rahmen */
 .wallet-sperre:focus, #top-menu:focus { outline: none; }
+
+/* ============ Runde 114: Neu in kumulio (Update-Log) ========================= */
+.neu-modal {
+  max-width: 420px; padding: 0; overflow: hidden; text-align: left;
+  display: flex; flex-direction: column; max-height: min(86vh, 720px);
+}
+.neu-modal:focus { outline: none; }
+.neu-kopf {
+  padding: 22px 20px 18px; text-align: center; color: #fff;
+  background:
+    radial-gradient(circle at 84% 6%, rgba(255, 255, 255, .17), transparent 46%),
+    linear-gradient(160deg, var(--kopf-k1, #0E9C64), var(--kopf-k2, #12C77E) 60%, var(--kopf-k3, #23D992));
+}
+.neu-logo { display: flex; justify-content: center; height: 26px; margin-bottom: 10px; }
+.neu-logo .k-wordmark { color: #fff; height: 26px; width: auto; }
+.neu-logo .k-wordmark .k-dot { fill: #fff; }
+.neu-kopf h2 { margin: 0; font-size: 1.45rem; font-weight: 850; letter-spacing: -.02em; }
+.neu-kopf p { margin: 4px 0 0; font-size: .88rem; opacity: .92; }
+.neu-inhalt { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 6px 18px 4px; }
+.neu-datum { margin: 10px 2px 2px; font-size: .76rem; font-weight: 700; color: var(--muted); }
+.neu-liste { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.neu-liste li {
+  display: flex; gap: 12px; align-items: flex-start; padding: 10px 2px;
+  animation: cardIn .45s var(--spring) backwards; animation-delay: calc(.15s + var(--i, 0) * 60ms);
+}
+.neu-liste li + li { border-top: 1px solid var(--stroke-light); }
+.neu-icon {
+  flex: 0 0 36px; height: 36px; border-radius: 11px; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--kopf-k2, #12C77E) 16%, transparent); color: var(--kopf-k1, #0E9C64);
+}
+:root[data-theme="dark"] .neu-icon { color: var(--kopf-k3, #23D992); }
+.neu-icon .icon { width: 20px; height: 20px; }
+.neu-txt { display: flex; flex-direction: column; gap: 2px; font-size: .86rem; line-height: 1.4; }
+.neu-txt b { font-size: .94rem; }
+.neu-txt span { color: var(--muted); }
+.neu-ok { margin: 10px 18px 18px; width: calc(100% - 36px); }
+@media (prefers-reduced-motion: reduce) { .neu-liste li { animation: none; } }
