@@ -163,8 +163,8 @@ html.theme-anim, html.theme-anim *, html.theme-anim *::before, html.theme-anim *
 .search:focus { outline: none; background: var(--surface-2); max-width: 340px; }
 .search::placeholder { color: #97a0a9; }
 
-.topbar-actions { display: flex; gap: 8px; justify-self: end; }
-.topbar > .iconbtn:first-child { justify-self: start; }
+.topbar-actions { display: flex; gap: 8px; justify-self: start; }
+#btn-search-top { justify-self: end; }
 .iconbtn {
   width: 38px; height: 38px; border-radius: 999px;
   display: flex; align-items: center; justify-content: center;
@@ -1474,16 +1474,35 @@ input, textarea, select, button { touch-action: manipulation; }
 
 /* ================= Dropdown-Menü, Command-Palette, Filter-Markierung ================= */
 
+/* Seitenleiste: volle Hoehe, gleitet von links herein (nur transform).
+   Fester Grund statt Glas — der Hintergrund ist schon weichgezeichnet. */
 #top-menu {
-  position: fixed; top: calc(60px + env(safe-area-inset-top, 0px)); right: 12px; z-index: 60;
-  width: min(320px, calc(100vw - 24px));
-  background: var(--glass-strong);
-  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
-  border: 1px solid var(--stroke-light); border-radius: 18px;
-  box-shadow: var(--glass-edge), var(--shadow);
-  padding: 14px; animation: enterDrop .4s cubic-bezier(.3,1.35,.45,1) backwards;
+  position: fixed; top: 0; bottom: 0; left: 0; z-index: 60;
+  width: min(340px, 86vw);
+  display: flex; flex-direction: column;
+  background: var(--seitengrund, #eef1f5);
+  border-right: 1px solid var(--stroke-light);
+  border-radius: 0 26px 26px 0;
+  box-shadow: 18px 0 60px rgba(16, 24, 32, .22);
+  transform: translate3d(-104%, 0, 0); visibility: hidden;
+  transition: transform .44s var(--spring), visibility 0s linear .44s;
 }
-.tm-head { display: flex; align-items: center; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--stroke-light); }
+#top-menu.open { transform: none; visibility: visible; transition: transform .44s var(--spring), visibility 0s; }
+#top-menu.dragging { transition: none; }
+.tm-zu { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 12px); right: 12px; z-index: 1; }
+.tm-scroll {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
+  padding: calc(env(safe-area-inset-top, 0px) + 58px) 14px calc(env(safe-area-inset-bottom, 0px) + 20px) calc(env(safe-area-inset-left, 0px) + 14px);
+}
+/* Eintraege folgen der Leiste gestaffelt */
+#top-menu.open .tm-scroll > * { animation: tmRein .5s var(--spring) backwards; animation-delay: calc(80ms + var(--i, 0) * 26ms); }
+@keyframes tmRein { from { opacity: 0; transform: translateX(-18px); } }
+.tm-head {
+  display: flex; align-items: center; gap: 12px; padding: 4px 4px 14px; width: 100%;
+  border: 0; border-bottom: 1px solid var(--stroke-light); border-radius: 0;
+  background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.tm-head:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; border-radius: 12px; }
 .tm-name { font-weight: 800; }
 .tm-sub { font-size: .78rem; opacity: .65; }
 .tm-section { font-size: .72rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; opacity: .55; margin: 12px 0 6px; }
@@ -1783,18 +1802,20 @@ input[type="date"].input {
 
 /* Chat nimmt die Seite bis zum Header ein */
 
-/* Menü-Backdrop: blendet weich ein (Blur + Abdunklung), Verlauf nach unten */
+/* Hintergrund der Seitenleiste: deckt alles ab, auch das Menue unten */
 #top-menu-backdrop {
   position: fixed; inset: 0; z-index: 55;
-  backdrop-filter: blur(9px); -webkit-backdrop-filter: blur(9px);
-  background: rgba(8, 11, 15, .34);
-  mask-image: linear-gradient(180deg, #000 0 45%, transparent 90%);
-  -webkit-mask-image: linear-gradient(180deg, #000 0 45%, transparent 90%);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  background: rgba(8, 11, 15, .38);
   opacity: 0;
   transition: opacity .38s ease;
 }
 #top-menu-backdrop.show { opacity: 1; }
-@media (prefers-reduced-motion: reduce) { #top-menu-backdrop { transition: none; } }
+#top-menu-backdrop.dragging { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  #top-menu-backdrop, #top-menu, #top-menu.open { transition: none; }
+  #top-menu.open .tm-scroll > * { animation: none; }
+}
 
 /* Anfrage-Popup: schiebt sich unten hoch */
 #req-toast {
@@ -2434,7 +2455,11 @@ html, body { overflow-x: clip; }
    (auf html UND body: das Dokument scrollt über html) */
 html:has(.overlay:not(.hidden)),
 html:has(.sheet.open),
+html:has(#top-menu.open),
+html:has(body.wallet-zu),
+body.wallet-zu,
 body:has(.overlay:not(.hidden)),
+body:has(#top-menu.open),
 body:has(.sheet.open) {
   overflow: hidden !important;
 }
@@ -5216,53 +5241,188 @@ body.sparsam .wm-flaeche, body.sparsam .filter-pille {
 .wa-platz.voll { color: #C0392B; font-weight: 700; }
 
 
-/* ============ Runde 112: Wallet-Sperre, Sicherheit, Aufraeumen ============== */
+/* ============ Runde 112/114: Wallet-Sperre, Sicherheit, Aufraeumen ========== */
+/* Die Sperre deckt die ganze App ab — Kopfzeile und Menue unten eingeschlossen.
+   Sie liegt auf Body-Ebene: in main (eigener Stapelkontext) kam sie nie ueber
+   das Menue. Unter .overlay (200), damit PIN-/Passwort-Dialoge darueber stehen. */
 .wallet-sperre {
-  position: fixed; inset: 0; z-index: 27;           /* ueber Kopf und Wallet, unter dem Menue (30) */
-  background: var(--seitengrund, #eef1f5);
-  display: grid; place-items: center;
-  padding: calc(env(safe-area-inset-top, 0px) + 20px) 16px calc(env(safe-area-inset-bottom, 0px) + 110px);
+  position: fixed; inset: 0; z-index: 94;
+  /* Traegt die Farbe des Spar-Rangs — derselbe Verlauf wie der Wallet-Kopf */
+  background:
+    radial-gradient(circle at 84% 6%, rgba(255, 255, 255, .17), transparent 46%),
+    linear-gradient(172deg, var(--kopf-k1, #0E9C64) 0%, var(--kopf-k2, #12C77E) 52%, var(--kopf-k3, #23D992) 100%);
+  background-color: var(--kopf-k2, #12C77E);
+  color: #fff;
+  display: flex; justify-content: center;
+  padding: calc(env(safe-area-inset-top, 0px) + 20px) 16px calc(env(safe-area-inset-bottom, 0px) + 20px);
+  overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
 }
 .wallet-sperre.hidden { display: none; }
-body.wallet-zu #wallet-mini, body.wallet-zu .topbar { visibility: hidden; }
-.ws-inhalt { width: min(320px, 100%); display: flex; flex-direction: column; align-items: center; text-align: center; }
-.ws-schloss {
-  width: 58px; height: 58px; border-radius: 50%; display: grid; place-items: center;
-  background: var(--surface-2); border: 1px solid var(--stroke-light); margin-bottom: 12px;
+.wallet-sperre button { touch-action: manipulation; }
+body.wallet-zu #wallet-mini { visibility: hidden; }
+/* Was die Sperre verdeckt, ist auch wirklich weg (sichtbar erst nach dem Entsperren) */
+body.wallet-zu #wallet-kopf, body.wallet-zu #wallet-content,
+body.wallet-zu #coupons-content, body.wallet-zu #wallet-gate { visibility: hidden; }
+/* Rahmenlos ueber den ganzen Bildschirm: oben Logo und Begruessung, unten
+   (wo der Daumen ist) die Ziffern */
+.ws-inhalt {
+  width: min(340px, 100%); margin-block: auto;
+  display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;
+  gap: clamp(8px, 2.4vh, 24px);
 }
-.ws-schloss .icon { width: 26px; height: 26px; color: var(--accent-strong); }
-.ws-titel { margin: 0 0 4px; font-size: 1.25rem; }
-.ws-text { margin: 0 0 18px; font-size: .86rem; color: var(--muted); min-height: 1.3em; }
+.ws-oben { display: flex; flex-direction: column; align-items: center; }
+.ws-unten { display: flex; flex-direction: column; align-items: center; }
+.ws-logo { display: flex; justify-content: center; height: 34px; margin-bottom: clamp(18px, 4vh, 34px); }
+.ws-logo .k-wordmark { height: 34px; width: auto; overflow: visible; }
+/* Auf dem Rang-Verlauf: alles hell */
+.wallet-sperre .k-wordmark { color: #fff; }
+.wallet-sperre .k-wordmark .k-dot { fill: #fff; }
+.wallet-sperre .k-wordmark .k-ripple { stroke: #fff; }
+.wallet-sperre .ws-text { color: rgba(255, 255, 255, .82); }
+.wallet-sperre .ws-text.fehler { color: #fff; background: rgba(150, 30, 20, .42); padding: 2px 12px; border-radius: 999px; }
+.wallet-sperre .ws-punkt { border-color: rgba(255, 255, 255, .72); }
+.wallet-sperre .ws-punkt::after { background: #fff; }
+.wallet-sperre .ws-punkt.voll { border-color: #fff; }
+.wallet-sperre .ws-punkte.falsch .ws-punkt { border-color: #FFD2CC; }
+.wallet-sperre .ws-punkte.falsch .ws-punkt::after { background: #FFD2CC; }
+.wallet-sperre .ws-punkte.richtig .ws-punkt { border-color: #fff; }
+.wallet-sperre .ws-punkte.richtig .ws-punkt::after { background: #fff; }
+.wallet-sperre .ws-taste { color: #fff; }
+.wallet-sperre .ws-taste.ws-neben { color: rgba(255, 255, 255, .78); }
+.wallet-sperre .ws-taste::after { background: #fff; }
+.wallet-sperre .ws-taste:focus-visible { outline-color: #fff; }
+.wallet-sperre .link-knopf { color: #fff; }
+.wallet-sperre .ws-weg { color: rgba(255, 255, 255, .72); }
+.wallet-sperre .ws-warte { background: rgba(255, 255, 255, .25); }
+.wallet-sperre .ws-warte i { background: #fff; }
+.ws-logo.stups { animation: balBump .4s cubic-bezier(.3, 1.4, .5, 1); }
+.ws-gruss {
+  margin: 0 0 6px; font-size: clamp(1.45rem, 6.6vw, 1.95rem); font-weight: 800;
+  letter-spacing: -.02em; line-height: 1.18; overflow-wrap: anywhere;
+}
+.ws-wort { display: inline-block; }
+.ws-text { margin: 0 0 22px; font-size: .88rem; color: var(--muted); min-height: 1.3em; }
 .ws-text.fehler { color: #C0392B; font-weight: 700; }
+.ws-text b { font-variant-numeric: tabular-nums; }
+.ws-text.neu, .pin-text.neu { animation: wsTextNeu .28s ease; }
 .ws-punkte { display: flex; gap: 14px; justify-content: center; margin-bottom: 22px; min-height: 16px; }
 .ws-punkt {
-  width: 14px; height: 14px; border-radius: 50%;
-  border: 2px solid var(--muted); transition: background .15s ease, border-color .15s ease, transform .15s var(--spring);
+  position: relative; width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid var(--muted);
+  transition: border-color .2s ease, opacity .2s ease, transform .25s cubic-bezier(.3, 1.4, .5, 1);
 }
-.ws-punkt.voll { background: var(--text); border-color: var(--text); transform: scale(1.08); }
-.ws-tasten { display: grid; grid-template-columns: repeat(3, 72px); gap: 14px 22px; justify-content: center; }
+/* Die Fuellung waechst aus der Mitte (nur transform/opacity) */
+.ws-punkt::after {
+  content: ''; position: absolute; inset: -2px; border-radius: 50%;
+  background: var(--text); transform: scale(0); opacity: 0;
+  transition: transform .24s cubic-bezier(.3, 1.4, .5, 1), opacity .14s ease, background-color .2s ease;
+  transition-delay: var(--d, 0s);
+}
+.ws-punkt.voll { border-color: var(--text); }
+.ws-punkt.voll::after { transform: scale(1); opacity: 1; }
+/* PIN mit 5 oder 6 Ziffern: die Plaetze sind da, nur angedeutet */
+.ws-punkt.optional { border-style: dashed; opacity: .5; transform: scale(.82); }
+.ws-punkte.falsch { animation: wsFalsch .5s cubic-bezier(.36, .07, .19, .97) both; }
+.ws-punkte.falsch .ws-punkt { border-color: #E23D2E; }
+.ws-punkte.falsch .ws-punkt::after { background: #E23D2E; }
+.ws-punkte.richtig .ws-punkt { border-color: var(--accent-strong); }
+.ws-punkte.richtig .ws-punkt::after {
+  background: var(--accent-strong);
+  animation: wsRichtig .42s cubic-bezier(.3, 1.4, .5, 1) calc(var(--i, 0) * 35ms) both;
+}
+.ws-punkte.stups { animation: wsStups .3s ease; }
+.ws-tasten { display: grid; grid-template-columns: repeat(3, 72px); gap: 14px 22px; justify-content: center; transition: opacity .3s ease; }
 .ws-taste {
-  width: 72px; height: 72px; border-radius: 50%;
-  border: 1px solid var(--stroke-light); background: var(--surface-2); color: var(--text);
-  font: inherit; font-size: 1.6rem; font-weight: 600; cursor: pointer;
+  position: relative; overflow: hidden;
+  width: 76px; height: 72px; border-radius: 50%;
+  border: 0; background: transparent; color: var(--text);
+  font: inherit; font-size: 1.85rem; font-weight: 500; cursor: pointer;
   display: grid; place-items: center; touch-action: manipulation;
-  transition: transform .15s var(--spring), background .15s ease;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .15s ease;
 }
-.ws-taste:active { transform: scale(.92); background: var(--surface); }
+.ws-taste::after {
+  content: ''; position: absolute; inset: 0; border-radius: 50%;
+  background: currentColor; opacity: 0; transform: scale(.5); pointer-events: none;
+}
+.ws-taste:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: -4px; }
+.ws-taste.tipp { animation: wsTipp .3s cubic-bezier(.3, 1.4, .5, 1); }
+.ws-taste.tipp::after { animation: wsWelle .4s ease-out; }
 .ws-taste.leer { visibility: hidden; }
-.ws-taste.ws-neben { background: transparent; border-color: transparent; }
+.ws-taste.ws-neben { color: var(--muted); }
 .ws-taste .icon { width: 26px; height: 26px; }
 .ws-tasten.klein { grid-template-columns: repeat(3, 60px); gap: 10px 18px; margin: 4px 0 14px; }
-.ws-tasten.klein .ws-taste { width: 60px; height: 60px; font-size: 1.35rem; }
+.ws-tasten.klein .ws-taste { width: 62px; height: 58px; font-size: 1.5rem; }
+.ws-links { display: flex; gap: 18px; justify-content: center; }
+.ws-weg { color: var(--muted); }
+
+/* Wartezeit nach zu vielen Fehlversuchen */
+.ws-warte {
+  width: 150px; height: 4px; border-radius: 99px; overflow: hidden;
+  background: rgba(120, 130, 140, .18); margin: -10px auto 16px;
+  opacity: 0; transition: opacity .3s ease;
+}
+.ws-warte i { display: block; height: 100%; background: #E23D2E; transform-origin: left; transform: scaleX(0); }
+.wallet-sperre.wartet .ws-warte { opacity: 1; }
+.wallet-sperre.wartet .ws-tasten { opacity: .3; pointer-events: none; }
+
+/* Auftritt der Sperre: Schloss faellt ein, der Rest folgt gestaffelt */
+.wallet-sperre.vorstart .ws-inhalt { opacity: 0; }
+.wallet-sperre.kommt .ws-wort { animation: wsWortRein .6s var(--spring) calc(.3s + var(--w, 0) * 80ms) both; }
+.wallet-sperre.kommt .ws-text { animation: cardIn .5s var(--spring) .52s both; }
+.wallet-sperre.kommt .ws-punkte { animation: cardIn .5s var(--spring) .58s both; }
+.wallet-sperre.kommt .ws-taste { animation: wsTasteRein .46s cubic-bezier(.3, 1.3, .45, 1) calc(.5s + var(--i, 0) * 22ms) both; }
+.wallet-sperre.kommt .ws-links { animation: cardIn .5s var(--spring) .8s both; }
+
+/* Entsperren: der Punkt im Logo quittiert (Marken-Erfolg), dann gibt die
+   Sperre die Wallet frei */
+.wallet-sperre.geht { animation: wsGeht .44s cubic-bezier(.22, 1, .32, 1) forwards; pointer-events: none; }
+.wallet-sperre.geht .ws-inhalt { animation: wsInhaltGeht .44s cubic-bezier(.22, 1, .32, 1) forwards; }
+
+/* Danach gleitet die Wallet herein (und das Menue unten kommt zurueck) */
+.auftritt { animation: cardIn .55s var(--spring) backwards; animation-delay: var(--ad, 0ms); }
+body.menue-rein .tabbar { animation: menueRein .55s cubic-bezier(.3, 1.35, .45, 1) .08s backwards; }
+
+@keyframes wsTextNeu { from { opacity: .25; transform: translateY(3px); } }
+@keyframes wsFalsch {
+  0%, 100% { transform: none; }
+  15% { transform: translateX(-10px); } 30% { transform: translateX(9px); }
+  45% { transform: translateX(-7px); } 60% { transform: translateX(5px); }
+  75% { transform: translateX(-3px); } 90% { transform: translateX(1px); }
+}
+@keyframes wsStups { 0%, 100% { transform: none; } 30% { transform: translateX(-4px); } 65% { transform: translateX(3px); } }
+@keyframes wsRichtig { 0% { transform: scale(1); } 45% { transform: scale(1.35); } 100% { transform: scale(1); } }
+@keyframes wsTipp { 0% { transform: scale(1); } 35% { transform: scale(.88); } 100% { transform: scale(1); } }
+@keyframes wsWelle { 0% { opacity: .16; transform: scale(.5); } 100% { opacity: 0; transform: scale(1.15); } }
+@keyframes wsWortRein { from { opacity: 0; transform: translateY(12px); } }
+@keyframes wsTasteRein { from { opacity: 0; transform: translateY(10px) scale(.82); } }
+@keyframes wsGeht { to { opacity: 0; } }
+@keyframes wsInhaltGeht { to { opacity: 0; transform: scale(1.06); } }
+@keyframes menueRein { from { transform: translate(-50%, 140%); } }
+
 .link-knopf {
   background: none; border: none; padding: 8px 4px; margin-top: 10px; cursor: pointer;
   font: inherit; font-size: .84rem; font-weight: 700; color: var(--accent-strong); text-decoration: none;
   display: inline-block;
 }
 .link-knopf:active { opacity: .7; }
-.pin-modal { max-width: 360px; text-align: center; }
+.pin-modal { max-width: 360px; text-align: center; overflow-x: hidden; overflow-y: auto; }
 .pin-modal .form-row { justify-content: center; }
-.pin-text { font-size: .82rem; margin: -2px 0 14px; }
+.pin-text { font-size: .82rem; margin: -2px 0 14px; min-height: 1.2em; }
+.pin-text.fehler { color: #C0392B; font-weight: 700; }
+.pin-modal .ws-punkte { margin-bottom: 12px; }
+.pin-laenge { margin: -2px 0 10px; font-size: .76rem; color: var(--muted); min-height: 1.2em; }
+/* Mehrere Schritte in einem Fenster: der neue gleitet von rechts herein */
+.pin-schritte { display: grid; }
+.pin-schritt { grid-area: 1 / 1; min-width: 0; }
+.pin-schritt.rein { animation: pinRein .4s var(--spring) both; }
+.pin-schritt.raus { animation: pinRaus .26s ease both; pointer-events: none; }
+.pin-fortschritt { display: flex; gap: 6px; justify-content: center; margin: 0 0 10px; }
+.pin-fortschritt i { width: 22px; height: 4px; border-radius: 99px; background: rgba(120, 130, 140, .25); transition: background .3s ease; }
+.pin-fortschritt i.an { background: var(--accent-strong); }
+.knopf-pop { animation: chestPop .4s cubic-bezier(.3, 1.4, .5, 1); }
+@keyframes pinRein { from { opacity: 0; transform: translateX(40px); } }
+@keyframes pinRaus { to { opacity: 0; transform: translateX(-40px); } }
 
 .pin-empfehlung {
   display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; align-items: center;
@@ -5293,7 +5453,12 @@ body.wallet-zu #wallet-mini, body.wallet-zu .topbar { visibility: hidden; }
 .used-hinweis { margin: 0 14px 10px; font-size: .76rem; color: var(--muted); line-height: 1.4; }
 .pill.pill-verfall { background: rgba(120, 130, 140, .14); color: var(--muted); }
 
-@media (prefers-reduced-motion: reduce) { .ws-punkt, .ws-taste { transition: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .ws-punkt, .ws-punkt::after, .ws-taste, .ws-tasten, .ws-warte { transition: none; }
+  .ws-taste.tipp, .ws-taste.tipp::after, .ws-punkte.falsch, .ws-punkte.stups, .ws-punkte.richtig .ws-punkt::after,
+  .pin-schritt.rein, .pin-schritt.raus, .auftritt, body.menue-rein .tabbar, .knopf-pop,
+  .ws-text.neu, .pin-text.neu, .ws-logo.stups { animation: none; }
+}
 
 /* Papierkorb */
 .korb-modal { max-width: 460px; }
@@ -5303,3 +5468,199 @@ body.wallet-zu #wallet-mini, body.wallet-zu .topbar { visibility: hidden; }
 .korb-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .korb-info span { font-size: .76rem; color: var(--muted); }
 .korb-zeile .btn-small { width: auto; flex: none; }
+
+/* ============ Runde 114: Rabattcodes ============================================ */
+/* Schieber im Hinzufuegen-Blatt: Gutschein | Rabattcode (Flaeche gleitet) */
+.wa-modus {
+  position: relative; display: grid; grid-template-columns: 1fr 1fr;
+  padding: 4px; margin: 2px 0 14px; border-radius: 999px;
+  background: rgba(120, 130, 140, .14); border: 1px solid var(--stroke-light);
+}
+.wa-modus-flaeche {
+  position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc(50% - 4px);
+  border-radius: 999px; background: var(--chip-active-bg);
+  box-shadow: 0 4px 14px rgba(16, 24, 32, .18);
+  transition: transform .42s cubic-bezier(.3, 1.2, .45, 1);
+}
+.wa-modus.rechts .wa-modus-flaeche { transform: translateX(100%); }
+.wa-modus-knopf {
+  position: relative; z-index: 1; border: 0; background: none; cursor: pointer;
+  font: inherit; font-weight: 800; font-size: .9rem; padding: 9px 6px;
+  color: var(--muted); transition: color .3s ease; touch-action: manipulation;
+}
+.wa-modus-knopf.an { color: var(--chip-active-fg); }
+.wa-modus.klein { margin: 0; flex: 0 0 104px; }
+.wa-modus.klein .wa-modus-knopf { padding: 7px 4px; font-size: .95rem; }
+.wa-form-neu { animation: cardIn .42s var(--spring) both; }
+.rc-wertzeile { display: flex; gap: 10px; align-items: center; }
+.rc-wertzeile .input { flex: 1; min-width: 0; }
+.rc-eingabe { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .06em; font-weight: 700; }
+.rc-mbw-zeile {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin: 14px 0 8px; padding: 10px 12px; border-radius: var(--r-md);
+  background: var(--surface); border: 1px solid var(--stroke-light);
+}
+.rc-mbw-txt { display: flex; flex-direction: column; gap: 1px; font-size: .88rem; }
+.rc-mbw-txt small { font-size: .76rem; color: var(--muted); }
+
+/* Im Coupons-Bereich ganz oben: sehen aus wie Gutscheine, mit Coupon-Kerben */
+.rc-kopf { display: flex; align-items: center; gap: 8px; }
+.rc-kopf .rc-neu-chip { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; }
+.rc-hinweis { margin: 2px 0 10px; font-size: .76rem; color: var(--muted); }
+.rc-liste { display: grid; gap: 10px; margin-bottom: 8px; }
+.rc-liste-aus { padding: 0 14px 14px; }
+.rc-aus-fold { margin: 4px 0 12px; }
+.rc-card {
+  color: var(--tc, #fff);
+  /* zwei Kerben links und rechts wie bei einem Abreiss-Coupon */
+  -webkit-mask: radial-gradient(circle 9px at 0 50%, #0000 97%, #000) left / 51% 100% no-repeat,
+                radial-gradient(circle 9px at 100% 50%, #0000 97%, #000) right / 51% 100% no-repeat;
+          mask: radial-gradient(circle 9px at 0 50%, #0000 97%, #000) left / 51% 100% no-repeat,
+                radial-gradient(circle 9px at 100% 50%, #0000 97%, #000) right / 51% 100% no-repeat;
+}
+.rc-card .pill { background: color-mix(in srgb, var(--tc, #fff) 18%, transparent); color: var(--tc, #fff); }
+.rc-card .wallet-card-sub { align-items: center; opacity: 1; }
+.rc-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 800; letter-spacing: .06em;
+  padding: 3px 8px; border-radius: 8px; border: 1.5px dashed color-mix(in srgb, var(--tc, #fff) 65%, transparent);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rc-kopieren {
+  margin-left: auto; border: 0; cursor: pointer; font: inherit; font-size: .74rem; font-weight: 800;
+  padding: 6px 12px; border-radius: 999px; min-height: 30px;
+  background: color-mix(in srgb, var(--tc, #fff) 22%, transparent); color: var(--tc, #fff);
+  touch-action: manipulation;
+}
+.rc-kopieren.kopiert { animation: balBump .36s cubic-bezier(.3, 1.4, .5, 1); }
+.rc-card.rc-aus { filter: grayscale(.8); opacity: .62; }
+.rc-card.rc-neu { animation: rcNeu .7s cubic-bezier(.3, 1.35, .45, 1); }
+@keyframes rcNeu { 0% { transform: scale(.92); opacity: .3; } 60% { transform: scale(1.02); opacity: 1; } 100% { transform: none; } }
+
+/* Detailblatt */
+.rc-gross {
+  margin: 12px 0 10px; padding: 18px 16px; border-radius: var(--r-lg); text-align: center;
+  color: var(--tc, #fff);
+  background: linear-gradient(135deg, var(--bc, #4a5560), color-mix(in srgb, var(--bc, #4a5560) 60%, #000));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .25), var(--shadow);
+}
+.rc-gross.rc-aus { filter: grayscale(.8); opacity: .7; }
+.rc-gross-wert { font-size: 2rem; font-weight: 900; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.rc-gross-mbw { font-size: .88rem; font-weight: 700; opacity: .9; }
+.rc-codefeld {
+  display: flex; gap: 10px; align-items: center; padding: 12px;
+  border: 2px dashed var(--stroke-light); border-radius: var(--r-md); background: var(--surface);
+}
+.rc-codetext { flex: 1; min-width: 0; font-size: 1.15rem; letter-spacing: .08em; font-weight: 800; word-break: break-all; }
+.rc-info { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0; font-size: .8rem; color: var(--muted); line-height: 1.4; }
+.rc-info .icon { flex: 0 0 auto; margin-top: 1px; }
+.rc-aktionen { margin-top: 14px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .wa-modus-flaeche { transition: none; }
+  .wa-form-neu, .rc-card.rc-neu, .rc-kopieren.kopiert { animation: none; }
+}
+body.sparsam .wa-modus-flaeche { transition-duration: .2s; }
+
+/* Niedrige Bildschirme (z. B. iPhone SE 1): Sperre etwas dichter, damit alles passt */
+@media (max-height: 660px) {
+  .wallet-sperre { padding-top: calc(env(safe-area-inset-top, 0px) + 12px); padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 10px); }
+  .ws-logo { margin-bottom: 12px; height: 28px; }
+  .ws-logo .k-wordmark { height: 28px; }
+  .ws-gruss { font-size: 1.35rem; }
+  .ws-text { margin-bottom: 14px; }
+  .wallet-sperre .ws-tasten { gap: 6px 22px; }
+  .wallet-sperre .ws-taste { height: 60px; }
+  .wallet-sperre .link-knopf { margin-top: 4px; }
+}
+
+/* ============ Runde 114: Suche + Marke in einer Leiste ========================
+   Gleicher Aufbau wie die Bereichswahl im Kopf (Anhang: "Gutscheine | Karten &
+   Coupons"): helle Glasleiste, darin links die Suche, rechts ein weisser Knopf
+   fuer die Marke. Die Marke waehlt man aus einer Liste statt aus Chips. */
+.wallet-tools { position: relative; margin-top: 2px; }
+.wallet-suchleiste {
+  display: flex; align-items: stretch; gap: 4px; padding: 4px;
+  background: rgba(255, 255, 255, .16);
+  border: 1px solid rgba(255, 255, 255, .22);
+  border-radius: 16px;
+}
+.wsl-suche {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
+  padding: 0 8px 0 10px; border-radius: 12px; cursor: text;
+  color: rgba(255, 255, 255, .88);
+  transition: background .25s ease;
+}
+.wsl-suche:focus-within { background: rgba(255, 255, 255, .14); }
+.wsl-suche .icon { flex: 0 0 auto; }
+.wsl-suche input {
+  flex: 1; min-width: 0; border: 0; outline: 0; background: none; box-shadow: none;
+  -webkit-appearance: none; appearance: none;
+  color: #fff; font: inherit; font-size: .92rem; font-weight: 650; padding: 10px 0;
+}
+.wsl-suche input::placeholder { color: rgba(255, 255, 255, .72); font-weight: 500; }
+.wsl-suche input::-webkit-search-cancel-button { filter: brightness(0) invert(1); opacity: .8; }
+.wsl-marke {
+  flex: 0 1 auto; max-width: 54%; min-height: 40px;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 10px 6px 12px; border: 0; border-radius: 12px;
+  background: #fff; color: var(--kopf-k1, #0E9C64);
+  font: inherit; font-size: .88rem; font-weight: 800; letter-spacing: -.01em;
+  cursor: pointer; touch-action: manipulation;
+  box-shadow: 0 3px 12px rgba(10, 14, 18, .2);
+  transition: transform .25s var(--spring);
+}
+.wsl-marke.hidden { display: none; }
+.wsl-marke:active { transform: scale(.96); }
+.wsl-marke:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.wsl-marke.gewechselt { animation: balBump .38s cubic-bezier(.3, 1.4, .5, 1); }
+.wsl-marke-inhalt { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
+.wsl-marke-inhalt > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wsl-marke .brand-chip { width: 22px; height: 22px; border-radius: 7px; font-size: .55rem; flex: 0 0 auto; }
+.wsl-pfeil { flex: 0 0 auto; transition: transform .32s var(--spring); }
+.wsl-marke[aria-expanded="true"] .wsl-pfeil { transform: rotate(180deg); }
+
+/* Die Liste klappt unter dem Knopf auf (rechtsbuendig) */
+.wallet-marken-menue {
+  position: absolute; right: 0; top: calc(100% + 8px); z-index: 20;
+  width: min(310px, 100%); max-height: min(52vh, 420px); overflow-y: auto; overscroll-behavior: contain;
+  padding: 6px; border-radius: 18px;
+  background: var(--seitengrund, #eef1f5); color: var(--text);
+  border: 1px solid var(--stroke-light);
+  box-shadow: 0 18px 44px rgba(10, 14, 18, .22);
+  transform-origin: top right;
+  animation: mmAuf .32s cubic-bezier(.3, 1.25, .45, 1) both;
+}
+.wallet-marken-menue.hidden { display: none; }
+.mm-zeile {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 9px 10px; border: 0; border-radius: 12px; background: none;
+  color: var(--text); font: inherit; text-align: left; cursor: pointer;
+  animation: cardIn .38s var(--spring) backwards; animation-delay: calc(var(--i, 0) * 22ms);
+}
+.mm-zeile:hover, .mm-zeile:focus-visible { background: var(--surface); outline: none; }
+.mm-zeile .brand-chip { width: 30px; height: 30px; border-radius: 9px; font-size: .62rem; flex: 0 0 auto; }
+.mm-alle {
+  width: 30px; height: 30px; border-radius: 9px; flex: 0 0 auto; display: grid; place-items: center;
+  background: var(--surface); border: 1px solid var(--stroke-light); color: var(--muted);
+}
+.mm-name { flex: 1; min-width: 0; font-weight: 750; font-size: .92rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mm-zeile small { font-size: .76rem; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mm-haken { color: var(--kopf-k1, #0E9C64); opacity: 0; transform: scale(.6); transition: opacity .2s ease, transform .25s var(--spring); }
+.mm-zeile.an { background: var(--surface); }
+.mm-zeile.an .mm-name { color: var(--kopf-k1, #0E9C64); }
+.mm-zeile.an .mm-haken { opacity: 1; transform: none; }
+:root[data-theme="dark"] .mm-zeile.an .mm-name, :root[data-theme="dark"] .mm-haken { color: var(--kopf-k3, #23D992); }
+@keyframes mmAuf { from { opacity: 0; transform: translateY(-6px) scale(.96); } }
+@media (prefers-reduced-motion: reduce) {
+  .wallet-marken-menue, .mm-zeile, .wsl-marke.gewechselt { animation: none; }
+  .wsl-pfeil, .mm-haken { transition: none; }
+}
+
+/* Querformat / sehr niedrig: Logo weg, Tasten flacher — Rest bleibt erreichbar */
+@media (max-height: 480px) {
+  .wallet-sperre .ws-logo { display: none; }   /* brand.css (.k-success) laedt spaeter */
+  .ws-gruss { font-size: 1.2rem; }
+  .ws-text { margin-bottom: 10px; }
+  .wallet-sperre .ws-taste { height: 48px; }
+  .wallet-sperre .ws-tasten { gap: 2px 22px; }
+}

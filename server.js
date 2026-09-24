@@ -145,7 +145,15 @@ let profComments = loadJson('profile-comments.json', {}); // { user: [ {from,tex
   if (commentsFixed) saveJson('comments.json', comments);
 }
 let ratings = loadJson('ratings.json', {});     // { dealId: {up, down, clicks} }
-let users = loadJson('users.json', {});         // { username: {hash, salt, ts} }
+let users = loadJson('users.json', {});
+{
+  let weg = 0;
+  for (const u of Object.values(users)) {
+    const pr = u && u.profile;
+    if (pr && pr.avatar && !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(pr.avatar)) { pr.avatar = ''; weg++; }
+  }
+  if (weg) console.log(`[Profil] ${weg} ungueltige Profilbilder entfernt`);
+}         // { username: {hash, salt, ts} }
 let sessions = loadJson('sessions.json', {});   // { token: username }
 let featured = loadJson('featured.json', []);   // Startseiten-Kacheln des Admins
 
@@ -479,6 +487,13 @@ const BILD_REF = 'bild:';
 const BILD_ENDUNG = { 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/png': 'png', 'image/gif': 'gif' };
 const ENDUNG_TYP = { jpg: 'image/jpeg', webp: 'image/webp', png: 'image/png', gif: 'image/gif' };
 const BILD_NAME = /^[a-f0-9]{40}\.(jpg|webp|png|gif)$/;
+// Nur echte Bilddaten: Anfuehrungszeichen o. Ae. koennten sonst aus src="…" ausbrechen
+const AVATAR_OK = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
+function bildFeldOk(w) {
+  const t = String(w || '');
+  return /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(t)
+    || (t.startsWith('bild:') && BILD_NAME.test(t.slice(5)));
+}
 // Vorhandene Bilddateien: beim Start einmal eingelesen, danach mitgefuehrt
 const bildDateien = new Set();
 try { for (const f of fs.readdirSync(BILD_DIR)) if (BILD_NAME.test(f)) bildDateien.add(f); } catch { /* noch keine */ }
@@ -1167,7 +1182,8 @@ function updateLifetime(user) {
   const seenV = new Set(prof.seenV);
   const seenTx = new Set(prof.seenTx);
   for (const v of (w.vouchers || [])) {
-    if (!v || !v.id) continue;
+    // Rabattcodes sind kein Guthaben — sie zaehlen nicht fuer Quests und Punkte
+    if (!v || !v.id || v.art === 'rabatt') continue;
     if (!seenV.has(v.id)) { seenV.add(v.id); prof.seenV.push(v.id); prof.life.v++; }
     for (const t of (v.tx || [])) {
       const key = v.id + ':' + (t.ts || 0);
@@ -2289,7 +2305,7 @@ const server = http.createServer(async (req, res) => {
       const user = authUser(req);
       if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
       const liste = Object.entries(archivVon(user)).sort((x, y) => y[1].ts - x[1].ts).slice(0, 200).map(([key, e]) => ({
-        key, ts: e.ts, grund: e.grund, typ: e.typ, vendor: e.v.vendor || e.v.name || '',
+        key, ts: e.ts, grund: e.grund, typ: e.typ, art: e.v.art || '', vendor: e.v.vendor || e.v.name || '',
         amount: e.v.amount ?? null, balance: e.v.balance ?? null, bild: !!(e.v.codeImg || e.v.img),
         verschenkt: /^verschenkt/.test(e.grund || ''),
       }));
@@ -2856,7 +2872,8 @@ const server = http.createServer(async (req, res) => {
       if (typeof b.activeBadge === 'string')
         prof.activeBadge = (b.activeBadge === '' || prof.badges.includes(b.activeBadge)) ? b.activeBadge : prof.activeBadge;
       // Profilbild: kleines dataURL-Bild (Client verkleinert auf 96px)
-      if (typeof b.avatar === 'string' && (b.avatar === '' || (/^data:image\/(png|jpeg|webp);base64,/.test(b.avatar) && b.avatar.length < 60_000)))
+      // Ganz pruefen, nicht nur den Anfang: das Bild landet bei allen in src="…"
+      if (typeof b.avatar === 'string' && (b.avatar === '' || (AVATAR_OK.test(b.avatar) && b.avatar.length < 60_000)))
         prof.avatar = b.avatar;
       // Showcase: bis zu 3 eigene Items im Profil zeigen ("kind:id")
       if (Array.isArray(b.showcase)) {
@@ -3249,10 +3266,19 @@ const server = http.createServer(async (req, res) => {
       const idx = w.vouchers.findIndex(v => v.id === gid);
       const tot = (w.deleted || []).some(t => t && t.id === gid);
       if (idx < 0 && (!vomGeraet || tot)) return send(res, 404, { error: 'Gutschein nicht gefunden. Kurz warten, bis die Wallet gesichert ist, und nochmal versuchen.' });
+      // Beide Fassungen pruefen: gewinnen kann beim Vereinigen die vom Geraet
+      if (w.vouchers[idx]?.art === 'rabatt' || vomGeraet?.art === 'rabatt') return send(res, 400, { error: 'Rabattcodes kann man nicht verschenken.' });
       let v;
       if (idx >= 0) [v] = w.vouchers.splice(idx, 1);
       if (v && vomGeraet) v = waehleFassung(vomGeraet, v);
       else if (!v) v = vomGeraet;
+      // Was bei jemand anderem landet, ist nur ein Gutschein: Bildfelder nur als
+      // Bild, keine Rabattcode-Felder
+      for (const f of ['img', 'codeImg']) if (v[f] && !bildFeldOk(v[f])) v[f] = '';
+      delete v.art; delete v.rabatt; delete v.rabattArt; delete v.mbw; delete v.eingeloest;
+      v.vendor = String(v.vendor || '').slice(0, 30);
+      v.code = String(v.code || '').slice(0, 40);
+      v.pin = String(v.pin || '').slice(0, 16);
       archiviere(me, [v], 'verschenkt an @' + to);
       w.deleted = [...(w.deleted || []), { id: v.id, ts: Date.now() }].slice(-LOESCHMARKER_MAX);
       // Optionale Nachricht: max 140 Zeichen, wird beim Rendern IMMER escaped
@@ -3976,7 +4002,8 @@ process.on('SIGINT', () => { flushPendingSaves(); process.exit(0); });
 
 // RA_TEST: für scripts/test-cases.js, damit der Test importieren kann ohne den Server zu starten
 if (process.env.RA_TEST) {
-  module.exports = { CaseSource, grantCase, profileOf, users, rollRarity, ODDS_CASE, ODDS_CAPSULE, CONTAINERS, RARITY, STICKERS,
+  module.exports = {
+  updateLifetime, CaseSource, grantCase, profileOf, users, rollRarity, ODDS_CASE, ODDS_CAPSULE, CONTAINERS, RARITY, STICKERS,
     // fuer scripts/test-wallet.js
     bilderAufraeumen, bildDateien, bildAblegen, vereinigeWallet, archiviere, archivFlush, wallets, gifts, walletIndex, waehleFassung,
     totpCode, totpPruefen, base32, base32Lesen, ersatzcodeEinloesen, neueErsatzcodes, aufgebrauchtWeg, raeumeAufgebrauchteAuf, drossel,

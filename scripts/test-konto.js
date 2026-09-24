@@ -59,12 +59,21 @@ S.wallets.tina = { vouchers: [
   { id: 'alt', vendor: 'REWE', amount: 10, balance: 0, added: n - 60 * tag, tx: [{ id: 'a', amt: -10, ts: n - 40 * tag }] },
   { id: 'frisch', vendor: 'REWE', amount: 10, balance: 0, added: n - 60 * tag, tx: [{ id: 'b', amt: -10, ts: n - 3 * tag }] },
   { id: 'voll', vendor: 'dm', amount: 10, balance: 10, added: n - 300 * tag, tx: [] },
+  // Rabattcode ohne Guthaben: wird nie "aufgebraucht" aufgeraeumt
+  { id: 'rc', art: 'rabatt', vendor: 'Subway', code: 'SUB2', amount: null, balance: null, added: n - 900 * tag, tx: [] },
 ], cards: [], deleted: [] };
 S.wallets.otto = { vouchers: [{ id: 'o1', vendor: 'REWE', amount: 5, balance: 0, added: n - 90 * tag, tx: [{ id: 'c', amt: -5, ts: n - 80 * tag }] }], cards: [], deleted: [] };
 const weg = S.raeumeAufgebrauchteAuf();
 pruefe('genau einer entfernt', weg === 1);
 pruefe('alter aufgebrauchter ist weg, mit Loeschmarker', !S.wallets.tina.vouchers.some(v => v && v.id === 'alt') && S.wallets.tina.deleted.some(d => d.id === 'alt'));
 pruefe('frisch aufgebrauchter und voller bleiben', ['frisch', 'voll'].every(id => S.wallets.tina.vouchers.some(v => v && v.id === id)));
+pruefe('Rabattcode bleibt beim Aufraeumen', S.wallets.tina.vouchers.some(v => v && v.id === 'rc'));
+S.users.rita = { hash: 'x', salt: 'y', email: 'rita@example.com', ts: n };
+S.wallets.rita = { vouchers: [
+  { id: 'g1', vendor: 'REWE', amount: 10, balance: 10, tx: [], added: n },
+  { id: 'r1', art: 'rabatt', vendor: 'Lieferando', code: 'X', amount: null, balance: null, tx: [], added: n },
+], cards: [], deleted: [] };
+pruefe('Rabattcodes zaehlen nicht fuer Quests/Punkte', S.updateLifetime('rita').v === 1);
 pruefe('abgeschaltet (otto): nichts entfernt', S.wallets.otto.vouchers.length === 1);
 const st = S.wallets.tina.statistik || {};
 const summe = Object.values(st).reduce((x, e) => ({ rein: x.rein + e.rein, raus: x.raus + e.raus }), { rein: 0, raus: 0 });

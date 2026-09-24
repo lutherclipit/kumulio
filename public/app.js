@@ -71,7 +71,8 @@ function setzeLeistenfarbe() {
   const meta = document.querySelector('meta[name="theme-color"]');
   if (!meta) return;
   const st = getComputedStyle(document.documentElement);
-  const inWallet = document.body.classList.contains('wallet-farbe');
+  // Auch die Sperre traegt den Rang-Verlauf
+  const inWallet = document.body.classList.contains('wallet-farbe') || document.body.classList.contains('wallet-zu');
   const farbe = inWallet
     ? (st.getPropertyValue('--kopf-k1').trim() || '#0E9C64')
     : (getComputedStyle(document.body).backgroundColor || '#EEF1F5');
@@ -88,7 +89,7 @@ const fmtFunken = n => (Math.round(Number(n)) || 0).toLocaleString('de-DE');
 const funkeIcon = (small = false) =>
   `<img class="px-icon${small ? ' px-16' : ''}" src="${small ? '/gamification/currency-funke-16.svg' : CUR.icon}" alt="${CUR.name}">`;
 
-const VIEW_ORDER = ['wallet', 'feed', 'chat', 'search', 'profile', 'settings', 'friends', 'user', 'inventory', 'shop', 'gifts', 'invite', 'editprofile'];
+const VIEW_ORDER = ['feed', 'wallet', 'chat', 'search', 'profile', 'settings', 'friends', 'user', 'inventory', 'shop', 'gifts', 'invite', 'editprofile'];
 const FEED_LIMIT = 40;
 
 // Menüpunkte oben: Sparen / Verdienen / Neukunden / Coupons.
@@ -235,6 +236,8 @@ const BRAND_COLORS = {
   mcdonalds: '#ffbc0d', 'burger king': '#d62300', shopback: '#e6293d', steam: '#1b2838',
   'deutsche bahn': '#ec0016', db: '#ec0016', 'nintendo eshop': '#e60012',
   'müller': '#e85d00', mueller: '#e85d00', subway: '#008c15', 'lidl plus': '#0050aa',
+  'uber eats': '#06c167', "mcdonald's": '#ffbc0d', "domino's": '#006491', dominos: '#006491',
+  'about you': '#1f1f1f', temu: '#fb7701', shein: '#222222', nike: '#111111',
 };
 function brandColor(name) {
   const key = (name || '').toLowerCase().trim();
@@ -303,10 +306,17 @@ function forYouScore(d) {
 
 // ---------------- Hilfen ----------------
 
+// Profilbilder und Bilder aus Geschenken kommen von anderen Konten: nur
+// echte Bild-Daten (data:image/…;base64) durchlassen
+function sichereBildUrl(u) {
+  const t = String(u || '');
+  return /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(t) ? t : '';
+}
+// Auch Anfuehrungszeichen: esc() landet oft in Attributen (src, data-*,
+// aria-label) — dort half das bisherige Escaping (nur & < >) nicht
+const ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 function esc(s) {
-  const d = document.createElement('div');
-  d.textContent = s ?? '';
-  return d.innerHTML;
+  return String(s ?? '').replace(/[&<>"']/g, c => ESC_MAP[c]);
 }
 
 function icon(name, cls = 'icon') {
@@ -371,12 +381,17 @@ const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
 const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
 let sperrEingabe = '';
 let sperrUhr = 0;
+let sperrBeschaeftigt = false;   // PIN wird gerade geprueft bzw. die Punkte wackeln
+let sperreGehtUhr = 0, sperreKommtUhr = 0;
+let startAuftrittOffen = true;   // bis der Start-Splash geht, wartet jeder Auftritt
 // So viel passt in eine Wallet. Gerechnet: ein Gutschein mit Kassen-Code und
 // Originalfoto braucht komprimiert rund 50-130 KB. 500 Stueck sind dann auf
 // dem Handy rund 25-65 MB (dafuer reicht IndexedDB locker, und die App bleibt
 // flott), und am Server teilen sich alle Nutzer einen Speicher. Der Server
 // meldet seine Werte ueber /api/meta — die hier gelten, bis er geantwortet hat.
 const WALLET_LIMIT = { gutscheine: 500, karten: 100 };
+// Rabattcodes liegen bei den Gutscheinen, haben aber kein Guthaben
+function istRabatt(v) { return !!v && v.art === 'rabatt'; }
 function walletPlatz(art = 'gutscheine') {
   const n = (art === 'karten' ? state.wallet.cards : state.wallet.vouchers).length;
   // Wartende Geschenke belegen schon Platz (der Server zaehlt sie genauso)
@@ -463,6 +478,8 @@ function settleViews() {
 // Wechsel ohne Überlappung: alte View sofort weg, nur die neue animiert herein.
 // So kann bei schnellem Durchschalten nichts springen oder doppelt erscheinen.
 function switchView(next, animClass) {
+  schliesseTopMenu({ fokus: false });
+  schliesseMarkenMenue();
   if (next === state.activeView) return;
   settleViews();
   const oldView = $('#view-' + state.activeView);
@@ -510,7 +527,7 @@ function switchView(next, animClass) {
   viewCleanupTimer = setTimeout(settleViews, 520);
 }
 
-// Suche: fällt mit Feder-Bounce von oben ein (Lupe oben links), Zurück-Button führt heim
+// Suche: fällt mit Feder-Bounce von oben ein (Lupe oben rechts), Zurück-Button führt heim
 let searchReturnView = 'feed';
 $('#btn-search-top').addEventListener('click', () => {
   if (state.activeView === 'search') return;
@@ -541,7 +558,7 @@ async function renderFriendsView() {
     const sorted = [...friends].sort((a, b) => (meta[b]?.ts || 0) - (meta[a]?.ts || 0));
     host.innerHTML = sorted.length ? sorted.map(f => `
       <div class="friend-row">
-        ${meta[f]?.avatar ? `<img class="avatar-big${meta[f]?.border ? ' pfb-' + esc(meta[f].border) : ''}" src="${meta[f].avatar}" alt="">`
+        ${meta[f]?.avatar ? `<img class="avatar-big${meta[f]?.border ? ' pfb-' + esc(meta[f].border) : ''}" src="${sichereBildUrl(meta[f].avatar)}" alt="">`
         : `<span class="avatar-big${meta[f]?.border ? ' pfb-' + esc(meta[f].border) : ''}" style="background:${chatColor(f)}">${esc(f[0].toUpperCase())}</span>`}
         <span class="friend-name">@${esc(f)}</span>
         <button class="btn btn-small btn-ghost" data-fr-profile="${esc(f)}">Profil</button>
@@ -898,6 +915,7 @@ function renderCoupons(host) {
   const rest = marken.filter(b => !sofort.includes(b));
 
   const bau = `
+    ${rabattSektionHtml()}
     <h2 class="bereich-titel">Sofort einlösbar</h2>
     <div class="cc-cards">${sofort.map(b => {
       const gratis = /mcdonald/i.test(b.name) && (mccheapDaten?.items || []).some(x => x.gratis);
@@ -959,7 +977,8 @@ function renderCoupons(host) {
   // Eine Kachel antippen holt die Karte gross in die Mitte
   host.querySelectorAll('.mk-kachel[data-marke]').forEach(el =>
     el.onclick = () => oeffneKartenLupe(el.dataset.marke, el));
-  host.querySelector('[data-wadd]')?.addEventListener('click', () => openWalletAdd('card'));
+  host.querySelectorAll('[data-wadd]').forEach(el => el.onclick = () => openWalletAdd(el.dataset.wadd));
+  rabattKartenVerdrahten(host);
   // Einmal nachsehen, ob McCheap gerade etwas Gratis hat — danach steht es im Speicher
   if (!mccheapDaten) ladeMccheap().then(d => {
     if ((d.items || []).some(x => x.gratis) && walletTab === 'coupons') renderCoupons(host);
@@ -1916,9 +1935,11 @@ setInterval(checkReminders, 30 * 1000);
 // ---------------- Sheet (generisch) ----------------
 
 function openSheetShell(richtung) {
+  schliesseMarkenMenue();
   // Formulare (Hinzufügen) kompakt statt Vollbild, kein leerer Swipe-Raum
   $('#sheet').classList.toggle('compact', state.sheetMode === 'wallet-add');
   const schonOffen = $('#sheet').classList.contains('open');
+  $('#sheet').inert = false;
   $('#sheet-backdrop').classList.remove('hidden');
   requestAnimationFrame(() => {
     $('#sheet-backdrop').classList.add('show');
@@ -1953,6 +1974,8 @@ function closeSheet() {
     ccCtx = null;
   }
   $('#sheet').classList.remove('open');
+  // Zu ist zu: auch per Tastatur oder Vorlese-Funktion nicht mehr erreichbar
+  $('#sheet').inert = true;
   $('#sheet-backdrop').classList.remove('show');
   setTimeout(() => $('#sheet-backdrop').classList.add('hidden'), 300);
   state.currentDeal = null;
@@ -1961,7 +1984,11 @@ function closeSheet() {
 $('#sheet-backdrop').addEventListener('click', closeSheet);
 $('#sheet-handle').addEventListener('click', () => { if (!sheetDrag.moved) closeSheet(); });
 $('#sheet-fab').addEventListener('click', closeSheet);
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeSheet(); hideToast(); } });
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (topMenuOffen()) { schliesseTopMenu(); return; }
+  closeSheet(); hideToast();
+});
 
 // Sheet mit Runterwischen schließen: immer über die Greifzone oben,
 // im Inhalt nur, wenn er ganz nach oben gescrollt ist
@@ -2231,7 +2258,7 @@ function commentHtml(c, replies) {
   // Badge — der Server liefert den jeweils AKTUELLEN Stand mit
   const ns = nameStyleOf(c.user, c.paint);
   const ava = c.avatar
-    ? `<img class="avatar-mini avatar-img c-ava pfb-${esc(c.border || 'none')}" src="${c.avatar}" alt="">`
+    ? `<img class="avatar-mini avatar-img c-ava pfb-${esc(c.border || 'none')}" src="${sichereBildUrl(c.avatar)}" alt="">`
     : `<span class="avatar-mini c-ava pfb-${esc(c.border || 'none')}" style="background:${chatColor(c.user)}">${esc(c.user[0].toUpperCase())}</span>`;
   return `
     <div class="comment" data-cid="${esc(c.id)}">
@@ -2425,8 +2452,9 @@ function openFavsSheet() {
 // ---------------- Profil: Registrieren / Anmelden ----------------
 
 function refreshProfileTab() {
-  // Oben rechts: "Anmelden"-Button (Gast) bzw. Avatar mit Initiale (angemeldet)
+  // Oben links: "Anmelden"-Button (Gast) bzw. Avatar mit Initiale (angemeldet)
   const btn = $('#btn-profile-top');
+  if (!state.token) schliesseTopMenu({ fokus: false });
   if (state.token && state.userName) {
     btn.className = 'iconbtn';
     btn.innerHTML = `<span class="avatar-mini">${esc(state.userName[0].toUpperCase())}</span>`;
@@ -2473,7 +2501,7 @@ async function refreshGami() {
   $('#g-public').checked = myProfile.publicProfile !== false;
   // Profilbild + Lieblings-Kleinigkeiten
   const av = $('#g-avatar-preview');
-  if (myProfile.avatar) av.outerHTML = `<img class="avatar-big" id="g-avatar-preview" src="${myProfile.avatar}" alt="">`;
+  if (myProfile.avatar) av.outerHTML = `<img class="avatar-big" id="g-avatar-preview" src="${sichereBildUrl(myProfile.avatar)}" alt="">`;
   else av.outerHTML = `<span class="avatar-big" id="g-avatar-preview" style="background:${chatColor(state.userName || '?')}">${esc((state.userName || '?')[0].toUpperCase())}</span>`;
   $('#g-avatar-del').classList.toggle('hidden', !myProfile.avatar);
   // Profil so zeigen, wie Besucher es sehen
@@ -2481,7 +2509,7 @@ async function refreshGami() {
   $('#g-rank-row').innerHTML = `<span class="rank-chip">${esc(rank.name)}</span>`;
   const myBorder = gami?.activeBorder ? ` pfb-${gami.activeBorder}` : '';
   $('#me-avatar').innerHTML = myProfile.avatar
-    ? `<img class="avatar-big${myBorder}" src="${myProfile.avatar}" alt="">`
+    ? `<img class="avatar-big${myBorder}" src="${sichereBildUrl(myProfile.avatar)}" alt="">`
     : `<span class="avatar-big${myBorder}" style="background:${chatColor(state.userName || '?')}">${esc((state.userName || '?')[0].toUpperCase())}</span>`;
   $('#me-bio').textContent = myProfile.bio || 'Noch keine Bio. Erzähl kurz, wer du bist!';
   // Lieblings-Sachen als Marken-Logos, wo wir das Logo kennen
@@ -2511,7 +2539,7 @@ async function refreshGami() {
   renderFavPickers();
   // Topbar-Avatar: Profilbild statt Initiale + roter Punkt bei Anfragen
   if (myProfile.avatar && state.token) {
-    $('#btn-profile-top').innerHTML = `<img class="avatar-mini avatar-img" src="${myProfile.avatar}" alt="">`;
+    $('#btn-profile-top').innerHTML = `<img class="avatar-mini avatar-img" src="${sichereBildUrl(myProfile.avatar)}" alt="">`;
     updateGiftBadges(); // der Avatar-Tausch wirft den Geschenk-Punkt sonst raus
   }
   updateReqDot();
@@ -2994,7 +3022,7 @@ function voucherStickerHtml(st) {
     style="left:${Number(st.x) || 0}%; top:${Number(st.y) || 0}%; transform:translate(-50%,-50%) rotate(${Number(st.rot) || 0}deg)">`;
 }
 function openStickerApply(id) {
-  const targets = state.wallet.vouchers.filter(v => (v.stickers || []).length < 4);
+  const targets = state.wallet.vouchers.filter(v => !istRabatt(v) && (v.stickers || []).length < 4);
   if (!targets.length) { island('Kein Gutschein mit freiem Platz (maximal 4 Sticker pro Karte)'); return; }
   const wrap = document.createElement('div');
   wrap.className = 'overlay';
@@ -3271,7 +3299,7 @@ function winPreviewHtml(kind, id) {
   }
   if (kind === 'border') {
     return `<div class="win-ctx">${myProfile?.avatar
-      ? `<img class="avatar-big pfb-${esc(id)}" src="${myProfile.avatar}" alt="">`
+      ? `<img class="avatar-big pfb-${esc(id)}" src="${sichereBildUrl(myProfile.avatar)}" alt="">`
       : `<span class="avatar-big pfb-${esc(id)}" style="background:${chatColor(name)}">${esc(name[0].toUpperCase())}</span>`}</div>`;
   }
   if (kind === 'badge') {
@@ -3671,31 +3699,47 @@ $('#g-avatar-del').addEventListener('click', async () => {
   refreshProfileTab();
 });
 
-// Oben rechts: Gäste landen direkt beim Anmelden, Angemeldete bekommen ein Menü
+// Oben links: Gäste landen direkt beim Anmelden, Angemeldete bekommen die
+// Seitenleiste, die von links hereingleitet
 $('#btn-profile-top').addEventListener('click', () => {
   if (!state.token) { if (state.activeView !== 'profile') switchView('profile'); return; }
   toggleTopMenu();
 });
+// Profil-Seite: Inventar und Shop (hingen frueher am Menue und gingen erst,
+// nachdem es einmal offen war)
+$('#gm-inv-open') && ($('#gm-inv-open').onclick = () => switchView('inventory', 'enter-drop'));
+$('#gm-shop-open') && ($('#gm-shop-open').onclick = () => switchView('shop', 'enter-drop'));
 
-// Menü-Backdrop blendet weich ein und aus (Blur + Abdunklung über Klasse)
-function hideTopBackdrop() {
-  const bd = $('#top-menu-backdrop');
-  bd.classList.remove('show');
-  setTimeout(() => bd.classList.add('hidden'), 380);
+let tmZuUhr = 0;
+function topMenuOffen() { return !!$('#top-menu')?.classList.contains('open'); }
+function toggleTopMenu() { if (topMenuOffen()) schliesseTopMenu(); else oeffneTopMenu(); }
+function schliesseTopMenu({ fokus = true } = {}) {
+  const menu = $('#top-menu'), bd = $('#top-menu-backdrop');
+  if (!menu || !menu.classList.contains('open')) return;
+  menu.classList.remove('open', 'dragging');
+  menu.style.transform = '';
+  bd.classList.remove('show', 'dragging');
+  bd.style.opacity = '';
+  $('#btn-profile-top')?.setAttribute('aria-expanded', 'false');
+  for (const sel of ['main', '.topbar', '#tabbar', '#wallet-mini']) { const n = $(sel); if (n) n.inert = false; }
+  aktualisiereSperre(); // setzt die Sperr-Traegheit wieder, falls die Wallet gesperrt ist
+  clearTimeout(tmZuUhr);
+  tmZuUhr = setTimeout(() => { menu.inert = true; bd.classList.add('hidden'); }, sperrRuhig() ? 0 : 440);
+  if (fokus) $('#btn-profile-top')?.focus({ preventScroll: true });
 }
-function toggleTopMenu() {
+function oeffneTopMenu() {
   const menu = $('#top-menu');
-  if (!menu.classList.contains('hidden')) { menu.classList.add('hidden'); hideTopBackdrop(); return; }
   const bd = $('#top-menu-backdrop');
+  const host = $('#tm-scroll');
+  clearTimeout(tmZuUhr);
   bd.classList.remove('hidden');
-  requestAnimationFrame(() => bd.classList.add('show'));
   const reqs = myProfile?.friendRequests || [];
   const rank = rankFor(renderWallet.lastTotal || 0);
-  menu.innerHTML = `
-    <div class="tm-head">
+  host.innerHTML = `
+    <button class="tm-head" type="button" aria-label="Zum Profil">
       ${(() => {
         const tb = gami?.activeBorder ? ' pfb-' + gami.activeBorder : '';
-        return myProfile?.avatar ? `<img class="avatar-big${tb}" src="${myProfile.avatar}" alt="">`
+        return myProfile?.avatar ? `<img class="avatar-big${tb}" src="${sichereBildUrl(myProfile.avatar)}" alt="">`
           : `<span class="avatar-big${tb}" style="background:${chatColor(state.userName || '?')}">${esc((state.userName || '?')[0].toUpperCase())}</span>`;
       })()}
       <div style="flex:1">
@@ -3709,7 +3753,7 @@ function toggleTopMenu() {
         </div>
       </div>
       <svg class="icon icon-sm" style="opacity:.5"><use href="#i-chevron"/></svg>
-    </div>
+    </button>
     ${reqs.length ? `<div class="tm-section">Freundschaftsanfragen</div>
     ${reqs.map(u => `<div class="tm-req">
       <span class="avatar-mini" style="background:${chatColor(u)}">${esc(u[0].toUpperCase())}</span>
@@ -3727,14 +3771,19 @@ function toggleTopMenu() {
     <button class="tm-item" id="tm-gifts">${icon('gift', 'icon icon-sm')} Geschenke ${pendingGifts.length ? `<span class="dm-unread-pill">${pendingGifts.length}</span>` : ''}</button>
     <button class="tm-item" id="tm-favs">${icon('star', 'icon icon-sm')} Favoriten</button>
     <button class="tm-item" id="tm-settings">${icon('sliders', 'icon icon-sm')} Einstellungen</button>`;
-  menu.classList.remove('hidden');
-  const done = () => { menu.classList.add('hidden'); hideTopBackdrop(); };
+  // Eintraege gleiten gestaffelt mit herein
+  [...host.children].forEach((el, i) => el.style.setProperty('--i', Math.min(i, 14)));
+  menu.inert = false;
+  requestAnimationFrame(() => { bd.classList.add('show'); menu.classList.add('open'); });
+  $('#btn-profile-top').setAttribute('aria-expanded', 'true');
+  // Dahinter ist nichts erreichbar, solange die Leiste offen ist
+  for (const sel of ['main', '.topbar', '#tabbar', '#wallet-mini']) { const n = $(sel); if (n) n.inert = true; }
+  host.scrollTop = 0;
+  setTimeout(() => menu.querySelector('.tm-head')?.focus({ preventScroll: true }), 80);
+  const done = () => schliesseTopMenu({ fokus: false });
   // Der Profil-Banner selbst führt zum Profil
-  menu.querySelector('.tm-head').style.cursor = 'pointer';
   menu.querySelector('.tm-head').onclick = () => { done(); switchView('profile'); };
   $('#tm-inv').onclick = () => { done(); switchView('inventory', 'enter-drop'); };
-  $('#gm-inv-open') && ($('#gm-inv-open').onclick = () => switchView('inventory', 'enter-drop'));
-  $('#gm-shop-open') && ($('#gm-shop-open').onclick = () => switchView('shop', 'enter-drop'));
   $('#tm-shop').onclick = () => { done(); switchView('shop', 'enter-drop'); };
   $('#tm-catalog').onclick = () => { done(); openCatalogSheet(); };
   $('#tm-quests').onclick = () => {
@@ -3764,7 +3813,7 @@ function toggleTopMenu() {
     $('#tm-friends').innerHTML = rows.length ? rows.map(f => `
       <div class="tm-req">
         <span class="tm-friend-open" data-tm-user="${esc(f.name)}" style="display:flex; align-items:center; gap:8px; flex:1; cursor:pointer">
-          ${f.avatar ? `<img class="avatar-mini avatar-img${f.border ? ' pfb-' + esc(f.border) : ''}" src="${f.avatar}" alt="">`
+          ${f.avatar ? `<img class="avatar-mini avatar-img${f.border ? ' pfb-' + esc(f.border) : ''}" src="${sichereBildUrl(f.avatar)}" alt="">`
         : `<span class="avatar-mini" style="background:${chatColor(f.name)}">${esc(f.name[0].toUpperCase())}</span>`}
           <span style="font-weight:700">@${esc(f.name)}</span>
         </span>
@@ -3794,13 +3843,50 @@ function toggleTopMenu() {
 function updateReqDot() {
   $('#btn-profile-top').classList.toggle('has-dot', !!(myProfile?.friendRequests || []).length);
 }
-document.addEventListener('click', e => {
-  const menu = $('#top-menu');
-  if (!menu.classList.contains('hidden') && !e.target.closest('#top-menu') && !e.target.closest('#btn-profile-top')) {
-    menu.classList.add('hidden');
-    hideTopBackdrop();
-  }
-});
+$('#top-menu-backdrop').addEventListener('click', () => schliesseTopMenu());
+$('#tm-zu').addEventListener('click', () => schliesseTopMenu());
+// Wischen nach links schliesst die Leiste — sie folgt dabei dem Finger.
+// Senkrecht wird gescrollt (touch-action: pan-y auf der Scrollflaeche).
+(() => {
+  const menu = $('#top-menu'), bd = $('#top-menu-backdrop');
+  let sx = 0, sy = 0, t0 = 0, dx = 0, pid = null, aktiv = false, aus = false, klickSperreBis = 0;
+  menu.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    sx = e.clientX; sy = e.clientY; t0 = performance.now(); dx = 0; pid = e.pointerId; aktiv = false; aus = false;
+  });
+  menu.addEventListener('pointermove', e => {
+    if (e.pointerId !== pid || aus) return;
+    const x = e.clientX - sx, y = e.clientY - sy;
+    if (!aktiv) {
+      if (Math.abs(y) > 12 && Math.abs(y) > Math.abs(x)) { aus = true; return; }
+      if (!(x < -10 && Math.abs(x) > Math.abs(y))) return;
+      aktiv = true;
+      menu.classList.add('dragging');
+      bd.classList.add('dragging');
+      try { menu.setPointerCapture(e.pointerId); } catch { }
+    }
+    dx = Math.min(0, x);
+    menu.style.transform = `translate3d(${dx}px,0,0)`;
+    bd.style.opacity = String(Math.max(0, 1 + dx / menu.offsetWidth));
+  });
+  const ende = e => {
+    if (e.pointerId !== pid) return;
+    pid = null;
+    if (!aktiv) return;
+    aktiv = false;
+    klickSperreBis = Date.now() + 350;
+    const tempo = dx / Math.max(1, performance.now() - t0);
+    menu.classList.remove('dragging');
+    bd.classList.remove('dragging');
+    menu.style.transform = '';
+    bd.style.opacity = '';
+    if (dx < -menu.offsetWidth * 0.3 || tempo < -0.5) schliesseTopMenu();
+  };
+  menu.addEventListener('pointerup', ende);
+  menu.addEventListener('pointercancel', ende);
+  // Ein Wisch, der auf einem Eintrag anfing, loest ihn nicht aus
+  menu.addEventListener('click', e => { if (Date.now() < klickSperreBis) { e.stopPropagation(); e.preventDefault(); } }, true);
+})();
 
 // ---- Benachrichtigungen: Achievements unten rechts, Nachrichten-Banner oben
 
@@ -3911,7 +3997,7 @@ function tsToken(which) {
 function askConfirm(text, { okLabel = 'Ja, löschen', alertOnly = false } = {}) {
   return new Promise(resolve => {
     const wrap = document.createElement('div');
-    wrap.className = 'overlay';
+    wrap.className = 'overlay rueckfrage';
     wrap.innerHTML = `<div class="modal modal-left">
       <p style="font-size:.94rem; line-height:1.5">${text}</p>
       <div class="form-row" style="margin-top:14px; justify-content:flex-end">
@@ -4470,6 +4556,17 @@ function normalisiereWallet() {
     if (!('tx' in v)) v.tx = [];
     if (!('balance' in v) || v.balance === undefined) v.balance = wert;
     if (!('amount' in v) || v.amount === undefined) v.amount = wert;
+    // Ein Rabattcode hat nie Guthaben (auch wenn ein altes Geraet eins eingetragen
+    // hat), und seine Felder sind Zahlen bzw. eine feste Einheit — nichts anderes
+    if (istRabatt(v)) {
+      v.amount = null; v.balance = null;
+      const zahl = x => (x == null || x === '' || !Number.isFinite(Number(x)) || Number(x) <= 0 ? null : Math.round(Number(x) * 100) / 100);
+      v.rabatt = zahl(v.rabatt);
+      v.mbw = zahl(v.mbw);
+      v.rabattArt = v.rabattArt === 'pct' ? 'pct' : 'eur';
+      v.code = String(v.code || '');
+      v.vendor = String(v.vendor || '');
+    }
   }
   for (const c of w.cards) {
     if (!c.id) c.id = neueId();
@@ -5621,14 +5718,14 @@ let addEditId = '';  // gesetzt, wenn eine vorhandene Sparkarte geaendert wird
 // Gutscheine wurden als Duplikat abgewiesen.
 function findDupe(v, extra = []) {
   const shop = s => String(s || '').trim().toLowerCase();
-  return [...state.wallet.vouchers, ...extra].find(x => x && x !== v && (
+  return [...state.wallet.vouchers, ...extra].find(x => x && x !== v && x.id !== v.id && istRabatt(x) === istRabatt(v) && (
     (x.pin && v.pin && String(v.pin).length >= 4 && x.pin === v.pin && shop(x.vendor) === shop(v.vendor))
     || (v.code && x.code && x.code === v.code && (shop(x.vendor) === shop(v.vendor) || String(v.code).length >= 12))));
 }
 // Ein gerade gespeicherter oder ausgepackter Gutschein darf nicht hinter einem
 // gespeicherten Filter verschwinden — sonst wirkt er "weg"
 function zeigeNeuenGutschein(v) {
-  if (!v) return;
+  if (!v || istRabatt(v)) return;
   const f = state.walletFilter;
   if ((f && f !== 'alle' && f.toLowerCase() !== String(v.vendor || '').toLowerCase()) || state.walletVal) {
     state.walletFilter = '';
@@ -5664,6 +5761,7 @@ let waFixQueue = [];
 let waFixTotal = 0;
 function openFixForm(fix, pos, total) {
   openWalletAdd('voucher');
+  if (state.sheetMode !== 'wallet-add' || !$('#wa-preview')) { waFixQueue.unshift(fix); return; }
   addImg = fix.img || '';
   addCodeImg = fix.codeImg || '';
   if (addCodeImg || addImg) {
@@ -5693,7 +5791,9 @@ function openFixForm(fix, pos, total) {
   $('#sheet-content').scrollTop = 0;
 }
 function nextFixOrDone() {
-  if (!waFixQueue.length) return false;
+  // Gesperrt (z. B. waehrend des Sicherns im Hintergrund): die Warteschlange
+  // bleibt stehen und geht nach dem Entsperren ueber "Hinzufuegen" weiter
+  if (!waFixQueue.length || walletGesperrt()) return false;
   openFixForm(waFixQueue.shift(), waFixTotal - waFixQueue.length, waFixTotal);
   return true;
 }
@@ -6065,6 +6165,9 @@ function ocrTrusted(words, token, minConf) {
 
 // Große, interaktive Shop-Auswahl beim Hinzufügen (erst 6, Rest hinter "Weitere")
 const VENDOR_GRID = ['REWE', 'Amazon', 'Wunschgutschein', 'Zalando', 'IKEA', 'Rossmann', 'Lidl', 'EDEKA', 'Netto', 'dm', 'Müller', 'MediaMarkt', 'H&M', 'Douglas', 'Nike', 'Anderer Gutschein'];
+// Rabattcodes: vor allem Lieferdienste und Online-Shops
+const RABATT_GRID = ['Lieferando', 'Uber Eats', 'Wolt', 'Subway', "McDonald's", 'Burger King', "Domino's", 'Zalando', 'About You', 'Amazon', 'Otto', 'Shein', 'Temu', 'Nike', 'Anderer Shop'];
+const ANDERE_SHOPS = new Set(['Anderer Gutschein', 'Anderer Shop']);
 const CARD_GRID = ['Payback', 'DeutschlandCard', 'Lidl Plus', 'IKEA Family', 'Rossmann', 'REWE', 'dm', 'Andere Karte'];
 
 // Marken-Logos über den Favicon-Dienst, Initialen bleiben als Fallback darunter
@@ -6080,6 +6183,7 @@ const BRAND_DOMAINS = {
   adidas: 'adidas.de', zara: 'zara.com', shein: 'shein.com', saturn: 'saturn.de',
   mcdonalds: 'mcdonalds.com', 'burger king': 'burgerking.de', subway: 'subway.com',
   netflix: 'netflix.com', disney: 'disneyplus.com', 'uber eats': 'ubereats.com',
+  "mcdonald's": 'mcdonalds.com', "domino's": 'dominos.de', 'about you': 'aboutyou.de',
 };
 function brandChipHtml(name) {
   const domain = BRAND_DOMAINS[String(name || '').toLowerCase()];
@@ -6095,14 +6199,17 @@ function brandChipHtml(name) {
 // bearbeiteId: dann wird eine vorhandene Sparkarte geaendert statt eine neue
 // angelegt. Alles andere am Formular bleibt gleich — nur der Titel, die
 // Vorbelegung und das Speichern unterscheiden sich.
-function openWalletAdd(type, prefillName, bearbeiteId) {
+function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
   if (!state.token) { switchView('profile'); island('Für die Wallet bitte anmelden'); return; }
+  if (walletGesperrt()) { aktualisiereSperre(); return; } // gesperrte Wallet: nichts zeigen
   waSaving = false;
   addType = type || 'voucher';
   addPrefill = prefillName || '';
   state.sheetMode = 'wallet-add';
   addEditId = bearbeiteId || '';
-  const bearbeitet = addEditId ? state.wallet.cards.find(x => x.id === addEditId) : null;
+  const bearbeitet = !addEditId ? null
+    : addType === 'card' ? state.wallet.cards.find(x => x.id === addEditId)
+    : addType === 'rabatt' ? state.wallet.vouchers.find(x => x.id === addEditId && istRabatt(x)) : null;
   if (!bearbeitet) addEditId = '';
   waScanLauf++; // ein noch laufender Scan gehoert nicht in dieses Formular
   addImg = bearbeitet?.img || '';
@@ -6110,13 +6217,23 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
   waAutoWerte = {};
   addCodeImg = bearbeitet?.codeImg || '';
   const isCard = addType === 'card';
+  const isRabatt = addType === 'rabatt';
+  // Der Schieber startet dort, wo man herkam, und gleitet dann zum neuen Ziel
+  const modusVon = opts.von || addType;
   $('#sheet-content').innerHTML = `
-    <div class="sheet-title">${addEditId ? 'Sparkarte ändern'
-      : isCard ? 'Sparkarte hinzufügen' : 'Gutschein hinzufügen'}</div>
+    <div class="sheet-title">${addEditId ? (isRabatt ? 'Rabattcode ändern' : 'Sparkarte ändern')
+      : isCard ? 'Sparkarte hinzufügen' : isRabatt ? 'Rabattcode hinzufügen' : 'Gutschein hinzufügen'}</div>
+    ${!isCard && !addEditId ? `
+    <div class="wa-modus${modusVon === 'rabatt' ? ' rechts' : ''}" id="wa-modus" role="tablist" aria-label="Was fügst du hinzu?">
+      <span class="wa-modus-flaeche" aria-hidden="true"></span>
+      <button class="wa-modus-knopf${modusVon !== 'rabatt' ? ' an' : ''}" type="button" role="tab" data-wa-modus="voucher" aria-selected="${!isRabatt}">Gutschein</button>
+      <button class="wa-modus-knopf${modusVon === 'rabatt' ? ' an' : ''}" type="button" role="tab" data-wa-modus="rabatt" aria-selected="${isRabatt}">Rabattcode</button>
+    </div>` : ''}
+    <div class="wa-form${opts.von ? ' wa-form-neu' : ''}">
     ${addEditId ? '' : (() => {
       const art = isCard ? 'karten' : 'gutscheine';
       const p = walletPlatz(art);
-      const was = isCard ? 'Sparkarten' : 'Gutscheine';
+      const was = isCard ? 'Sparkarten' : 'Gutscheine und Rabattcodes';
       return `<p class="wa-platz ${p.voll ? 'voll' : p.fast ? 'fast' : ''}">${p.voll
         ? walletVollText(art)
         : `${p.n}${p.g ? ` + ${p.g} wartende Geschenke` : ''} von maximal ${p.max} ${was} in deiner Wallet · noch ${p.frei} frei`}</p>`;
@@ -6138,12 +6255,12 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
       </div>
       <div id="wa-result" class="hidden"></div>
       <div class="form-row" style="justify-content:center">
-        <label class="btn btn-small btn-ghost" style="cursor:pointer">${isCard ? 'Bild' : 'Bilder'} hochladen
-          <input id="wa-img" type="file" accept="image/*" ${isCard ? '' : 'multiple'} style="display:none"></label>
+        <label class="btn btn-small btn-ghost" style="cursor:pointer">${isCard || isRabatt ? 'Bild' : 'Bilder'} hochladen
+          <input id="wa-img" type="file" accept="image/*" ${isCard || isRabatt ? '' : 'multiple'} style="display:none"></label>
         <label class="btn btn-small btn-ghost" style="cursor:pointer">Foto aufnehmen
           <input id="wa-cam" type="file" accept="image/*" capture="environment" style="display:none"></label>
       </div>
-      ${isCard ? '' : '<p class="muted" style="font-size:.72rem; text-align:center; margin-top:4px">Tipp: mehrere Bilder auswählen, dann landen alle erkannten Gutscheine auf einmal in der Wallet.</p>'}
+      ${isCard ? '' : isRabatt ? '<p class="muted" style="font-size:.72rem; text-align:center; margin-top:4px">Screenshot vom Code? Dann liest die App Code, Rabatt und Mindestbestellwert selbst aus.</p>' : '<p class="muted" style="font-size:.72rem; text-align:center; margin-top:4px">Tipp: mehrere Bilder auswählen, dann landen alle erkannten Gutscheine auf einmal in der Wallet.</p>'}
       <div id="wa-ai-msg" class="form-msg" style="text-align:center"></div>
     </div>
 
@@ -6161,7 +6278,7 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
       value="${esc(bearbeitet?.number || '')}">
     <p class="muted" style="font-size:.74rem; margin:4px 0 0">Manche Karten haben gar keine Nummer —
       dann reicht ein Foto vom Barcode, oder du legst sie einfach ohne an.</p>
-    ` : `
+    ` : isRabatt ? rabattFormHtml(bearbeitet) : `
     <label class="f-label">Shop <span class="req">*</span></label>
     <div class="vendor-grid" id="wa-vendor-grid">
       ${VENDOR_GRID.map((v, i) => `<button class="vendor-tile ${i >= 6 ? 'hidden vendor-more' : ''}" data-vg="${esc(v)}">
@@ -6192,6 +6309,7 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
     <div class="form-row" style="margin-top:14px">
       <button id="wa-save" class="btn">${addEditId ? 'Änderungen speichern' : 'Speichern'}</button>
       <span id="wa-msg" class="form-msg"></span>
+    </div>
     </div>`;
 
   // Shop-Kacheln: Antippen wählt aus, "Anderer Gutschein" öffnet das Freitextfeld
@@ -6202,7 +6320,7 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
   });
   $('#sheet-content').querySelectorAll('[data-vg]').forEach(b => b.addEventListener('click', () => {
     $('#sheet-content').querySelectorAll('.vendor-tile').forEach(x => x.classList.toggle('on', x === b));
-    if (b.dataset.vg === 'Anderer Gutschein') {
+    if (ANDERE_SHOPS.has(b.dataset.vg)) {
       pickedVendor = '';
       $('#wa-vendor').classList.remove('hidden');
       $('#wa-vendor').focus();
@@ -6227,6 +6345,60 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
     }
   }));
   const currentCard = () => pickedCard || $('#wa-cname')?.value.trim() || '';
+
+  // Gutschein oder Rabattcode: der Schieber oben wechselt das Formular
+  const modus = $('#wa-modus');
+  if (modus) {
+    if (opts.von && opts.von !== addType) requestAnimationFrame(() => {
+      modus.classList.toggle('rechts', isRabatt);
+      modus.querySelectorAll('[data-wa-modus]').forEach(k => k.classList.toggle('an', k.dataset.waModus === addType));
+    });
+    modus.querySelectorAll('[data-wa-modus]').forEach(k => k.addEventListener('click', () => {
+      if (k.dataset.waModus === addType || waSaving) return;
+      buzz(8);
+      openWalletAdd(k.dataset.waModus, '', '', { von: addType });
+    }));
+  }
+  // Rabatt in Euro oder Prozent
+  let waEinheit = bearbeitet?.rabattArt === 'pct' ? 'pct' : 'eur';
+  const setzeEinheit = e => {
+    waEinheit = e;
+    const box = $('#wa-einheit');
+    if (!box) return;
+    box.classList.toggle('rechts', e === 'pct');
+    box.querySelectorAll('[data-einheit]').forEach(x => {
+      x.classList.toggle('an', x.dataset.einheit === e);
+      x.setAttribute('aria-pressed', String(x.dataset.einheit === e));
+    });
+  };
+  $('#wa-einheit')?.querySelectorAll('[data-einheit]').forEach(k => k.addEventListener('click', () => setzeEinheit(k.dataset.einheit)));
+  // Mindestbestellwert: Schalter blendet das Betragsfeld ein
+  const mbwText = () => {
+    const t = $('#wa-mbw-text');
+    if (!t) return;
+    const n = parseFloat(String($('#wa-mbw')?.value || '').replace(',', '.'));
+    t.textContent = $('#wa-mbw-an').checked ? (n > 0 ? 'ab ' + euroFmt(n) : 'Betrag eintragen') : 'ohne MBW';
+  };
+  $('#wa-mbw-an')?.addEventListener('change', e => {
+    $('#wa-mbw-feld').classList.toggle('hidden', !e.target.checked);
+    mbwText();
+    if (e.target.checked) setTimeout(() => $('#wa-mbw')?.focus(), 60);
+  });
+  $('#wa-mbw')?.addEventListener('input', mbwText);
+  // Beim Aendern (oder aus einem Marken-Blatt) den Shop vorwaehlen
+  if (isRabatt && (bearbeitet?.vendor || addPrefill)) {
+    const name = bearbeitet?.vendor || addPrefill;
+    const tile = [...document.querySelectorAll('#wa-vendor-grid [data-vg]')]
+      .find(t => !ANDERE_SHOPS.has(t.dataset.vg) && t.dataset.vg.toLowerCase() === name.toLowerCase());
+    if (tile) {
+      if (tile.classList.contains('vendor-more')) $('#wa-vendor-showmore')?.click();
+      tile.click();
+    } else {
+      document.querySelectorAll('#wa-vendor-grid .vendor-tile').forEach(x => x.classList.toggle('on', x.dataset.vg === 'Anderer Shop'));
+      $('#wa-vendor').classList.remove('hidden');
+      $('#wa-vendor').value = name;
+    }
+  }
 
   // Beim Aendern das schon hinterlegte Bild gleich zeigen — sonst sieht es aus,
   // als waere es weg, und man laedt es unnoetig neu hoch.
@@ -6286,7 +6458,7 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
       // Inzwischen kam ein anderes Bild: dieses Ergebnis gehoert nicht mehr hierher
       if (veraltet()) return;
       if (r.codeImg) { addCodeImg = r.codeImg; $('#wa-preview').src = r.codeImg; }
-      const felder = ['#wa-code', '#wa-pin', '#wa-amount', '#wa-cnumber'];
+      const felder = ['#wa-code', '#wa-pin', '#wa-amount', '#wa-cnumber', '#wa-rcode', '#wa-rwert', '#wa-mbw'];
       const vorher = Object.fromEntries(felder.map(sel => [sel, $(sel)?.value || '']));
       const filled = [];
       if (addType === 'voucher') {
@@ -6314,6 +6486,39 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
             }
           }
         }
+      } else if (addType === 'rabatt') {
+        const text = r.text || '';
+        const code = (r.barcode && r.barcode.length <= 40 ? r.barcode : '') || (text ? detectCode(text) : '');
+        if (code && !$('#wa-rcode').value) { $('#wa-rcode').value = code.slice(0, 40); filled.push('Code'); }
+        const betrag = x => parseFloat(String(x).replace(',', '.'));
+        const mbw = text.match(/(?:mindestbestellwert|mindestbestellung|mbw|bestellwert|einkaufswert)\D{0,20}?(\d{1,3}(?:[.,]\d{1,2})?)\s?(?:€|eur)/i)
+          || text.match(/\bab\s+(\d{1,3}(?:[.,]\d{1,2})?)\s?(?:€|eur)/i);
+        if (mbw && !$('#wa-mbw').value) {
+          $('#wa-mbw-an').checked = true;
+          $('#wa-mbw-feld').classList.remove('hidden');
+          $('#wa-mbw').value = mbw[1];
+          mbwText();
+          filled.push('Mindestbestellwert');
+        }
+        if (!$('#wa-rwert').value) {
+          const pct = text.match(/(\d{1,2})\s?%/);
+          const euros = [...text.matchAll(/(\d{1,3}(?:[.,]\d{1,2})?)\s?(?:€|eur\b)/gi)].map(m => m[1])
+            .filter(x => !mbw || betrag(x) !== betrag(mbw[1]));
+          if (pct) { $('#wa-rwert').value = pct[1]; setzeEinheit('pct'); filled.push('Rabatt'); }
+          else if (euros.length) { $('#wa-rwert').value = euros[0]; setzeEinheit('eur'); filled.push('Rabatt'); }
+        }
+        if (!currentVendor() && text) {
+          const low = text.toLowerCase();
+          const hit = [...RABATT_GRID.filter(x => !ANDERE_SHOPS.has(x)).map(x => x.toLowerCase()), ...Object.keys(BRAND_COLORS)]
+            .find(k => k.length > 2 && low.includes(k));
+          if (hit) {
+            const tile = [...document.querySelectorAll('#wa-vendor-grid [data-vg]')].find(t => t.dataset.vg.toLowerCase() === hit);
+            if (tile) { if (tile.classList.contains('vendor-more')) $('#wa-vendor-showmore')?.click(); tile.click(); }
+            else { $('#wa-vendor').classList.remove('hidden'); $('#wa-vendor').value = hit.charAt(0).toUpperCase() + hit.slice(1); }
+            waAutoWerte.__shop = currentVendor();
+            filled.push('Shop');
+          }
+        }
       } else {
         if (r.barcode && !$('#wa-cnumber').value) { $('#wa-cnumber').value = r.barcode.slice(0, 30); filled.push('Kartennummer (aus Barcode)'); }
         else if (r.text && !$('#wa-cnumber').value) {
@@ -6331,12 +6536,16 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
       setTimeout(() => $('#wa-progress')?.classList.add('hidden'), 1400);
       const resRow = (label, val) => val
         ? `<div class="scan-row"><span>${label}</span><b>${esc(val)}</b></div>` : '';
-      const resCode = addType === 'voucher' ? $('#wa-code').value : $('#wa-cnumber').value;
+      const resCode = addType === 'voucher' ? $('#wa-code').value : addType === 'rabatt' ? $('#wa-rcode').value : $('#wa-cnumber').value;
       const resRows = addType === 'voucher'
         ? resRow('Code', r.barcode && r.barcode !== resCode ? r.barcode : '')
           + resRow('Kartennummer', resCode)
           + resRow('PIN', $('#wa-pin').value)
-        : resRow('Kartennummer', resCode);
+        : addType === 'rabatt'
+          ? resRow('Code', resCode)
+            + resRow('Rabatt', $('#wa-rwert').value ? $('#wa-rwert').value + (waEinheit === 'pct' ? ' %' : ' €') : '')
+            + resRow('Mindestbestellwert', $('#wa-mbw-an').checked && $('#wa-mbw').value ? 'ab ' + $('#wa-mbw').value + ' €' : '')
+          : resRow('Kartennummer', resCode);
       if (addCodeImg || resRows) {
         $('#wa-result').classList.remove('hidden');
         $('#wa-result').innerHTML = resRows;
@@ -6539,11 +6748,14 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
     // Doppelklick-Schutz: solange gespeichert wird, ist der Button tabu, sonst
     // meldet der zweite Klick den EIGENEN Gutschein als Duplikat
     if (waSaving) return;
+    // Waehrend des Sicherns kann das Formular wechseln — danach zaehlt, was
+    // beim Tippen auf "Speichern" galt
+    const typ = addType, editId = addEditId;
     // Ohne Netz wird trotzdem gespeichert: die Wallet liegt dauerhaft auf dem
     // Geraet (IndexedDB) und geht hoch, sobald wieder Netz da ist
     let savedItem = null, savedList = null;
     // Wallet voll: ehrlich sagen statt still zu scheitern (Bearbeiten geht immer)
-    const platzArt = addType === 'voucher' ? 'gutscheine' : 'karten';
+    const platzArt = addType === 'card' ? 'karten' : 'gutscheine';
     if (!addEditId && walletPlatz(platzArt).voll) {
       msg.className = 'form-msg error';
       msg.textContent = walletVollText(platzArt);
@@ -6583,6 +6795,60 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
       // erhalten — ausserhalb der Wallet
       if (addCodeImg && (addOrig || addImg)) origSichern(v, addOrig || addImg);
       savedItem = v; savedList = state.wallet.vouchers;
+    } else if (addType === 'rabatt') {
+      const alt = addEditId ? state.wallet.vouchers.find(x => x.id === addEditId && istRabatt(x)) : null;
+      const zahl = sel => {
+        const n = parseFloat(String($(sel)?.value || '').replace(',', '.'));
+        return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
+      };
+      // amount/balance immer ausdruecklich null: sonst machte normalisiereWallet
+      // (oder ein altes Geraet) aus dem Code Guthaben
+      const rc = {
+        ...(alt || {}),
+        id: alt ? alt.id : Math.random().toString(36).slice(2, 9),
+        art: 'rabatt',
+        vendor: currentVendor().slice(0, 30),
+        code: $('#wa-rcode').value.replace(/\s+/g, '').slice(0, 40),
+        rabatt: zahl('#wa-rwert'),
+        rabattArt: waEinheit,
+        mbw: $('#wa-mbw-an').checked ? zahl('#wa-mbw') : null,
+        end: $('#wa-end').value || '',
+        notiz: $('#wa-notiz').value.trim().slice(0, 80),
+        pin: '', amount: null, balance: null,
+        tx: alt ? (alt.tx || []) : [],
+        img: addCodeImg ? '' : addImg, codeImg: addCodeImg,
+        added: alt ? alt.added : Date.now(),
+        eingeloest: alt ? (alt.eingeloest || 0) : 0,
+        ...(alt ? { mt: Date.now() } : {}),
+      };
+      if (alt && (rc.img !== alt.img || rc.codeImg !== alt.codeImg)) {
+        rc.bildMt = Math.max(Date.now(), (alt.bildMt || 0) + 1);
+        if (rc.orig && !addCodeImg) origEntfernen(rc);
+      }
+      const zuViel = rc.rabattArt === 'pct' && rc.rabatt > 100;
+      $('#wa-vendor-grid')?.classList.toggle('err', !rc.vendor);
+      $('#wa-rcode').classList.toggle('err', !rc.code);
+      $('#wa-rwert').classList.toggle('err', zuViel);
+      if (!rc.vendor || !rc.code || zuViel) {
+        msg.className = 'form-msg error';
+        msg.textContent = !rc.vendor ? 'Bitte einen Shop auswählen.' : !rc.code ? 'Bitte den Rabattcode eintragen.' : 'Mehr als 100 % Rabatt gibt es nicht.';
+        return;
+      }
+      const dupe = findDupe(rc);
+      if (dupe && alt) {
+        $('#wa-rcode').classList.add('err');
+        msg.className = 'form-msg error';
+        msg.textContent = `Diesen Code hast du schon (${dupe.vendor}). Bitte einen anderen eintragen.`;
+        return;
+      }
+      if (dupe) {
+        dupeReject(`Diesen Rabattcode hast du schon (${esc(dupe.vendor)}).`);
+        return;
+      }
+      if (alt) state.wallet.vouchers[state.wallet.vouchers.indexOf(alt)] = rc;
+      else state.wallet.vouchers.unshift(rc);
+      if (addCodeImg && (addOrig || addImg) && (!alt || alt.codeImg !== addCodeImg)) origSichern(rc, addOrig || addImg);
+      savedItem = rc; savedList = state.wallet.vouchers;
     } else {
       const alt = addEditId ? state.wallet.cards.find(x => x.id === addEditId) : null;
       const c = {
@@ -6636,13 +6902,21 @@ function openWalletAdd(type, prefillName, bearbeiteId) {
         playSfx('kaching'); buzz(35);
         showToast({
           title: 'Gespeichert, Sicherung folgt',
-          text: 'Der Server war gerade nicht erreichbar. Der Gutschein bleibt auf dem Gerät und wird automatisch nachgesichert.',
+          text: `Der Server war gerade nicht erreichbar. ${typ === 'rabatt' ? 'Der Rabattcode' : typ === 'card' ? 'Die Karte' : 'Der Gutschein'} bleibt auf dem Gerät und wird automatisch nachgesichert.`,
           iconName: 'warning',
         }, 8000);
+        if (typ === 'rabatt') zeigeRabattcodes(savedItem.id);
         return;
       }
     }
     closeSheet();
+    // Rabattcodes sind kein Guthaben: kein Geldregen, dafuer gleich zeigen, wo er liegt
+    if (typ === 'rabatt') {
+      playSfx('coin'); buzz(20);
+      island(editId ? 'Rabattcode geändert' : 'Rabattcode gespeichert');
+      zeigeRabattcodes(savedItem.id);
+      return;
+    }
     // Ka-ching! Neues Guthaben in der Wallet
     playSfx('kaching');
     buzz(35);
@@ -6668,6 +6942,7 @@ function karteZuMarke(vendor) {
 function gutscheineZuMarke(name, max = 3) {
   const k = String(name || '').trim().toLowerCase();
   return state.wallet.vouchers
+    .filter(v => !istRabatt(v))
     .filter(v => String(v.vendor || '').trim().toLowerCase() === k)
     .filter(v => v.balance == null || v.balance > 0)
     .sort((a, b) => (a.balance ?? Infinity) - (b.balance ?? Infinity))
@@ -7126,6 +7401,7 @@ function openVoucherSheet(id, animFrom, zurueckZu, richtung) {
   if (walletGesperrt()) { aktualisiereSperre(); return; } // gesperrte Wallet: nichts zeigen
   const v = state.wallet.vouchers.find(x => x.id === id);
   if (!v) return;
+  if (istRabatt(v)) return openRabattSheet(id, richtung);
   if (v.giftFrom && !v.giftSeen) { v.giftSeen = true; saveWallet(); }
   state.sheetMode = 'wallet-detail';
   const expired = v.end && Date.parse(v.end + 'T23:59:59') < Date.now();
@@ -7165,9 +7441,9 @@ function openVoucherSheet(id, animFrom, zurueckZu, richtung) {
     </div>` : ''}
     ${v.pin ? `<div class="tx-row"><span class="wallet-code" style="flex:1">PIN: ${esc(v.pin)}</span>
       <button class="btn btn-small btn-ghost" data-copy-txt="${esc(v.pin)}">PIN kopieren</button></div>` : ''}
-    ${v.codeImg ? `<img class="wallet-code-img" id="wv-bild" src="${v.codeImg}" alt="Code für die Kasse"
+    ${v.codeImg ? `<img class="wallet-code-img" id="wv-bild" src="${esc(v.codeImg)}" alt="Code für die Kasse"
         role="button" tabindex="0" aria-label="Bild vergrößern">`
-      : v.img ? `<img class="wallet-img" id="wv-bild" src="${v.img}" alt="QR/Barcode"
+      : v.img ? `<img class="wallet-img" id="wv-bild" src="${esc(v.img)}" alt="QR/Barcode"
         role="button" tabindex="0" aria-label="Bild vergrößern">` : ''}
     <div class="bild-aktionen">
       <label class="bild-btn">
@@ -7249,6 +7525,7 @@ function openVoucherSheet(id, animFrom, zurueckZu, richtung) {
     if (!await askConfirm(rest
       ? `Auf diesem ${esc(v.vendor)}-Gutschein sind noch ${euroFmt(v.balance)}. Trotzdem löschen?`
       : `Bist du sicher, dass du den ${esc(v.vendor)}-Gutschein löschen willst?`, rest ? { okLabel: 'Trotzdem löschen' } : undefined)) return;
+    if (walletGesperrt()) return;
     tombstone(id);
     state.wallet.vouchers = state.wallet.vouchers.filter(x => x.id !== id);
     saveWallet(); closeSheet(); island('Gutschein gelöscht');
@@ -8047,6 +8324,224 @@ function voucherCardHtml(v) {
     </div>`;
 }
 
+// ---------------- Rabattcodes ----------------
+// Liegen in der Wallet neben den Gutscheinen (art: 'rabatt'), damit Sichern,
+// Abgleich, Papierkorb und Loeschmarker genauso greifen. Sie haben aber KEIN
+// Guthaben (amount/balance bleiben null) und zaehlen nirgends mit: nicht im
+// Gesamtguthaben, nicht in der Statistik, nicht beim Verschenken.
+// Angezeigt werden sie im Bereich "Karten & Coupons", ganz oben.
+function rabattZahl(x) { const n = Number(x); return x != null && x !== '' && Number.isFinite(n) && n > 0 ? n : null; }
+function rabattWertText(v) {
+  const n = rabattZahl(v && v.rabatt);
+  if (n == null) return '';
+  return esc(v.rabattArt === 'pct' ? `${String(n).replace('.', ',')} %` : euroFmt(n));
+}
+function rabattMbwText(v) { const n = rabattZahl(v && v.mbw); return n ? `ab ${esc(euroFmt(n))} MBW` : 'ohne MBW'; }
+function rabattAbgelaufen(v) { return !!(v && v.end) && Date.parse(v.end + 'T23:59:59') < Date.now(); }
+function rabattShopUrl(name) {
+  const d = BRAND_DOMAINS[String(name || '').trim().toLowerCase()];
+  return d ? `https://www.${d}` : '';
+}
+function rabattCardHtml(v) {
+  const aus = !!v.eingeloest || rabattAbgelaufen(v);
+  const wert = rabattWertText(v);
+  const status = v.eingeloest ? 'eingelöst'
+    : v.end ? (rabattAbgelaufen(v) ? 'abgelaufen' : 'bis ' + new Date(v.end).toLocaleDateString('de-DE')) : '';
+  return `
+    <div class="wallet-card rc-card${aus ? ' rc-aus' : ''}${brandHelligkeit(brandColor(v.vendor)) > 0.62 ? ' hell' : ''}"
+      data-rc="${esc(v.id)}" role="button" tabindex="0" aria-label="${esc(v.vendor)}-Rabattcode öffnen"
+      style="--bc:${brandColor(v.vendor)}; --tc:${brandTextColor(v.vendor)}">
+      <div class="wallet-card-head">
+        ${brandChipHtml(v.vendor)}
+        <span class="wallet-card-name">${esc(v.vendor)}</span>
+        ${wert ? `<span class="wallet-card-balance">−${wert}</span>` : ''}
+      </div>
+      <div class="wallet-card-sub">
+        <span class="rc-code">${esc(v.code)}</span>
+        <span class="pill">${rabattMbwText(v)}</span>
+        ${status ? `<span class="pill">${status}</span>` : ''}
+        <button class="rc-kopieren" type="button" data-rc-copy="${esc(v.id)}" aria-label="Code ${esc(v.code)} kopieren">Kopieren</button>
+      </div>
+    </div>`;
+}
+function rabattSektionHtml() {
+  if (!state.token) return '';
+  const alle = state.wallet.vouchers.filter(istRabatt);
+  const aktiv = alle.filter(v => !v.eingeloest && !rabattAbgelaufen(v))
+    .sort((a, b) => (a.end || '9999').localeCompare(b.end || '9999') || (b.added || 0) - (a.added || 0));
+  const aus = alle.filter(v => v.eingeloest || rabattAbgelaufen(v))
+    .sort((a, b) => (b.eingeloest || b.added || 0) - (a.eingeloest || a.added || 0));
+  return `
+    <div class="bereich-zeile rc-kopf">
+      <h2 class="bereich-titel" style="margin:0">Deine Rabattcodes</h2>
+      ${alle.length ? `<button class="chip rc-neu-chip" type="button" data-wadd="rabatt">${icon('plus', 'icon icon-sm')} Rabattcode</button>` : ''}
+    </div>
+    <p class="rc-hinweis">Zählen nicht zum Wallet-Guthaben.</p>
+    <div class="rc-liste">
+      ${aktiv.map(rabattCardHtml).join('')}
+      ${!aktiv.length ? `<button class="wallet-card-add" type="button" data-wadd="rabatt">
+        <span class="wallet-add-plus small">${icon('plus')}</span>
+        <span>Rabattcode hinzufügen, z. B. Lieferando oder Subway</span></button>` : ''}
+    </div>
+    ${aus.length ? `<details class="rules-fold rc-aus-fold">
+      <summary>${icon('list', 'icon icon-sm')} Eingelöst &amp; abgelaufen <span class="stars-count">(${aus.length})</span>
+        ${icon('chevron', 'icon icon-sm chev')}</summary>
+      <div class="rc-liste rc-liste-aus">${aus.map(rabattCardHtml).join('')}</div>
+    </details>` : ''}`;
+}
+// Karten im Coupons-Bereich verdrahten (nach jedem Neuaufbau)
+function rabattKartenVerdrahten(host) {
+  host.querySelectorAll('[data-rc]').forEach(el => {
+    el.onclick = () => openRabattSheet(el.dataset.rc);
+    el.onkeydown = e => {
+      if (e.target !== el) return; // Knopf in der Karte (Kopieren) handelt selbst
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openRabattSheet(el.dataset.rc); }
+    };
+  });
+  host.querySelectorAll('[data-rc-copy]').forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    const v = state.wallet.vouchers.find(x => x.id === b.dataset.rcCopy);
+    if (!v) return;
+    copyText(v.code);
+    buzz(10);
+    b.textContent = 'Kopiert';
+    neuStarten(b, 'kopiert');
+    setTimeout(() => { b.textContent = 'Kopieren'; b.classList.remove('kopiert'); }, 1400);
+  });
+}
+// Nach dem Speichern: in den Coupons-Bereich und den Code kurz hervorheben
+function zeigeRabattcodes(id) {
+  if (state.activeView !== 'wallet') switchView('wallet');
+  if (walletTab !== 'coupons') document.querySelector('[data-wtab="coupons"]')?.click();
+  else renderCoupons();
+  setTimeout(() => {
+    const el = id && document.querySelector(`#coupons-content [data-rc="${CSS.escape(id)}"]`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: sperrRuhig() ? 'auto' : 'smooth', block: 'center' });
+    if (!sperrRuhig()) neuStarten(el, 'rc-neu');
+  }, 380);
+}
+function openRabattSheet(id, richtung) {
+  if (walletGesperrt()) { aktualisiereSperre(); return; } // gesperrte Wallet: nichts zeigen
+  const v = state.wallet.vouchers.find(x => x.id === id && istRabatt(x));
+  if (!v) return;
+  state.sheetMode = 'rabatt-detail';
+  const abgelaufen = rabattAbgelaufen(v);
+  const wert = rabattWertText(v);
+  const shop = rabattShopUrl(v.vendor);
+  $('#sheet-content').innerHTML = `
+    <div class="offer-head">
+      ${brandChipHtml(v.vendor)}
+      <div class="offer-brand">
+        <div class="offer-merchant">${esc(v.vendor)}</div>
+        <div class="offer-cat">Rabattcode · ${v.eingeloest ? 'eingelöst'
+          : v.end ? (abgelaufen ? 'abgelaufen' : 'gültig bis ' + new Date(v.end).toLocaleDateString('de-DE')) : 'ohne Ablaufdatum'}</div>
+      </div>
+    </div>
+    <div class="rc-gross${v.eingeloest || abgelaufen ? ' rc-aus' : ''}" style="--bc:${brandColor(v.vendor)}; --tc:${brandTextColor(v.vendor)}">
+      <div class="rc-gross-wert">${wert ? '−' + wert : 'Rabatt'}</div>
+      <div class="rc-gross-mbw">${rabattZahl(v.mbw) ? `ab ${esc(euroFmt(rabattZahl(v.mbw)))} Bestellwert` : 'ohne Mindestbestellwert'}</div>
+    </div>
+    <div class="rc-codefeld">
+      <span class="wallet-code rc-codetext">${esc(v.code)}</span>
+      <button class="btn btn-small" data-copy-txt="${esc(v.code)}" type="button">Code kopieren</button>
+    </div>
+    <p class="rc-info">${icon('bulb', 'icon icon-sm')}
+      <span>Zählt nicht zum Wallet-Guthaben: den Code gibst du beim Bestellen ein.</span></p>
+    ${v.notiz ? `<p class="rc-info">${icon('list', 'icon icon-sm')}<span>${esc(v.notiz)}</span></p>` : ''}
+    ${v.codeImg ? `<img class="wallet-code-img" id="wv-bild" src="${esc(v.codeImg)}" alt="Bild zum Rabattcode"
+        role="button" tabindex="0" aria-label="Bild vergrößern">`
+      : v.img ? `<img class="wallet-img" id="wv-bild" src="${esc(v.img)}" alt="Bild zum Rabattcode"
+        role="button" tabindex="0" aria-label="Bild vergrößern">` : ''}
+    <div class="bild-aktionen">
+      <label class="bild-btn">
+        ${icon(v.codeImg || v.img ? 'wand' : 'plus', 'icon')}
+        <span>${v.codeImg || v.img ? 'Bild tauschen' : 'Bild hinzufügen'}</span>
+        <input type="file" id="wv-img-file" accept="image/*" style="display:none">
+      </label>
+      ${v.codeImg || v.img ? `<button class="bild-btn" id="wv-img-crop">
+        ${icon('sliders', 'icon')}<span>Zuschneiden</span></button>
+        <button class="bild-btn bild-btn-rund" id="wv-img-zoom" aria-label="Bild vergrößern" title="Vergrößern">
+        ${icon('search', 'icon')}</button>` : ''}
+    </div>
+    ${shop ? `<a class="app-jump" href="${shop}" target="_blank" rel="noopener noreferrer" style="--bc:${brandColor(v.vendor)}">
+      ${brandChipHtml(v.vendor)}
+      <span class="app-jump-txt"><b>Zu ${esc(v.vendor)}</b><small>Code kopieren, dort bestellen und einlösen</small></span>
+      ${icon('arrow-right', 'icon icon-sm')}
+    </a>` : ''}
+    <div class="form-row rc-aktionen">
+      <button class="btn btn-small" id="rc-eingeloest" type="button">${v.eingeloest ? 'Wieder aktiv' : 'Als eingelöst markieren'}</button>
+      <button class="btn btn-small btn-ghost" id="rc-aendern" type="button">Ändern</button>
+    </div>
+    ${v.added ? `<p class="added-line">Hinzugefügt am ${new Date(v.added).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })}</p>` : ''}
+    <button class="btn btn-danger" id="rc-del" type="button" style="margin-top:14px">Rabattcode löschen</button>`;
+  $('#sheet-content').querySelectorAll('[data-copy-txt]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copyTxt)));
+  wireVoucherImage(v); // Bild tauschen / zuschneiden / nachtraeglich hochladen
+  $('#rc-eingeloest').addEventListener('click', () => {
+    v.eingeloest = v.eingeloest ? 0 : Date.now();
+    saveWallet();
+    buzz(12);
+    island(v.eingeloest ? 'Als eingelöst markiert' : 'Wieder aktiv');
+    openRabattSheet(v.id);
+  });
+  $('#rc-aendern').addEventListener('click', () => openWalletAdd('rabatt', v.vendor, v.id));
+  $('#rc-del').addEventListener('click', async () => {
+    if (!await askConfirm(`Den ${esc(v.vendor)}-Rabattcode löschen?`, { okLabel: 'Löschen' }) || walletGesperrt()) return;
+    tombstone(v.id);
+    state.wallet.vouchers = state.wallet.vouchers.filter(x => x.id !== v.id);
+    saveWallet(); closeSheet(); island('Rabattcode gelöscht');
+  });
+  openSheetShell(richtung);
+}
+// Formularteil fuer Rabattcodes (im Blatt "Hinzufuegen")
+function rabattFormHtml(v) {
+  const pct = v?.rabattArt === 'pct';
+  return `
+    <label class="f-label">Shop <span class="req">*</span></label>
+    <div class="vendor-grid" id="wa-vendor-grid">
+      ${RABATT_GRID.map((n, i) => `<button class="vendor-tile ${i >= 6 ? 'hidden vendor-more' : ''}" data-vg="${esc(n)}" type="button">
+        ${brandChipHtml(n)}
+        <span>${esc(n)}</span>
+      </button>`).join('')}
+      <button class="vendor-tile" id="wa-vendor-showmore" type="button">
+        <span class="brand-chip" style="--bc:rgba(127,127,127,.4)">…</span>
+        <span>Weitere</span>
+      </button>
+    </div>
+    <input id="wa-vendor" class="input hidden" maxlength="30" placeholder="Shop-Name eintippen">
+    <label class="f-label" for="wa-rcode">Rabattcode <span class="req">*</span></label>
+    <input id="wa-rcode" class="input rc-eingabe" maxlength="40" placeholder="z. B. SPAR5"
+      autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" value="${esc(v?.code || '')}">
+    <label class="f-label" for="wa-rwert">Rabatt <span class="opt">(optional)</span></label>
+    <div class="rc-wertzeile">
+      <input id="wa-rwert" class="input" inputmode="decimal" placeholder="z. B. 5"
+        value="${v?.rabatt != null ? esc(String(v.rabatt).replace('.', ',')) : ''}">
+      <div class="wa-modus klein${pct ? ' rechts' : ''}" id="wa-einheit" role="group" aria-label="Rabatt in Euro oder Prozent">
+        <span class="wa-modus-flaeche" aria-hidden="true"></span>
+        <button class="wa-modus-knopf${pct ? '' : ' an'}" type="button" data-einheit="eur" aria-pressed="${!pct}">€</button>
+        <button class="wa-modus-knopf${pct ? ' an' : ''}" type="button" data-einheit="pct" aria-pressed="${pct}">%</button>
+      </div>
+    </div>
+    <div class="rc-mbw-zeile">
+      <span class="rc-mbw-txt"><b>Mindestbestellwert</b><small id="wa-mbw-text">${v?.mbw ? 'ab ' + euroFmt(v.mbw) : 'ohne MBW'}</small></span>
+      <label class="switch"><input type="checkbox" id="wa-mbw-an" ${v?.mbw ? 'checked' : ''}><span class="switch-slider"></span></label>
+    </div>
+    <div id="wa-mbw-feld" class="${v?.mbw ? '' : 'hidden'}">
+      <input id="wa-mbw" class="input" inputmode="decimal" placeholder="Ab welchem Bestellwert? z. B. 15"
+        value="${v?.mbw ? esc(String(v.mbw).replace('.', ',')) : ''}">
+    </div>
+    <div class="form-grid">
+      <div>
+        <label class="f-label" for="wa-end">Gültig bis <span class="opt">(optional)</span></label>
+        <input id="wa-end" class="input" type="date" value="${esc(v?.end || '')}">
+      </div>
+      <div>
+        <label class="f-label" for="wa-notiz">Notiz <span class="opt">(optional)</span></label>
+        <input id="wa-notiz" class="input" maxlength="80" placeholder="z. B. nur Neukunden" value="${esc(v?.notiz || '')}">
+      </div>
+    </div>`;
+}
+
 // Drei Wallet-Bereiche: Gutscheine, Sparkarten (App-Raster), Coupons
 let walletTab = 'gutscheine';
 function updateWalletTab(anim) {
@@ -8130,8 +8625,8 @@ function renderWallet() {
     ? 'Aufgebrauchte bleiben, bis du sie löschst (automatisches Aufräumen ist in den Einstellungen aus).'
     : 'Aufgebrauchte Gutscheine werden 30 Tage nach der letzten Buchung automatisch entfernt. Abschalten kannst du das in den Einstellungen.';
 
-  const allActive = state.wallet.vouchers.filter(v => v.balance == null || v.balance > 0);
-  const used = state.wallet.vouchers.filter(v => v.balance != null && v.balance <= 0);
+  const allActive = state.wallet.vouchers.filter(v => !istRabatt(v) && (v.balance == null || v.balance > 0));
+  const used = state.wallet.vouchers.filter(v => !istRabatt(v) && v.balance != null && v.balance <= 0);
 
   // Suche (Shop, Code, PIN, Buchungs-Notizen) + Filter-Chips
   const q = (state.walletQuery || '').trim().toLowerCase();
@@ -8174,31 +8669,22 @@ function renderWallet() {
   if (marketOn && state.walletVal) {
     active = active.filter(v => (v.amount ?? v.balance ?? 0) === state.walletVal);
   }
-  // Vendor-Chips neu aufbauen
+  // Marke: ein Knopf mit Auswahlliste statt einer Reihe Chips
   const vendors = [...new Set(allActive.map(v => v.vendor))];
-  const vf = $('#wallet-vendor-filters');
-  if (vf) {
-    // Die Chips werden nur neu gebaut, wenn sich die Haendlerliste wirklich
-    // aendert. Sonst wechselt nur die aktive Marke — und dann kann die Pille
-    // dahinter weich hinuebergleiten, statt dass alle Knoepfe neu entstehen und
-    // der Wechsel hart umspringt.
-    const sig = vendors.join('|');
-    if (vf.dataset.sig !== sig) {
-      vf.dataset.sig = sig;
-      vf.innerHTML = '<span class="filter-pille" aria-hidden="true"></span>'
-        + ['<button class="chip" data-wvf="alle">Alle</button>',
-           ...vendors.map(vn => `<button class="chip" data-wvf="${esc(vn)}">${brandChipHtml(vn)}<span class="chip-label">${esc(vn)}</span></button>`)].join('');
-      vf.querySelectorAll('[data-wvf]').forEach(b => b.onclick = () => {
-        state.walletFilter = b.dataset.wvf === 'alle' ? '' : b.dataset.wvf;
-        state.walletVal = 0;
-        saveWalletFilter();
-        restack();          // anderer Filter = frischer Blick, alles wieder gestapelt
-        renderWallet();
-      });
+  const markeKnopf = $('#wallet-marke');
+  if (markeKnopf) {
+    const f = state.walletFilter && state.walletFilter !== 'alle' ? state.walletFilter : '';
+    const gewaehlt = f ? (vendors.find(vn => vn.toLowerCase() === f.toLowerCase()) || f) : '';
+    const inhalt = $('#wallet-marke-inhalt');
+    if (inhalt.dataset.w !== gewaehlt) {
+      inhalt.dataset.w = gewaehlt;
+      inhalt.innerHTML = gewaehlt ? `${brandChipHtml(gewaehlt)}<span>${esc(gewaehlt)}</span>` : '<span>Alle Marken</span>';
+      if (!sperrRuhig()) neuStarten(markeKnopf, 'gewechselt');
     }
-    const aktiv = !state.walletFilter || state.walletFilter === 'alle' ? 'alle' : state.walletFilter;
-    vf.querySelectorAll('[data-wvf]').forEach(b => b.classList.toggle('active', b.dataset.wvf === aktiv));
-    setzeFilterPille(vf);
+    markeKnopf.classList.toggle('gewaehlt', !!gewaehlt);
+    markeKnopf.setAttribute('aria-label', gewaehlt ? `Marke: ${gewaehlt}. Ändern` : 'Nach Marke filtern');
+    // Mit nur einer Marke gibt es nichts zu waehlen — ausser man muss zurueck
+    markeKnopf.classList.toggle('hidden', vendors.length < 2 && !gewaehlt);
   }
 
   // Kontostand: Summe ALLER Restguthaben (unabhängig von Suche/Filter), zählt animiert
@@ -8433,6 +8919,71 @@ function makeGridSortable(grid, tileSel, onReorder, idOf) {
   grid.addEventListener('pointercancel', drop);
 }
 
+// Marken-Liste: jede Marke mit Anzahl und Restguthaben, "Alle Marken" oben
+function schliesseMarkenMenue() {
+  const menu = $('#wallet-marken-menue');
+  if (!menu || menu.classList.contains('hidden')) return;
+  menu.classList.add('hidden');
+  $('#wallet-marke')?.setAttribute('aria-expanded', 'false');
+}
+function oeffneMarkenMenue() {
+  const menu = $('#wallet-marken-menue'), knopf = $('#wallet-marke');
+  if (!menu || !knopf) return;
+  if (!menu.classList.contains('hidden')) return schliesseMarkenMenue();
+  const aktiv = state.wallet.vouchers.filter(v => !istRabatt(v) && (v.balance == null || v.balance > 0));
+  const proMarke = new Map();
+  for (const v of aktiv) {
+    const e = proMarke.get(v.vendor) || { n: 0, summe: 0 };
+    e.n++; e.summe += v.balance || 0;
+    proMarke.set(v.vendor, e);
+  }
+  const marken = [...proMarke.entries()].sort((x, y) => y[1].summe - x[1].summe || x[0].localeCompare(y[0], 'de'));
+  const f = (state.walletFilter && state.walletFilter !== 'alle' ? state.walletFilter : '').toLowerCase();
+  const gesamt = Math.round(aktiv.reduce((x, v) => x + (v.balance || 0), 0) * 100) / 100;
+  menu.innerHTML = `
+    <button class="mm-zeile${!f ? ' an' : ''}" type="button" role="option" aria-selected="${!f}" data-marke="">
+      <span class="mm-alle">${icon('list', 'icon icon-sm')}</span>
+      <span class="mm-name">Alle Marken</span>
+      <small>${aktiv.length} · ${euroFmt(gesamt)}</small>
+      ${icon('check', 'icon icon-sm mm-haken')}
+    </button>
+    ${marken.map(([name, e], i) => `
+    <button class="mm-zeile${f === name.toLowerCase() ? ' an' : ''}" type="button" role="option" aria-selected="${f === name.toLowerCase()}"
+      data-marke="${esc(name)}" style="--i:${Math.min(i + 1, 12)}">
+      ${brandChipHtml(name)}
+      <span class="mm-name">${esc(name)}</span>
+      <small>${e.n} · ${euroFmt(Math.round(e.summe * 100) / 100)}</small>
+      ${icon('check', 'icon icon-sm mm-haken')}
+    </button>`).join('')}`;
+  menu.classList.remove('hidden');
+  knopf.setAttribute('aria-expanded', 'true');
+  menu.scrollTop = 0;
+  (menu.querySelector('.mm-zeile.an') || menu.querySelector('.mm-zeile'))?.focus({ preventScroll: true });
+  menu.querySelectorAll('[data-marke]').forEach(b => b.onclick = () => {
+    state.walletFilter = b.dataset.marke;
+    state.walletVal = 0;
+    saveWalletFilter();
+    restack();          // anderer Filter = frischer Blick, alles wieder gestapelt
+    schliesseMarkenMenue();
+    buzz(8);
+    renderWallet();
+    knopf.focus({ preventScroll: true });
+  });
+}
+$('#wallet-marke')?.addEventListener('click', e => { e.stopPropagation(); oeffneMarkenMenue(); });
+// Antippen daneben schliesst — pointerdown in der Capture-Phase, damit weder
+// stopPropagation anderer Knoepfe noch iOS (kein click auf Flaechen) es schlucken
+document.addEventListener('pointerdown', e => {
+  if (!e.target.closest?.('#wallet-marken-menue') && !e.target.closest?.('#wallet-marke')) schliesseMarkenMenue();
+}, { capture: true, passive: true });
+addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || $('#wallet-marken-menue')?.classList.contains('hidden') !== false) return;
+  if (state.sheetMode || document.querySelector('.overlay:not(.hidden)')) { schliesseMarkenMenue(); return; }
+  e.stopPropagation();
+  schliesseMarkenMenue();
+  $('#wallet-marke')?.focus({ preventScroll: true });
+}, true);
+
 // Wallet-Suche + Untertabs Gutscheine/Sparkarten/Coupons + Sortier-Menü
 $('#wallet-search')?.addEventListener('input', e => {
   state.walletQuery = e.target.value;
@@ -8465,6 +9016,7 @@ function walletStats(range) {
   let added = 0, spent = 0;
   const zahl = x => (Number.isFinite(Number(x)) ? Number(x) : 0);
   state.wallet.vouchers.forEach(v => {
+    if (istRabatt(v)) return;
     if (v.amount != null && inRange(v.added)) added += zahl(v.amount);
     (v.tx || []).forEach(t => {
       if (t.reverted || !inRange(t.ts)) return;
@@ -8497,6 +9049,7 @@ function walletVerlauf(monate = 6) {
   };
   const zahl = x => (Number.isFinite(Number(x)) ? Number(x) : 0);
   state.wallet.vouchers.forEach(v => {
+    if (istRabatt(v)) return;
     if (v.amount != null) { const f = treffer(v.added); if (f) f.rein += zahl(v.amount); }
     (v.tx || []).forEach(t => {
       if (t.reverted) return;
@@ -8950,7 +9503,7 @@ let schenkSicht = 12;
 function renderSchenkAuswahl() {
   if (walletGesperrt()) { aktualisiereSperre(); return; } // gesperrte Wallet: nichts zeigen
   state.sheetMode = 'gift-pick';   // auch beim Zurueckgehen aus Schritt zwei
-  const alle = state.wallet.vouchers.filter(v => v.balance == null || v.balance > 0);
+  const alle = state.wallet.vouchers.filter(v => !istRabatt(v) && (v.balance == null || v.balance > 0));
   const marken = [...new Set(alle.map(v => v.vendor))];
   let liste = schenkFilter ? alle.filter(v => v.vendor === schenkFilter) : alle;
   liste = [...liste].sort((a, b) => schenkSort === 'niedrig'
@@ -9008,7 +9561,7 @@ function renderSchenkAuswahl() {
   });
 }
 $('#wa-schenken')?.addEventListener('click', () => {
-  const offen = state.wallet.vouchers.filter(v => v.balance == null || v.balance > 0);
+  const offen = state.wallet.vouchers.filter(v => !istRabatt(v) && (v.balance == null || v.balance > 0));
   if (!offen.length) { island('Du hast gerade keinen Gutschein mit Guthaben'); return; }
   buzz(12);
   schenkFilter = '';
@@ -9350,7 +9903,7 @@ function setChatMode(mode, partner) {
     $('#dm-partner-ava').innerHTML = `<span class="avatar-mini" style="background:${chatColor(dmPartner)}">${esc(dmPartner[0].toUpperCase())}</span>`;
     api('/api/user?name=' + encodeURIComponent(dmPartner)).then(u => {
       const pb = u.activeBorder ? ` pfb-${u.activeBorder}` : '';
-      if (u.avatar) $('#dm-partner-ava').innerHTML = `<img class="avatar-mini avatar-img${pb}" src="${u.avatar}" alt="">`;
+      if (u.avatar) $('#dm-partner-ava').innerHTML = `<img class="avatar-mini avatar-img${pb}" src="${sichereBildUrl(u.avatar)}" alt="">`;
       else if (pb) $('#dm-partner-ava').querySelector('.avatar-mini')?.classList.add('pfb-' + u.activeBorder);
       const ns = nameStyleOf(dmPartner, u.activePaint);
       const el = $('#dm-partner-name');
@@ -9406,7 +9959,7 @@ async function pollChat(force) {
       if (!state.token) { $('#chat-list').innerHTML = '<div class="status">Zum Flüstern bitte anmelden.</div>'; return; }
       const r = await api('/api/dm/list');
       const ava = (name, avatar) => avatar
-        ? `<img class="avatar-mini avatar-img" src="${avatar}" alt="">`
+        ? `<img class="avatar-mini avatar-img" src="${sichereBildUrl(avatar)}" alt="">`
         : `<span class="avatar-mini" style="background:${chatColor(name)}">${esc(name[0].toUpperCase())}</span>`;
       const rows = r.list.map(c => `
         <button class="dm-row" data-dm-open="${esc(c.partner)}">
@@ -9534,7 +10087,7 @@ async function openUserPop(user, msgId) {
   const ns = nameStyleOf(user, u.activePaint);
   pop.innerHTML = `
     <div class="up-hero">
-      ${u.avatar ? `<img class="avatar-big up-ava${u.activeBorder ? ' pfb-' + esc(u.activeBorder) : ''}" src="${u.avatar}" alt="">`
+      ${u.avatar ? `<img class="avatar-big up-ava${u.activeBorder ? ' pfb-' + esc(u.activeBorder) : ''}" src="${sichereBildUrl(u.avatar)}" alt="">`
         : `<span class="avatar-big up-ava${u.activeBorder ? ' pfb-' + esc(u.activeBorder) : ''}" style="background:${chatColor(user)}">${esc(user[0].toUpperCase())}</span>`}
       <div class="up-name"><span class="${ns.cls.trim()}" style="${ns.style}">${esc(user)}</span> ${u.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : u.role === 'mod' ? icon('check', 'icon icon-sm role-mod') : ''}</div>
       <div class="up-bio">${u.private ? 'Profil ist privat' : esc(u.bio || 'Keine Bio')}</div>
@@ -9615,7 +10168,7 @@ async function renderProfileRatings(user) {
     const cns = nameStyleOf(c.from, c.paint);
     return `
     <div class="up-rate-row">
-      ${c.avatar ? `<img class="avatar-mini avatar-img${c.border ? ' pfb-' + esc(c.border) : ''}" src="${c.avatar}" alt="">`
+      ${c.avatar ? `<img class="avatar-mini avatar-img${c.border ? ' pfb-' + esc(c.border) : ''}" src="${sichereBildUrl(c.avatar)}" alt="">`
       : `<span class="avatar-mini${c.border ? ' pfb-' + esc(c.border) : ''}" style="background:${chatColor(c.from)}">${esc(c.from[0].toUpperCase())}</span>`}
       <div class="up-rate-body">
         <div><span class="chat-user${cns.cls}" style="${cns.style}">${esc(c.from)}</span> ${starRow(c.stars, false)} <span class="comment-time">${esc(timeAgo(c.ts))}</span></div>
@@ -9876,18 +10429,8 @@ function pinWarteBis() { return (lsJson(PIN_FEHL_KEY, { n: 0, bis: 0 }).bis || 0
 function pinFehlversuch() {
   const f = lsJson(PIN_FEHL_KEY, { n: 0, bis: 0 });
   f.n = (f.n || 0) + 1;
-  if (f.n >= 5) f.bis = Date.now() + Math.min(15 * 60e3, 30e3 * 2 ** (f.n - 5));
+  if (f.n >= 5) { f.dauer = Math.min(15 * 60e3, 30e3 * 2 ** (f.n - 5)); f.bis = Date.now() + f.dauer; }
   lsSetzen(PIN_FEHL_KEY, JSON.stringify(f));
-}
-// PIN pruefen mit Wartezeit und Zaehlung — an JEDER Stelle, die eine PIN
-// annimmt (sonst liesse sich ueber "PIN aendern" unbegrenzt raten)
-async function pinPruefenGeschuetzt(pin) {
-  const warte = pinWarteBis() - Date.now();
-  if (warte > 0) { island(`Zu viele falsche Versuche. Warte noch ${Math.ceil(warte / 1000)} s.`); return false; }
-  if (await pinPruefen(pin)) { lsSetzen(PIN_FEHL_KEY, JSON.stringify({ n: 0, bis: 0 })); return true; }
-  pinFehlversuch();
-  island('Falsche PIN');
-  return false;
 }
 
 // ---- Face ID / Fingerabdruck (WebAuthn, Plattform-Authentifikator)
@@ -9924,104 +10467,337 @@ async function bioPruefen() {
 }
 
 // ---- Ziffernblock: derselbe fuer Sperre und Dialoge
+// --i steuert die gestaffelte Einblendung der Tasten
 function ziffernblockHtml(mitBio) {
-  return [1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => `<button class="ws-taste" type="button" data-z="${n}">${n}</button>`).join('')
-    + (mitBio ? `<button class="ws-taste ws-neben" type="button" data-bio="1" aria-label="Mit Face ID oder Fingerabdruck entsperren">${FACE_SVG}</button>`
+  return [1, 2, 3, 4, 5, 6, 7, 8, 9].map((n, i) => `<button class="ws-taste" type="button" data-z="${n}" style="--i:${i}">${n}</button>`).join('')
+    + (mitBio ? `<button class="ws-taste ws-neben" type="button" data-bio="1" style="--i:9" aria-label="Mit Face ID oder Fingerabdruck entsperren">${FACE_SVG}</button>`
       : '<span class="ws-taste leer" aria-hidden="true"></span>')
-    + '<button class="ws-taste" type="button" data-z="0">0</button>'
-    + `<button class="ws-taste ws-neben" type="button" data-weg="1" aria-label="Letzte Ziffer löschen">${icon('arrow-back')}</button>`;
+    + '<button class="ws-taste" type="button" data-z="0" style="--i:10">0</button>'
+    + `<button class="ws-taste ws-neben" type="button" data-weg="1" style="--i:11" aria-label="Letzte Ziffer löschen">${icon('arrow-back')}</button>`;
 }
-function punkteHtml(anzahl, voll) {
-  return Array.from({ length: anzahl }, (_, i) => `<span class="ws-punkt${i < voll ? ' voll' : ''}"></span>`).join('');
+// Die Punkte bleiben stehen und wechseln nur ihren Zustand. Frueher wurden sie
+// bei jeder Ziffer neu gebaut — dann gab es nichts, was sich fuellen konnte.
+// Ab "optionalAb" sind Plaetze nur angedeutet (PIN mit 5 oder 6 Ziffern).
+function setzePunkte(box, anzahl, voll, optionalAb = anzahl) {
+  if (!box) return;
+  if (box.children.length !== anzahl) {
+    box.innerHTML = Array.from({ length: anzahl }, (_, i) => `<span class="ws-punkt" style="--i:${i}"></span>`).join('');
+  }
+  [...box.children].forEach((p, i) => {
+    p.classList.toggle('voll', i < voll);
+    p.classList.toggle('optional', i >= optionalAb && i >= voll);
+  });
 }
+// Punkte von hinten nach vorn leeren (Verzoegerung pro Punkt ueber --d)
+function rueckwaerts(box, leeren) {
+  if (!box) return leeren();
+  const n = box.children.length;
+  [...box.children].forEach((p, i) => p.style.setProperty('--d', ((n - 1 - i) * 35) + 'ms'));
+  leeren();
+  setTimeout(() => [...box.children].forEach(p => p.style.removeProperty('--d')), 420);
+}
+function neuStarten(el, klasse) {
+  if (!el) return;
+  el.classList.remove(klasse);
+  void el.offsetWidth;
+  el.classList.add(klasse);
+}
+function sperrRuhig() { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; } }
+function sperrWarteText(ms) {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} min` : `${s} s`;
+}
+// Tastendruck sichtbar machen: kurz einfedern, dazu eine Welle. :active allein
+// reicht nicht — iOS zeigt es ohne eigenen Touch-Handler oft gar nicht.
+document.addEventListener('pointerdown', e => {
+  const t = e.target.closest?.('.ws-taste');
+  if (!t || t.classList.contains('leer')) return;
+  neuStarten(t, 'tipp');
+  t.addEventListener('animationend', () => t.classList.remove('tipp'), { once: true });
+}, { passive: true, capture: true });
 
 // ---- Sperrbildschirm der Wallet
+// Liegt ueber der GANZEN App (Kopfzeile und Menue unten eingeschlossen),
+// solange die Wallet-Seite offen und die Wallet gesperrt ist.
+function sperrText() { return bioAn() ? 'PIN eingeben oder Face ID / Fingerabdruck nutzen' : 'Gib deine PIN ein'; }
+// Begruessung nach Tageszeit, mit dem Namen des Kontos, dem die Wallet gehoert
+function sperrGruss() {
+  const h = new Date().getHours();
+  const zeit = h >= 5 && h < 11 ? 'Guten Morgen' : h >= 11 && h < 18 ? 'Guten Tag' : 'Guten Abend';
+  const name = walletBesitzer || state.userName || '';
+  return name ? `${zeit}, ${name}` : zeit;
+}
+// Jedes Wort ein eigenes Element: so gleiten sie beim Auftritt nacheinander herein
+function setzeGruss() {
+  const el = $('#ws-gruss');
+  if (!el) return;
+  const t = sperrGruss();
+  if (el.dataset.t === t) return;
+  el.dataset.t = t;
+  el.innerHTML = t.split(' ').map((w, i) => `<span class="ws-wort" style="--w:${i}">${esc(w)}</span>`).join(' ');
+}
+// Die Wortmarke kommt aus dem Marken-Modul (laedt nach app.js)
+function sperrLogo() {
+  const el = $('#ws-logo');
+  if (!el || el.firstElementChild) return;
+  const setze = K => { if (K?.wordmarkHTML && !el.firstElementChild) el.innerHTML = K.wordmarkHTML({ height: 34, withRipple: true }); };
+  if (window.KBrand) setze(window.KBrand);
+  else (window.KBrandReady || Promise.resolve()).then(setze);
+}
+function setzeSperrText(t, fehler = false) {
+  const el = $('#ws-text');
+  if (!el) return;
+  if (el.textContent === t && el.classList.contains('fehler') === fehler) return;
+  el.textContent = t;
+  el.classList.toggle('fehler', fehler);
+  if (!sperrRuhig()) neuStarten(el, 'neu');
+}
 function aktualisiereSperre() {
   const el = $('#wallet-sperre');
   if (!el) return;
   const zu = walletGesperrt() && state.activeView === 'wallet';
-  el.classList.toggle('hidden', !zu);
+  const geht = el.classList.contains('offen') || el.classList.contains('geht');
+  const warSichtbar = !el.classList.contains('hidden') && !geht;
   document.body.classList.toggle('wallet-zu', zu);
+  setzeLeistenfarbe();
   // Nicht nur ein Vorhang: darunter ist nichts bedien- oder per Tastatur erreichbar
   for (const sel of ['#wallet-kopf', '#wallet-content', '#coupons-content', '#wallet-gate', '#wallet-mini', '#wallet-modes']) {
     const n = $(sel);
     if (n) n.inert = walletGesperrt();
   }
+  for (const sel of ['#tabbar', '.topbar', '#note-banner']) {
+    const n = $(sel);
+    if (n) n.inert = zu;
+  }
   if (zu) {
-    schliesseWalletAnsichten();
+    clearTimeout(sperreGehtUhr);
+    el.classList.remove('hidden', 'offen', 'geht');
+    $('#ws-punkte')?.classList.remove('richtig', 'falsch');
+    if (!warSichtbar) {
+      sperrEingabe = '';
+      sperrBeschaeftigt = false;
+      schliesseWalletAnsichten();
+      sperreAuftritt(el);
+    }
     baueSperre();
     setTimeout(() => $('#ws-tasten .ws-taste')?.focus({ preventScroll: true }), 0);
-  } else clearInterval(sperrUhr);
+  } else {
+    clearInterval(sperrUhr);
+    // Beim Entsperren blendet sich die Sperre selbst aus (siehe entsperreWallet)
+    if (!geht) { el.classList.add('hidden'); el.classList.remove('kommt', 'vorstart', 'wartet'); }
+  }
+}
+// Auftritt: Schloss faellt ein, Text und Tasten folgen gestaffelt. Beim
+// App-Start erst, wenn der Splash geht — sonst liefe er unsichtbar dahinter.
+function sperreAuftritt(el) {
+  el.classList.remove('kommt', 'vorstart');
+  sperrLogo();
+  setzeGruss();
+  $('#ws-logo')?.classList.remove('k-go');
+  if (sperrRuhig()) return;
+  if (startAuftrittOffen) { el.classList.add('vorstart'); return; }
+  void el.offsetWidth;
+  el.classList.add('kommt');
+  // Das Logo faellt ein wie beim App-Start: Buchstaben, dann der Punkt als Muenze
+  neuStarten($('#ws-logo'), 'k-anim-splash');
+  clearTimeout(sperreKommtUhr);
+  sperreKommtUhr = setTimeout(() => el.classList.remove('kommt'), 1100);
 }
 // Alles zu, was Codes oder PINs zeigen kann: Blaetter, Lupen, Bildbetrachter,
 // Auspacken
 function schliesseWalletAnsichten() {
+  schliesseMarkenMenue();
   if (state.sheetMode) closeSheet();
+  // Das zugeklappte Blatt behaelt sonst Code, PIN und Knoepfe im Baum
+  const inhalt = $('#sheet-content');
+  if (inhalt) inhalt.innerHTML = '';
   document.querySelector('.karten-lupe .lupe-grund')?.click();
   if (bildOffen) bildOffen.querySelector('.bl-zu')?.click();
-  document.querySelectorAll('.gift-overlay, .cc-big').forEach(x => x.remove());
+  document.querySelectorAll('.gift-overlay').forEach(x => x.remove());
+  document.querySelectorAll('.cc-big').forEach(x => (x.closest('.overlay') || x).remove());
+  // Offene Rueckfragen ("Loeschen?") gelten als abgebrochen — sonst laegen sie
+  // ueber der Sperre und liessen sich weiter bestaetigen
+  document.querySelectorAll('.overlay.rueckfrage').forEach(x => x.click());
 }
+function sperrPunkte() { setzePunkte($('#ws-punkte'), (pinDaten() || {}).laenge || 4, sperrEingabe.length); }
 function baueSperre() {
-  const p = pinDaten() || {};
-  const laenge = p.laenge || 4;
-  $('#ws-punkte').innerHTML = punkteHtml(laenge, sperrEingabe.length);
+  const el = $('#wallet-sperre');
   const tasten = $('#ws-tasten');
+  sperrLogo();
+  setzeGruss();
   if (tasten.dataset.bio !== String(bioAn())) {
     tasten.dataset.bio = String(bioAn());
     tasten.innerHTML = ziffernblockHtml(bioAn());
   }
+  sperrPunkte();
   const warte = pinWarteBis() - Date.now();
   const text = $('#ws-text');
   clearInterval(sperrUhr);
+  el.classList.toggle('wartet', warte > 0);
   if (warte > 0) {
-    text.textContent = `Zu viele falsche Versuche. Warte noch ${Math.ceil(warte / 1000)} s.`;
+    // Wartezeit: Tasten treten zurueck, ein Balken laeuft die Zeit herunter
+    const f = lsJson(PIN_FEHL_KEY, { n: 0, bis: 0 });
+    const dauer = f.dauer || Math.min(15 * 60e3, 30e3 * 2 ** Math.max(0, (f.n || 5) - 5));
+    const balken = $('#ws-warte i');
+    if (balken) {
+      balken.style.transition = 'none';
+      balken.style.transform = `scaleX(${Math.min(1, warte / dauer)})`;
+      void balken.offsetWidth;
+      balken.style.transition = `transform ${warte}ms linear`;
+      balken.style.transform = 'scaleX(0)';
+    }
+    const zeige = () => { text.innerHTML = `Zu viele falsche Versuche. Noch <b>${sperrWarteText(pinWarteBis() - Date.now())}</b>`; };
     text.classList.add('fehler');
-    sperrUhr = setInterval(() => { if (pinWarteBis() <= Date.now()) { clearInterval(sperrUhr); baueSperre(); } else text.textContent = `Zu viele falsche Versuche. Warte noch ${Math.ceil((pinWarteBis() - Date.now()) / 1000)} s.`; }, 1000);
+    zeige();
+    sperrUhr = setInterval(() => {
+      if (pinWarteBis() > Date.now()) return zeige();
+      clearInterval(sperrUhr);
+      text.classList.remove('fehler');
+      text.textContent = '';
+      baueSperre();
+      if (!sperrRuhig()) neuStarten($('#ws-logo'), 'stups');
+    }, 1000);
   } else if (!text.classList.contains('fehler')) {
-    text.textContent = bioAn() ? 'PIN eingeben oder Face ID / Fingerabdruck nutzen' : 'Gib deine PIN ein';
+    setzeSperrText(sperrText(), false);
   }
 }
 async function sperrTaste(z) {
-  if (pinWarteBis() > Date.now()) return;
+  if (sperrBeschaeftigt || walletEntsperrt || pinWarteBis() > Date.now()) return;
   const laenge = (pinDaten() || {}).laenge || 4;
   if (sperrEingabe.length >= laenge) return;
+  $('#wallet-sperre')?.classList.remove('kommt');
   sperrEingabe += z;
   buzz(6);
-  $('#ws-text').classList.remove('fehler');
-  baueSperre();
+  if ($('#ws-text').classList.contains('fehler')) setzeSperrText(sperrText(), false);
+  sperrPunkte();
   if (sperrEingabe.length < laenge) return;
-  const versuch = sperrEingabe;
-  if (await pinPruefen(versuch)) return entsperreWallet();
+  sperrBeschaeftigt = true;
+  const ok = await pinPruefen(sperrEingabe);
+  if (ok) { sperrBeschaeftigt = false; return entsperreWallet(); }
   pinFehlversuch();
-  sperrEingabe = '';
-  buzz([40, 40, 40]);
-  const text = $('#ws-text');
-  text.textContent = 'Falsche PIN';
-  text.classList.add('fehler');
+  sperrFalsch();
+}
+// Falsche PIN: Punkte werden rot und schuetteln den Kopf, dann leeren sie sich
+function sperrFalsch() {
   const box = $('#ws-punkte');
-  box.classList.remove('shake-once'); void box.offsetWidth; box.classList.add('shake-once');
-  baueSperre();
+  box.classList.add('falsch');
+  buzz([40, 40, 40]);
+  playSfx('error', .45);
+  setzeSperrText('Falsche PIN', true);
+  setTimeout(() => {
+    sperrEingabe = '';
+    rueckwaerts(box, sperrPunkte);
+    box.classList.remove('falsch');
+    sperrBeschaeftigt = false;
+    baueSperre();
+  }, 520);
+}
+function sperrZurueck() {
+  if (sperrBeschaeftigt || !sperrEingabe) return;
+  sperrEingabe = sperrEingabe.slice(0, -1);
+  sperrPunkte();
 }
 function entsperreWallet() {
   walletEntsperrt = true;
   sperrEingabe = '';
+  sperrBeschaeftigt = false;
   lsSetzen(PIN_FEHL_KEY, JSON.stringify({ n: 0, bis: 0 }));
+  const el = $('#wallet-sperre');
+  const sichtbar = el && !el.classList.contains('hidden') && !el.classList.contains('geht');
+  if (!sichtbar || sperrRuhig()) {
+    if (el) { el.classList.remove('offen', 'geht'); $('#ws-text')?.classList.remove('fehler'); }
+    aktualisiereSperre();
+    renderWallet();
+    return;
+  }
+  // Entsperrt: Punkte gruen, der Punkt im Logo quittiert — dann gibt die
+  // Sperre die Wallet frei, die darunter hereingleitet
+  clearInterval(sperrUhr);
+  clearTimeout(sperreKommtUhr);
+  el.classList.remove('kommt', 'vorstart', 'wartet');
+  const laenge = (pinDaten() || {}).laenge || 4;
+  setzePunkte($('#ws-punkte'), laenge, laenge);
+  $('#ws-punkte').classList.add('richtig');
+  el.classList.add('offen');
+  const logo = $('#ws-logo');
+  logo?.classList.remove('k-anim-splash');
+  neuStarten(logo, 'k-go');
+  setzeSperrText('Entsperrt', false);
+  buzz(15);
+  playSfx('plop', .4);
+  clearTimeout(sperreGehtUhr);
+  sperreGehtUhr = setTimeout(() => {
+    el.classList.add('geht');
+    aktualisiereSperre();   // Wallet darunter wird sichtbar und bedienbar
+    renderWallet();
+    walletAuftritt({ menue: true });
+    sperreGehtUhr = setTimeout(sperreFertigZu, 440);
+  }, 320);
+}
+function sperreFertigZu() {
+  const el = $('#wallet-sperre');
+  if (!el || !el.classList.contains('geht')) return;
+  el.classList.add('hidden');
+  el.classList.remove('geht', 'offen', 'kommt', 'wartet');
+  $('#ws-logo')?.classList.remove('k-go', 'k-anim-splash');
+  $('#ws-punkte')?.classList.remove('richtig', 'falsch');
   $('#ws-text')?.classList.remove('fehler');
-  aktualisiereSperre();
-  renderWallet();
+}
+// Die Wallet gleitet herein: Guthaben zaehlt hoch, Handgriffe und Karten
+// folgen gestaffelt. Beim Start (nach dem Splash) und nach dem Entsperren.
+function walletAuftritt({ menue = false } = {}) {
+  if (sperrRuhig() || state.activeView !== 'wallet' || walletGesperrt()) return;
+  const coupons = walletTab === 'coupons';
+  const teile = [
+    $('.balance-flip-btn'),
+    ...document.querySelectorAll('.wallet-aktionen .wa-btn'),
+    $('#wallet-modes'),
+    ...(coupons
+      ? [...$('#coupons-content').children].slice(0, 6)
+      : [$('#pin-empfehlung:not(.hidden)'), $('.wallet-tools'), $('#wallet-content .bereich-zeile'), ...[...$('#voucher-list').children].slice(0, 6)]),
+  ].filter(Boolean);
+  teile.forEach((el, i) => {
+    el.style.setProperty('--ad', Math.min(i * 45, 460) + 'ms');
+    neuStarten(el, 'auftritt');
+  });
+  setTimeout(() => teile.forEach(el => { el.classList.remove('auftritt'); el.style.removeProperty('--ad'); }), 1300);
+  const t = $('#wallet-total');
+  if (t && state.token && (renderWallet.lastTotal || 0) > 0) animateNumber(t, 0, renderWallet.lastTotal, 850);
+  if (menue) {
+    neuStarten(document.body, 'menue-rein');
+    setTimeout(() => document.body.classList.remove('menue-rein'), 700);
+  }
+}
+// Einmal beim Start: warten, bis der Splash geht, dann den Auftritt spielen
+function nachStartSplash(fn) {
+  let fertig = false;
+  const los = () => { if (!fertig) { fertig = true; fn(); } };
+  setTimeout(los, 3000); // Sicherheitsnetz
+  (window.KBrandReady || Promise.resolve()).then(() => {
+    const pruefe = () => {
+      if (fertig) return;
+      const sp = document.querySelector('.k-splash');
+      if ((!sp || sp.classList.contains('k-out')) && !document.getElementById('boot-cover')) los();
+      else setTimeout(pruefe, 50);
+    };
+    pruefe();
+  });
 }
 $('#ws-tasten')?.addEventListener('click', async e => {
   const b = e.target.closest('button');
   if (!b) return;
   if (b.dataset.z != null) sperrTaste(b.dataset.z);
-  else if (b.dataset.weg) { sperrEingabe = sperrEingabe.slice(0, -1); baueSperre(); }
-  else if (b.dataset.bio && await bioPruefen()) entsperreWallet();
+  else if (b.dataset.weg) sperrZurueck();
+  else if (b.dataset.bio && !sperrBeschaeftigt && await bioPruefen()) entsperreWallet();
 });
 $('#ws-vergessen')?.addEventListener('click', () => pinVergessen());
+// Raus aus der Wallet, ohne sie zu entsperren (die Sperre deckt das Menue ab)
+$('#ws-weg')?.addEventListener('click', () => switchView('feed'));
 addEventListener('keydown', e => {
-  if ($('#wallet-sperre')?.classList.contains('hidden') !== false || state.sheetMode || document.querySelector('.overlay:not(.hidden)')) return;
+  const el = $('#wallet-sperre');
+  if (!el || el.classList.contains('hidden') || el.classList.contains('geht') || state.sheetMode || document.querySelector('.overlay:not(.hidden)')) return;
   if (/^\d$/.test(e.key)) sperrTaste(e.key);
-  else if (e.key === 'Backspace') { sperrEingabe = sperrEingabe.slice(0, -1); baueSperre(); }
+  else if (e.key === 'Backspace') sperrZurueck();
 });
 // Im Hintergrund laenger als eine Minute: wieder sperren (und offene
 // Gutschein-Blaetter schliessen, damit dort nichts stehen bleibt)
@@ -10038,51 +10814,185 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ---- Dialoge: PIN eingeben (fest oder 4-6 Stellen), Passwort eingeben
-function pinDialog({ titel, text = '', fest = 0, min = 4, max = 6 }) {
-  return new Promise(resolve => {
-    const wrap = document.createElement('div');
-    wrap.className = 'overlay pin-overlay';
-    wrap.innerHTML = `<div class="modal pin-modal">
-      <h2 class="card-h">${esc(titel)}</h2>
-      ${text ? `<p class="muted pin-text">${esc(text)}</p>` : ''}
-      <div class="ws-punkte" data-punkte></div>
-      <div class="ws-tasten klein">${ziffernblockHtml(false)}</div>
-      <div class="form-row">
-        <button class="btn btn-small btn-ghost" data-abbrechen type="button">Abbrechen</button>
-        ${fest ? '' : '<button class="btn btn-small" data-weiter type="button" disabled>Weiter</button>'}
-      </div>
-    </div>`;
-    document.body.appendChild(wrap);
-    let eingabe = '';
-    const punkte = wrap.querySelector('[data-punkte]');
-    const weiter = wrap.querySelector('[data-weiter]');
-    const zeichne = () => {
-      punkte.innerHTML = punkteHtml(fest || Math.max(min, eingabe.length), eingabe.length);
-      if (weiter) weiter.disabled = eingabe.length < min;
-    };
-    const fertig = wert => { removeEventListener('keydown', taste, true); wrap.classList.add('closing'); setTimeout(() => wrap.remove(), 220); resolve(wert); };
-    const tippe = z => {
-      if (eingabe.length >= (fest || max)) return;
-      eingabe += z; buzz(6); zeichne();
-      if (fest && eingabe.length === fest) setTimeout(() => fertig(eingabe), 120);
-    };
-    wrap.addEventListener('click', e => {
-      const b = e.target.closest('button');
-      if (!b) { if (e.target === wrap) fertig(null); return; }
-      if (b.dataset.z != null) tippe(b.dataset.z);
-      else if (b.dataset.weg) { eingabe = eingabe.slice(0, -1); zeichne(); }
-      else if (b.dataset.abbrechen != null) fertig(null);
-      else if (b.dataset.weiter != null && eingabe.length >= min) fertig(eingabe);
-    });
-    const taste = e => {
-      if (/^\d$/.test(e.key)) { e.stopPropagation(); tippe(e.key); }
-      else if (e.key === 'Backspace') { e.stopPropagation(); eingabe = eingabe.slice(0, -1); zeichne(); }
-      else if (e.key === 'Enter' && !fest && eingabe.length >= min) fertig(eingabe);
-      else if (e.key === 'Escape') { e.stopPropagation(); fertig(null); }
-    };
-    addEventListener('keydown', taste, true);
-    zeichne();
+// Ein Fenster fuer mehrere Schritte (aktuelle PIN, neue PIN, wiederholen):
+// die Schritte gleiten darin weiter, statt dass Fenster zu- und aufgehen.
+// Eine falsche Eingabe laesst die Punkte wackeln, das Fenster bleibt offen.
+// frage() liefert die Eingabe, null (abgebrochen) oder 'zurueck'.
+function pinModal() {
+  const wrap = document.createElement('div');
+  wrap.className = 'overlay pin-overlay';
+  wrap.innerHTML = '<div class="modal pin-modal"><div class="pin-schritte"></div></div>';
+  document.body.appendChild(wrap);
+  const buehne = wrap.querySelector('.pin-schritte');
+  let s = null;          // der gerade offene Schritt
+  let offen = true;
+  const zu = () => {
+    if (!offen) return;
+    offen = false;
+    removeEventListener('keydown', taste, true);
+    wrap.classList.add('closing');
+    setTimeout(() => wrap.remove(), 300);
+    if (s) { clearTimeout(s.auto); const r = s.resolve; s = null; r(null); }
+  };
+  const punkte = () => s && setzePunkte(s.box, s.slots, s.eingabe.length, s.fest ? s.slots : s.min);
+  const hinweis = () => {
+    if (!s || s.fest) return;
+    const n = s.eingabe.length;
+    if (s.laengeEl) {
+      s.laengeEl.textContent = n < s.min ? `${s.min} bis ${s.max} Ziffern`
+        : n < s.max ? `Passt. Weiter, oder bis zu ${s.max} Ziffern` : `${s.max} Ziffern`;
+    }
+    if (s.weiter) {
+      const an = n >= s.min;
+      if (an && s.weiter.disabled && !sperrRuhig()) neuStarten(s.weiter, 'knopf-pop');
+      s.weiter.disabled = !an;
+    }
+  };
+  const text = (t, fehler) => {
+    if (!s) return;
+    s.textEl.textContent = t;
+    s.textEl.classList.toggle('fehler', !!fehler);
+    if (!sperrRuhig()) neuStarten(s.textEl, 'neu');
+  };
+  const falsch = t => {
+    if (!s) return;
+    const schritt = s;
+    schritt.busy = true;
+    schritt.box.classList.add('falsch');
+    buzz([40, 40, 40]);
+    playSfx('error', .45);
+    text(t, true);
+    setTimeout(() => {
+      if (s !== schritt) return;
+      schritt.eingabe = '';
+      rueckwaerts(schritt.box, punkte);
+      schritt.box.classList.remove('falsch');
+      schritt.busy = false;
+      hinweis();
+    }, 520);
+  };
+  const abschicken = async () => {
+    if (!s || s.busy) return;
+    const schritt = s, wert = s.eingabe;
+    clearTimeout(schritt.auto);
+    schritt.busy = true;
+    if (schritt.pruefe) {
+      let r;
+      try { r = await schritt.pruefe(wert); } catch { r = 'Das hat nicht geklappt'; }
+      if (s !== schritt) return;
+      if (r !== true) {
+        if (r && typeof r === 'object') { zu(); if (r.text) island(r.text); return; }
+        schritt.busy = false;
+        return falsch(r || 'Das stimmt nicht');
+      }
+    }
+    if (schritt.fest && schritt.pruefe) {
+      schritt.box.classList.add('richtig');
+      await new Promise(r => setTimeout(r, sperrRuhig() ? 0 : 220));
+    }
+    if (s !== schritt) return;
+    s = null;
+    schritt.resolve(wert);
+  };
+  const tippe = z => {
+    if (!s || s.busy) return;
+    if (s.eingabe.length >= s.slots) {
+      if (!sperrRuhig()) neuStarten(s.box, 'stups');
+      buzz(20);
+      return;
+    }
+    s.eingabe += z;
+    buzz(6);
+    if (s.textEl.classList.contains('fehler')) text(s.text, false);
+    punkte();
+    hinweis();
+    // Volle Laenge: gleich weiter (bei freier Laenge ist 6 das Maximum). Der
+    // Zeitgeber gehoert zu DIESEM Schritt und DIESER Eingabe — Loeschen oder ein
+    // schnelles "Weiter" dazwischen setzt ihn ausser Kraft
+    if (s.eingabe.length === s.slots) {
+      const schritt = s;
+      clearTimeout(schritt.auto);
+      schritt.auto = setTimeout(() => {
+        if (s === schritt && !schritt.busy && schritt.eingabe.length === schritt.slots) abschicken();
+      }, s.fest ? 120 : 240);
+    }
+  };
+  const loesche = () => {
+    if (!s || s.busy || !s.eingabe) return;
+    clearTimeout(s.auto);
+    s.eingabe = s.eingabe.slice(0, -1);
+    punkte();
+    hinweis();
+  };
+  wrap.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) { if (e.target === wrap) zu(); return; }
+    if (b.closest('.pin-schritt.raus')) return;
+    if (b.dataset.z != null) tippe(b.dataset.z);
+    else if (b.dataset.weg) loesche();
+    else if (b.dataset.abbrechen != null) zu();
+    else if (b.dataset.zurueck != null && s) { clearTimeout(s.auto); const r = s.resolve; s = null; r('zurueck'); }
+    else if (b.dataset.weiter != null && s && s.eingabe.length >= s.min) abschicken();
   });
+  const taste = e => {
+    if (!offen) return;
+    if (/^\d$/.test(e.key)) { e.stopPropagation(); tippe(e.key); }
+    else if (e.key === 'Backspace') { e.stopPropagation(); loesche(); }
+    else if (e.key === 'Enter' && s && !s.fest && s.eingabe.length >= s.min) { e.stopPropagation(); abschicken(); }
+    else if (e.key === 'Escape') { e.stopPropagation(); zu(); }
+  };
+  addEventListener('keydown', taste, true);
+  const frage = ({ titel, text: t = '', fest = 0, min = 4, max = 6, pruefe = null, schritt = 0, von = 0, zurueck = false }) =>
+    new Promise(resolve => {
+      if (!offen) return resolve(null);
+      const alt = buehne.lastElementChild;
+      const el = document.createElement('div');
+      el.className = 'pin-schritt';
+      el.innerHTML = `
+        ${von ? `<div class="pin-fortschritt" aria-label="Schritt ${schritt} von ${von}">${Array.from({ length: von }, (_, i) =>
+          `<i class="${i < schritt ? 'an' : ''}"></i>`).join('')}</div>` : ''}
+        <h2 class="card-h">${esc(titel)}</h2>
+        <p class="muted pin-text" data-text>${esc(t)}</p>
+        <div class="ws-punkte" data-punkte></div>
+        ${fest ? '' : '<p class="pin-laenge" data-laenge aria-live="polite"></p>'}
+        <div class="ws-tasten klein">${ziffernblockHtml(false)}</div>
+        <div class="form-row">
+          <button class="btn btn-small btn-ghost" ${zurueck ? 'data-zurueck' : 'data-abbrechen'} type="button">${zurueck ? 'Zurück' : 'Abbrechen'}</button>
+          ${fest ? '' : '<button class="btn btn-small" data-weiter type="button" disabled>Weiter</button>'}
+        </div>`;
+      buehne.appendChild(el);
+      if (alt) {
+        alt.inert = true;
+        alt.classList.add('raus');
+        el.classList.add('rein');
+        setTimeout(() => alt.remove(), sperrRuhig() ? 0 : 320);
+      }
+      s = {
+        resolve, fest, min, max, pruefe, text: t, slots: fest || max, eingabe: '', busy: false,
+        box: el.querySelector('[data-punkte]'), textEl: el.querySelector('[data-text]'),
+        laengeEl: el.querySelector('[data-laenge]'), weiter: el.querySelector('[data-weiter]'),
+      };
+      punkte();
+      hinweis();
+    });
+  return { frage, zu };
+}
+function pinDialog(opts) {
+  const m = pinModal();
+  return m.frage(opts).then(wert => { m.zu(); return wert === 'zurueck' ? null : wert; });
+}
+// PIN im Dialog pruefen — mit Wartezeit und Zaehlung, an JEDER Stelle, die
+// eine PIN annimmt (sonst liesse sich ueber "PIN aendern" unbegrenzt raten).
+// Liefert true, eine Meldung (Fenster bleibt offen und wackelt) oder
+// { text } (Wartezeit — Fenster zu, Meldung oben).
+async function pinPruefeDialog(pin) {
+  const warte = pinWarteBis() - Date.now();
+  if (warte > 0) return { text: `Zu viele falsche Versuche. Warte noch ${sperrWarteText(warte)}.` };
+  if (await pinPruefen(pin)) { lsSetzen(PIN_FEHL_KEY, JSON.stringify({ n: 0, bis: 0 })); return true; }
+  pinFehlversuch();
+  const danach = pinWarteBis() - Date.now();
+  if (danach > 0) return { text: `Zu viele falsche Versuche. Warte ${sperrWarteText(danach)}.` };
+  return 'Falsche PIN';
 }
 function passwortDialog(titel, text, { mitVergessen = true } = {}) {
   return new Promise(resolve => {
@@ -10113,16 +11023,22 @@ function passwortDialog(titel, text, { mitVergessen = true } = {}) {
 // ---- PIN einrichten, aendern, entfernen, vergessen
 async function pinEinrichten() {
   if (!pinMoeglich()) return island('Dieses Gerät kann keine PIN sicher speichern');
-  if (pinGesetzt()) {
-    const alt = await pinDialog({ titel: 'Aktuelle PIN', fest: pinDaten().laenge || 4 });
-    if (alt === null) return;
-    if (!await pinPruefenGeschuetzt(alt)) return;
+  const m = pinModal();
+  const hatte = pinGesetzt();
+  if (hatte) {
+    const alt = await m.frage({ titel: 'Aktuelle PIN', text: 'Erst die bisherige PIN, dann die neue', fest: pinDaten().laenge || 4, pruefe: pinPruefeDialog });
+    if (alt === null) return m.zu();
   }
-  const neu = await pinDialog({ titel: 'Neue PIN', text: '4 bis 6 Ziffern. Damit entsperrst du deine Wallet auf diesem Gerät.' });
-  if (!neu) return;
-  const wdh = await pinDialog({ titel: 'PIN wiederholen', fest: neu.length });
-  if (wdh === null) return;
-  if (wdh !== neu) return island('Die PINs stimmen nicht überein, bitte nochmal');
+  let neu = null;
+  for (;;) {
+    neu = await m.frage({ titel: hatte ? 'Neue PIN' : 'PIN festlegen', text: 'Damit entsperrst du deine Wallet auf diesem Gerät.', schritt: 1, von: 2 });
+    if (neu === null || neu === 'zurueck') return m.zu();
+    const wdh = await m.frage({ titel: 'PIN wiederholen', text: 'Zur Sicherheit noch einmal dieselbe PIN', schritt: 2, von: 2,
+      fest: neu.length, zurueck: true, pruefe: w => w === neu || 'Stimmt nicht überein, nochmal' });
+    if (wdh === null) return m.zu();
+    if (wdh !== 'zurueck') break;
+  }
+  m.zu();
   if (!await pinSpeichern(neu)) return island('Die PIN ließ sich auf diesem Gerät nicht speichern');
   walletEntsperrt = true;
   lsSetzen(PIN_HINWEIS_KEY, String(Date.now()));
@@ -10136,9 +11052,8 @@ async function pinEinrichten() {
   renderSicherheit();
 }
 async function pinAusschalten() {
-  const alt = await pinDialog({ titel: 'PIN eingeben', text: 'Zum Entfernen der Sperre', fest: pinDaten().laenge || 4 });
+  const alt = await pinDialog({ titel: 'PIN eingeben', text: 'Zum Entfernen der Sperre', fest: pinDaten().laenge || 4, pruefe: pinPruefeDialog });
   if (alt === null) return;
-  if (!await pinPruefenGeschuetzt(alt)) return;
   pinEntfernen();
   walletEntsperrt = true;
   island('PIN entfernt');
@@ -10169,10 +11084,10 @@ async function walletFreigeben() {
   if (!walletGesperrt()) return true;
   if (pinWarteBis() > Date.now()) { island('Zu viele falsche Versuche, bitte kurz warten'); return false; }
   if (bioAn() && await bioPruefen()) { entsperreWallet(); return true; }
-  const pin = await pinDialog({ titel: 'Wallet entsperren', text: 'Gib deine PIN ein', fest: (pinDaten() || {}).laenge || 4 });
+  const pin = await pinDialog({ titel: 'Wallet entsperren', text: 'Gib deine PIN ein', fest: (pinDaten() || {}).laenge || 4, pruefe: pinPruefeDialog });
   if (pin === null) return false;
-  if (await pinPruefenGeschuetzt(pin)) { entsperreWallet(); return true; }
-  return false;
+  entsperreWallet();
+  return true;
 }
 // Empfehlung in der Wallet: wer noch keine PIN hat, bekommt sie angeboten
 function zeigePinEmpfehlung() {
@@ -10241,8 +11156,8 @@ async function renderSicherheit() {
   $('#si-bio')?.addEventListener('change', async e => {
     if (e.target.checked) {
       // Face ID oeffnet die Wallet ohne PIN — einschalten also nur mit der PIN
-      const pin = await pinDialog({ titel: 'PIN eingeben', text: 'Zum Einschalten von Face ID / Fingerabdruck', fest: (pinDaten() || {}).laenge || 4 });
-      if (pin === null || !await pinPruefenGeschuetzt(pin) || !await bioEinrichten()) e.target.checked = false;
+      const pin = await pinDialog({ titel: 'PIN eingeben', text: 'Zum Einschalten von Face ID / Fingerabdruck', fest: (pinDaten() || {}).laenge || 4, pruefe: pinPruefeDialog });
+      if (pin === null || !await bioEinrichten()) e.target.checked = false;
     }
     else { try { localStorage.removeItem(bioSchluessel()); } catch { } }
   });
@@ -10270,7 +11185,7 @@ async function papierkorbZeigen() {
   wrap.className = 'overlay';
   const zeile = e => `<div class="korb-zeile">
       <div class="korb-info"><b>${esc(e.vendor || 'Eintrag')}</b>
-        <span>${e.typ === 'karte' ? 'Sparkarte' : (e.amount != null ? euroFmt(e.amount) : 'Gutschein')}${e.balance != null && e.typ !== 'karte' ? ' · Rest ' + euroFmt(e.balance) : ''}
+        <span>${e.typ === 'karte' ? 'Sparkarte' : e.art === 'rabatt' ? 'Rabattcode' : (e.amount != null ? euroFmt(e.amount) : 'Gutschein')}${e.balance != null && e.typ !== 'karte' ? ' · Rest ' + euroFmt(e.balance) : ''}
           · ${esc(e.grund || '')} · ${new Date(e.ts).toLocaleDateString('de-DE')}</span></div>
       ${e.verschenkt ? '<span class="pill">verschenkt</span>' : `<button class="btn btn-small btn-ghost" data-zurueck="${esc(e.key)}" type="button">Zurückholen</button>`}
     </div>`;
@@ -10613,9 +11528,17 @@ window.addEventListener('online', () => { if ($('#conn-screen')) location.reload
     const q = new URLSearchParams(location.search);
     const woanders = q.get('chat') || (q.get('tab') && q.get('tab') !== 'wallet');
     if (!woanders && state.activeView !== 'wallet') switchView('wallet', 'start-ohne-anim');
+    document.querySelectorAll('.tabbtn').forEach(t => t.classList.toggle('active', t.dataset.view === state.activeView));
+    moveTabPill();
   }
   renderWallet();
   aktualisiereSperre();
+  nachStartSplash(() => {
+    startAuftrittOffen = false;
+    const sp = $('#wallet-sperre');
+    if (sp?.classList.contains('vorstart')) sperreAuftritt(sp);
+    else walletAuftritt();
+  });
   pruefeKontoLinks();
   initTurnstile();
   // Emotes, Badges, Paints und Ränge früh laden, damit Profile und Chats sie kennen

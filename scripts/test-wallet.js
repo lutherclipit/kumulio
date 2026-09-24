@@ -74,6 +74,20 @@ const alt = datei => { const t = new Date(Date.now() - 5 * 86400e3); fs.utimesSy
   pruefe('Bild bleibt bei bildloser Fassung', hat(c1s));
   pruefe('mt bleibt, wenn nur das Bild aufgefuellt wurde', c1s.mt === 500);
 
+  // --- Rabattcodes (art: 'rabatt'): Felder ueberleben Abgleich, kein Guthaben
+  const rc = { id: 'r1', art: 'rabatt', vendor: 'Lieferando', code: 'SPAR5', pin: '', rabatt: 5, rabattArt: 'eur', mbw: 15,
+    amount: null, balance: null, tx: [], added: 1, mt: 10 };
+  S.vereinigeWallet('tina', { vouchers: [rc], cards: [], deleted: [] });
+  const r1 = () => S.wallets.tina.vouchers.find(v => v.id === 'r1');
+  pruefe('Rabattcode: art, Rabatt und MBW bleiben', r1().art === 'rabatt' && r1().mbw === 15 && r1().rabatt === 5 && r1().balance === null);
+  S.vereinigeWallet('tina', { vouchers: [{ ...rc, mt: 5, code: 'ALT' }], cards: [], deleted: [] });
+  pruefe('Rabattcode: aeltere Fassung verliert', r1().code === 'SPAR5' && r1().art === 'rabatt');
+  S.vereinigeWallet('tina', { vouchers: [{ ...rc, mt: 20, eingeloest: 123 }], cards: [], deleted: [] });
+  pruefe('Rabattcode: "eingeloest" kommt an', r1().eingeloest === 123 && r1().art === 'rabatt');
+  pruefe('Rabattcode steht im Index', S.walletIndex(S.wallets.tina).v.some(z => z[0] === 'r1'));
+  S.vereinigeWallet('tina', { vouchers: [], cards: [], deleted: [{ id: 'r1', ts: Date.now() }] });
+  pruefe('Loeschmarker entfernt den Rabattcode', !r1());
+
   // --- Notbremse: Vorhandenes bleibt, Neues darueber wird abgelehnt
   const viele = Array.from({ length: 1005 }, (_, i) => ({ id: 'n' + i, vendor: 'X', amount: 1, balance: 1, tx: [], added: 1 }));
   const r = S.vereinigeWallet('tina', { vouchers: viele, cards: [], deleted: [] });

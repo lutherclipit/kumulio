@@ -96,23 +96,33 @@
   <div id="wallet-farbfeld" aria-hidden="true"></div>
 
   <header class="topbar">
-    <button class="iconbtn" id="btn-search-top" aria-label="Suche">
-      <svg class="icon"><use href="#i-search"/></svg>
-    </button>
-    <button class="brand brand-center" id="btn-home" aria-label="kumulio — zur Startseite">
-      <span id="brand-wordmark"></span>
-    </button>
-    <div class="island" id="island"><span id="island-text"></span></div>
+    <!-- Konto links (oeffnet die Seitenleiste), Suche rechts -->
     <div class="topbar-actions">
-      <button class="iconbtn" id="btn-profile-top" aria-label="Anmelden / Profil">
+      <button class="iconbtn" id="btn-profile-top" aria-label="Anmelden / Profil"
+        aria-haspopup="dialog" aria-expanded="false" aria-controls="top-menu">
         <svg class="icon"><use href="#i-user"/></svg>
       </button>
     </div>
+    <button class="brand brand-center" id="btn-home" aria-label="kumulio — zur Startseite">
+      <span id="brand-wordmark"></span>
+    </button>
+    <button class="iconbtn" id="btn-search-top" aria-label="Suche">
+      <svg class="icon"><use href="#i-search"/></svg>
+    </button>
   </header>
 
-  <!-- Dropdown-Menü (Avatar oben rechts): Freunde, Anfragen, Funken, Profil -->
-  <div id="top-menu-backdrop" class="hidden"></div>
-  <div id="top-menu" class="hidden"></div>
+  <!-- Statuskapsel: auf Body-Ebene, damit sie auch ueber Sperre und Dialogen steht -->
+  <div class="island" id="island"><span id="island-text"></span></div>
+
+  <!-- Seitenleiste (Avatar oben links): Profil, Anfragen, Freunde, Funken …
+       gleitet von links herein; Wischen nach links, Tippen daneben oder Esc schliesst -->
+  <div id="top-menu-backdrop" class="hidden" aria-hidden="true"></div>
+  <aside id="top-menu" role="dialog" aria-modal="true" aria-label="Konto-Menü" inert>
+    <button class="iconbtn tm-zu" id="tm-zu" type="button" aria-label="Menü schließen">
+      <svg class="icon"><use href="#i-x"/></svg>
+    </button>
+    <div class="tm-scroll" id="tm-scroll"></div>
+  </aside>
 
   <!-- Freundschaftsanfrage-Popup: schiebt sich unten aus dem Menü hoch -->
   <div id="req-toast" class="hidden"></div>
@@ -455,18 +465,6 @@
 
     <!-- ================= WALLET ================= -->
     <section id="view-wallet" class="view hidden">
-      <!-- Sperrbildschirm: liegt ueber der ganzen Wallet (auch dem Kopf), das
-           Menue unten bleibt bedienbar -->
-      <div id="wallet-sperre" class="wallet-sperre hidden" role="dialog" aria-modal="true" aria-label="Wallet gesperrt">
-        <div class="ws-inhalt">
-          <div class="ws-schloss"><svg class="icon"><use href="#i-lock"/></svg></div>
-          <h2 class="ws-titel">Wallet gesperrt</h2>
-          <p class="ws-text" id="ws-text">Gib deine PIN ein</p>
-          <div class="ws-punkte" id="ws-punkte"></div>
-          <div class="ws-tasten" id="ws-tasten"></div>
-          <button class="link-knopf" id="ws-vergessen" type="button">PIN vergessen?</button>
-        </div>
-      </div>
       <!-- Kein Extra-Titel: das Menü unten zeigt schon, wo man ist -->
       <!-- Drei Bereiche: Gutscheine, Sparkarten, Coupons -->
 
@@ -527,6 +525,23 @@
         </div>
       </div>
       <div id="wallet-content">
+        <!-- Suche und Marke in EINER Leiste, im Stil der Bereichswahl darueber:
+             links suchen, rechts die Marke waehlen (Liste statt Chip-Reihe) -->
+        <div class="wallet-tools">
+          <div class="wallet-suchleiste">
+            <label class="wsl-suche">
+              <svg class="icon icon-sm" aria-hidden="true"><use href="#i-search"/></svg>
+              <input id="wallet-search" type="search" placeholder="Code, PIN, Notiz …" autocomplete="off"
+                enterkeyhint="search" aria-label="Gutscheine durchsuchen">
+            </label>
+            <button class="wsl-marke" id="wallet-marke" type="button" aria-haspopup="listbox" aria-expanded="false"
+              aria-controls="wallet-marken-menue">
+              <span class="wsl-marke-inhalt" id="wallet-marke-inhalt"><span>Alle Marken</span></span>
+              <svg class="icon icon-sm wsl-pfeil" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+            </button>
+          </div>
+          <div class="wallet-marken-menue hidden" id="wallet-marken-menue" role="listbox" aria-label="Nach Marke filtern"></div>
+        </div>
         <!-- Wer noch keine PIN hat, bekommt sie hier empfohlen -->
         <div id="pin-empfehlung" class="pin-empfehlung hidden">
           <div class="pe-icon"><svg class="icon"><use href="#i-lock"/></svg></div>
@@ -538,10 +553,6 @@
           </div>
         </div>
 
-        <div class="wallet-tools">
-          <input id="wallet-search" class="input" type="search" placeholder="Shop; z.B. REWE, Amazon; PIN, Notiz …">
-          <div class="wallet-filters" id="wallet-vendor-filters"></div>
-        </div>
         <div class="bereich-zeile">
           <h2 class="bereich-titel" style="margin:0">Deine Gutscheine</h2>
           <span class="wallet-platz" id="wallet-platz"></span>
@@ -618,14 +629,40 @@
     </section>
   </main>
 
+  <!-- Sperrbildschirm der Wallet: deckt die ganze App ab (Kopfzeile und
+       Menue unten eingeschlossen), solange die Wallet-Seite offen und
+       gesperrt ist. Auf Body-Ebene, sonst kaeme sie nie ueber das Menue. -->
+  <div id="wallet-sperre" class="wallet-sperre hidden" role="dialog" aria-modal="true" aria-label="Wallet gesperrt">
+    <div class="ws-inhalt">
+      <!-- Oben: Logo (faellt beim Auftritt ein wie beim Start), Begruessung -->
+      <div class="ws-oben">
+        <div class="ws-logo k-success" id="ws-logo" aria-hidden="true"></div>
+        <h2 class="ws-gruss" id="ws-gruss">Willkommen zurück</h2>
+        <p class="ws-text" id="ws-text">Gib deine PIN ein</p>
+        <div class="ws-punkte" id="ws-punkte"></div>
+        <div class="ws-warte" id="ws-warte" aria-hidden="true"><i></i></div>
+      </div>
+      <!-- Unten, wo der Daumen ist: Ziffern ohne Rahmen -->
+      <div class="ws-unten">
+        <div class="ws-tasten" id="ws-tasten"></div>
+        <div class="ws-links">
+          <button class="link-knopf" id="ws-vergessen" type="button">PIN vergessen?</button>
+          <button class="link-knopf ws-weg" id="ws-weg" type="button">Zum Feed</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ================= TAB-BAR ================= -->
   <nav class="tabbar" id="tabbar">
     <div class="tab-pill" id="tab-pill"></div>
+    <!-- Wallet in der Mitte: sie ist die Startseite. Der Feed traegt das
+         Preisschild (Angebote), das Haus passte nicht mehr -->
+    <button class="tabbtn active" data-view="feed">
+      <svg class="icon"><use href="#i-tag"/></svg><span>Feed</span>
+    </button>
     <button class="tabbtn" data-view="wallet">
       <svg class="icon"><use href="#i-banknote"/></svg><span>Wallet</span>
-    </button>
-    <button class="tabbtn active" data-view="feed">
-      <svg class="icon"><use href="#i-home"/></svg><span>Feed</span>
     </button>
     <button class="tabbtn" data-view="chat">
       <svg class="icon"><use href="#i-message"/></svg><span>Chat</span>
@@ -675,7 +712,7 @@
 
   <!-- ================= SHEET (Deal-Detail, Kanäle, Favoriten) ================= -->
   <div id="sheet-backdrop" class="backdrop hidden"></div>
-  <div id="sheet" class="sheet" role="dialog" aria-modal="true">
+  <div id="sheet" class="sheet" role="dialog" aria-modal="true" inert>
     <div class="sheet-handle" id="sheet-handle"><div class="sheet-grabber"></div></div>
     <div id="sheet-content" class="sheet-content"></div>
     <button class="sheet-fab" id="sheet-fab" aria-label="Zurück zum Feed">
