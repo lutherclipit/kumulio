@@ -225,6 +225,50 @@
 #chat-list .chat-msg.dm-me .deal-chip { background: rgba(255, 255, 255, .16); color: #fff; }
 #chat-list .chat-msg.dm-me .deal-chip .icon { color: #fff; }
 
+/* Geteilter Coupon: die Karte IST die Blase (Marken-Logo, Name, darunter
+   Preis und Nummer) — kein Rahmen um einen Rahmen */
+#chat-list .chat-msg:has(.coupon-chip) {
+  width: min(80%, 320px); padding: 0; background: none; box-shadow: none;
+}
+#chat-list .chat-msg:has(.coupon-chip) .chat-kopf { margin: 0 6px 4px; }
+#chat-list .chat-msg .coupon-chip {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; margin: 0;
+  padding: 11px 12px; border: 0; border-radius: 18px 18px 18px 6px;
+  background: var(--karte); color: var(--text); box-shadow: var(--blase-schatten);
+  font: inherit; text-align: left; cursor: pointer;
+  -webkit-tap-highlight-color: transparent; transition: transform .18s ease;
+}
+#chat-list .chat-msg.dm-them.folge .coupon-chip { border-top-left-radius: 6px; }
+#chat-list .chat-msg.dm-me .coupon-chip {
+  border-radius: 18px 18px 6px 18px; background: var(--akzent-tief); color: #fff;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--akzent-tief) 20%, transparent);
+}
+#chat-list .chat-msg.dm-me.folge .coupon-chip { border-top-right-radius: 6px; }
+#chat-list .chat-msg .coupon-chip:active { transform: scale(.98); }
+#chat-list .coupon-chip .brand-chip { width: 40px; height: 40px; flex: 0 0 40px; border-radius: 11px; font-size: .8rem; }
+/* Weisses Logo-Feld auf weisser Blase: feine Kante, damit es als Feld steht */
+#chat-list .chat-msg.dm-them .coupon-chip .brand-chip.hat-logo { box-shadow: 0 0 0 1px var(--linie); }
+#chat-list .coupon-chip-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+#chat-list .coupon-chip-text small { font-size: .72rem; font-weight: 650; color: var(--muted); }
+#chat-list .coupon-chip-text b {
+  font-size: .92rem; font-weight: 800; line-height: 1.25;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+#chat-list .coupon-chip-fuss { display: flex; align-items: center; gap: 6px; margin-top: 5px; flex-wrap: wrap; }
+#chat-list .coupon-chip-preis {
+  padding: 2px 8px; border-radius: 8px; background: var(--preis); color: #fff;
+  font-size: .78rem; font-weight: 850; font-variant-numeric: tabular-nums;
+}
+#chat-list .coupon-chip-code {
+  padding: 1px 7px; border-radius: 8px; box-shadow: inset 0 0 0 1.5px var(--linie);
+  font-size: .78rem; font-weight: 800; letter-spacing: .04em; font-variant-numeric: tabular-nums;
+}
+#chat-list .coupon-chip > .icon { flex: none; width: 17px; height: 17px; color: var(--muted); }
+#chat-list .chat-msg.dm-me .coupon-chip-text small,
+#chat-list .chat-msg.dm-me .coupon-chip > .icon { color: rgba(255, 255, 255, .78); }
+#chat-list .chat-msg.dm-me .coupon-chip-code { box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, .45); }
+@media (prefers-reduced-motion: reduce) { #chat-list .chat-msg .coupon-chip { transition: none; } }
+
 /* Uhrzeit unter der letzten Blase und Datum beim Tageswechsel */
 #chat-list .chat-zeit {
   align-self: flex-start; margin: 2px 6px 0;

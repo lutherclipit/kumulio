@@ -1579,3 +1579,107 @@ body.sparsam #sheet-content #btn-sheet-fav .icon, body.sparsam #sheet-content .a
   .dl-punkte i, .dl-stern .icon, .gd-knopf .dl-herz-bild .icon, .dl-mehr-text .icon, .dl-regeln-pfeil, .dl-senden, .dl-v-link { transition: none; }
   .dl-v-spur i, .dl-regeln[open] .dl-regeln-liste { animation: none; }
 }
+
+   Schenken & Burger King (Runde 120)
+   Rabattcode verschenken (Karte mit "Geschenk von"), Coupon an Freunde
+   schicken (Schritt in der grossen Coupon-Ansicht) und die Burger-King-
+   Papiercoupons als PDF oben im Marken-Blatt.
+   ========================================================================== */
+
+/* ---- Rabattcode-Karte: Name und darunter, von wem er kam */
+.rc-card .rc-namen { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.rc-card .rc-namen .wallet-card-name { flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-card .rc-von { font-size: .74rem; font-weight: 700; opacity: .86; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Zum Ansehen (Verschenken, Auspacken): nichts daran ist antippbar, und sie
+   steht links buendig wie in der Wallet (das Auspacken zentriert sonst alles) */
+.schenk-karte .rc-card { cursor: default; text-align: left; }
+
+/* ---- Grosse Coupon-Ansicht: Kreuz oben rechts, ruhiges Markenlabel,
+   Preis mit maessigen Ecken, darunter "An Freund schicken" */
+.cc-big { position: relative; overflow: hidden; }
+.cc-big .ccb-vorne > .fav-remove {
+  position: absolute; top: 10px; right: 10px; z-index: 2;
+  width: 36px; height: 36px; padding: 0; display: grid; place-items: center;
+  border-radius: 12px; color: var(--muted);
+}
+.cc-big .ccb-vorne > .fav-remove:active { background: var(--karte-2); }
+.cc-big .cc-big-brand { margin: 0 40px 4px; font-size: .88rem; font-weight: 750; letter-spacing: 0; text-transform: none; }
+.cc-big .cc-big-price { border-radius: 10px; background: var(--preis); padding: 6px 14px; }
+.cc-big .ccb-schicken { margin-top: 18px; height: 48px; font-size: .95rem; text-decoration: none; }
+.cc-big .ccb-schicken .icon { width: 18px; height: 18px; }
+.cc-big .ccb-vorne[hidden], .cc-big .ccs[hidden] { display: none; }
+
+/* ---- Schritt "An wen schicken?" in derselben Karte */
+.ccs { text-align: left; }
+.ccs-kopf { display: flex; align-items: center; gap: 8px; margin: -8px 0 14px -6px; }
+.ccs-kopf b { font-size: 1.05rem; font-weight: 800; letter-spacing: -.01em; }
+.ccs-zurueck {
+  flex: none; width: 38px; height: 38px; padding: 0; display: grid; place-items: center;
+  border: 0; border-radius: 12px; background: none; color: var(--text); cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ccs-zurueck:active { background: var(--karte-2); }
+.ccs-zurueck .icon { width: 22px; height: 22px; }
+.ccs-coupon {
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+  border-radius: 14px; background: var(--karte-2);
+}
+.ccs-coupon .brand-chip { width: 38px; height: 38px; flex: 0 0 38px; border-radius: 10px; }
+.ccs-coupon-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.ccs-coupon-text small { font-size: .74rem; font-weight: 650; color: var(--muted); }
+.ccs-coupon-text b { font-size: .92rem; font-weight: 800; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ccs-coupon-preis { flex: none; font-size: .9rem; font-weight: 850; color: var(--preis); font-variant-numeric: tabular-nums; }
+.ccs-freunde {
+  margin-top: 12px; padding: 0 12px; max-height: min(46vh, 300px); overflow-y: auto; overscroll-behavior: contain;
+  border-radius: 14px; box-shadow: inset 0 0 0 1px var(--linie);
+}
+.ccs .gp-freund {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 8px 0;
+  border: 0; border-radius: 0; background: none; box-shadow: none; color: var(--text);
+  font: inherit; text-align: left; cursor: pointer; transform: none;
+}
+.ccs .gp-freund + .gp-freund { border-top: 1px solid var(--linie); }
+.ccs .gp-ava { width: 34px; height: 34px; flex: 0 0 34px; font-size: .88rem; background: var(--fc, var(--akzent)); color: #fff; }
+.ccs .gp-name { flex: 1; min-width: 0; font-size: .95rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ccs .gp-haken .icon { width: 14px; height: 14px; margin: 0; stroke-width: 2.8; color: inherit; }
+.ccs .gp-freund.gewaehlt .gp-haken { background: #16191E; border-color: #16191E; color: #fff; }
+:root[data-theme="dark"] .ccs .gp-freund.gewaehlt .gp-haken { background: #EEF1F5; border-color: #EEF1F5; color: #14171B; }
+.ccs-hinweis { margin: 12px 2px 0; font-size: .78rem; line-height: 1.45; color: var(--muted); }
+.ccs .gd-los { margin-top: 14px; }
+
+/* ---- Burger King: Papiercoupons als PDF, oben im Marken-Blatt */
+#sheet-content .bk-pdf {
+  --bc: #D62300;
+  margin-top: 14px; padding: 14px; border-radius: 16px;
+  background: var(--karte); box-shadow: var(--schatten-1);
+}
+.bk-pdf-kopf { display: flex; align-items: center; gap: 12px; }
+.bk-pdf-symbol {
+  flex: none; width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--bc) 12%, var(--karte)); color: var(--bc);
+}
+:root[data-theme="dark"] .bk-pdf-symbol { background: color-mix(in srgb, var(--bc) 24%, var(--karte)); color: #FF8A6B; }
+.bk-pdf-symbol svg { width: 24px; height: 24px; }
+.bk-pdf-titel { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.bk-pdf-titel b { font-size: .98rem; font-weight: 800; letter-spacing: -.01em; line-height: 1.25; }
+.bk-pdf-titel small { font-size: .8rem; font-weight: 650; color: var(--muted); }
+.bk-pdf.laedt .bk-pdf-titel small { opacity: .8; }
+.bk-pdf-seiten {
+  display: flex; gap: 10px; margin: 14px -14px 0; padding: 0 14px;
+  overflow-x: auto; scroll-snap-type: x mandatory; scroll-padding: 0 14px;
+  scrollbar-width: none; -webkit-tap-highlight-color: transparent;
+}
+.bk-pdf-seiten::-webkit-scrollbar { display: none; }
+.bk-pdf-seiten img {
+  flex: 0 0 100%; width: 100%; height: auto; min-width: 0; display: block;
+  border-radius: 12px; background: var(--karte-2); scroll-snap-align: start;
+  box-shadow: inset 0 0 0 1px var(--linie), 0 1px 3px rgba(16, 24, 32, .08);
+}
+/* Mehrere Seiten: die naechste schaut rechts hervor, dann weiss man, dass es weitergeht */
+.bk-pdf-seiten.mehrere img { flex-basis: 88%; width: 88%; }
+.bk-pdf .bk-pdf-knopf { margin-top: 14px; text-decoration: none; }
+.bk-pdf-tipp { margin: 10px 2px 0; font-size: .78rem; line-height: 1.45; color: var(--muted); }
+.bk-pdf-hinweis { margin: 12px 2px 0; font-size: .84rem; line-height: 1.45; color: var(--text); }
+.bk-pdf-quelle { margin: 8px 2px 0; font-size: .74rem; color: var(--muted); }
+.bk-pdf-quelle a { color: var(--text); font-weight: 700; text-decoration: none; }
+.bk-pdf-quelle a:active { opacity: .7; }

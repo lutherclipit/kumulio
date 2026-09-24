@@ -1,4 +1,5 @@
-// Tests fuer den Wallet-Kern am Server: Bildablage, Aufraeumen, Vereinigen.
+// Tests fuer den Wallet-Kern am Server: Bildablage, Aufraeumen, Vereinigen,
+// Verschenken (auch Rabattcodes) — dazu der Burger-King-PDF-Beobachter.
 // Laeuft in einem leeren Datenordner, fasst echte Daten nie an:
 //   node scripts/test-wallet.js
 const fs = require('fs');
@@ -14,6 +15,9 @@ const freund = f => ({ hash: 'x', salt: 'y', ts: 1, profile: { bio: '', publicPr
 fs.writeFileSync(path.join(DIR, 'users.json'), JSON.stringify({ nora: freund('otto'), otto: freund('nora') }));
 fs.writeFileSync(path.join(DIR, 'sessions.json'), JSON.stringify({ tokNora: 'nora', tokOtto: 'otto' }));
 fs.writeFileSync(path.join(DIR, 'gifts.json'), JSON.stringify({ otto: [{ id: 'alt1', vendor: 'dm', amount: 5, balance: 5, tx: [], notiz: 'PRIVAT alt', giftFrom: 'nora', giftTs: 1 }] }));
+// Fuer den Burger-King-Test: eine schon abgelegte (alte) PDF
+fs.writeFileSync(path.join(DIR, 'bk-coupons.pdf'), '%PDF-1.4 alt' + ' '.repeat(2000));
+fs.writeFileSync(path.join(DIR, 'bk-coupons.json'), JSON.stringify({ gueltigBis: '2026-09-01', groesse: 2012, hash: 'alt', geprueft: 1, seiten: [] }));
 const S = require('../server.js');
 
 let fehler = 0;
@@ -129,11 +133,102 @@ const alt = datei => { const t = new Date(Date.now() - 5 * 86400e3); fs.utimesSy
   a = await api('tokOtto', '/api/gift/claim', { ids: [...w.j.gifts.map(g => g.id), 'alt2'] });
   pruefe('nach dem Auspacken keine Notiz', a.status === 200 && a.j.vouchers.length === 4
     && a.j.vouchers.every(v => !('notiz' in v)) && S.wallets.otto.vouchers.every(v => !('notiz' in v)));
+
+  // --- Rabattcodes verschenken: bleiben Rabattcode (gesaeubert wie beim
+  // Anlegen), nie mit Notiz; eingeloest, abgelaufen oder doppelt nicht
+  const rc1 = { id: 'rc1', art: 'rabatt', vendor: 'Lieferando', code: ' SPAR 10 ', pin: '9', rabatt: 10, rabattArt: 'pct', mbw: 15,
+    amount: 50, balance: 50, tx: [], added: T, mt: T, notiz: 'PRIVAT R', end: '2099-12-31', eingeloest: 0 };
+  S.vereinigeWallet('nora', { vouchers: [rc1], cards: [], deleted: [] });
+  a = await api('tokNora', '/api/gift/send', { to: 'otto', id: 'rc1', voucher: rc1, msg: 'Guten Hunger' });
+  pruefe('Rabattcode verschenken geht', a.status === 200);
+  const rg = S.gifts.otto.find(g => g.giftOrigId === 'rc1');
+  pruefe('Geschenk bleibt Rabattcode (Art, Rabatt, Einheit, MBW)', !!rg && rg.art === 'rabatt' && rg.rabatt === 10 && rg.rabattArt === 'pct' && rg.mbw === 15);
+  pruefe('Rabattcode-Geschenk: kein Guthaben, keine PIN, Code ohne Leerzeichen, keine Notiz',
+    !!rg && rg.amount === null && rg.balance === null && rg.pin === '' && rg.code === 'SPAR10' && !('notiz' in rg));
+  pruefe('Rabattcode ist beim Absender weg (mit Loeschmarker)',
+    !S.wallets.nora.vouchers.some(v => v.id === 'rc1') && S.wallets.nora.deleted.some(t => t.id === 'rc1'));
+  a = await api('tokNora', '/api/gift/send', { to: 'otto', id: 'rc1', voucher: rc1 });
+  pruefe('Derselbe Rabattcode geht kein zweites Mal raus', a.status === 404);
+  const rc2 = { ...rc1, id: 'rc2', code: 'WEG2', eingeloest: T - 1000, notiz: '' };
+  const rc3 = { ...rc1, id: 'rc3', code: 'ALT3', end: '2020-01-01', notiz: '' };
+  S.vereinigeWallet('nora', { vouchers: [rc2, rc3], cards: [], deleted: [] });
+  a = await api('tokNora', '/api/gift/send', { to: 'otto', id: 'rc2', voucher: rc2 });
+  pruefe('Eingeloester Rabattcode wird abgelehnt und bleibt', a.status === 400 && S.wallets.nora.vouchers.some(v => v.id === 'rc2'));
+  a = await api('tokNora', '/api/gift/send', { to: 'otto', id: 'rc3', voucher: rc3 });
+  pruefe('Abgelaufener Rabattcode wird abgelehnt und bleibt', a.status === 400 && S.wallets.nora.vouchers.some(v => v.id === 'rc3'));
+  // Liegt derselbe Code beim Freund schon (hier: als wartendes Geschenk), ginge er nur verloren
+  const rc4 = { ...rc1, id: 'rc4', code: 'spar10', notiz: '' };
+  S.vereinigeWallet('nora', { vouchers: [rc4], cards: [], deleted: [] });
+  a = await api('tokNora', '/api/gift/send', { to: 'otto', id: 'rc4', voucher: rc4 });
+  pruefe('Doppelter Code beim Freund wird abgelehnt und bleibt', a.status === 409 && S.wallets.nora.vouchers.some(v => v.id === 'rc4'));
+  a = await api('tokOtto', '/api/gift/claim', { ids: [rg.id] });
+  const rw = S.wallets.otto.vouchers.find(v => v.giftOrigId === 'rc1');
+  pruefe('Ausgepackt: Rabattcode in der Wallet, Geschenk von nora',
+    a.status === 200 && !!rw && rw.art === 'rabatt' && rw.giftFrom === 'nora' && rw.rabatt === 10 && rw.balance === null);
+  a = await api('tokOtto', '/api/gift/claim', { ids: [rg.id] });
+  pruefe('Zweites Auspacken bucht nichts doppelt',
+    a.status === 200 && a.j.claimed.length === 0 && S.wallets.otto.vouchers.filter(v => v.giftOrigId === 'rc1').length === 1);
+
+  // --- Burger-King-PDF: Eintrag auf der Seite finden, Datum lesen, Vorschau bauen
+  const seite = `<title>Burger King Gutscheine - gültig bis 6. November 2026</title>
+    <span class="anchor" id="voucher-57712"></span><div class="voucher-title"><a data-voucher-url="184-57712">King des Monats</a></div>
+    <span class="anchor" id="voucher-68222"></span><div class="d-flex"><div class="voucher-title">
+    <a class="voucher-modal-link-alternative" data-voucher-url="184-68222" data-id="68222"> ⭐ Aktuell verfügbare Burger King Gutscheine (PDF) ⭐ </a></div>
+    <div class="voucer-subtitle"> gültig bis 06.11.2026 --- in allen teilnehmenden Restaurants </div></div>`;
+  const e = S.bkSeiteLesen(seite);
+  pruefe('BK: PDF-Eintrag gefunden (nicht der erste Gutschein)', !!e && e.ziel === '184-68222' && /PDF/.test(e.titel) && !/⭐/.test(e.titel));
+  pruefe('BK: gueltig bis aus dem Untertitel', !!e && e.gueltigBis === '2026-11-06');
+  pruefe('BK: ohne PDF-Eintrag kein Treffer', S.bkSeiteLesen('<span class="anchor" id="voucher-1"></span><div class="voucher-title"><a data-voucher-url="1-1">Whopper</a></div>') === null);
+  const bezug = new Date('2026-09-25T12:00:00Z');
+  pruefe('BK: Datum "6. November" ohne Jahr', S.bkDatumLesen('Burger King Coupons bis 6. November', bezug) === '2026-11-06');
+  pruefe('BK: Datum im Januar zaehlt ins naechste Jahr', S.bkDatumLesen('bis 8. Januar', new Date('2026-12-20T12:00:00Z')) === '2027-01-08');
+  pruefe('BK: unmoegliches Datum ergibt nichts', S.bkDatumLesen('bis 31.02.2026', bezug) === '');
+  // Kleine PDF von Hand: eine Seite, ein 2x2-Bild (Flate mit PNG-Praediktor)
+  const zlib = require('zlib');
+  const pixel = zlib.deflateSync(Buffer.from([0, 255, 0, 0, 0, 255, 0, 0, 0, 0, 255, 255, 255, 255]));
+  const pdf = Buffer.concat([
+    Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n'
+      + '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n'
+      + '3 0 obj\n<< /Type /Page /MediaBox [0 0 100 100] /Resources << /XObject << /Im1 4 0 R >> >> >>\nendobj\n'
+      + `4 0 obj\n<< /Type /XObject /Subtype /Image /Width 2 /Height 2 /BitsPerComponent 8 /ColorSpace /DeviceRGB /Filter /FlateDecode /DecodeParms << /Predictor 15 /Colors 3 /Columns 2 >> /Length ${pixel.length} >>\nstream\n`, 'latin1'),
+    pixel,
+    Buffer.from('\nendstream\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n', 'latin1'),
+  ]);
+  const bilder = S.pdfSeitenBilder(pdf);
+  pruefe('BK: Vorschau aus der PDF (PNG, 2x2)', bilder.length === 1 && bilder[0] && bilder[0].typ === 'image/png'
+    && bilder[0].w === 2 && bilder[0].h === 2 && bilder[0].daten.subarray(1, 4).toString() === 'PNG');
   // Sauber schliessen und kurz warten: laeuft beim process.exit noch Arbeit im
   // Hintergrund (Verbindungen, Dateien), stuerzt libuv unter Windows ab
   S.server.closeAllConnections();
   await new Promise(ok => S.server.close(ok));
   await new Promise(ok => setTimeout(ok, 300));
+
+  // --- Burger-King-Beobachter mit nachgebautem Netz: Fehler lassen die alte
+  // Datei liegen, eine neue PDF (nur ueber einfach-sparsam) ersetzt sie
+  const echtFetch = globalThis.fetch;
+  const eintrag = '<span class="anchor" id="voucher-9"></span><div class="voucher-title"><a data-voucher-url="184-9">Burger King Gutscheine (PDF)</a></div>'
+    + '<div class="voucer-subtitle">gültig bis 04.12.2026</div>';
+  globalThis.fetch = async () => new Response('<title>ohne</title>', { status: 200 });
+  pruefe('BK: Seite ohne PDF-Eintrag -> alte Datei bleibt', await S.bkPruefen({ sofort: true }) === false && S.bkOeffentlich().version === 'alt');
+  globalThis.fetch = async u => String(u).includes('ausdrucken') ? new Response(eintrag, { status: 200 })
+    : new Response('', { status: 302, headers: { location: 'https://anderswo.example/x.pdf' } });
+  pruefe('BK: Weiterleitung auf fremde Seite wird nicht geholt', await S.bkPruefen({ sofort: true }) === false && S.bkOeffentlich().version === 'alt');
+  pruefe('BK: nach Fehlern nicht gleich wieder faellig', await S.bkPruefen() === false);
+  // (aufgefuellt: eine echte PDF ist nie nur ein paar hundert Bytes gross)
+  const bkPdf = Buffer.concat([pdf, Buffer.from('%' + '-'.repeat(1200) + '\n', 'latin1')]);
+  globalThis.fetch = async u => {
+    u = String(u);
+    if (u.includes('ausdrucken')) return new Response(eintrag, { status: 200 });
+    if (u.includes('gehe-zu-184-9')) return new Response('', { status: 302, headers: { location: '/media/7' } });
+    if (u.endsWith('/media/7')) return new Response('', { status: 302, headers: { location: 'https://www.einfach-sparsam.de/storage/media-file/BK bis 4. Dezember.pdf' } });
+    if (u.includes('media-file')) return new Response(bkPdf, { status: 200, headers: { 'content-type': 'application/pdf', 'content-length': String(bkPdf.length) } });
+    return new Response('', { status: 404 });
+  };
+  const neuGeladen = await S.bkPruefen({ sofort: true });
+  const bk = S.bkOeffentlich();
+  pruefe('BK: neue PDF ersetzt die alte (gueltig bis, Vorschau)', neuGeladen === true && bk.da && bk.version !== 'alt'
+    && bk.gueltigBis === '2026-12-04' && bk.seiten.length === 1 && fs.readFileSync(path.join(DIR, 'bk-coupons.pdf')).equals(bkPdf));
+  globalThis.fetch = echtFetch;
 
   fs.rmSync(DIR, { recursive: true, force: true });
   console.log(fehler ? `\n${fehler} FEHLER` : '\nAlles gruen');

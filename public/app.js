@@ -1331,6 +1331,9 @@ function chatBodyHtml(text) {
   if (dl) {
     return `<button class="deal-chip" data-open-deal="${esc(dl[1])}">${icon('tag', 'icon icon-sm')} <span>${esc(dl[2] || 'Deal ansehen')}</span> ${icon('arrow-right', 'icon icon-sm')}</button>`;
   }
+  // Geteilter Coupon: [coupon:<satz>:<code>] wird zur Coupon-Karte
+  const cp = String(text).match(/^\[coupon:([^\]:]{1,40}):([\w.-]{1,24})\]\s*([\s\S]*)$/);
+  if (cp) return couponChatHtml(cp[1], cp[2], cp[3]);
   return withEmotes(esc(text));
 }
 document.addEventListener('click', e => {
@@ -4867,13 +4870,15 @@ function openGiftReveal(gift) {
       <p class="gift-hint">Ein Geschenk von <b>@${esc(gift.giftFrom)}</b>. Antippen zum Auspacken!</p>
       <div class="gift-result hidden">
         <div class="offer-cat">Geschenk von @${esc(gift.giftFrom)}</div>
-        <div class="schenk-karte auspack-karte" id="auspack-karte">${voucherCardHtml(gift)}</div>
+        <div class="schenk-karte auspack-karte" id="auspack-karte">${istRabatt(gift) ? rabattCardHtml(gift, { schau: true }) : voucherCardHtml(gift)}</div>
         ${gift.giftMsg ? `<div class="gift-bubble">${withEmotes(esc(gift.giftMsg))}<span class="gift-by">— @${esc(gift.giftFrom)}</span></div>` : ''}
         <button class="btn btn-big" id="gr-done" style="margin-top:14px">In die Wallet</button>
       </div>
     </div>`;
   document.body.appendChild(wrap);
   let opened = false;
+  // Ein Rabattcode landet unter "Karten & Coupons" — dorthin geht es danach
+  let eingebuchtId = '';
   const abort = () => {
     // Nach dem Auspacken ist das Geschenk schon eingebucht: einfach schließen.
     // Vor dem Auspacken abgebrochen: es bleibt serverseitig und auf der
@@ -4961,9 +4966,11 @@ function openGiftReveal(gift) {
         ensureWalletDates();
         save('wallet', state.wallet, true);
         vomServer.forEach(zeigeNeuenGutschein);
+        eingebuchtId = vomServer[0]?.id || gift.id;
         renderWallet();
         return;
       }
+      eingebuchtId = gift.id;
       state.wallet.vouchers.unshift({ ...gift, added: Date.now(), giftSeen: true });
       ensureWalletDates();
       saveWallet();
@@ -4973,6 +4980,7 @@ function openGiftReveal(gift) {
   wrap.addEventListener('click', e => {
     if (e.target.id === 'gr-done') {
       wrap.remove();
+      if (istRabatt(gift) && eingebuchtId) { zeigeRabattcodes(eingebuchtId); return; }
       if (state.activeView === 'gifts') renderGiftsPage(); // das nächste wartet in der Liste
     }
   });
@@ -6912,6 +6920,12 @@ function zeigeSchenkSchritt(v) {
   if (walletGesperrt()) { aktualisiereSperre(); return; } // gesperrte Wallet: nichts zeigen
   if (!state.token) { island('Zum Verschenken bitte anmelden'); return; }
   if (schenktGerade(v.id)) { island('Wird gerade verschenkt …'); return; }
+  // Rabattcodes gehen genauso weg — aber nur, solange sie noch gelten
+  const rabatt = istRabatt(v);
+  if (rabatt && !rabattVerschenkbar(v)) {
+    island(v.eingeloest ? 'Eingelöste Rabattcodes kann man nicht verschenken' : 'Abgelaufene Rabattcodes kann man nicht verschenken');
+    return;
+  }
   const freunde = myProfile?.friends || [];
   let anWen = '', suche = '', nachricht = '';
 
@@ -6929,7 +6943,7 @@ function zeigeSchenkSchritt(v) {
     art: 'schenken', id: v.id, titel: 'Verschenken', klasse: 'gp',
     baue: s => {
       s.el.querySelector('.wseite-inhalt').innerHTML = `
-        <div class="schenk-karte" id="schenk-karte">${voucherCardHtml(v)}</div>
+        <div class="schenk-karte" id="schenk-karte">${rabatt ? rabattCardHtml(v, { schau: true }) : voucherCardHtml(v)}</div>
         ${freunde.length ? `
         <div class="gp-block">
           <h3 class="gd-h">An wen?</h3>
@@ -6945,9 +6959,13 @@ function zeigeSchenkSchritt(v) {
           <div class="gp-emotes hidden"></div>
         </div>
         <p class="gp-haftung">
-          Der Gutschein wechselt endgültig den Besitzer — zurückholen geht nicht.
+          ${rabatt
+            ? `Der Rabattcode wechselt endgültig den Besitzer — zurückholen geht nicht.
+          Manche Codes gelten nur einmal pro Konto oder nur für Neukunden; kumulio
+          haftet nicht dafür, ob er beim Freund funktioniert.`
+            : `Der Gutschein wechselt endgültig den Besitzer — zurückholen geht nicht.
           kumulio verwahrt keine Gutscheine und haftet nicht für Wert, Gültigkeit
-          oder Einlösbarkeit. Verschenke nur an Leute, die du kennst.
+          oder Einlösbarkeit.`} Verschenke nur an Leute, die du kennst.
           <a href="/agb.html#verschenken" target="_blank" rel="noopener">AGB, Abschnitt 7</a>
         </p>` : `
         <div class="gd-block gp-keine">
@@ -9008,12 +9026,16 @@ function ccWireSheet() {
 
 function ccOeffneGross(code) {
   const it = ccCtx?.flat.find(x => x.code === code);
-  if (it) showCouponBig({ ...it, imgBase: ccCtx.d.img || '' }, ccCtx.d.brand || ccCtx.brand, ccCtx.d.validUntil);
+  if (it) showCouponBig({ ...it, imgBase: ccCtx.d.img || '' }, ccCtx.d.brand || ccCtx.brand, ccCtx.d.validUntil,
+    { key: ccCtx.key, offen: !!ccCtx.d.open });
 }
-function showCouponBig(it, brand, validUntil) {
+// key: aus welchem Coupon-Satz (dann laesst er sich an Freunde schicken),
+// offen: Satz ohne Sparkarte sichtbar (dann darf der Code in den Nachrichtentext)
+function showCouponBig(it, brand, validUntil, { key = '', offen = false } = {}) {
   const wrap = document.createElement('div');
   wrap.className = 'overlay';
   wrap.innerHTML = `<div class="modal cc-big ${it.barcode || it.ean ? 'cc-big-bc' : ''}">
+    <div class="ccb-vorne">
     <button class="fav-remove" id="ccb-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
     <div class="cc-big-brand">${esc(brand)}</div>
     ${it.ean ? `<div class="cc-big-ean">${ean13Svg(it.code, 110)}</div>`
@@ -9026,16 +9048,171 @@ function showCouponBig(it, brand, validUntil) {
     <div class="cc-big-price">${esc(it.price)}${/^[\d.,]+$/.test(it.price) ? ' €' : ''}</div>
     ${it.plu ? `<div class="cc-big-plu">PLU ${esc(it.plu)}</div>` : ''}
     ${validUntil ? `<div class="cc-big-valid">gültig bis ${dateShort(validUntil)}</div>` : ''}
+    ${state.token && couponTeilbar(key, it.code) && !(validUntil && new Date(validUntil) < new Date(new Date().toDateString()))
+      ? `<button class="gd-los leise ccb-schicken" type="button">${icon('send', 'icon icon-sm')}An Freund schicken</button>` : ''}
+    </div>
   </div>`;
   document.body.appendChild(wrap);
   buzz(12);
   wrap.addEventListener('click', e => {
     if (e.target === wrap || e.target.closest('#ccb-close')) {
+      if (wrap.dataset.sendet) return;   // Nachricht ist unterwegs
       wrap.classList.add('closing');
       setTimeout(() => wrap.remove(), 280);
     }
   });
+  const schicken = wrap.querySelector('.ccb-schicken');
+  if (schicken) schicken.onclick = () => couponSchickenSchritt(wrap, it, brand, key, offen);
 }
+
+// ---- Coupon an einen Freund schicken: im grossen Coupon klappt die Auswahl
+// auf (wie beim Verschenken: Freund antippen, dann senden). Es geht eine
+// Fluesternachricht mit [coupon:<satz>:<code>] raus — im Chat wird daraus
+// eine Karte, die beim Freund dieselbe grosse Ansicht oeffnet.
+// Nur was sauber ins Kuerzel passt (Satz ohne ":" und "]", Code aus Ziffern/Buchstaben)
+function couponTeilbar(key, code) { return /^[^\]:]{1,40}$/.test(String(key || '')) && /^[\w.-]{1,24}$/.test(String(code || '')); }
+function couponNachricht(key, it, brand, offen) {
+  const preis = String(it.price || '').trim() + (/^[\d.,]+$/.test(String(it.price || '').trim()) ? ' €' : '');
+  // Den Code nur mitschreiben, wenn der Satz ohnehin offen ist — sonst kaeme
+  // ein Coupon, den es nur mit Sparkarte gibt, frei in den Chat
+  const code = offen && !it.ean && !it.barcode ? `Code ${it.code}` : '';
+  const text = [`${brand}-Coupon: ${String(it.name || '').slice(0, 80)}`, preis, code].filter(Boolean).join(' · ');
+  return `[coupon:${key}:${it.code}] ${text}`.slice(0, 220);
+}
+function couponSchickenSchritt(wrap, it, brand, key, offen) {
+  const modal = wrap.querySelector('.cc-big');
+  const vorne = modal.querySelector('.ccb-vorne');
+  if (!modal || !vorne || modal.querySelector('.ccs')) return;
+  const freunde = myProfile?.friends || [];
+  let anWen = '';
+  const preis = String(it.price || '').trim() + (/^[\d.,]+$/.test(String(it.price || '').trim()) ? ' €' : '');
+  modal.insertAdjacentHTML('beforeend', `
+    <div class="ccs" role="group" aria-label="Coupon an einen Freund schicken">
+      <div class="ccs-kopf">
+        <button class="ccs-zurueck" type="button" aria-label="Zurück zum Coupon">${icon('arrow-back')}</button>
+        <b>An wen schicken?</b>
+      </div>
+      <div class="ccs-coupon" style="--bc:${brandColor(brand)}">
+        ${brandChipHtml(brand)}
+        <span class="ccs-coupon-text"><small>${esc(brand)} · Coupon</small><b>${esc(it.name)}</b></span>
+        ${preis ? `<span class="ccs-coupon-preis">${esc(preis)}</span>` : ''}
+      </div>
+      ${freunde.length ? `
+        <div class="ccs-freunde">${freunde.map(f => `
+          <button class="gp-freund" type="button" data-ccs-an="${esc(f)}" aria-pressed="false">
+            <span class="gp-ava" style="--fc:${chatColor(f)}">${esc(f.slice(0, 1).toUpperCase())}</span>
+            <span class="gp-name">${esc(f)}</span>
+            <span class="gp-haken">${icon('check', 'icon icon-sm')}</span>
+          </button>`).join('')}</div>
+        <p class="ccs-hinweis">Kommt als Nachricht im Chat an.${offen ? '' : ` Sehen kann den Coupon nur, wer die ${esc(brand)}-Karte in der Wallet hat.`}</p>
+        <button class="gd-los ccs-senden" type="button" disabled>Freund auswählen</button>`
+      : `
+        <p class="ccs-hinweis">Schicken geht an Freunde — und du hast noch keine.</p>
+        <button class="gd-los" type="button" data-ccs-freunde>Freunde finden</button>`}
+    </div>`);
+  const schritt = modal.querySelector('.ccs');
+  const senden = schritt.querySelector('.ccs-senden');
+  const wechsel = (weg, hin, zurueck) => {
+    if (reducedMotion() || !hin.animate) { weg.hidden = true; hin.hidden = false; return; }
+    const d = zurueck ? -1 : 1;
+    weg.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: `translate3d(${-18 * d}px,0,0)` }],
+      { duration: 160, easing: 'cubic-bezier(.4,0,1,1)' }).onfinish = () => {
+      weg.hidden = true;
+      hin.hidden = false;
+      hin.animate([{ opacity: 0, transform: `translate3d(${18 * d}px,0,0)` }, { opacity: 1, transform: 'none' }],
+        { duration: 240, easing: 'cubic-bezier(.22,1,.32,1)' });
+    };
+  };
+  schritt.hidden = true;
+  wechsel(vorne, schritt, false);
+  buzz(8);
+  const zurueck = () => {
+    if (wrap.dataset.sendet) return;
+    wechsel(schritt, vorne, true);
+    setTimeout(() => schritt.remove(), reducedMotion() ? 0 : 420);
+  };
+  schritt.querySelector('.ccs-zurueck').onclick = zurueck;
+  schritt.querySelector('[data-ccs-freunde]')?.addEventListener('click', () => {
+    wrap.remove();
+    closeSheet();
+    switchView('friends', 'enter-drop');
+  });
+  schritt.querySelectorAll('[data-ccs-an]').forEach(b => b.onclick = () => {
+    if (wrap.dataset.sendet) return;
+    anWen = b.dataset.ccsAn;
+    schritt.querySelectorAll('[data-ccs-an]').forEach(x => {
+      const an = x === b;
+      x.classList.toggle('gewaehlt', an);
+      x.setAttribute('aria-pressed', String(an));
+    });
+    senden.disabled = false;
+    senden.textContent = `An ${anWen} schicken`;
+    buzz(8);
+  });
+  if (senden) senden.onclick = async () => {
+    if (!anWen || wrap.dataset.sendet) return;
+    wrap.dataset.sendet = '1';
+    senden.disabled = true;
+    senden.textContent = 'Wird geschickt …';
+    try {
+      await api('/api/dm/send', { method: 'POST', body: JSON.stringify({ to: anWen, text: couponNachricht(key, it, brand, offen) }) });
+    } catch (err) {
+      delete wrap.dataset.sendet;
+      senden.disabled = false;
+      senden.textContent = `An ${anWen} schicken`;
+      island(err.message || 'Hat nicht geklappt');
+      return;
+    }
+    delete wrap.dataset.sendet;
+    island(`An ${anWen} geschickt`); playSfx('plop'); buzz([10, 30, 14]);
+    zurueck();
+  };
+}
+// Im Chat: die Karte zum geteilten Coupon. Der Text hinter dem Kuerzel ist
+// "Marke-Coupon: Name · Preis · Code …" (so lesen ihn auch alte Fassungen)
+function couponChatHtml(key, code, rest) {
+  const teile = String(rest || '').split(' · ');
+  const kopf = teile.shift() || '';
+  const m = kopf.match(/^(.*?)-Coupon:\s*(.*)$/);
+  const marke = (m && m[1]) || key;
+  const name = m ? m[2] : kopf;
+  const preis = teile.find(t => !/^Code /.test(t)) || '';
+  const codeText = (teile.find(t => /^Code /.test(t)) || '').slice(5);
+  return `<button class="coupon-chip" type="button" data-open-coupon="${esc(key)}" data-coupon-code="${esc(code)}"
+      aria-label="${esc(marke)}-Coupon ansehen: ${esc(name)}">
+    ${brandChipHtml(marke)}
+    <span class="coupon-chip-text"><small>${esc(marke)} · Coupon</small><b>${esc(name || 'Coupon ansehen')}</b>
+      ${preis || codeText ? `<span class="coupon-chip-fuss">${preis ? `<span class="coupon-chip-preis">${esc(preis)}</span>` : ''}${codeText ? `<span class="coupon-chip-code">${esc(codeText)}</span>` : ''}</span>` : ''}
+    </span>
+    ${icon('arrow-right', 'icon icon-sm')}
+  </button>`;
+}
+// Beim Freund: den Coupon aus seinem Satz holen und gross zeigen. Ohne die
+// Sparkarte (bei Saetzen, die eine brauchen) sagt die App das ehrlich.
+async function oeffneGeteiltenCoupon(key, code) {
+  if (!state.token) { island('Zum Ansehen bitte anmelden'); return; }
+  const finde = d => (d?.groups || []).flatMap(g => g.items || []).find(x => x.code === code);
+  const zeige = d => showCouponBig({ ...finde(d), imgBase: d.img || '' }, d.brand || key, d.validUntil, { key, offen: !!d.open });
+  const gecacht = ccCache[key];
+  if (gecacht && finde(gecacht)) { zeige(gecacht); return; }
+  let d;
+  try {
+    d = await api('/api/cardcoupons?card=' + encodeURIComponent(key));
+  } catch (e) {
+    const marke = cardCouponList?.find(x => x.key === key)?.brand || key;
+    island(e.status === 403 ? `Den Coupon siehst du, sobald die ${marke}-Karte in deiner Wallet liegt`
+      : e.status === 404 ? 'Diese Coupons gibt es nicht mehr' : (e.message || 'Hat nicht geklappt'));
+    return;
+  }
+  ccCache[key] = d;
+  try { lsSetzen('ra.ccData', JSON.stringify(ccCache)); } catch { /* Speicher voll */ }
+  if (!finde(d)) { island('Diesen Coupon gibt es nicht mehr — die Liste ist inzwischen neu'); return; }
+  zeige(d);
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-open-coupon]');
+  if (b) oeffneGeteiltenCoupon(b.dataset.openCoupon, b.dataset.couponCode);
+});
 // Redaktions-Editor: Zeilenformat statt Formular-Wüste, monatlich schnell gepflegt
 function openCardCouponEditor(key, data) {
   const txt = (data.groups || []).map(g =>
@@ -9236,6 +9413,68 @@ function cardAppBlockHtml(name) {
     ${quest}`;
 }
 
+// ---- Burger King: die Papiercoupons als PDF. Der Server holt sie taeglich
+// (und gleich nach Ablauf) bei einfach-sparsam.de und legt sie ab. Oben im
+// Marken-Blatt: bis wann sie gelten, die Seiten als Vorschau, der Knopf zur
+// PDF und die Quelle. Abgelaufen oder keine da: ein ehrlicher Satz statt PDF.
+let bkDaten = lsJson('ra.bkPdf', null);
+let bkLaden = null;
+function istBurgerKing(name) { return /^burger\s*king$/i.test(String(name || '').trim()); }
+function bkDatum(iso) {
+  const d = new Date(String(iso) + 'T12:00:00');
+  return isNaN(d) ? '' : `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()}`;
+}
+function bkPdfBlockHtml(d = bkDaten) {
+  const v = d?.version ? '?v=' + encodeURIComponent(d.version) : '';
+  const pdf = `${API_BASE}/bk-coupons.pdf${v}`;
+  const symbol = `<span class="bk-pdf-symbol" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M7 3.5h7l4 4v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-15a1 1 0 0 1 1-1z"/><path d="M14 3.5v4h4"/><path d="M9 12.5h6M9 16h4"/></svg></span>`;
+  const kopf = zeile => `
+    <div class="bk-pdf-kopf">${symbol}
+      <span class="bk-pdf-titel"><b>Coupons zum Ausdrucken und Vorzeigen</b><small>${zeile}</small></span>
+    </div>`;
+  const quelle = `<p class="bk-pdf-quelle">Quelle: <a href="https://www.einfach-sparsam.de/burger-king-coupons-ausdrucken.htm" target="_blank" rel="noopener noreferrer">einfach-sparsam.de</a>${d?.da && !d.abgelaufen && d.groesse ? ` · PDF, ${String(Math.max(0.1, Math.round(d.groesse / 1e5) / 10)).replace('.', ',')} MB` : ''}</p>`;
+  if (!d) {
+    return `<section class="bk-pdf laedt" aria-label="Burger-King-Coupons zum Ausdrucken" aria-busy="true">
+      ${kopf(bkLaden === false ? 'Konnte gerade nicht geladen werden' : 'Wird geladen …')}</section>`;
+  }
+  if (!d.da || d.abgelaufen) {
+    return `<section class="bk-pdf leer" aria-label="Burger-King-Coupons zum Ausdrucken">
+      ${kopf(d.da ? `galt bis ${bkDatum(d.gueltigBis)}` : 'gerade keine PDF da')}
+      <p class="bk-pdf-hinweis">${d.da
+        ? 'Die letzten Papiercoupons gelten nicht mehr. Sobald es neue gibt, stehen sie hier — wir sehen jeden Tag nach.'
+        : 'Gerade liegen keine Papiercoupons vor. Wir sehen jeden Tag nach, ob es neue gibt.'}</p>
+      ${quelle}</section>`;
+  }
+  const seiten = (d.seiten || []).slice(0, 4);
+  return `<section class="bk-pdf" aria-label="Burger-King-Coupons zum Ausdrucken">
+    ${kopf(d.gueltigBis ? `gültig bis ${bkDatum(d.gueltigBis)}` : 'aktuelle Ausgabe')}
+    ${seiten.length ? `
+    <a class="bk-pdf-seiten${seiten.length > 1 ? ' mehrere' : ''}" href="${esc(pdf)}" target="_blank" rel="noopener" aria-label="PDF mit den Coupons öffnen">
+      ${seiten.map(s => `<img src="${API_BASE}/bk-coupons/seite-${s.n}${v}" width="${s.w}" height="${s.h}" alt="Seite ${s.n} der Burger-King-Coupons"
+        loading="lazy" decoding="async" style="aspect-ratio:${s.w} / ${s.h}">`).join('')}
+    </a>` : ''}
+    <a class="gd-los bk-pdf-knopf" href="${esc(pdf)}" target="_blank" rel="noopener">PDF ansehen</a>
+    <p class="bk-pdf-tipp">Nummer an der Kasse nennen oder den QR-Code scannen lassen.</p>
+    ${quelle}</section>`;
+}
+// Metadaten holen (hoechstens einmal pro Minute); true, wenn sich etwas geaendert hat
+async function ladeBkPdf() {
+  if (bkLaden === true && Date.now() - (ladeBkPdf.zuletzt || 0) < 60e3) return false;
+  try {
+    const d = await api('/api/bk-coupons');
+    const neu = JSON.stringify(d) !== JSON.stringify(bkDaten);
+    bkDaten = d;
+    bkLaden = true;
+    ladeBkPdf.zuletzt = Date.now();
+    lsSetzen('ra.bkPdf', JSON.stringify(d));
+    return neu;
+  } catch {
+    bkLaden = false;
+    return !bkDaten;   // nur der Lade-Hinweis muss sich aendern
+  }
+}
+
 // Ein Blatt je Marke: oben die Sparkarte (Nummer und Barcode fuer die Kasse),
 // darunter der Sprung in die App, darunter die Coupons dieser Marke. Alles, was
 // man beim Einkauf braucht, in einer Reihenfolge.
@@ -9259,6 +9498,7 @@ function openBrandSheet(key, richtung) {
       </div>
       <button class="fav-remove" id="wc-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
     </div>
+    ${istBurgerKing(b.name) ? `<div id="bk-pdf-slot">${bkPdfBlockHtml()}</div>` : ''}
     ${c ? `
       <div class="karte-buehne" style="margin-top:14px">${sparkarteHtml(c)}</div>
       ${sparkarteHinweis(c) ? `<p class="muted" style="font-size:.76rem; text-align:center; margin-top:8px">${esc(sparkarteHinweis(c))}</p>` : ''}
@@ -9319,6 +9559,12 @@ function openBrandSheet(key, richtung) {
   if (/mcdonald/i.test(b.name) && !mccheapDaten) ladeMccheap().then(() => {
     const slot = $('#mcd-slot');
     if (slot && state.sheetMode === 'brand') slot.innerHTML = mccheapBlockHtml();
+  });
+  // Burger King: die Papiercoupons (PDF) oben; aus dem Speicher sofort da,
+  // beim Server still nachgefragt
+  if (istBurgerKing(b.name)) ladeBkPdf().then(neu => {
+    const slot = $('#bk-pdf-slot');
+    if (neu && slot && state.sheetMode === 'brand' && openBrandSheet.key === key) slot.innerHTML = bkPdfBlockHtml();
   });
   // Die Coupons dieser Marke direkt darunter — kein zweites Blatt mehr
   if (b.coupons) ladeCouponsIn(b.coupons.key, b.coupons.brand, $('#cc-slot'), !ccBesitzt(b.coupons));
@@ -9485,7 +9731,9 @@ addEventListener('scroll', schliesseVkMenue, { passive: true });
 // Liegen in der Wallet neben den Gutscheinen (art: 'rabatt'), damit Sichern,
 // Abgleich, Papierkorb und Loeschmarker genauso greifen. Sie haben aber KEIN
 // Guthaben (amount/balance bleiben null) und zaehlen nirgends mit: nicht im
-// Gesamtguthaben, nicht in der Statistik, nicht beim Verschenken.
+// Gesamtguthaben, nicht in der Statistik. Verschenken geht wie beim
+// Gutschein (Seite "Mehr"), solange der Code nicht eingeloest oder abgelaufen
+// ist — beim Freund landet er wieder als Rabattcode.
 // Angezeigt werden sie im Bereich "Karten & Coupons", ganz oben.
 function rabattZahl(x) { const n = Number(x); return x != null && x !== '' && Number.isFinite(n) && n > 0 ? n : null; }
 function rabattWertText(v) {
@@ -9499,25 +9747,28 @@ function rabattShopUrl(name) {
   const d = BRAND_DOMAINS[String(name || '').trim().toLowerCase()];
   return d ? `https://www.${d.replace(/^www\./, '')}` : '';
 }
-function rabattCardHtml(v) {
+// schau: nur ansehen (Verschenken, Auspacken) — ohne Knopf und ohne Sprung
+function rabattCardHtml(v, { schau = false } = {}) {
   const aus = !!v.eingeloest || rabattAbgelaufen(v);
   const wert = rabattWertText(v);
   const status = v.eingeloest ? 'eingelöst'
     : v.end ? (rabattAbgelaufen(v) ? 'abgelaufen' : 'bis ' + new Date(v.end).toLocaleDateString('de-DE')) : '';
   return `
     <div class="wallet-card rc-card${aus ? ' rc-aus' : ''}${brandHelligkeit(brandColor(v.vendor)) > 0.62 ? ' hell' : ''}"
-      data-rc="${esc(v.id)}" role="button" tabindex="0" aria-label="${esc(v.vendor)}-Rabattcode öffnen"
+      ${schau ? '' : `data-rc="${esc(v.id)}" role="button" tabindex="0" aria-label="${esc(v.vendor)}-Rabattcode öffnen"`}
       style="--bc:${brandColor(v.vendor)}; --tc:${brandTextColor(v.vendor)}">
       <div class="wallet-card-head">
         ${brandChipHtml(v.vendor)}
-        <span class="wallet-card-name">${esc(v.vendor)}</span>
+        ${v.giftFrom ? `<span class="rc-namen"><span class="wallet-card-name">${esc(v.vendor)}</span>
+          <span class="rc-von">Geschenk von @${esc(v.giftFrom)}</span></span>`
+          : `<span class="wallet-card-name">${esc(v.vendor)}</span>`}
         ${wert ? `<span class="wallet-card-balance">−${wert}</span>` : ''}
       </div>
       <div class="wallet-card-sub">
         ${v.code ? `<span class="rc-code">${esc(v.code)}</span>` : ''}
         <span class="pill">${rabattMbwText(v)}</span>
         ${status ? `<span class="pill">${status}</span>` : ''}
-        ${v.code ? `<button class="rc-kopieren" type="button" data-rc-copy="${esc(v.id)}" aria-label="Code ${esc(v.code)} kopieren">Kopieren</button>` : ''}
+        ${v.code && !schau ? `<button class="rc-kopieren" type="button" data-rc-copy="${esc(v.id)}" aria-label="Code ${esc(v.code)} kopieren">Kopieren</button>` : ''}
       </div>
     </div>`;
 }
@@ -9609,7 +9860,7 @@ function rabattSeiteHtml(v) {
       <span class="vk-motiv gd-motiv" aria-hidden="true">${vkMotivHtml(v)}</span>
       <div class="gd-karte-kopf">
         <span class="vk-logo">${brandChipHtml(v.vendor)}</span>
-        <span class="gd-karte-namen"><b>${esc(v.vendor)}</b><span>Rabattcode</span></span>
+        <span class="gd-karte-namen"><b>${esc(v.vendor)}</b><span>${v.giftFrom ? `Geschenk von @${esc(v.giftFrom)}` : 'Rabattcode'}</span></span>
       </div>
       <div class="gd-guthaben"><b>${wert ? '−' + wert : 'Rabatt'}</b>
         <span>${mbw ? `ab ${esc(euroFmt(mbw))} Bestellwert` : 'ohne Mindestbestellwert'}</span></div>
@@ -9649,8 +9900,10 @@ function rabattSeiteHtml(v) {
     </div>` : `
     <label class="gd-block gd-leer">${wIcon('bild')}<span>Bild zum Rabattcode hinzufügen</span>
       <input type="file" id="wv-img-file" accept="image/*" style="display:none"></label>`}
-    ${v.added ? `<p class="rp-fuss">Hinzugefügt am ${tag(v.added)}</p>` : ''}`;
+    ${v.added ? `<p class="rp-fuss">${v.giftFrom ? `Geschenk von @${esc(v.giftFrom)}, angekommen am` : 'Hinzugefügt am'} ${tag(v.added)}</p>` : ''}`;
 }
+// Verschenken geht nur, solange der Code noch etwas wert ist
+function rabattVerschenkbar(v) { return !!state.token && istRabatt(v) && !v.eingeloest && !rabattAbgelaufen(v); }
 function rpLeisteHtml(v) {
   return `
     <div class="wseite-leiste gd-leiste">
@@ -9661,6 +9914,11 @@ function rpLeisteHtml(v) {
       <button class="gd-mehr" type="button" aria-expanded="false" aria-controls="gd-optionen">
         <span>Mehr</span>${icon('chevron-down', 'icon gd-mehr-pfeil')}</button>
       <div class="gd-optionen" id="gd-optionen" role="menu" aria-label="Weitere Aktionen">
+        ${rabattVerschenkbar(v) ? `
+        <button class="gd-option" type="button" role="menuitem" data-rp="schenken" tabindex="-1">
+          <span class="gd-option-bild">${icon('gift')}</span>
+          <span class="gd-option-text"><b>Verschenken</b><small>An Freunde weitergeben</small></span>
+        </button>` : ''}
         <button class="gd-option gefahr" type="button" role="menuitem" data-rp="loeschen" tabindex="-1">
           <span class="gd-option-bild">${wIcon('muell')}</span>
           <span class="gd-option-text"><b>Rabattcode löschen</b></span>
@@ -9694,6 +9952,7 @@ function zeichneRabattSeite(seite) {
     if (!x || walletGesperrt()) return;
     const k = b.dataset.rp;
     if (k === 'aendern') { gdOptionen(seite, false); openWalletAdd('rabatt', x.vendor, x.id); }
+    else if (k === 'schenken') { gdOptionen(seite, false); zeigeSchenkSchritt(x); }
     else if (k === 'loeschen') { gdOptionen(seite, false); rabattLoeschen(x); }
     else if (k === 'eingeloest') {
       x.eingeloest = x.eingeloest ? 0 : Date.now();
@@ -11595,6 +11854,8 @@ async function pollChat(force) {
         const du = c.lastMine && t ? '<span class="dm-row-du">Du:</span> ' : '';
         const dl = t.match(/^\[deal:[a-z0-9]+\]\s*(.*)$/i);
         if (dl) return `${du}${icon('tag', 'icon dm-row-ico')}${esc(dl[1] || 'Deal')}`;
+        const cp = t.match(/^\[coupon:[^\]]*\]\s*(.*)$/i);
+        if (cp) return `${du}${icon('tag', 'icon dm-row-ico')}${esc(cp[1].replace(/ · Code .*$/, '') || 'Coupon')}`;
         return t ? du + withEmotes(esc(t)) : '<i>Nachricht gelöscht</i>';
       };
       const rows = r.list.map(c => `
@@ -11676,7 +11937,8 @@ async function refreshDmBadge() {
       const conv = r.list.find(c => c.unread > 0);
       if (conv) {
         playSfx('plop'); buzz(25);
-        showNoteBanner(`<b>@${esc(conv.partner)}</b>: ${esc(conv.lastText)}`, () => {
+        // Geteilte Deals und Coupons ohne ihr [deal:…]/[coupon:…]-Kuerzel
+        showNoteBanner(`<b>@${esc(conv.partner)}</b>: ${esc(String(conv.lastText || '').replace(/^\[(?:deal|coupon):[^\]]*\]\s*/i, ''))}`, () => {
           if (state.activeView !== 'chat') switchView('chat');
           setChatMode('dm', conv.partner);
         });
