@@ -5683,14 +5683,28 @@ const BRAND_DOMAINS = {
   netflix: 'netflix.com', disney: 'disneyplus.com', 'uber eats': 'ubereats.com',
   "mcdonald's": 'mcdonalds.com', "domino's": 'dominos.de', 'about you': 'aboutyou.de',
 };
+// Logos in hoher Aufloesung vom Nutzer (public/brand/logos, 384 px, quadratisch
+// mit durchsichtigem Rand). Fuer alle anderen Marken bleibt der Favicon-Dienst.
+const MARKEN_LOGOS = {
+  rossmann: 'rossmann', ikea: 'ikea', 'ikea family': 'ikea', subway: 'subway', lieferando: 'lieferando',
+  kaufland: 'kaufland', mcdonalds: 'mcdonalds', "mcdonald's": 'mcdonalds', 'burger king': 'burger-king',
+  netto: 'netto', edeka: 'edeka', dm: 'dm', lidl: 'lidl', 'lidl plus': 'lidl', 'müller': 'mueller',
+  mueller: 'mueller', wolt: 'wolt',
+};
+function markenLogoUrl(name, px = 64) {
+  const key = String(name || '').toLowerCase().trim();
+  if (MARKEN_LOGOS[key]) return `/brand/logos/${MARKEN_LOGOS[key]}.webp`;
+  const domain = BRAND_DOMAINS[key];
+  return domain ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=${px}` : '';
+}
 // gross = true holt das Logo in 128 px (fuer grosse Flaechen wie im Feed-Banner).
 // Laedt es nicht, nimmt der Chip auch "hat-logo" weg — sonst blieben die
 // Initialen darunter unsichtbar (transparente Schrift) und der Chip leer.
 function brandChipHtml(name, gross = false) {
-  const domain = BRAND_DOMAINS[String(name || '').toLowerCase()];
   const px = gross ? 128 : 64;
-  const logo = domain
-    ? `<img class="brand-logo" src="https://www.google.com/s2/favicons?domain=${domain}&sz=${px}" alt=""
+  const url = markenLogoUrl(name, px);
+  const logo = url
+    ? `<img class="brand-logo" src="${esc(url)}" alt=""
          loading="lazy" decoding="async" fetchpriority="low" width="${px}" height="${px}" onerror="this.parentNode?.classList.remove('hat-logo');this.remove()">`
     : '';
   // Mit Logo traegt der Chip Weiss statt Markenfarbe — sonst blitzt an den
@@ -8146,9 +8160,9 @@ function oeffneGutscheinSeite(id, { animFrom = null, buchen = 0 } = {}) {
 
 // Motiv hinten auf der Karte: das Marken-Logo gross und blass
 function vkMotivHtml(v) {
-  const domain = BRAND_DOMAINS[String(v.vendor || '').toLowerCase()];
-  return domain
-    ? `<img src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128" alt="" loading="lazy" decoding="async" onerror="this.remove()">`
+  const url = markenLogoUrl(v.vendor, 128);
+  return url
+    ? `<img src="${esc(url)}" alt="" loading="lazy" decoding="async" onerror="this.remove()">`
     : `<i>${esc(brandInitials(v.vendor))}</i>`;
 }
 
@@ -10071,9 +10085,9 @@ function zeigeMarkenLogos(name) {
   if (!box) return;
   box.querySelectorAll('.ff-logo').forEach(l => { l.classList.add('weg'); setTimeout(() => l.remove(), 450); });
   if (!name || sperrRuhig() || document.body.classList.contains('sparsam')) return;
-  const domain = BRAND_DOMAINS[String(name).toLowerCase()];
-  const inhalt = domain
-    ? `<img src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64" alt="" decoding="async" onerror="this.remove()">`
+  const url = markenLogoUrl(name, 64);
+  const inhalt = url
+    ? `<img src="${esc(url)}" alt="" decoding="async" onerror="this.remove()">`
     : `<i>${esc(brandInitials(name))}</i>`;
   // Feste, gut verteilte Plaetze: x %, y % der Kopfhoehe, Groesse px, Dauer s
   const plaetze = [[5, 16, 34, 9], [20, 62, 26, 11], [38, 6, 22, 13], [62, 60, 36, 10], [80, 18, 28, 12], [91, 64, 22, 14], [50, 38, 18, 15]];
