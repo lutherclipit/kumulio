@@ -864,6 +864,71 @@ function ladeNeuVersionen() {
   } catch { return []; }
 }
 const NEU_VERSIONEN = ladeNeuVersionen();
+
+// Laden-Erkennung: Laeden rund um einen gerundeten Punkt (~100 m Raster) aus
+// OpenStreetMap (Overpass). Die Position wird nicht gespeichert und nicht
+// protokolliert; nur die Laden-Liste pro Rasterzelle bleibt 24 h im Speicher
+// (schont Overpass, dessen Nutzungsregeln sparsame Abfragen verlangen).
+const laedenCache = new Map();    // "lat,lon" -> { ts, liste }
+const laedenLaeuft = new Map();   // "lat,lon" -> Promise (gleiche Zelle = eine Abfrage)
+const laedenFehler = new Map();   // "lat,lon" -> ts (Fehlschlag 60 s merken)
+let laedenAktiv = 0, laedenMinute = { t: 0, n: 0 }, laedenEintraege = 0;
+function laedenUm(lat, lon) {
+  const key = lat.toFixed(3) + ',' + lon.toFixed(3);
+  const c = laedenCache.get(key);
+  if (c && Date.now() - c.ts < 24 * 3600e3) return Promise.resolve(c.liste);
+  if (Date.now() - (laedenFehler.get(key) || 0) < 60e3) return Promise.reject(new Error('eben erst fehlgeschlagen'));
+  if (laedenLaeuft.has(key)) return laedenLaeuft.get(key);
+  // Fuer alle zusammen: hoechstens 2 gleichzeitig und 30 pro Minute an Overpass
+  const jetzt = Date.now();
+  if (jetzt - laedenMinute.t > 60e3) laedenMinute = { t: jetzt, n: 0 };
+  if (laedenAktiv >= 2 || laedenMinute.n >= 30) return Promise.reject(new Error('Overpass ausgelastet'));
+  laedenAktiv++;
+  laedenMinute.n++;
+  const lauf = laedenHolen(lat, lon, key)
+    .catch(e => { laedenFehler.set(key, Date.now()); if (laedenFehler.size > 2000) laedenFehler.clear(); throw e; })
+    .finally(() => { laedenAktiv--; laedenLaeuft.delete(key); });
+  laedenLaeuft.set(key, lauf);
+  return lauf;
+}
+async function laedenHolen(lat, lon, key) {
+  const um = `around:260,${lat},${lon}`;
+  const q = `[out:json][timeout:8];(nwr(${um})["shop"];nwr(${um})["amenity"~"^(fast_food|restaurant|cafe|pharmacy|fuel|ice_cream)$"];);out center tags 150;`;
+  // Overpass ist oft kurz ueberlastet (429/504, Zeitueberschreitung): ein
+  // zweiter Versuch nach kurzer Pause rettet die meisten Abfragen
+  let j = null;
+  for (let versuch = 0; versuch < 2 && !j; versuch++) {
+    if (versuch) await new Promise(r => setTimeout(r, 2500));
+    const ctl = new AbortController();
+    const uhr = setTimeout(() => ctl.abort(), 15000);
+    try {
+      const r = await fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'kumulio.de Laden-Erkennung' },
+        body: 'data=' + encodeURIComponent(q), signal: ctl.signal,
+      });
+      if (r.ok) j = await r.json();
+      // Auch mit 200 kann Overpass abgebrochen haben ("remark: runtime error")
+      if (j && j.remark && /error|timed out/i.test(j.remark)) j = null;
+      if (!j && versuch) throw new Error('Overpass ' + r.status);
+    } catch (e) { if (versuch) throw e; }
+    finally { clearTimeout(uhr); }
+  }
+  const liste = ((j && j.elements) || []).map(e => ({
+    n: String((e.tags && e.tags.name) || '').slice(0, 60),
+    b: String((e.tags && e.tags.brand) || '').slice(0, 40),
+    lat: e.lat ?? (e.center && e.center.lat), lon: e.lon ?? (e.center && e.center.lon),
+  })).filter(x => (x.n || x.b) && Number.isFinite(x.lat) && Number.isFinite(x.lon)).slice(0, 150);
+  // Speicher begrenzt nach Eintraegen, nicht nach Zellen (volle Innenstaedte sind gross)
+  while (laedenCache.size && laedenEintraege + liste.length > 200000) {
+    const [altKey, alt] = laedenCache.entries().next().value;
+    laedenEintraege -= alt.liste.length;
+    laedenCache.delete(altKey);
+  }
+  laedenCache.set(key, { ts: Date.now(), liste });
+  laedenEintraege += liste.length;
+  return liste;
+}
 // Letzte Bewegung eines Gutscheins: juengste Buchung, sonst angelegt am
 // (Schleife statt Spread: sehr viele Buchungen sprengten sonst den Stack)
 function letzteBewegung(v) {
@@ -2095,6 +2160,9 @@ const server = http.createServer(async (req, res) => {
   const p = url.pathname;
 
   if (req.method === 'OPTIONS') return send(res, 204, '');
+  // Teilen-Ziel: normalerweise faengt der Service Worker das ab. Ist er noch
+  // nicht aktiv, landet der POST hier — dann einfach zur App
+  if (p === '/teilen') { res.writeHead(303, { Location: req.method === 'POST' ? '/?teilen=fehler' : '/' }); return res.end(); }
 
   try {
     // ---- API
@@ -3443,6 +3511,19 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- Startseiten-Kacheln (Admin pflegt sie über /admin.html)
+    // Laden-Erkennung (nur angemeldet, gedrosselt; Position kommt gerundet)
+    if (p === '/api/laeden' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      if (!drossel('laeden:' + user, 40, 3600e3)) return send(res, 429, { error: 'Zu viele Anfragen.' });
+      const b = await readBody(req);
+      const lat = Math.round(Number(b.lat) * 1000) / 1000, lon = Math.round(Number(b.lon) * 1000) / 1000;
+      if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+        return send(res, 400, { error: 'Ungültige Position.' });
+      }
+      try { return send(res, 200, { laeden: await laedenUm(lat, lon) }); }
+      catch { return send(res, 503, { error: 'Läden gerade nicht abrufbar.' }); }
+    }
     if (p === '/api/featured' && req.method === 'GET') {
       return send(res, 200, featured);
     }

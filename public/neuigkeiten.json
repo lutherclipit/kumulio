@@ -1,5 +1,32 @@
 [
   {
+    "v": "2026-09-24.2",
+    "datum": "24. September 2026",
+    "titel": "Deine Marke, deine Farben",
+    "punkte": [
+      {
+        "icon": "banknote",
+        "titel": "Marken-Ansicht",
+        "text": "Wähl oben eine Marke: Der Kopf zeigt dann nur ihr Guthaben, in ihren Farben und mit ihrem Logo."
+      },
+      {
+        "icon": "pin",
+        "titel": "Laden-Erkennung",
+        "text": "Stehst du bei REWE & Co., fragt kumulio, ob die Wallet auf die Marke umstellen soll. In den Einstellungen unter „Im Laden“ einschalten; der Standort wird nur genutzt, solange die App offen ist."
+      },
+      {
+        "icon": "share",
+        "titel": "Screenshot teilen (Android)",
+        "text": "Teil einen Gutschein-Screenshot direkt mit kumulio: Er landet sofort im Hinzufügen-Blatt und wird ausgelesen. Dafür kumulio als App auf dem Startbildschirm installieren."
+      },
+      {
+        "icon": "sparkle",
+        "titel": "Ruhigere Übergänge",
+        "text": "Beim Wechsel zwischen Feed, Wallet und Chat blendet kumulio jetzt sanft über."
+      }
+    ]
+  },
+  {
     "v": "2026-09-24",
     "datum": "24. September 2026",
     "titel": "Deine Wallet ist jetzt das Zuhause",

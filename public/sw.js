@@ -1,4 +1,42 @@
 // kumulio Service Worker: empfängt Push-Nachrichten (Preisfehler, DMs, Geschenke, Gutschriften)
+// und nimmt Bilder an, die man aus anderen Apps mit kumulio teilt (Android).
+
+// Neue Fassung sofort aktiv (der Worker cacht keine App-Dateien, nichts kann veralten)
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
+
+// Teilen -> kumulio: Das Teilen-Menue schickt die Dateien als POST an /teilen
+// (manifest.json, share_target). Sie kommen kurz in den Cache, dann oeffnet
+// die App mit ?teilen=<id> und holt sie dort ab.
+self.addEventListener('fetch', e => {
+  const url = new URL(e.request.url);
+  if (e.request.method !== 'POST' || url.origin !== self.location.origin || url.pathname !== '/teilen') return;
+  // Das Teilen-Menue schickt keinen fremden Referrer; ein Formular einer
+  // anderen Seite schon — das wird nicht angenommen (die App prueft zusaetzlich)
+  const ref = e.request.referrer;
+  if (ref && ref !== 'about:client' && new URL(ref).origin !== self.location.origin) {
+    e.respondWith(Response.redirect(new URL('/', self.location.origin).href, 303));
+    return;
+  }
+  e.respondWith((async () => {
+    try {
+      const form = await e.request.formData();
+      const dateien = form.getAll('bilder').filter(f => f && typeof f === 'object' && f.size > 0 && f.size < 25e6).slice(0, 10);
+      const text = ['title', 'text', 'url'].map(k => form.get(k)).filter(x => typeof x === 'string' && x).join(' ').slice(0, 2000);
+      const id = Date.now().toString(36);
+      const cache = await caches.open('kumulio-teilen');
+      for (const k of await cache.keys()) await cache.delete(k);
+      let n = 0;
+      for (const f of dateien) {
+        await cache.put(`/teilen-datei/${id}/${n++}`, new Response(f, { headers: { 'Content-Type': f.type || 'image/jpeg' } }));
+      }
+      if (text) await cache.put(`/teilen-datei/${id}/text`, new Response(text, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } }));
+      return Response.redirect(new URL(`/?teilen=${id}&n=${n}`, self.location.origin).href, 303);
+    } catch {
+      return Response.redirect(new URL('/?teilen=fehler', self.location.origin).href, 303);
+    }
+  })());
+});
 self.addEventListener('push', e => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch { }

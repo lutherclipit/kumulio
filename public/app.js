@@ -73,8 +73,10 @@ function setzeLeistenfarbe() {
   const st = getComputedStyle(document.documentElement);
   // Auch die Sperre traegt den Rang-Verlauf
   const inWallet = document.body.classList.contains('wallet-farbe') || document.body.classList.contains('wallet-zu');
+  const markenfarbe = document.body.classList.contains('marken-modus') && !document.body.classList.contains('wallet-zu')
+    ? st.getPropertyValue('--marke-k1').trim() : '';
   const farbe = inWallet
-    ? (st.getPropertyValue('--kopf-k1').trim() || '#0E9C64')
+    ? (markenfarbe || st.getPropertyValue('--kopf-k1').trim() || '#0E9C64')
     : (getComputedStyle(document.body).backgroundColor || '#EEF1F5');
   if (meta.content !== farbe) meta.content = farbe;
 }
@@ -387,6 +389,12 @@ let startAuftrittOffen = true;   // bis der Start-Splash geht, wartet jeder Auft
 let bioLaeuft = false;           // Face ID fragt gerade (nie zwei Abfragen gleichzeitig)
 let neuGeprueft = false;         // Update-Log: pro Sitzung und Konto hoechstens einmal pruefen
 let neuListe = null;             // public/neuigkeiten.json, neueste Fassung zuerst
+let markenModusName = '';        // Marken-Ansicht im Wallet-Kopf (siehe setzeMarkenModus)
+let markenEbene = 0, markenEbeneUhr = 0;
+let ladenLetzt = 0, ladenLaeuft = false; // Laden-Erkennung (siehe pruefeLaden)
+let geteiltWartet = null;        // aus anderen Apps geteilte Bilder/Text (siehe pruefeGeteiltes)
+let geteiltSchlange = [];        // weitere geteilte Bilder: eins nach dem anderen ins Formular
+let markeWartet = null;          // "Karte zeigen" aus dem Laden-Banner wartet aufs Entsperren
 let bioBrauchtTippen = false;    // Browser liess Face ID nicht ohne Antippen starten
 // So viel passt in eine Wallet. Gerechnet: ein Gutschein mit Kassen-Code und
 // Originalfoto braucht komprimiert rund 50-130 KB. 500 Stueck sind dann auf
@@ -474,7 +482,7 @@ let viewCleanupTimer = null;
 function settleViews() {
   clearTimeout(viewCleanupTimer);
   document.querySelectorAll('.view').forEach(v => {
-    v.classList.remove('enter-right', 'enter-left', 'enter-drop');
+    v.classList.remove('enter-right', 'enter-left', 'enter-drop', 'enter-fade');
     v.classList.toggle('hidden', v.id !== 'view-' + state.activeView);
   });
 }
@@ -489,6 +497,9 @@ function switchView(next, animClass) {
   const oldView = $('#view-' + state.activeView);
   const newView = $('#view-' + next);
   const dir = VIEW_ORDER.indexOf(next) > VIEW_ORDER.indexOf(state.activeView) ? 1 : -1;
+  // Zwischen den Reitern unten: ruhiges Ueberblenden statt Gleiten
+  const hauptreiter = ['feed', 'wallet', 'chat'];
+  const weich = hauptreiter.includes(next) && hauptreiter.includes(state.activeView);
   state.activeView = next;
 
   document.querySelectorAll('.tabbtn').forEach(t => t.classList.toggle('active', t.dataset.view === next));
@@ -497,7 +508,7 @@ function switchView(next, animClass) {
   oldView.classList.add('hidden');
   window.scrollTo(0, 0);
   newView.classList.remove('hidden');
-  newView.classList.add(animClass || (dir === 1 ? 'enter-right' : 'enter-left'));
+  newView.classList.add(animClass || (weich ? 'enter-fade' : dir === 1 ? 'enter-right' : 'enter-left'));
   // Login-Captcha erst rendern, wenn die Profil-Seite sichtbar ist
   if (next === 'profile' && !state.token) renderTurnstile('login');
   if (next === 'profile' && state.token) { refreshGami(); refreshGamiSystem(); }
@@ -512,7 +523,7 @@ function switchView(next, animClass) {
   // Wallet immer aufgeräumt betreten: alle Stapel wieder zusammengelegt
   if (next === 'wallet') { restack(); renderWallet(); }
   aktualisiereSperre(); // gesperrte Wallet: Sperrbildschirm (nur auf der Wallet-Seite)
-  if (next === 'settings') renderSicherheit();
+  if (next === 'settings') { renderSicherheit(); if ($('#sw-laden')) $('#sw-laden').checked = ladenErkennungAn(); }
   // Solange die Wallet offen ist, traegt die Kopfzeile ihre Farbe mit —
   // sonst steht oben eine harte Kante zwischen Leiste und farbigem Kopf
   document.body.classList.toggle('wallet-farbe', next === 'wallet' && !!state.token);
@@ -4050,7 +4061,10 @@ function authOk(r, { welcome = false } = {}) {
   // Lag hier die Wallet eines ANDEREN Kontos, gehoert sie nicht in dieses —
   // frueher wurde sie hineingemischt (samt Loeschmarkern, die dann echte
   // Gutscheine des neuen Kontos toeteten)
-  if (walletBesitzer && walletBesitzer !== r.user) walletZuruecksetzen();
+  if (walletBesitzer && walletBesitzer !== r.user) {
+    walletZuruecksetzen();
+    state.walletFilter = ''; state.walletVal = 0; saveWalletFilter();
+  }
   walletEntsperrt = true; // gerade mit Passwort angemeldet
   kontoInfo = null;
   // Lag fuer dieses Konto noch Ungesichertes beiseite (frueherer Kontowechsel),
@@ -4067,6 +4081,7 @@ function authOk(r, { welcome = false } = {}) {
   pullWallet(); // Wallet vom Konto holen (Gerätewechsel/Neuinstallation)
   connectStream(); // Echtzeit-Stream mit dem frischen Token neu verbinden
   neuGeprueft = false; // anderes Konto: eigener Stand beim Update-Log
+  setTimeout(verarbeiteGeteiltes, 400); // geteiltes Bild wartete auf die Anmeldung
   api('/api/me').then(x => { kontoInfo = x; state.role = x.role || ''; refreshAdminUi(); renderWallet(); pruefeNeuigkeiten(); }).catch(() => { });
   if (welcome) {
     // Willkommens-Moment: der Punkt quittiert das neue Konto
@@ -4166,6 +4181,7 @@ $('#btn-logout').addEventListener('click', async () => {
   await api('/api/logout', { method: 'POST', body: '{}' }).catch(() => {});
   state.token = '';
   localStorage.removeItem('ra.token');
+  state.walletFilter = ''; state.walletVal = 0; saveWalletFilter();
   // Die Wallet bleibt auf dem Geraet — also wieder sperren
   walletEntsperrt = false;
   kontoInfo = null;
@@ -5798,7 +5814,15 @@ function openFixForm(fix, pos, total) {
 function nextFixOrDone() {
   // Gesperrt (z. B. waehrend des Sicherns im Hintergrund): die Warteschlange
   // bleibt stehen und geht nach dem Entsperren ueber "Hinzufuegen" weiter
-  if (!waFixQueue.length || walletGesperrt()) return false;
+  if (walletGesperrt()) return false;
+  // Weitere geteilte Bilder: das naechste ins Formular
+  if (!waFixQueue.length && geteiltSchlange.length) {
+    const f = geteiltSchlange.shift();
+    openWalletAdd('voucher');
+    if (state.sheetMode === 'wallet-add' && waHandleImage) waHandleImage(f);
+    return true;
+  }
+  if (!waFixQueue.length) return false;
   openFixForm(waFixQueue.shift(), waFixTotal - waFixQueue.length, waFixTotal);
   return true;
 }
@@ -8548,6 +8572,82 @@ function rabattFormHtml(v) {
     </div>`;
 }
 
+// ---- Marken-Ansicht: Farben und schwebende Logos im Kopf
+// Zwei Farb-Ebenen im Farbfeld wechseln sich ab, damit REWE -> dm weich
+// ueberblendet (Verlaeufe selbst lassen sich nicht animieren, Deckkraft schon).
+function farbeRgb(c) {
+  const el = document.createElement('i');
+  el.style.color = c;
+  el.style.display = 'none';
+  document.body.appendChild(el);
+  const m = getComputedStyle(el).color.match(/[\d.]+/g);
+  el.remove();
+  return m ? m.slice(0, 3).map(Number) : [18, 199, 126];
+}
+function farbMix(a, b, t) { return a.map((x, i) => Math.round(x + (b[i] - x) * t)); }
+function farbHex(rgb) { return '#' + rgb.map(x => Math.max(0, Math.min(255, x)).toString(16).padStart(2, '0')).join(''); }
+// Drei Toene wie beim Rang: dunkel (Text auf Weiss), Hauptton, hell
+function markenFarben(name) {
+  const basis = farbeRgb(brandColor(name));
+  const hell = (0.299 * basis[0] + 0.587 * basis[1] + 0.114 * basis[2]) / 255;
+  const schwarz = [0, 0, 0], weiss = [255, 255, 255];
+  // Helle Markentoene (Netto-Gelb) dunkler: im Kopf steht weisse Schrift
+  const k2 = hell > 0.6 ? farbMix(basis, schwarz, 0.32) : hell < 0.16 ? farbMix(basis, weiss, 0.14) : basis;
+  return [farbHex(farbMix(k2, schwarz, 0.3)), farbHex(k2), farbHex(farbMix(k2, weiss, hell > 0.6 ? 0.1 : 0.22))];
+}
+function setzeMarkenModus(name) {
+  if (name === markenModusName) return;
+  markenModusName = name;
+  document.body.classList.toggle('marken-modus', !!name);
+  const feld = $('#wallet-farbfeld');
+  if (!feld) return;
+  let ebenen = feld.querySelectorAll('.ff-marke');
+  if (ebenen.length < 2) {
+    feld.insertAdjacentHTML('beforeend', '<div class="ff-marke"></div><div class="ff-marke"></div><div class="ff-logos"></div>');
+    ebenen = feld.querySelectorAll('.ff-marke');
+  }
+  clearTimeout(markenEbeneUhr);
+  if (!name) {
+    ebenen.forEach(e => e.classList.remove('an', 'oben'));
+  } else {
+    const [k1, k2, k3] = markenFarben(name);
+    const alt = ebenen[markenEbene];
+    markenEbene = 1 - markenEbene;
+    const neu = ebenen[markenEbene];
+    neu.style.setProperty('--m1', k1);
+    neu.style.setProperty('--m2', k2);
+    neu.style.setProperty('--m3', k3);
+    alt.classList.remove('oben');
+    void neu.offsetWidth;
+    neu.classList.add('an', 'oben');
+    // Die alte Marke bleibt darunter stehen, bis die neue ganz da ist
+    markenEbeneUhr = setTimeout(() => alt.classList.remove('an'), 650);
+    const root = document.documentElement.style;
+    root.setProperty('--marke-k1', k1);
+    root.setProperty('--marke-k2', k2);
+    root.setProperty('--marke-k3', k3);
+  }
+  zeigeMarkenLogos(name);
+  setzeLeistenfarbe();
+}
+// Ein paar Logos der Marke schweben leise im Kopf (nur transform/opacity)
+function zeigeMarkenLogos(name) {
+  const box = $('#wallet-farbfeld .ff-logos');
+  if (!box) return;
+  box.querySelectorAll('.ff-logo').forEach(l => { l.classList.add('weg'); setTimeout(() => l.remove(), 450); });
+  if (!name || sperrRuhig() || document.body.classList.contains('sparsam')) return;
+  const domain = BRAND_DOMAINS[String(name).toLowerCase()];
+  const inhalt = domain
+    ? `<img src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64" alt="" decoding="async" onerror="this.remove()">`
+    : `<i>${esc(brandInitials(name))}</i>`;
+  // Feste, gut verteilte Plaetze: x %, y % der Kopfhoehe, Groesse px, Dauer s
+  const plaetze = [[5, 16, 34, 9], [20, 62, 26, 11], [38, 6, 22, 13], [62, 60, 36, 10], [80, 18, 28, 12], [91, 64, 22, 14], [50, 38, 18, 15]];
+  box.insertAdjacentHTML('beforeend', plaetze.map(([x, y, g, d], i) => `
+    <span class="ff-logo" style="--x:${x}%; --y:${y}%; --g:${g}px; --d:${d}s; --v:${120 + i * 80}ms; --r:${(i % 2 ? 1 : -1) * (6 + i * 3)}deg">
+      <span class="ff-chip">${inhalt}</span>
+    </span>`).join(''));
+}
+
 // Drei Wallet-Bereiche: Gutscheine, Sparkarten (App-Raster), Coupons
 let walletTab = 'gutscheine';
 function updateWalletTab(anim) {
@@ -8695,11 +8795,24 @@ function renderWallet() {
 
   // Kontostand: Summe ALLER Restguthaben (unabhängig von Suche/Filter), zählt animiert
   const total = Math.round(allActive.reduce((s, v) => s + (v.balance || 0), 0) * 100) / 100;
-  animateNumber($('#wallet-total'), renderWallet.lastTotal, total);
+  // Marken-Ansicht: ist oben eine Marke gewaehlt, zeigt der Kopf nur IHR
+  // Guthaben und traegt ihre Farben. Der Rang bleibt am Gesamtguthaben.
+  const fMarke = state.walletFilter && state.walletFilter !== 'alle' ? String(state.walletFilter).toLowerCase() : '';
+  const markenTreffer = fMarke ? allActive.filter(v => String(v.vendor || '').toLowerCase() === fMarke) : [];
+  // Aufgebraucht oder anderes Konto: dann wieder das Gesamtguthaben (der Filter bleibt stehen)
+  const markenGs = markenTreffer.length ? markenTreffer : null;
+  const markeName = markenGs ? markenGs[0].vendor : '';
+  const anzeige = markenGs ? Math.round(markenGs.reduce((x, v) => x + (v.balance || 0), 0) * 100) / 100 : total;
+  animateNumber($('#wallet-total'), renderWallet.lastAnzeige ?? renderWallet.lastTotal, anzeige);
   renderWallet.lastTotal = total;
-  $('#wallet-total-sub').textContent = allActive.length
-    ? `über ${allActive.length} Gutschein${allActive.length > 1 ? 'e' : ''}`
-    : 'noch keine Gutscheine mit Guthaben';
+  renderWallet.lastAnzeige = anzeige;
+  const anzahlKopf = markenGs ? markenGs.length : allActive.length;
+  $('#wallet-total-sub').textContent = markenGs
+    ? `${markeName} · ${anzahlKopf} Gutschein${anzahlKopf === 1 ? '' : 'e'}`
+    : allActive.length
+      ? `über ${allActive.length} Gutschein${allActive.length > 1 ? 'e' : ''}`
+      : 'noch keine Gutscheine mit Guthaben';
+  setzeMarkenModus(markeName);
   // Platz in der Wallet: alle Gutscheine zaehlen, auch aufgebrauchte
   const platzEl = $('#wallet-platz');
   if (platzEl) {
@@ -8842,7 +8955,7 @@ function renderWallet() {
   passeFarbfeldAn();
   // Mini-Guthaben unten aktualisieren
   const mini = $('#wallet-mini-total');
-  if (mini) mini.textContent = euroFmt(total) || '0,00 €';
+  if (mini) mini.textContent = euroFmt(anzeige) || '0,00 €';
   // Die kleine Anzeige unten traegt dieselbe Rangfarbe wie der Kopf
   $('#wallet-mini')?.classList.add('rangfarbe');
   renderSyncBadge();
@@ -10734,6 +10847,13 @@ function entsperreWallet() {
   const el = $('#wallet-sperre');
   const sichtbar = el && !el.classList.contains('hidden') && !el.classList.contains('geht');
   setTimeout(() => pruefeNeuigkeiten(), 1000); // Update-Log wartete auf das Entsperren
+  setTimeout(verarbeiteGeteiltes, 700);          // geteiltes Bild wartete auch
+  setTimeout(() => {                               // "Karte zeigen" aus dem Laden-Banner
+    if (!markeWartet || walletGesperrt()) return;
+    const k = markeWartet;
+    markeWartet = null;
+    openBrandSheet(k);
+  }, 800);
   if (!sichtbar || sperrRuhig()) {
     if (el) { el.classList.remove('offen', 'geht'); $('#ws-text')?.classList.remove('fehler'); }
     aktualisiereSperre();
@@ -10792,7 +10912,8 @@ function walletAuftritt({ menue = false } = {}) {
   });
   setTimeout(() => teile.forEach(el => { el.classList.remove('auftritt'); el.style.removeProperty('--ad'); }), 1300);
   const t = $('#wallet-total');
-  if (t && state.token && (renderWallet.lastTotal || 0) > 0) animateNumber(t, 0, renderWallet.lastTotal, 850);
+  const bis = renderWallet.lastAnzeige ?? renderWallet.lastTotal ?? 0;
+  if (t && state.token && bis > 0) animateNumber(t, 0, bis, 850);
   if (menue) {
     neuStarten(document.body, 'menue-rein');
     setTimeout(() => document.body.classList.remove('menue-rein'), 700);
@@ -11480,6 +11601,273 @@ function pruefeKontoLinks() {
   } else passwortVergessenDialog();
 }
 
+// ---------------- Laden-Erkennung (Standort, nur mit Erlaubnis) ----------------
+// Wie bei Payback: steht man in einem Laden, fuer den etwas in der Wallet liegt,
+// kommt von oben die Frage, ob die Wallet auf diese Marke umstellen soll.
+// Eine Web-App bekommt den Standort nur, solange sie offen ist — im Hintergrund
+// ginge das erst mit der nativen App. Ans Konto geht nur ein auf ~100 m
+// gerundeter Punkt (fuer die Laden-Liste aus OpenStreetMap). Ob man IN einem
+// Laden steht, rechnet das Geraet selbst mit der genauen Position aus.
+function ladenSchluessel() { return 'ra.ladenErkennung:' + (state.userName || ''); }
+function ladenErkennungAn() { try { return !!state.userName && localStorage.getItem(ladenSchluessel()) === '1'; } catch { return false; } }
+function holePosition(timeout = 12000) {
+  return new Promise(r => {
+    if (!navigator.geolocation) return r({ fehler: 'keins' });
+    navigator.geolocation.getCurrentPosition(p => r({ p }), e => r({ fehler: e && e.code === 1 ? 'verboten' : 'weg' }),
+      { enableHighAccuracy: true, timeout, maximumAge: 60000 });
+  });
+}
+function distanzM(a1, o1, a2, o2) {
+  const rad = x => x * Math.PI / 180;
+  const h = Math.sin(rad(a2 - a1) / 2) ** 2 + Math.cos(rad(a1)) * Math.cos(rad(a2)) * Math.sin(rad(o2 - o1) / 2) ** 2;
+  return 2 * 6371000 * Math.asin(Math.sqrt(h));
+}
+// Marken, fuer die man etwas dabei hat: Gutscheine mit Guthaben, dazu Sparkarten
+function markenImGepaeck() {
+  const m = new Map();
+  const eintrag = name => {
+    const k = String(name || '').trim().toLowerCase();
+    if (k.length < 2) return null;
+    if (!m.has(k)) m.set(k, { name: String(name).trim(), n: 0, summe: 0, karte: false });
+    return m.get(k);
+  };
+  for (const v of state.wallet.vouchers) {
+    if (!v || istRabatt(v) || !(v.balance == null || v.balance > 0)) continue;
+    const e = eintrag(v.vendor);
+    if (e) { e.n++; e.summe += v.balance || 0; }
+  }
+  for (const c of state.wallet.cards) { const e = c && eintrag(c.name); if (e) e.karte = true; }
+  return [...m.values()];
+}
+// Karten heissen oft anders als der Laden ("Lidl Plus" -> Lidl, "IKEA Family" -> IKEA)
+function ladenMarke(name) {
+  return String(name || '').toLowerCase().replace(/\s+(plus|family|card|karte|app)$/, '').trim();
+}
+// "dm" soll nicht in "Admiral" stecken: nur als eigenes Wort. Traegt der Laden
+// eine Marke (OSM brand), zaehlt nur die; sonst muss der Name damit ANFANGEN
+// ("Bäckerei Müller" ist kein Müller-Drogeriemarkt)
+function ladenPasst(laden, name) {
+  const n = ladenMarke(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (n.length < 2) return false;
+  const wort = `${n}($|[^a-z0-9äöüß])`;
+  if (laden.b) return new RegExp(`(^|[^a-z0-9äöüß])${wort}`).test(String(laden.b).toLowerCase());
+  return new RegExp(`^${wort}`).test(String(laden.n || '').toLowerCase().trim());
+}
+function ladenPause() { return lsJson('ra.ladenPause', {}); }
+function setzeLadenPause(name, ms) {
+  const p = ladenPause(), jetzt = Date.now();
+  for (const k of Object.keys(p)) if (p[k] < jetzt) delete p[k];
+  p[name.toLowerCase()] = jetzt + ms;
+  lsSetzen('ra.ladenPause', JSON.stringify(p));
+}
+async function pruefeLaden({ sofort = false } = {}) {
+  if (!ladenErkennungAn() || !state.token || ladenLaeuft || document.visibilityState !== 'visible') return;
+  if (!sofort && Date.now() - ladenLetzt < 150e3) return;
+  const marken = markenImGepaeck();
+  if (!marken.length) return;
+  ladenLaeuft = true;
+  ladenLetzt = Date.now();
+  try {
+    const { p } = await holePosition();
+    if (!p || !(p.coords.accuracy <= 150)) return; // zu ungenau fuer "im Laden"
+    const { latitude: lat, longitude: lon, accuracy } = p.coords;
+    const r = await api('/api/laeden', { method: 'POST',
+      body: JSON.stringify({ lat: Math.round(lat * 1000) / 1000, lon: Math.round(lon * 1000) / 1000 }) }).catch(() => null);
+    if (!r || !Array.isArray(r.laeden)) return;
+    const grenze = Math.max(45, Math.min(90, accuracy + 25));
+    let treffer = null;
+    for (const l of r.laeden) {
+      const d = distanzM(lat, lon, Number(l.lat), Number(l.lon));
+      if (!(d <= grenze)) continue;
+      const m = marken.find(mk => ladenPasst(l, mk.name));
+      if (m && (!treffer || d < treffer.d)) treffer = { ...m, d };
+    }
+    if (treffer) zeigeLadenBanner(treffer);
+  } finally { ladenLaeuft = false; }
+}
+// Von oben herein: "Du bist bei REWE" — Umstellen, Nein danke, oder nach oben wischen
+function zeigeLadenBanner(m) {
+  const k = m.name.toLowerCase();
+  if ((ladenPause()[k] || 0) > Date.now() || document.querySelector('.laden-banner') || state.sheetMode) return;
+  if (state.activeView === 'wallet' && String(state.walletFilter || '').toLowerCase() === k) return;
+  const nurKarte = !m.n;
+  // Gesperrt: weder Marke noch Betraege — die Sperre verbirgt, was in der Wallet liegt
+  const zu = walletGesperrt();
+  const unter = zu ? 'Entsperre die Wallet, dann steht sie auf dem passenden Laden.'
+    : nurKarte ? `Deine ${m.name}-Karte liegt bereit.`
+    : `${m.n} Gutschein${m.n === 1 ? '' : 'e'} · ${euroFmt(Math.round(m.summe * 100) / 100)}. Wallet auf ${m.name} umstellen?`;
+  const el = document.createElement('div');
+  el.className = 'laden-banner';
+  el.setAttribute('role', 'status');
+  el.innerHTML = `${zu ? `<span class="lb-icon">${icon('pin', 'icon')}</span>` : brandChipHtml(m.name)}
+    <div class="lb-text"><b>${zu ? 'Passender Laden in der Nähe' : `Du bist bei ${esc(m.name)}`}</b><small>${esc(unter)}</small></div>
+    <button class="btn btn-small lb-ja" type="button">${zu ? 'Öffnen' : nurKarte ? 'Karte zeigen' : 'Umstellen'}</button>
+    <button class="lb-nein" type="button" aria-label="Nein danke">${icon('x', 'icon icon-sm')}</button>`;
+  document.body.appendChild(el);
+  buzz(12);
+  requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('da')));
+  let uhr = 0;
+  const weg = () => {
+    clearTimeout(uhr);
+    el.classList.remove('da');
+    setTimeout(() => el.remove(), 480);
+  };
+  uhr = setTimeout(() => { setzeLadenPause(m.name, 45 * 60e3); weg(); }, 15000);
+  el.querySelector('.lb-nein').onclick = () => { setzeLadenPause(m.name, 8 * 3600e3); weg(); };
+  el.querySelector('.lb-ja').onclick = () => { setzeLadenPause(m.name, 3 * 3600e3); weg(); walletAufMarke(m.name, nurKarte); };
+  // Nach oben wischen schliesst (wie eine Mitteilung)
+  let sy = null;
+  el.addEventListener('pointerdown', e => {
+    if (e.target.closest('button')) return;
+    sy = e.clientY;
+    el.style.transition = 'none';
+    try { el.setPointerCapture(e.pointerId); } catch { }
+  });
+  el.addEventListener('pointermove', e => {
+    if (sy == null) return;
+    el.style.transform = `translate3d(-50%, ${Math.min(0, e.clientY - sy)}px, 0)`;
+  });
+  const los = e => {
+    if (sy == null) return;
+    const dy = e.clientY - sy;
+    sy = null;
+    el.style.transition = '';
+    el.style.transform = '';
+    if (dy < -30) { setzeLadenPause(m.name, 8 * 3600e3); weg(); }
+  };
+  el.addEventListener('pointerup', los);
+  el.addEventListener('pointercancel', los);
+}
+// Wallet auf eine Marke stellen (Filter + Marken-Ansicht); nur Karte: Karten-Blatt
+function walletAufMarke(name, nurKarte = false) {
+  if (state.activeView !== 'wallet') switchView('wallet');
+  if (nurKarte) {
+    if (walletTab !== 'coupons') document.querySelector('[data-wtab="coupons"]')?.click();
+    const b = walletBrands().find(x => x.key === name.trim().toLowerCase());
+    if (b && walletGesperrt()) markeWartet = b.key;
+    else if (b) setTimeout(() => openBrandSheet(b.key), 350);
+    return;
+  }
+  state.walletFilter = name;
+  state.walletVal = 0;
+  state.walletQuery = '';
+  if ($('#wallet-search')) $('#wallet-search').value = '';
+  saveWalletFilter();
+  restack();
+  if (walletTab !== 'gutscheine') document.querySelector('[data-wtab="gutscheine"]')?.click();
+  renderWallet();
+  window.scrollTo({ top: 0, behavior: sperrRuhig() ? 'auto' : 'smooth' });
+}
+// Einstellungen: Schalter fragt beim Einschalten nach dem Standort
+{
+  const sw = $('#sw-laden');
+  if (sw) {
+    sw.checked = ladenErkennungAn();
+    if (!navigator.geolocation) sw.disabled = true;
+    sw.addEventListener('change', async () => {
+      const msg = $('#laden-msg');
+      if (!sw.checked) { lsSetzen(ladenSchluessel(), '0'); msg.textContent = ''; return; }
+      if (!state.token) { sw.checked = false; msg.className = 'form-msg error'; msg.textContent = 'Bitte zuerst anmelden.'; return; }
+      msg.className = 'form-msg';
+      msg.textContent = 'Frage nach dem Standort …';
+      const { p, fehler } = await holePosition(15000);
+      if (!p) {
+        sw.checked = false;
+        lsSetzen(ladenSchluessel(), '0');
+        msg.className = 'form-msg error';
+        msg.textContent = fehler === 'verboten'
+          ? 'Der Standort ist für kumulio gesperrt. Erlaube ihn in den Einstellungen des Handys bzw. Browsers und schalte dann nochmal ein.'
+          : 'Der Standort ist gerade nicht verfügbar. Versuch es draußen nochmal.';
+        return;
+      }
+      lsSetzen(ladenSchluessel(), '1');
+      msg.className = 'form-msg ok';
+      msg.textContent = 'An. Stehst du in einem Laden, für den du etwas dabei hast, fragt kumulio nach.';
+      ladenLetzt = 0;
+      pruefeLaden({ sofort: true });
+    });
+  }
+}
+// Beim Zurueckkommen in die App und alle paar Minuten, solange sie offen ist
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(() => pruefeLaden(), 1200); });
+setInterval(() => pruefeLaden(), 60e3);
+
+// ---------------- Teilen aus anderen Apps (Screenshot -> kumulio) ----------------
+// Android (installierte Web-App): kumulio steht im Teilen-Menue. Der Service
+// Worker nimmt die Bilder an (manifest share_target), legt sie kurz im Cache ab
+// und oeffnet die App mit ?teilen=<id>&n=<anzahl>. Hier landen sie direkt im
+// Hinzufuegen-Blatt — genau wie "Bild hochladen", inklusive Scan.
+// Geteilter Text (z. B. ein Rabattcode aus einer Mail) oeffnet das
+// Rabattcode-Formular mit erkanntem Code.
+async function pruefeGeteiltes() {
+  const q = new URLSearchParams(location.search);
+  const id = q.get('teilen');
+  if (!id) return;
+  const n = Math.min(10, Number(q.get('n')) || 0);
+  q.delete('teilen'); q.delete('n');
+  const rest = q.toString();
+  history.replaceState(null, '', location.pathname + (rest ? '?' + rest : '') + location.hash);
+  if (id === 'fehler' || !/^[a-z0-9]{1,20}$/.test(id)) { island('Das Teilen hat nicht geklappt, bitte nochmal'); return; }
+  // Echtes Teilen startet die installierte App. Im normalen Browser-Tab kaeme
+  // ?teilen nur von einem fremden Formular — das wird ignoriert.
+  let installiert = false;
+  try { installiert = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true; } catch { }
+  if (!installiert) { try { for (const k of await (await caches.open('kumulio-teilen')).keys()) await (await caches.open('kumulio-teilen')).delete(k); } catch { } return; }
+  let cache = null;
+  try { cache = await caches.open('kumulio-teilen'); } catch { }
+  if (!cache) return;
+  const dateien = [];
+  for (let i = 0; i < n; i++) {
+    const r = await cache.match(`/teilen-datei/${id}/${i}`);
+    if (!r) continue;
+    const blob = await r.blob();
+    if (!/^image\//.test(blob.type || '')) continue;
+    dateien.push(new File([blob], `geteilt-${i}.${(blob.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg')}`, { type: blob.type }));
+  }
+  const tr = await cache.match(`/teilen-datei/${id}/text`);
+  const text = tr ? (await tr.text()).slice(0, 2000) : '';
+  try { for (const k of await cache.keys()) await cache.delete(k); } catch { }
+  if (!dateien.length && !text) return;
+  geteiltWartet = { dateien, text };
+  verarbeiteGeteiltes();
+}
+// Wartet auf Anmeldung bzw. Entsperren, dann ab ins Hinzufuegen-Blatt
+function verarbeiteGeteiltes() {
+  if (!geteiltWartet) return;
+  if (!state.token) {
+    if (state.activeView !== 'profile') switchView('profile');
+    island('Melde dich an, dann kommt dein Bild in die Wallet');
+    return;
+  }
+  if (state.activeView !== 'wallet') switchView('wallet');
+  if (walletGesperrt()) return; // entsperreWallet ruft wieder
+  const { dateien, text } = geteiltWartet;
+  geteiltWartet = null;
+  if (dateien.length) {
+    // Nie automatisch speichern: jedes Bild einzeln ins Formular (mit Scan),
+    // gespeichert wird erst mit "Speichern" — danach kommt das naechste
+    geteiltSchlange = dateien.slice(1);
+    openWalletAdd('voucher');
+    if (state.sheetMode === 'wallet-add' && waHandleImage) {
+      waHandleImage(dateien[0]);
+      if (geteiltSchlange.length) island(`Bild 1 von ${dateien.length}: prüfen und speichern, dann kommt das nächste`, 4200);
+    }
+    return;
+  }
+  // Nur Text: als Rabattcode vorschlagen
+  openWalletAdd('rabatt');
+  if (state.sheetMode !== 'wallet-add') return;
+  const code = detectCode(text);
+  if (code && $('#wa-rcode')) $('#wa-rcode').value = code.slice(0, 40);
+  const low = text.toLowerCase();
+  const tile = [...document.querySelectorAll('#wa-vendor-grid [data-vg]')]
+    .find(t => !ANDERE_SHOPS.has(t.dataset.vg) && low.includes(t.dataset.vg.toLowerCase()));
+  if (tile) { if (tile.classList.contains('vendor-more')) $('#wa-vendor-showmore')?.click(); tile.click(); }
+  if ($('#wa-notiz')) $('#wa-notiz').value = text.replace(/\s+/g, ' ').trim().slice(0, 80);
+  const m = $('#wa-ai-msg');
+  if (m) { m.className = 'form-msg ok'; m.textContent = code ? 'Code aus dem geteilten Text übernommen, bitte kurz prüfen.' : 'Kein Code erkannt, bitte selbst eintragen.'; }
+}
+
 // ---------------- Neu in kumulio (Update-Log) ----------------
 // Nach jedem Update sieht jedes Konto EINMAL, was neu ist. Gemerkt wird das am
 // Konto (neuGesehen), damit es auf dem zweiten Geraet nicht nochmal kommt —
@@ -11514,8 +11902,8 @@ async function pruefeNeuigkeiten(versuch = 0) {
   // Der neuere der beiden Staende gilt (Konto oder dieses Geraet)
   const stellen = [kontoInfo.neuGesehen, lokal].filter(Boolean).map(v => liste.findIndex(e => e.v === v)).filter(i => i >= 0);
   const bis = stellen.length ? Math.min(...stellen) : -1;
-  // Nie gesehen (Bestandskonto vor dem ersten Log): nur das aktuelle Update
-  const neue = bis === -1 ? liste.slice(0, 1) : liste.slice(0, bis);
+  // Nie gesehen (Bestandskonto vor dem ersten Log): die zwei neuesten Updates
+  const neue = bis === -1 ? liste.slice(0, 2) : liste.slice(0, bis);
   neuGeprueft = true;
   if (!neue.length) return;
   zeigeNeuigkeiten(neue.slice(0, 3));
@@ -11648,7 +12036,9 @@ window.addEventListener('online', () => { if ($('#conn-screen')) location.reload
   }
   renderWallet();
   aktualisiereSperre();
+  pruefeGeteiltes();
   nachStartSplash(() => {
+    setTimeout(() => pruefeLaden({ sofort: true }), 2500);
     startAuftrittOffen = false;
     const sp = $('#wallet-sperre');
     if (sp?.classList.contains('vorstart')) { sperreAuftritt(sp); setTimeout(bioAutomatisch, sperrRuhig() ? 0 : 420); }
