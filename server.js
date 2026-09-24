@@ -431,6 +431,13 @@ let wallets = loadJson('wallets.json', {});     // { user: {vouchers:[], cards:[
 // Geschenke unterwegs: bleiben hier, bis der Empfänger sie sicher in seiner
 // Wallet verankert hat (claim) — so kann ein Gutschein beim Übergeben nie verloren gehen
 let gifts = loadJson('gifts.json', {});         // { user: [ {…voucher, giftFrom, giftTs} ] }
+// Die private Notiz am Gutschein geht nie mit zum Freund. Geschenke, die
+// schon vorher mit Notiz unterwegs waren, verlieren sie hier einmalig.
+{
+  let raus = 0;
+  for (const liste of Object.values(gifts)) for (const g of liste || []) if (g && 'notiz' in g) { delete g.notiz; raus++; }
+  if (raus) { saveJson('gifts.json', gifts); console.log(`[Geschenke] ${raus} private Notizen entfernt`); }
+}
 
 // Wallet-Diät auch serverseitig: Originalfotos fliegen raus, sobald ein
 // Kassen-Zuschnitt existiert. Entschlackt Alt-Bestände sofort (weniger RAM,
@@ -1196,6 +1203,42 @@ function loginSerie(prof, jetzt = Date.now()) {
 // Geworbene Freunde: vorgemerkt fuer spaetere Belohnungen, heute gibt es nichts.
 // refCount stammt aus der Zeit mit Funken-Bonus und zaehlt mit.
 const eingeladenZahl = prof => Math.max(Number(prof.refCount) || 0, (prof.geworben || []).length);
+// Eintraege aus geworben streichen. Der Zaehler sinkt mit: jeder Eintrag kam
+// mit einem refCount + 1 dazu. Alt-Einladungen ohne Eintrag bleiben stehen.
+function geworbenEntfernen(prof, raus) {
+  const liste = Array.isArray(prof.geworben) ? prof.geworben : [];
+  const rest = liste.filter(g => !(g && raus(g)));
+  const weg = liste.length - rest.length;
+  if (weg) { prof.geworben = rest; prof.refCount = Math.max(0, (Number(prof.refCount) || 0) - weg); }
+  return weg;
+}
+// Einmalig beim Start: Reste aus der Zeit, als das Loeschen eines Kontos die
+// Einladungen noch nicht mitnahm. Aus geworben fliegt, wessen Konto weg ist
+// oder dessen Name inzwischen einem spaeter angelegten Konto gehoert; je Name
+// bleibt nur der juengste Eintrag. invitedBy auf einen geloeschten oder neu
+// vergebenen Namen (Werber-Konto juenger als das eigene) faellt weg.
+function einladungenAufraeumen() {
+  let n = 0;
+  for (const u of Object.values(users)) {
+    const pr = u && u.profile;
+    if (!pr) continue;
+    if (Array.isArray(pr.geworben) && pr.geworben.length) {
+      const juengster = {};
+      for (const g of pr.geworben) if (g && g.user) juengster[String(g.user).toLowerCase()] = g;
+      n += geworbenEntfernen(pr, g => {
+        const konto = users[g.user];
+        return !konto || (konto.ts || 0) > (g.ts || 0) || juengster[String(g.user).toLowerCase()] !== g;
+      });
+    }
+    const werber = pr.invitedBy ? users[pr.invitedBy] : null;
+    if (pr.invitedBy && (!werber || (werber.ts || 0) > (u.ts || Infinity))) { delete pr.invitedBy; n++; }
+  }
+  return n;
+}
+{
+  const n = einladungenAufraeumen();
+  if (n) { saveJson('users.json', users); console.log(`[Einladungen] ${n} veraltete Eintraege bereinigt`); }
+}
 // Das eigene Profil fuer den Client — nur, was er braucht (die Alt-Felder
 // von frueher, z. B. tausende gesehene Gutschein-IDs, gehen nicht mehr mit)
 function eigenesProfil(user) {
@@ -2102,7 +2145,10 @@ const server = http.createServer(async (req, res) => {
       const refUser = ref && Object.keys(users).find(k => k.toLowerCase() === ref.toLowerCase());
       if (refUser && refUser !== user) {
         const rp = profileOf(refUser);
-        rp.refCount = (rp.refCount || 0) + 1;
+        // Je Name nur ein Eintrag: ein alter mit demselben Namen wird ersetzt,
+        // Registrieren, Loeschen, neu Registrieren blaeht den Zaehler nicht auf
+        geworbenEntfernen(rp, g => String(g.user || '').toLowerCase() === user.toLowerCase());
+        rp.refCount = (Number(rp.refCount) || 0) + 1;
         rp.geworben = [...(rp.geworben || []), { user, ts: Date.now() }].slice(-1000);
         profileOf(user).invitedBy = refUser;
         pushToUser(refUser, { title: 'Freund eingeladen', body: `@${user} ist über deinen Link dabei.`, url: '/?tab=profile', tag: 'ref-' + user, kind: 'info', from: user });
@@ -2685,6 +2731,11 @@ const server = http.createServer(async (req, res) => {
         if (!pr) continue;
         if (pr.friends) pr.friends = pr.friends.filter(f => f !== me);
         if (pr.friendRequests) pr.friendRequests = pr.friendRequests.filter(f => f !== me);
+        // Einladungen: das geloeschte Konto zaehlt beim Werber nicht mehr mit
+        // (Name und Zeit fliegen raus), und wen es geworben hat, der zeigt
+        // nicht mehr auf den Namen — sonst erbte ihn, wer ihn neu registriert
+        if (pr.invitedBy === me) delete pr.invitedBy;
+        geworbenEntfernen(pr, g => g.user === me);
       }
       saveJson('users.json', users); saveJson('sessions.json', sessions);
       saveJson('wallets.json', wallets); saveJson('chat.json', chat); saveJson('dms.json', dms);
@@ -2750,6 +2801,10 @@ const server = http.createServer(async (req, res) => {
       const user = authUser(req);
       if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
       const b = await readBody(req, 300_000); // Platz fürs (komprimierte) Profilbild
+      // Erst alles pruefen, dann schreiben: sonst stuende bei einer 400 die
+      // halbe Aenderung (Bio, Sichtbarkeit, Bild) schon im Konto
+      if (typeof b.nameColor === 'string' && b.nameColor !== '' && !FARBE_OK.test(b.nameColor))
+        return send(res, 400, { error: 'Bitte eine Farbe im Format #RRGGBB wählen.' });
       const prof = profileOf(user);
       if (typeof b.bio === 'string') prof.bio = censor(b.bio.trim().slice(0, 160));
       if (typeof b.publicProfile === 'boolean') prof.publicProfile = b.publicProfile;
@@ -2759,10 +2814,7 @@ const server = http.createServer(async (req, res) => {
         prof.avatar = b.avatar;
       // Namensfarbe: #rrggbb oder leer (= automatisch, die feste Chat-Farbe)
       if (b.nameColor === '' || b.nameColor === null) delete prof.nameColor;
-      else if (typeof b.nameColor === 'string') {
-        if (!FARBE_OK.test(b.nameColor)) return send(res, 400, { error: 'Bitte eine Farbe im Format #RRGGBB wählen.' });
-        prof.nameColor = b.nameColor.toLowerCase();
-      }
+      else if (typeof b.nameColor === 'string') prof.nameColor = b.nameColor.toLowerCase(); // oben geprueft
       // Lieblings-Kleinigkeiten fürs Profil, alles durch den Filter
       if (b.favs && typeof b.favs === 'object') {
         prof.favs = prof.favs || {};
@@ -2923,9 +2975,10 @@ const server = http.createServer(async (req, res) => {
       if (v && vomGeraet) v = waehleFassung(vomGeraet, v);
       else if (!v) v = vomGeraet;
       // Was bei jemand anderem landet, ist nur ein Gutschein: Bildfelder nur als
-      // Bild, keine Rabattcode-Felder
+      // Bild, keine Rabattcode-Felder, und nie die private Notiz — egal, welche
+      // Fassung (Geraet oder Konto) gewonnen hat
       for (const f of ['img', 'codeImg']) if (v[f] && !bildFeldOk(v[f])) v[f] = '';
-      delete v.art; delete v.rabatt; delete v.rabattArt; delete v.mbw; delete v.eingeloest;
+      delete v.art; delete v.rabatt; delete v.rabattArt; delete v.mbw; delete v.eingeloest; delete v.notiz;
       v.vendor = String(v.vendor || '').slice(0, 30);
       v.code = String(v.code || '').slice(0, 40);
       v.pin = String(v.pin || '').slice(0, 16);
@@ -2973,7 +3026,9 @@ const server = http.createServer(async (req, res) => {
       const claimed = [], eingebucht = [];
       for (const g of (gifts[me] || []).filter(x => ids.includes(x.id))) {
         claimed.push(g.id);
-        let v = { ...g, added: Date.now(), giftSeen: true };
+        // Die Notiz des Absenders bleibt draussen (auch bei Alt-Geschenken)
+        const { notiz, ...ohneNotiz } = g;
+        let v = { ...ohneNotiz, added: Date.now(), giftSeen: true };
         if (w.vouchers.some(x => x.id === v.id) || tote.has(v.id)) {
           const neu = neueGutscheinId();
           if (v.orig) origUmziehen(me, v.id, me, neu);
@@ -3716,6 +3771,8 @@ process.on('SIGINT', () => { flushPendingSaves(); process.exit(0); });
 if (process.env.RA_TEST) {
   module.exports = {
   profileOf, users, STICKERS, GAMI_WEG, zaehleLoginTag, loginSerie, berlinTag, namensfarbe, eingeladenZahl, eigenesProfil,
+    // Endpunkte im Test ansprechen: server.listen(0) im Testskript
+    server, geworbenEntfernen, einladungenAufraeumen,
     // fuer scripts/test-wallet.js
     bilderAufraeumen, bildDateien, bildAblegen, vereinigeWallet, archiviere, archivFlush, wallets, gifts, walletIndex, waehleFassung,
     totpCode, totpPruefen, base32, base32Lesen, ersatzcodeEinloesen, neueErsatzcodes, aufgebrauchtWeg, raeumeAufgebrauchteAuf, drossel,

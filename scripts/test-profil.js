@@ -7,8 +7,25 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-process.env.RA_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'kumulio-profil-'));
+const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'kumulio-profil-'));
+process.env.RA_DATA_DIR = DIR;
 process.env.RA_TEST = '1';
+delete process.env.RESEND_API_KEY; // nie echte Mails aus dem Test
+// Einladungen mit Resten aus der Zeit vor Runde 118 (Loeschen nahm sie nicht
+// mit): wera hat 2 Alt-Einladungen (nur refCount) und 4 Eintraege in geworben,
+// davon einer geloescht und hans doppelt (erst geloescht, dann neu registriert)
+const HASH = require('crypto').scryptSync('geheim123', 'salz', 32).toString('hex');
+const konto = (name, ts, profil = {}) => [name, { hash: HASH, salt: 'salz', email: name + '@example.invalid', ts, profile: { bio: '', publicProfile: true, ...profil } }];
+fs.writeFileSync(path.join(DIR, 'users.json'), JSON.stringify(Object.fromEntries([
+  konto('wera', 1000, { refCount: 6, geworben: [{ user: 'gina', ts: 5000 }, { user: 'geloescht', ts: 5100 }, { user: 'hans', ts: 5200 }, { user: 'hans', ts: 6000 }] }),
+  konto('gina', 5000, { invitedBy: 'wera' }),
+  konto('hans', 6000, { invitedBy: 'wera' }),
+  konto('kai', 2000, { invitedBy: 'wera' }),   // Alt-Einladung ohne Eintrag in geworben
+  konto('ida', 3000, { invitedBy: 'vera' }),   // vera hat sich geloescht, der Name gehoert jetzt jemand Neuem
+  konto('jan', 3000, { invitedBy: 'niemand' }),
+  konto('vera', 7000),
+])));
+fs.writeFileSync(path.join(DIR, 'sessions.json'), JSON.stringify({ tokWera: 'wera', tokGina: 'gina', tokHans: 'hans' }));
 const S = require('../server.js');
 
 let fehler = 0;
@@ -71,5 +88,64 @@ const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 pruefe('kein Payment-Endpoint', !/api\/(payment|checkout|purchase|billing)/i.test(src));
 pruefe('kein Zahlungs-SDK', !/require\(['"](stripe|paypal|@paypal|braintree)/i.test(src));
 
-console.log(fehler ? `\n${fehler} Fehler` : '\nAlles gruen.');
-process.exit(fehler ? 1 : 0); // server.js haelt sonst mit seinen Intervallen den Prozess offen
+// --- Einladungen: Reste beim Start aufgeraeumt, Alt-Zaehler bleibt
+const gew = n => (S.users[n].profile.geworben || []).map(g => g.user).join(',');
+pruefe('Start: geloeschte und doppelte Eintraege raus', gew('wera') === 'gina,hans' && S.users.wera.profile.geworben[1].ts === 6000);
+pruefe('Start: Zaehler sinkt mit, Alt-Einladungen bleiben (2 + 2)', S.users.wera.profile.refCount === 4 && S.eingeladenZahl(S.users.wera.profile) === 4);
+pruefe('Start: invitedBy auf neu vergebenen/fehlenden Namen weg', !('invitedBy' in S.users.ida.profile) && !('invitedBy' in S.users.jan.profile));
+pruefe('Start: echte und Alt-Einladungen behalten invitedBy', ['gina', 'hans', 'kai'].every(n => S.users[n].profile.invitedBy === 'wera'));
+pruefe('Start: zweiter Lauf aendert nichts', S.einladungenAufraeumen() === 0);
+
+(async () => {
+  // Turnstile beim Registrieren: im Test ohne Netz immer bestanden
+  const echtesFetch = global.fetch;
+  global.fetch = (u, o) => /^http:\/\/127\.0\.0\.1:/.test(String(u)) ? echtesFetch(u, o)
+    : /challenges\.cloudflare\.com/.test(String(u)) ? Promise.resolve({ json: async () => ({ success: true }) })
+      : Promise.reject(new Error('kein Netz im Test'));
+  await new Promise(ok => S.server.listen(0, '127.0.0.1', ok));
+  const basis = `http://127.0.0.1:${S.server.address().port}`;
+  const api = async (tok, p, body) => {
+    const a = await global.fetch(basis + p, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: 'Bearer ' + tok } : {}) }, body: body ? JSON.stringify(body) : undefined });
+    return { status: a.status, j: await a.json().catch(() => null) };
+  };
+  const eingeladen = async () => (await api('tokWera', '/api/profile')).j.eingeladen;
+  const registriere = async (user, ref) => (await api(null, '/api/register', { user, email: user.toLowerCase() + '@example.invalid', pass: 'geheim123', turnstileToken: 'x', ref })).j.token;
+  const loesche = tok => api(tok, '/api/account/delete', { pass: 'geheim123' });
+
+  pruefe('eingeladen: 4', await eingeladen() === 4);
+  pruefe('Geworbene loescht ihr Konto', (await loesche('tokGina')).status === 200);
+  pruefe('... Eintrag beim Werber weg, Zaehler 3', gew('wera') === 'hans' && await eingeladen() === 3);
+  // Registrieren, Loeschen, neu Registrieren ueber denselben Link: zaehlt einmal
+  let tok = await registriere('gina', 'WERA');
+  pruefe('neu ueber den Link: 4', await eingeladen() === 4 && S.users.gina.profile.invitedBy === 'wera');
+  await loesche(tok);
+  tok = await registriere('gina', 'wera');
+  await loesche(tok);
+  tok = await registriere('gina', 'wera');
+  pruefe('zweimal geloescht und neu: bleibt 4, gina nur einmal', await eingeladen() === 4 && gew('wera') === 'hans,gina');
+  // Ein Rest mit demselben Namen (andere Schreibweise) wird ersetzt, nicht doppelt gezaehlt
+  S.users.wera.profile.geworben.push({ user: 'Lena', ts: 1 }); S.users.wera.profile.refCount++;
+  await registriere('lena', 'wera');
+  pruefe('Name je Werber nur einmal', gew('wera') === 'hans,gina,lena' && await eingeladen() === 5);
+  // Werber loescht sein Konto: niemand zeigt mehr auf den Namen
+  pruefe('Werber loescht sein Konto', (await loesche('tokWera')).status === 200);
+  pruefe('... invitedBy bei allen Geworbenen weg', ['gina', 'hans', 'kai', 'lena'].every(n => !('invitedBy' in S.users[n].profile)));
+  await registriere('wera');
+  pruefe('... und ein neues Konto mit dem Namen erbt nichts', !!S.users.wera && S.eingeladenZahl(S.profileOf('wera')) === 0);
+
+  // --- Profil speichern: erst pruefen, dann schreiben
+  let a = await api('tokHans', '/api/profile', { bio: 'NEUE BIO', publicProfile: false, nameColor: 'red' });
+  pruefe('ungueltige Farbe: 400', a.status === 400);
+  pruefe('... und nichts gespeichert', S.users.hans.profile.bio === '' && S.users.hans.profile.publicProfile === true);
+  a = await api('tokHans', '/api/profile', { bio: 'ok', nameColor: '#AABBCC' });
+  pruefe('gueltige Farbe: gespeichert, klein geschrieben', a.status === 200 && a.j.bio === 'ok' && a.j.nameColor === '#aabbcc');
+  a = await api('tokHans', '/api/profile', { nameColor: '' });
+  pruefe('leere Farbe: automatisch', a.status === 200 && a.j.nameColor === null);
+
+  S.server.closeAllConnections();
+  await new Promise(ok => S.server.close(ok));
+  await new Promise(ok => setTimeout(ok, 300)); // Hintergrundarbeit auslaufen lassen (libuv unter Windows)
+  fs.rmSync(DIR, { recursive: true, force: true });
+  console.log(fehler ? `\n${fehler} Fehler` : '\nAlles gruen.');
+  process.exit(fehler ? 1 : 0); // server.js haelt sonst mit seinen Intervallen den Prozess offen
+})();

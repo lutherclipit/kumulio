@@ -8,6 +8,12 @@ const path = require('path');
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'kumulio-test-'));
 process.env.RA_DATA_DIR = DIR;
 process.env.RA_TEST = '1';
+// Fuer den Geschenk-Test: zwei befreundete Konten mit Sitzung, dazu ein
+// Alt-Geschenk, das (wie vor Runde 118) noch eine private Notiz traegt
+const freund = f => ({ hash: 'x', salt: 'y', ts: 1, profile: { bio: '', publicProfile: true, friends: [f] } });
+fs.writeFileSync(path.join(DIR, 'users.json'), JSON.stringify({ nora: freund('otto'), otto: freund('nora') }));
+fs.writeFileSync(path.join(DIR, 'sessions.json'), JSON.stringify({ tokNora: 'nora', tokOtto: 'otto' }));
+fs.writeFileSync(path.join(DIR, 'gifts.json'), JSON.stringify({ otto: [{ id: 'alt1', vendor: 'dm', amount: 5, balance: 5, tx: [], notiz: 'PRIVAT alt', giftFrom: 'nora', giftTs: 1 }] }));
 const S = require('../server.js');
 
 let fehler = 0;
@@ -93,6 +99,41 @@ const alt = datei => { const t = new Date(Date.now() - 5 * 86400e3); fs.utimesSy
   const r = S.vereinigeWallet('tina', { vouchers: viele, cards: [], deleted: [] });
   pruefe('Notbremse: vorhandene bleiben alle da', ['a1', 'b1', 'c1'].every(id => S.wallets.tina.vouchers.some(v => v.id === id)));
   pruefe('Notbremse: Rest abgelehnt und gemeldet', S.wallets.tina.vouchers.length === 1000 && r.abgelehnt.length === 8);
+
+  // --- Verschenken: die private Notiz geht nie mit, egal welche Fassung gewinnt
+  pruefe('Alt-Geschenk verliert die Notiz beim Start', S.gifts.otto.length === 1 && !('notiz' in S.gifts.otto[0]));
+  await new Promise(ok => S.server.listen(0, '127.0.0.1', ok));
+  const basis2 = `http://127.0.0.1:${S.server.address().port}`;
+  const api = async (tok, p, body) => {
+    const a = await fetch(basis2 + p, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok }, body: body ? JSON.stringify(body) : undefined });
+    return { status: a.status, j: await a.json().catch(() => null) };
+  };
+  const T = Date.now();
+  const g1 = { id: 'g1', vendor: 'REWE', code: 'R-1', amount: 25, balance: 25, tx: [], added: T - 60000 };
+  // Am Konto liegt die Fassung MIT Notiz und neuerem mt (anderes Geraet), das
+  // schenkende Geraet kennt die Notiz noch nicht -> die Kontofassung gewinnt
+  S.vereinigeWallet('nora', { vouchers: [{ ...g1, mt: T - 1000, notiz: 'PRIVAT 1' }], cards: [], deleted: [] });
+  let a = await api('tokNora', '/api/gift/send', { to: 'otto', id: 'g1', voucher: { ...g1, mt: T - 5000 } });
+  pruefe('Geschenk mit Notiz nur am Konto geht raus', a.status === 200);
+  // Altes Geraet oder direkter API-Aufruf: die Notiz kommt gleich mit
+  const g2 = { id: 'g2', vendor: 'Lidl', code: 'L-2', amount: 10, balance: 10, tx: [], added: T, mt: T, notiz: 'PRIVAT 2' };
+  S.vereinigeWallet('nora', { vouchers: [g2], cards: [], deleted: [] });
+  a = await api('tokNora', '/api/gift/send', { to: 'otto', id: 'g2', voucher: g2 });
+  pruefe('Geschenk mit mitgeschickter Notiz geht raus', a.status === 200);
+  const neu = S.gifts.otto.filter(g => g.giftOrigId === 'g1' || g.giftOrigId === 'g2');
+  pruefe('im Geschenk-Vorrat keine Notiz', neu.length === 2 && neu.every(g => !('notiz' in g)));
+  const w = await api('tokOtto', '/api/wallet');
+  pruefe('Empfaenger bekommt keine Notiz (GET /api/wallet)', w.j.gifts.length === 3 && w.j.gifts.every(g => !('notiz' in g)));
+  // Liegt doch eines mit Notiz im Vorrat: beim Auspacken bleibt sie draussen
+  S.gifts.otto.push({ id: 'alt2', vendor: 'dm', amount: 5, balance: 5, tx: [], notiz: 'PRIVAT 3', giftFrom: 'nora', giftTs: T });
+  a = await api('tokOtto', '/api/gift/claim', { ids: [...w.j.gifts.map(g => g.id), 'alt2'] });
+  pruefe('nach dem Auspacken keine Notiz', a.status === 200 && a.j.vouchers.length === 4
+    && a.j.vouchers.every(v => !('notiz' in v)) && S.wallets.otto.vouchers.every(v => !('notiz' in v)));
+  // Sauber schliessen und kurz warten: laeuft beim process.exit noch Arbeit im
+  // Hintergrund (Verbindungen, Dateien), stuerzt libuv unter Windows ab
+  S.server.closeAllConnections();
+  await new Promise(ok => S.server.close(ok));
+  await new Promise(ok => setTimeout(ok, 300));
 
   fs.rmSync(DIR, { recursive: true, force: true });
   console.log(fehler ? `\n${fehler} FEHLER` : '\nAlles gruen');

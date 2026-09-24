@@ -1,8 +1,9 @@
 /* kumulio — neuer Look: blaetter (Runde 116). Laedt nach look.css. */
 /* =============================================================================
-   Blaetter und Dialoge: Deal-, Gutschein-, Marken- und Rabattcode-Blatt, das
-   Hinzufuegen-Formular, Kommentare, Dialoge (PIN, Rueckfrage), Toasts und die
-   Status-Kapsel. Grund ist --seite, Inhalte liegen auf weissen Karten.
+   Blaetter und Dialoge: Deal- und Marken-Blatt, Kommentare, Dialoge (PIN,
+   Rueckfrage), Toasts und die Status-Kapsel; dazu die Wallet-Seiten
+   (Gutschein, Rabattcode, Hinzufuegen, Verschenken, Analyse). Grund ist
+   --seite, Inhalte liegen auf weissen Karten.
    Ecken maessig: Karten 16px, Felder/Knoepfe 12-13px, kleine Pillen 8-10px.
    Kein backdrop-filter; Bewegung nur transform/opacity.
    ========================================================================== */
@@ -273,9 +274,10 @@
 #sheet-content .bild-btn-rund { flex: 0 0 46px; padding: 0; }
 
 /* =============================================================================
-   Wallet-Seiten (Gutschein, Verschenken, Analyse): gleiten von rechts ueber
-   die ganze App. Grund --seite, Inhalte auf weissen Karten, unten eine feste
-   Leiste. Ueber Blatt (50) und Menue, unter Toast (60), Lupe und Dialogen.
+   Wallet-Seiten (Gutschein, Rabattcode, Hinzufuegen, Verschenken, Analyse):
+   gleiten von rechts ueber die ganze App. Grund --seite, Inhalte auf weissen
+   Karten, unten eine feste Leiste. Ueber Blatt (50) und Menue, unter Toast
+   (60), Lupe und Dialogen.
    ========================================================================== */
 .wseiten {
   position: fixed; left: 0; right: 0; top: 0; bottom: 0; z-index: 52;
@@ -821,69 +823,300 @@ body.sparsam .ana-paar i { animation: none; }
 .sheet .dk-unten, .modal .dk-unten, .sheet .dk-hinten-marke, .modal .dk-hinten-marke { text-transform: none; letter-spacing: .01em; }
 
 /* =============================================================================
-   Rabattcode-Blatt
+   Rabattcode als eigene Seite (wie die Gutschein-Seite, Klassen gd-*)
    ========================================================================== */
-#sheet-content .rc-gross { border-radius: 16px; padding: 20px 16px; margin: 14px 0 10px; }
-#sheet-content .rc-codefeld {
-  padding: 10px 10px 10px 16px; border-radius: 14px; background: var(--karte);
-  border: 1.5px dashed color-mix(in srgb, var(--muted) 45%, transparent);
-}
-#sheet-content .rc-info { font-size: .82rem; }
-#sheet-content .rc-aktionen .btn-small { padding: 10px 16px; font-size: .86rem; }
+.rp-karte.rp-aus { filter: grayscale(.8); opacity: .72; }
+.rp-karte .gd-guthaben span { flex-basis: 100%; }
+.rp-info { margin: 10px 2px 0; font-size: .78rem; line-height: 1.45; color: var(--muted); }
+.rp .gd-zeile { color: var(--text); text-decoration: none; }
+.rp-fuss { margin: 18px 2px 0; font-size: .76rem; color: var(--muted); }
 
 /* =============================================================================
-   Hinzufuegen-Formular
+   Hinzufuegen (Gutschein, Rabattcode, Sparkarte) als eigene Seite:
+   Umschalter, Vorschau der Karte, Foto/Screenshot, Shop, Felder in weissen
+   Gruppen, unten fest "Speichern".
    ========================================================================== */
-#sheet-content .wa-modus {
-  padding: 4px; margin: 12px 0 14px; border: 0; border-radius: 13px;
-  background: var(--karte); box-shadow: var(--schatten-1);
+.wa .wseite-inhalt { padding-bottom: calc(var(--wa-leiste-h, 84px) + 24px); }
+.wa .wseite-inhalt > :first-child { margin-top: 4px; }
+
+/* Umschalter Gutschein | Rabattcode: wie die Bereichswahl in der Wallet */
+.wa-schalter {
+  position: relative; display: grid; grid-template-columns: 1fr 1fr;
+  padding: 4px; border-radius: 13px; background: var(--karte); box-shadow: var(--schatten-1);
 }
-#sheet-content .wa-modus-flaeche {
+.wa-schalter-flaeche {
+  position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc((100% - 8px) / 2);
   border-radius: 10px; background: var(--akzent-tief);
   box-shadow: 0 4px 12px color-mix(in srgb, var(--akzent) 26%, transparent);
+  transform: translate3d(calc(var(--i, 0) * 100%), 0, 0);
+  transition: transform .34s cubic-bezier(.22, 1, .36, 1);
 }
-#sheet-content .wa-modus-knopf { padding: 10px 6px; font-size: .92rem; }
-#sheet-content .wa-modus-knopf.an { color: #fff; }
-#sheet-content .wa-platz { font-size: .8rem; }
-#sheet-content .sheet-title + .wa-form > .wa-platz:first-child { margin-top: 6px; }
-/* Rabattcode: Betrag und Schalter Euro/Prozent gleich hoch in einer Zeile */
-#sheet-content .rc-wertzeile { align-items: stretch; }
-#sheet-content .rc-wertzeile .input { margin-top: 0; }
-#sheet-content .wa-modus.klein { margin: 0; }
-#sheet-content .wa-modus.klein .wa-modus-knopf { padding: 0 4px; font-size: .95rem; }
-#sheet-content .rc-eingabe::placeholder { font-family: var(--rund); letter-spacing: 0; font-weight: 500; }
-#sheet-content .rc-mbw-zeile {
-  background: var(--karte); border: 0; border-radius: 14px; box-shadow: var(--schatten-1);
-  padding: 12px 14px; margin: 16px 0 8px;
+.wa-schalter-knopf {
+  position: relative; z-index: 1; height: 38px; padding: 0 6px; border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: .9rem; font-weight: 750; color: var(--muted);
+  transition: color .25s ease; touch-action: manipulation;
 }
-#sheet-content .dropzone {
-  border: 1.5px dashed color-mix(in srgb, var(--muted) 42%, transparent); border-radius: 16px;
-  background: var(--karte); padding: 16px 14px 14px;
+.wa-schalter-knopf.an { color: #fff; font-weight: 800; }
+
+/* Hinweise oben: Platz fast weg, Duplikat, Ergaenzen-Warteschlange */
+.wa-hinweis {
+  display: flex; align-items: flex-start; gap: 10px; margin: 0 0 12px; padding: 12px 14px;
+  border-radius: 14px; font-size: .84rem; font-weight: 600; line-height: 1.45;
 }
-#sheet-content .dropzone.drag { border-color: var(--akzent); background: var(--akzent-weich); }
-#sheet-content .dropzone-empty .icon { color: var(--akzent-text); }
-#sheet-content .dropzone .form-row { gap: 8px; }
-#sheet-content .dropzone .btn-ghost { background: var(--karte-2); }
-#sheet-content .f-label { font-size: .84rem; font-weight: 750; opacity: 1; margin: 16px 0 6px; }
-#sheet-content .f-label .opt { color: var(--muted); opacity: 1; }
-#sheet-content .f-label + .input, #sheet-content .form-grid .input { margin-top: 0; }
-#sheet-content .vendor-grid { gap: 8px; }
-#sheet-content .vendor-tile {
-  border: 0; border-radius: 13px; background: var(--karte); box-shadow: var(--schatten-1);
-  padding: 11px 4px 9px; font-size: .74rem;
+.wa-schalter + .wa-hinweis { margin: 12px 0 0; }
+.wa-hinweis .icon { flex: none; width: 18px; height: 18px; margin-top: 1px; }
+.wa-hinweis b { font-weight: 800; }
+.wa-hinweis.fix { background: var(--akzent-weich); color: var(--text); }
+.wa-hinweis.fix .icon { color: var(--akzent-text); }
+.wa-hinweis.dupe, .wa-hinweis.voll { background: color-mix(in srgb, #E5484D 11%, var(--karte)); color: #B8322F; }
+.wa-hinweis.fast { background: color-mix(in srgb, #F5A524 15%, var(--karte)); color: #8F5500; }
+:root[data-theme="dark"] .wa-hinweis.dupe, :root[data-theme="dark"] .wa-hinweis.voll { background: color-mix(in srgb, #E5484D 18%, var(--karte)); color: #FF8A8D; }
+:root[data-theme="dark"] .wa-hinweis.fast { background: color-mix(in srgb, #F5A524 16%, var(--karte)); color: #F5B75E; }
+
+/* Vorschau: die Karte, wie sie gleich in der Wallet liegt */
+.wa-vorschau { margin-top: 14px; }
+.wa-vorschau .wallet-card { margin: 0; cursor: default; }
+.wa-vorschau .wallet-card:active { transform: none; }
+.wa-platzhalter { opacity: .6; }
+.wa-vorschau .wallet-card.wa-leer { box-shadow: 0 8px 20px rgba(16, 24, 32, .12), inset 0 1px 0 rgba(255, 255, 255, .2); }
+.wa-chip-leer { display: grid; place-items: center; }
+.wa-chip-leer .icon { width: 22px; height: 22px; }
+.rc-card .wa-chip-leer { background: rgba(255, 255, 255, .92); color: var(--bc); }
+.rc-card .wa-chip-leer .icon { width: 20px; height: 20px; }
+.wa-vorschau .debitkarte { max-width: 300px; }
+.debitkarte.wa-leer { --bc: #7B8794 !important; }
+/* Im Dunkeln ist der leere Platzhalter ein ruhiges Schiefergrau statt einer hellen Flaeche */
+:root[data-theme="dark"] .wa-vorschau .wallet-card.wa-leer, :root[data-theme="dark"] .debitkarte.wa-leer { --bc: #4A5563 !important; }
+.debitkarte.wa-leer .dk-oben .brand-chip { display: none; }
+.debitkarte.wa-leer .dk-marke { opacity: .6; }
+.wseite .dk-unten, .wseite .dk-hinten-marke { text-transform: none; letter-spacing: .01em; }
+
+/* Foto oder Screenshot: eine ruhige Karte mit zwei Knoepfen */
+.wa-scan { margin-top: 12px; padding: 14px; transition: box-shadow .2s ease; }
+.wa-scan.drag { box-shadow: 0 0 0 2px var(--akzent), var(--schatten-1); }
+.wa-scan-kopf { display: flex; align-items: center; gap: 12px; }
+.wa-scan-symbol {
+  flex: none; width: 40px; height: 40px; border-radius: 12px;
+  display: grid; place-items: center; background: var(--akzent-weich); color: var(--akzent-text);
 }
-#sheet-content .vendor-tile .brand-chip { border-radius: 10px; }
-#sheet-content .vendor-tile.on { box-shadow: 0 0 0 2px var(--akzent), var(--schatten-1); }
-#sheet-content .vendor-grid.err { outline-color: rgba(229, 72, 77, .45); border-radius: 14px; }
-#sheet-content .scan-frame { border-radius: 14px; }
-#sheet-content .scan-line {
+.wa-scan-symbol .icon { width: 21px; height: 21px; }
+.wa-scan-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.wa-scan-text b { font-size: .95rem; font-weight: 800; line-height: 1.25; }
+.wa-scan-text small { font-size: .78rem; line-height: 1.35; color: var(--muted); }
+.wa-scan-bild {
+  position: relative; overflow: hidden; margin-top: 12px; border-radius: 12px;
+  background: #fff; box-shadow: inset 0 0 0 1px var(--linie);
+}
+.wa-scan-bild img {
+  display: block; width: 100%; max-height: 240px; padding: 8px; box-sizing: border-box; object-fit: contain;
+}
+/* Laserlinie: gleitet per transform ueber das Bild */
+.wa .scan-line {
+  top: 0; left: 4%; right: 4%; height: 100%; border-radius: 0;
+  background: none; box-shadow: none; pointer-events: none;
+  animation: waScanLinie 1.6s ease-in-out infinite;
+}
+.wa .scan-line::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; border-radius: 2px;
   background: linear-gradient(90deg, transparent, var(--akzent), transparent);
   box-shadow: 0 0 12px color-mix(in srgb, var(--akzent) 70%, transparent);
 }
-#sheet-content .scan-progress-track { border-radius: 4px; }
-#sheet-content .scan-progress-fill { border-radius: 4px; background: var(--akzent); }
-#sheet-content .scan-progress.done span { color: var(--akzent-text); }
-#sheet-content #wa-save { min-width: 150px; padding: 14px 26px; border-radius: 13px; font-size: .95rem; font-weight: 800; }
+@keyframes waScanLinie { 0%, 100% { transform: translate3d(0, 4%, 0); } 50% { transform: translate3d(0, 94%, 0); } }
+.wa .scan-progress { margin-top: 12px; }
+.wa .scan-progress-track { height: 6px; border-radius: 3px; background: var(--karte-2); }
+.wa .scan-progress-fill {
+  width: 100%; border-radius: 3px; background: var(--akzent);
+  transform: scaleX(0); transform-origin: left center; transition: transform .35s ease;
+}
+.wa .scan-progress span { font-size: .76rem; color: var(--muted); }
+.wa .scan-progress.done span { color: var(--akzent-text); }
+.wa-scan-ergebnis { margin-top: 10px; padding: 0 12px; border-radius: 12px; background: var(--karte-2); }
+.wa .scan-row { padding: 9px 0; border-bottom: 1px solid var(--linie); font-size: .84rem; }
+.wa .scan-row:last-child { border-bottom: 0; }
+.wa .scan-row span { opacity: 1; color: var(--muted); font-size: .76rem; font-weight: 650; }
+.wa-scan-meldung { margin: 10px 2px 0; font-size: .8rem; line-height: 1.45; color: var(--muted); }
+.wa-scan-meldung:empty { display: none; }
+.wa-scan-meldung.ok { color: var(--akzent-text); }
+.wa-scan-meldung.error { color: #D23A2C; }
+:root[data-theme="dark"] .wa-scan-meldung.error { color: #FF8A8D; }
+.wa-scan-knoepfe { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin-top: 12px; }
+/* Mit Bild kommt Zuschneiden als dritter, quadratischer Knopf dazu */
+.wa-scan.hat-bild .wa-scan-knoepfe { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px; }
+.wa-scan-knoepfe .wa-scan-crop { display: none; padding: 0; }
+.wa-scan.hat-bild .wa-scan-crop { display: flex; }
+.wa-scan-knopf {
+  display: flex; align-items: center; justify-content: center; gap: 7px; min-width: 0;
+  height: 44px; padding: 0 10px; border: 0; border-radius: 12px; background: var(--karte-2); color: var(--text);
+  font: inherit; font-size: .86rem; font-weight: 750; cursor: pointer; white-space: nowrap;
+  touch-action: manipulation; transition: transform .2s var(--spring);
+}
+.wa-scan-knopf:active { transform: scale(.97); }
+.wa-scan-knopf span { overflow: hidden; text-overflow: ellipsis; }
+.wa-scan-knopf .icon { flex: none; width: 18px; height: 18px; }
+.wa-scan-tipp { margin: 10px 2px 0; font-size: .76rem; line-height: 1.45; color: var(--muted); }
+/* Schmale Handys: beide Knoepfe passen noch nebeneinander, ganz schmal untereinander */
+@media (max-width: 380px) {
+  .wa-scan { padding: 12px; }
+  /* "Deutschland-" passt sonst nicht in eine Zeile der Kachel */
+  .wa-shops .wa-shop { padding: 10px 2px 9px; }
+  .wa-shop .wa-shop-name { font-size: .68rem; letter-spacing: -.01em; }
+  .wa-scan-knopf { gap: 6px; padding: 0 6px; font-size: .8rem; }
+  .wa-scan-knopf .icon { width: 17px; height: 17px; }
+}
+@media (max-width: 339px) {
+  .wa-scan-knoepfe, .wa-scan.hat-bild .wa-scan-knoepfe { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Shop: sieben Kacheln und "Weitere" (mit Suche) im 4er-Raster */
+.wa-shops {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: 1fr; gap: 8px;
+  margin-top: 10px; border-radius: 15px; outline: 2px solid transparent; outline-offset: 4px;
+  transition: outline-color .2s ease;
+}
+.wa-shops.err { outline-color: color-mix(in srgb, #E5484D 55%, transparent); }
+.wa-shop {
+  display: flex; flex-direction: column; align-items: center; gap: 7px; min-width: 0;
+  padding: 11px 4px 10px; border: 0; border-radius: 13px; background: var(--karte); color: var(--text);
+  box-shadow: var(--schatten-1); font: inherit; cursor: pointer; touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent; transition: box-shadow .2s ease, transform .2s var(--spring);
+}
+.wa-shop:active { transform: scale(.95); }
+.wa-shop.on { box-shadow: 0 0 0 2px var(--akzent), var(--schatten-1); }
+.wa-shop .brand-chip { width: 36px; height: 36px; flex: 0 0 36px; border-radius: 10px; font-size: .7rem; }
+.wa-shop .brand-chip.hat-logo { box-shadow: inset 0 0 0 1px var(--linie); }
+.wa-shop-name {
+  max-width: 100%; font-size: .72rem; font-weight: 700; line-height: 1.2; text-align: center;
+  overflow-wrap: break-word; hyphens: manual;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.wa-shop-mehr-bild {
+  width: 36px; height: 36px; flex: 0 0 36px; border-radius: 10px;
+  display: grid; place-items: center; background: var(--karte-2); color: var(--muted);
+}
+.wa-shop-mehr-bild .icon { width: 18px; height: 18px; }
+.wa-suche { margin-top: 10px; padding: 6px; }
+.wa-suche-zeile {
+  display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 12px;
+  border-radius: 12px; background: var(--karte-2); cursor: text;
+}
+.wa-suche-zeile .icon { flex: none; width: 18px; height: 18px; color: var(--muted); }
+.wa-suche-zeile input {
+  flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: none; outline: none;
+  color: var(--text); font: inherit; font-size: .95rem; -webkit-appearance: none; appearance: none;
+}
+.wa-suche-zeile input::placeholder { color: var(--muted); opacity: .85; }
+.wa-suche-liste { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 2px 4px; }
+.wa-suche-liste:empty { display: none; }
+.wa-treffer {
+  display: inline-flex; align-items: center; gap: 8px; max-width: 100%; height: 38px; padding: 0 12px 0 6px;
+  border: 0; border-radius: 11px; background: var(--karte-2); color: var(--text);
+  font: inherit; font-size: .86rem; font-weight: 700; cursor: pointer; touch-action: manipulation;
+}
+.wa-treffer > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wa-treffer .brand-chip { width: 26px; height: 26px; flex: 0 0 26px; border-radius: 8px; font-size: .52rem; }
+.wa-treffer .brand-chip.hat-logo { box-shadow: inset 0 0 0 1px var(--linie); }
+.wa-treffer.an { box-shadow: inset 0 0 0 2px var(--akzent); }
+.wa-treffer-plus {
+  flex: none; width: 26px; height: 26px; border-radius: 8px;
+  display: grid; place-items: center; background: var(--akzent-weich); color: var(--akzent-text);
+}
+.wa-treffer-plus .icon { width: 15px; height: 15px; stroke-width: 2.4; }
+
+/* Wert (bzw. Rabatt): gross, mit Einheit */
+.wa-betrag {
+  display: flex; align-items: center; gap: 10px; height: 68px; padding: 0 12px 0 18px;
+  border: 1.5px solid transparent; cursor: text; transition: border-color .2s ease;
+}
+.wa-betrag:focus-within { border-color: color-mix(in srgb, var(--text) 28%, transparent); }
+.wa-betrag.err { border-color: #E5484D; }
+.wa-betrag input {
+  flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: none; outline: none; color: var(--text);
+  font: inherit; font-size: 2rem; font-weight: 850; letter-spacing: -.02em; font-variant-numeric: tabular-nums;
+}
+.wa-betrag input::placeholder { color: var(--muted); opacity: .45; }
+.wa-betrag-einheit { padding-right: 6px; font-size: 1.5rem; font-weight: 800; color: var(--muted); }
+.wa-einheit {
+  position: relative; flex: none; display: grid; grid-template-columns: 1fr 1fr; width: 96px;
+  padding: 3px; border-radius: 11px; background: var(--karte-2);
+}
+.wa-einheit-flaeche {
+  position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / 2);
+  border-radius: 8px; background: var(--akzent-tief);
+  transition: transform .3s cubic-bezier(.22, 1, .36, 1);
+}
+.wa-einheit.rechts .wa-einheit-flaeche { transform: translate3d(100%, 0, 0); }
+.wa-einheit-knopf {
+  position: relative; z-index: 1; height: 38px; padding: 0; border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: 1rem; font-weight: 800; color: var(--muted); transition: color .25s ease;
+  touch-action: manipulation;
+}
+.wa-einheit-knopf.an { color: #fff; }
+
+/* Weitere Angaben: eine weisse Gruppe, je Feld eine Zeile mit Label */
+.wa-gruppe { padding: 0 16px; }
+.wa-zeile { display: flex; flex-direction: column; gap: 3px; padding: 11px 0 10px; cursor: text; }
+.wa-zeile + .wa-zeile { border-top: 1px solid var(--linie); }
+.wa-zeile-label { font-size: .76rem; font-weight: 700; line-height: 1.3; color: var(--muted); transition: color .2s ease; }
+.wa-zeile:focus-within .wa-zeile-label { color: var(--akzent-text); }
+.wa-zeile.err .wa-zeile-label { color: #D23A2C; }
+:root[data-theme="dark"] .wa-zeile.err .wa-zeile-label { color: #FF8A8D; }
+.wa-zeile input {
+  display: block; width: 100%; min-width: 0; height: 26px; padding: 0; border: 0; background: none; outline: none;
+  color: var(--text); font: inherit; font-size: 1rem; font-weight: 650;
+}
+.wa-zeile input::placeholder { color: var(--muted); opacity: .75; font-weight: 500; }
+.wa-zeile input[type="date"] { -webkit-appearance: none; appearance: none; text-align: left; }
+.wa-zeile input[type="date"]::-webkit-date-and-time-value { text-align: left; }
+.wa-zeile input[type="date"].leer { color: var(--muted); font-weight: 500; }
+.wa-zeile input[type="date"]::-webkit-calendar-picker-indicator { opacity: .55; cursor: pointer; }
+.wa-zeile input.wa-code-feld { font-family: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace; letter-spacing: .04em; }
+.wa-zeile input.wa-code-feld::placeholder { font-family: var(--rund); letter-spacing: 0; }
+.wa-zeile-schalter { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; cursor: default; }
+.wa-zeile-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.wa-zeile-wert { font-size: 1rem; font-weight: 650; line-height: 26px; }
+.wa-feld { height: 50px; font-weight: 650; }
+.wa-feld::placeholder { font-weight: 500; }
+.wa-fussnote { margin: 10px 2px 0; font-size: .76rem; line-height: 1.45; color: var(--muted); }
+.wa-form > .wa-fussnote:last-child { margin-top: 20px; }
+
+/* Leiste unten: Meldung und Speichern */
+.wa-leiste .gd-los { margin-top: 0; }
+.wa-meldung { margin: 0 2px 10px; font-size: .82rem; font-weight: 650; line-height: 1.4; color: var(--muted); }
+.wa-meldung:empty { display: none; }
+.wa-meldung.error { color: #D23A2C; }
+:root[data-theme="dark"] .wa-meldung.error { color: #FF8A8D; }
+/* Sieht gesperrt aus, sagt beim Antippen aber, was noch fehlt */
+.wa-speichern.aus { opacity: .38; }
+.wa-speichern.aus:active { transform: none; }
+.wa-leiste-zwei { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.wa-leiste-zwei .gd-los { padding: 0 10px; font-size: .94rem; white-space: nowrap; }
+.wa-leiste > .gd-los + .wa-leiste-zwei { margin-top: 10px; }
+
+/* Mehrere Bilder: Ergebnisliste */
+.wa-stapel-summe { margin: 6px 2px 0; font-size: .92rem; line-height: 1.45; color: var(--muted); }
+.wa-stapel-summe b { color: var(--text); font-weight: 800; }
+.wa-stapel { padding: 2px 14px; }
+.wa-stapel-zeile { display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 8px 0; }
+.wa-stapel-zeile + .wa-stapel-zeile { border-top: 1px solid var(--linie); }
+.wa-stapel-zeichen { flex: none; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; }
+.wa-stapel-zeichen .icon { width: 17px; height: 17px; }
+.wa-stapel-zeile.ok .wa-stapel-zeichen { background: color-mix(in srgb, #1FA85B 13%, var(--karte)); color: #1A9A55; }
+.wa-stapel-zeile.bad .wa-stapel-zeichen { background: color-mix(in srgb, #E5484D 12%, var(--karte)); color: #D23A2C; }
+:root[data-theme="dark"] .wa-stapel-zeile.ok .wa-stapel-zeichen { color: #3FD68B; }
+:root[data-theme="dark"] .wa-stapel-zeile.bad .wa-stapel-zeichen { color: #FF7B6E; }
+.wa-stapel-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.wa-stapel-text b { font-size: .92rem; font-weight: 750; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wa-stapel-text small { font-size: .76rem; line-height: 1.35; color: var(--muted); }
+
+/* Ruhige Bewegung */
+body.sparsam .wa-schalter-flaeche, body.sparsam .wa-einheit-flaeche,
+body.sparsam .wa .scan-progress-fill { transition: none; }
+body.sparsam .wa-form-neu { animation: none; }
+body.sparsam .wa .scan-line { animation: none; transform: translate3d(0, 50%, 0); }
+@media (prefers-reduced-motion: reduce) {
+  .wa-schalter-flaeche, .wa-einheit-flaeche, .wa .scan-progress-fill { transition: none; }
+  .wa .scan-line { animation: none; transform: translate3d(0, 50%, 0); }
+}
 
 /* ---- Bild- und Kartenlupe: abgedunkelt statt weichgezeichnet */
 .lupe-grund { background: rgba(10, 14, 20, .78); backdrop-filter: none; -webkit-backdrop-filter: none; }

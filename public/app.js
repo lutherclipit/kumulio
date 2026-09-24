@@ -544,15 +544,26 @@ function switchView(next, animClass) {
   if (next === 'profile' && state.token) ladeProfil();
   // Profil und Unterseiten haben keinen Reiter: "Zurueck" fuehrt dorthin,
   // woher man kam. Der Rueckweg aus einer Unterseite aendert das nicht.
-  if (PROFIL_BEREICH.includes(next)) {
-    const vorher = oldView.id.slice(5);
-    if (!PROFIL_BEREICH.includes(vorher) || (vorher === 'profile' && next !== 'profile')) state.zurueck[next] = vorher;
+  // Fremdes Profil und Suche haben einen eigenen Rueckweg: fuehrt der gerade
+  // hierher zurueck, bleibt der alte Eintrag — sonst liefe Zurueck im Kreis
+  const vorher = oldView.id.slice(5);
+  const heimweg = (vorher === 'user' && userPageReturn === next) || (vorher === 'search' && searchReturnView === next);
+  if (HAUPT_TABS.includes(next)) state.letzterReiter = next;
+  if (PROFIL_BEREICH.includes(next) && !heimweg) {
+    // Fremdes Profil und Suche haben selbst einen Rueckweg, der oft wieder in
+    // den Profil-Bereich fuehrt — als Ziel eingetragen liefe Zurueck im Kreis.
+    // Dann geht es zum zuletzt benutzten Reiter.
+    const ziel = (vorher === 'user' || vorher === 'search') ? (state.letzterReiter || 'wallet') : vorher;
+    if (!PROFIL_BEREICH.includes(vorher) || (vorher === 'profile' && next !== 'profile')) state.zurueck[next] = ziel;
   }
   if (next === 'chat') {
     // Der Chat besteht nur noch aus den Gespraechen mit Freunden. Er oeffnet
     // die Liste — wer gezielt in einen Einzelchat will (Benachrichtigung,
     // Freundesliste, Profil), ruft direkt danach setChatMode('dm', …) auf.
-    if (chatMode !== 'dmlist') setChatMode('dmlist');
+    // Zurueck vom Profil, das man aus einem Einzelchat angesehen hat: wieder
+    // in genau dieses Gespraech (Verlauf, Entwurf und Stelle bleiben stehen)
+    const insGespraech = heimweg && openUserPop.gespraech && chatMode === 'dm' && dmPartner === openUserPop.gespraech;
+    if (!insGespraech && chatMode !== 'dmlist') setChatMode('dmlist');
     updateChatGate();
     pollChat(true);
   }
@@ -1823,13 +1834,18 @@ function zeigeBildGross({ vonEl, src, ladeOriginal = null }) {
 // direktem Zuschnitt) oder selbst zuschneiden. Fester Rahmen, Bild wird
 // verschoben und gezoomt — das ist auf dem Handy am treffsichersten.
 function wireVoucherImage(v) {
+  // Immer den Eintrag nehmen, der gerade in der Wallet liegt: nach "Ändern"
+  // oder einem Abgleich ist das ein neues Objekt, das alte ist tot
+  const id = v.id;
+  const aktuell = () => state.wallet.vouchers.find(x => x.id === id) || null;
   const bildGross = () => {
     const bild = $('#wv-bild');
-    if (!bild) return;
+    const x = aktuell();
+    if (!bild || !x) return;
     zeigeBildGross({
       vonEl: bild, src: bild.src,
       // Umschalter nur, wenn es neben dem Zuschnitt wirklich ein Original gibt
-      ladeOriginal: v.orig && v.codeImg ? () => origLaden(v) : null,
+      ladeOriginal: x.orig && x.codeImg ? () => origLaden(x) : null,
     });
   };
   $('#wv-bild')?.addEventListener('click', bildGross);
@@ -1847,20 +1863,29 @@ function wireVoucherImage(v) {
     });
     // Das ganze Foto bleibt als Original erhalten (verkleinert, ausserhalb der Wallet)
     const ganzesFoto = await readImageFile(f, 1600, 0.82, 'foto').catch(() => '');
+    if (walletGesperrt() || !aktuell()) return;  // inzwischen gesperrt oder weg
     openImgCrop(url, (out, info) => {
-      if (info.ganz || !ganzesFoto) origEntfernen(v); // sonst zeigte "Original" noch das alte Foto
-      else origSichern(v, ganzesFoto);
-      v.codeImg = out; v.img = ''; v.bildMt = Math.max(Date.now(), (v.bildMt || 0) + 1); saveWallet(); openVoucherSheet(v.id);
+      const x = aktuell();
+      if (walletGesperrt() || !x || schenktGerade(x.id)) return;
+      if (info.ganz || !ganzesFoto) origEntfernen(x); // sonst zeigte "Original" noch das alte Foto
+      else origSichern(x, ganzesFoto);
+      x.codeImg = out; x.img = ''; x.bildMt = Math.max(Date.now(), (x.bildMt || 0) + 1); saveWallet(); openVoucherSheet(x.id);
     });
   });
   $('#wv-img-crop')?.addEventListener('click', async () => {
     // Vom Original aus zuschneiden: so laesst sich der Ausschnitt auch wieder
     // groesser ziehen, nicht nur immer kleiner
-    const vomOriginal = v.orig ? await origLaden(v) : null;
-    openImgCrop(vomOriginal || v.codeImg || v.img, (out, info) => {
-      if (info.ganz) origEntfernen(v);          // jetzt IST das Bild das Original
-      else if (!v.orig && v.img) origSichern(v, v.img); // bisher unbeschnitten: das wird das Original
-      v.codeImg = out; v.img = ''; v.bildMt = Math.max(Date.now(), (v.bildMt || 0) + 1); saveWallet(); openVoucherSheet(v.id);
+    const start = aktuell();
+    if (!start) return;
+    const vomOriginal = start.orig ? await origLaden(start) : null;
+    const x0 = aktuell();
+    if (walletGesperrt() || !x0) return;
+    openImgCrop(vomOriginal || x0.codeImg || x0.img, (out, info) => {
+      const x = aktuell();
+      if (walletGesperrt() || !x || schenktGerade(x.id)) return;
+      if (info.ganz) origEntfernen(x);          // jetzt IST das Bild das Original
+      else if (!x.orig && x.img) origSichern(x, x.img); // bisher unbeschnitten: das wird das Original
+      x.codeImg = out; x.img = ''; x.bildMt = Math.max(Date.now(), (x.bildMt || 0) + 1); saveWallet(); openVoucherSheet(x.id);
     });
   });
 }
@@ -2637,12 +2662,24 @@ const rangBalken = (r, total) => `<span class="pf-balken" aria-hidden="true"><sp
 const rangAbstand = (r, total) => r.next ? `Noch ${euroFmt(r.next.min - total)} bis ${esc(r.next.name)}` : 'Höchste Stufe erreicht';
 
 // Rang-Karte im Profil: nur hier und in der Wallet, nie bei anderen
+// Gesperrte Wallet: kein Rang, kein Balken, kein Abstand — aus Stufe und
+// "Noch X €" liesse sich das Guthaben sonst auf den Cent zurueckrechnen
 function renderRangKarte() {
   const el = $('#pf-rang');
   if (!el) return;
-  const total = rangGuthaben();
-  const r = rankFor(total);
-  el.innerHTML = `
+  const zu = walletGesperrt();
+  const total = zu ? 0 : rangGuthaben();
+  const r = zu ? null : rankFor(total);
+  // Nur bei Aenderung neu zeichnen (laeuft auch bei jedem Sperren/Entsperren)
+  const stand = zu ? 'zu' : `${r.tier}|${total}`;
+  if (el.dataset.stand === stand) return;
+  el.dataset.stand = stand;
+  const html = zu ? `
+    <span class="pf-rang-kopf">
+      <span class="pf-rang-marke">${icon('lock', 'icon')}</span>
+      <span class="pf-rang-text"><small>Dein Rang</small><b>Wallet gesperrt</b></span>
+    </span>
+    <span class="pf-rang-fuss"><span>Zum Ansehen die Wallet entsperren</span><span class="pf-rang-mehr">Entsperren ${icon('chevron', 'icon')}</span></span>` : `
     <span class="pf-rang-kopf">
       <span class="pf-rang-marke">${icon('chart', 'icon')}</span>
       <span class="pf-rang-text"><small>Dein Rang</small><b>${esc(r.name)}</b></span>
@@ -2650,7 +2687,9 @@ function renderRangKarte() {
     </span>
     ${rangBalken(r, total)}
     <span class="pf-rang-fuss"><span>${rangAbstand(r, total)}</span><span class="pf-rang-mehr">Alle Ränge ${icon('chevron', 'icon')}</span></span>`;
-  el.setAttribute('aria-label', `Dein Rang: ${r.name}. Alle Ränge ansehen`);
+  el.innerHTML = html;
+  el.classList.toggle('gesperrt', zu);
+  el.setAttribute('aria-label', zu ? 'Dein Rang: Wallet gesperrt. Zum Entsperren tippen' : `Dein Rang: ${r.name}. Alle Ränge ansehen`);
 }
 $('#pf-rang').addEventListener('click', () => zeigeRang());
 
@@ -3500,8 +3539,12 @@ function startTour() {
   };
   const show = () => {
     const s = steps[i];
-    // Ein wackelnder View-Wechsel (geraetespezifisch) darf die Tour nicht killen
-    try { if (s.view && state.activeView !== s.view) switchView(s.view); } catch (e) { console.warn('Tour: View-Wechsel', e); }
+    // Ein wackelnder View-Wechsel (geraetespezifisch) darf die Tour nicht killen.
+    // Gesperrte Wallet: nicht hinwechseln — die Sperre laege ueber allem (auch
+    // ueber dem Reiter) und Face ID sprang mitten in der Tour auf. Das Lichtfeld
+    // zeigt dann nur auf den Reiter, die Ansicht bleibt.
+    const bleiben = s.view === 'wallet' && walletGesperrt();
+    try { if (s.view && !bleiben && state.activeView !== s.view) switchView(s.view); } catch (e) { console.warn('Tour: View-Wechsel', e); }
     tour.querySelector('.tour-num').textContent = i + 1;
     tour.querySelector('h3').textContent = s.title;
     tour.querySelector('p').textContent = s.text;
@@ -4748,20 +4791,20 @@ function zeigeNeuenGutschein(v) {
   }
 }
 // Schon vorhanden: XP-Error-Sound, Wackeln, rotes Aufleuchten und das Formular
-// wird KOMPLETT zurückgesetzt (frisches Sheet mit Hinweis-Banner oben)
+// wird KOMPLETT zurückgesetzt (frisch gefuellte Seite mit Hinweis oben)
 function dupeReject(text) {
   playSfx('error');
   buzz([60, 50, 60]);
   moneyFlash('red');
-  // Läuft gerade die Ergänzen-Warteschlange, geht es mit dem nächsten weiter
-  if (!nextFixOrDone()) openWalletAdd(addType, addPrefill);
-  const banner = document.createElement('div');
-  banner.className = 'dupe-banner';
-  banner.innerHTML = `${icon('warning', 'icon icon-sm')} <span>${text} Alles wurde zurückgesetzt.</span>`;
-  $('#sheet-content').prepend(banner);
-  const c = $('#sheet-content');
-  if (c && !reducedMotion()) {
-    c.classList.remove('shake-once'); void c.offsetWidth; c.classList.add('shake-once');
+  // Kam der doppelte Gutschein selbst aus der Warteschlange (Ergänzen, geteilte
+  // Bilder), geht es mit dem nächsten weiter — sonst frisches Formular derselben Art
+  const ausSchlange = !!waApi?.ausSchlange;
+  if (!(ausSchlange && nextFixOrDone())) openWalletAdd(addType, addPrefill);
+  const c = waInhalt();
+  if (!c || !waApi) return;
+  waApi.hinweis('dupe', `${text} Alles wurde zurückgesetzt.`);
+  if (!reducedMotion()) {
+    neuStarten(c, 'shake-once');
     setTimeout(() => c.classList.remove('shake-once'), 420);
   }
 }
@@ -4775,34 +4818,18 @@ let waFixQueue = [];
 let waFixTotal = 0;
 function openFixForm(fix, pos, total) {
   openWalletAdd('voucher');
-  if (state.sheetMode !== 'wallet-add' || !$('#wa-preview')) { waFixQueue.unshift(fix); return; }
+  if (!waOffen() || !waApi || !$('#wa-preview')) { waFixQueue.unshift(fix); return; }
   addImg = fix.img || '';
   addCodeImg = fix.codeImg || '';
-  if (addCodeImg || addImg) {
-    $('#wa-preview').src = addCodeImg || addImg;
-    $('#wa-preview').classList.remove('hidden');
-    $('#wa-drop-empty').classList.add('hidden');
-  }
-  if (fix.vendor) {
-    const tile = [...document.querySelectorAll('[data-vg]')].find(t => t.dataset.vg.toLowerCase() === fix.vendor.toLowerCase());
-    if (tile) {
-      if (tile.classList.contains('vendor-more')) $('#wa-vendor-showmore')?.click();
-      tile.click();
-    } else {
-      [...document.querySelectorAll('[data-vg]')].find(t => t.dataset.vg === 'Anderer Gutschein')?.click();
-      const inp = $('#wa-vendor');
-      if (inp) { inp.classList.remove('hidden'); inp.value = fix.vendor; }
-    }
-  }
+  if (addCodeImg || addImg) waApi.bild(addCodeImg || addImg);
+  if (fix.vendor) waApi.shop(fix.vendor);
   if (fix.amount != null) $('#wa-amount').value = String(fix.amount).replace('.', ',');
   if (fix.pin) $('#wa-pin').value = fix.pin;
   if (fix.code) $('#wa-code').value = fix.code;
+  waApi.ausSchlange = true;
+  waApi.aktualisieren();
   const fehlt = [!fix.vendor && 'Shop', fix.amount == null && 'Wert', !fix.pin && 'PIN'].filter(Boolean).join(', ');
-  const banner = document.createElement('div');
-  banner.className = 'fix-banner';
-  banner.innerHTML = `${icon('bulb', 'icon icon-sm')} <span><b>Gutschein ${pos} von ${total}:</b> alles Erkannte ist schon eingetragen, bitte noch ${esc(fehlt || 'die Felder prüfen')} ergänzen und speichern.</span>`;
-  $('#sheet-content').prepend(banner);
-  $('#sheet-content').scrollTop = 0;
+  waApi.hinweis('fix', `<b>Gutschein ${pos} von ${total}:</b> alles Erkannte ist schon eingetragen, bitte noch ${esc(fehlt || 'die Felder prüfen')} ergänzen und speichern.`);
 }
 function nextFixOrDone() {
   // Gesperrt (z. B. waehrend des Sicherns im Hintergrund): die Warteschlange
@@ -4812,7 +4839,8 @@ function nextFixOrDone() {
   if (!waFixQueue.length && geteiltSchlange.length) {
     const f = geteiltSchlange.shift();
     openWalletAdd('voucher');
-    if (state.sheetMode === 'wallet-add' && waHandleImage) waHandleImage(f);
+    if (waApi) waApi.ausSchlange = true;
+    if (waOffen() && waHandleImage) waHandleImage(f);
     return true;
   }
   if (!waFixQueue.length) return false;
@@ -4820,10 +4848,10 @@ function nextFixOrDone() {
   return true;
 }
 
-// Bild aus der Zwischenablage (Strg+V) direkt ins offene Hinzufügen-Formular
+// Bild aus der Zwischenablage (Strg+V) direkt in die offene Hinzufügen-Seite
 let waHandleImage = null;
 document.addEventListener('paste', e => {
-  if (state.sheetMode !== 'wallet-add' || !waHandleImage) return;
+  if (!waOffen() || !waHandleImage) return;
   const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
   if (!item) return;
   e.preventDefault();
@@ -5199,7 +5227,8 @@ const BRAND_DOMAINS = {
   edeka: 'edeka.de', netto: 'netto-online.de', dm: 'dm.de', 'müller': 'mueller.de',
   mediamarkt: 'mediamarkt.de', 'h&m': 'hm.com', douglas: 'douglas.de', nike: 'nike.com',
   payback: 'payback.de', wolt: 'wolt.com', lieferando: 'lieferando.de', spotify: 'spotify.com',
-  deutschlandcard: 'deutschlandcard.de', 'lidl plus': 'lidl.de', 'ikea family': 'ikea.com',
+  // DeutschlandCard nur mit www.: ohne liefert der Logo-Dienst einen 404 (Konsolenfehler)
+  deutschlandcard: 'www.deutschlandcard.de', 'lidl plus': 'lidl.de', 'ikea family': 'ikea.com',
   aldi: 'aldi-sued.de', penny: 'penny.de', norma: 'norma-online.de', kaufland: 'kaufland.de',
   globus: 'globus.de', tegut: 'tegut.com', otto: 'otto.de', ebay: 'ebay.de', temu: 'temu.com',
   adidas: 'adidas.de', zara: 'zara.com', shein: 'shein.com', saturn: 'saturn.de',
@@ -5222,16 +5251,110 @@ function brandChipHtml(name, gross = false) {
   return `<span class="brand-chip${logo ? ' hat-logo' : ''}" style="--bc:${brandColor(name)}">${logo}${esc(brandInitials(name))}</span>`;
 }
 
-// bearbeiteId: dann wird eine vorhandene Sparkarte geaendert statt eine neue
-// angelegt. Alles andere am Formular bleibt gleich — nur der Titel, die
-// Vorbelegung und das Speichern unterscheiden sich.
+// =============================================================================
+// Hinzufuegen als eigene Seite (Runde 118). Gleitet von rechts herein wie
+// Gutschein, Verschenken und Analyse (wseiteOeffnen): oben der Umschalter
+// Gutschein | Rabattcode, darunter die Karte, wie sie gleich in der Wallet
+// liegt — sie waechst beim Ausfuellen mit —, dann Foto oder Screenshot, der
+// Shop und die Felder. Gespeichert wird fest unten in der Leiste.
+// =============================================================================
+function waSeiteOben() { const o = wseiteOben(); return o && o.art === 'hinzufuegen' ? o : null; }
+function waOffen() { return !!waSeiteOben(); }
+function waInhalt() { return waSeiteOben()?.el.querySelector('.wseite-inhalt') || null; }
+// Was die offene Seite nach aussen anbietet (Ergaenzen-Warteschlange, Teilen):
+// { seite, bild(src), shop(name), aktualisieren(), hinweis(art, html) } —
+// ausSchlange: das Formular kam aus der Ergaenzen- oder Teilen-Warteschlange
+let waApi = null;
+
+// Bekannte Marken fuer die Suche hinter "Weitere". Nur Vorschlaege —
+// eintippen laesst sich jeder Name.
+const WA_SHOPS_EXTRA = ['ALDI', 'PENNY', 'Kaufland', 'Globus', 'tegut', 'NORMA', 'Saturn', 'Otto', 'eBay',
+  'Adidas', 'Zara', 'Shein', 'Temu', 'Spotify', 'Netflix', 'Steam', 'Nintendo eShop', 'Deutsche Bahn'];
+function waShopListe(art) {
+  const basis = art === 'card' ? CARD_GRID : art === 'rabatt' ? RABATT_GRID : VENDOR_GRID;
+  const weitere = art === 'card'
+    ? [...(cardCouponList || []).map(c => c && c.brand), ...VENDOR_GRID]
+    : art === 'rabatt' ? [...VENDOR_GRID, ...WA_SHOPS_EXTRA] : [...WA_SHOPS_EXTRA, ...RABATT_GRID];
+  const gesehen = new Set();
+  return [...basis, ...weitere].filter(n => {
+    if (!n || ANDERE_SHOPS.has(n) || n === 'Andere Karte') return false;
+    const k = n.toLowerCase();
+    if (gesehen.has(k)) return false;
+    gesehen.add(k);
+    return true;
+  });
+}
+// Lange Namen brechen in der Kachel an einer sinnvollen Stelle um
+function waKachelName(n) {
+  return esc(n).replace('Wunschgutschein', 'Wunsch&shy;gutschein').replace('DeutschlandCard', 'Deutschland&shy;Card');
+}
+
+// Vorschau: dieselbe Karte wie in der Wallet. Leere Felder zeigen Platzhalter
+// (grau, "Shop", "0,00 €", "Ohne Code") statt geratener Werte.
+const WA_LEER_FARBE = '#7B8794';
+const waLeerChip = () => `<span class="brand-chip wa-chip-leer">${icon('tag')}</span>`;
+function waTag(iso) {
+  const d = iso ? new Date(iso + 'T12:00:00') : null;
+  return d && !isNaN(d) ? d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
+}
+function waGutscheinKarteHtml(d) {
+  const leer = !d.vendor;
+  const farbe = leer ? WA_LEER_FARBE : brandColor(d.vendor);
+  const tag = waTag(d.end);
+  const fuss = tag
+    ? (Date.parse(d.end + 'T23:59:59') < Date.now() ? `abgelaufen am ${tag}` : `Gültig bis ${tag}`)
+    : `hinzugefügt ${waTag(new Date().toISOString().slice(0, 10))}`;
+  return `
+    <div class="wallet-card vk has-fill${leer ? ' wa-leer' : brandHelligkeit(farbe) > 0.62 ? ' hell' : ''}"
+      style="--bc:${farbe}; --tc:${leer ? '#fff' : brandTextColor(d.vendor)}; --fill:100%">
+      <span class="vk-motiv" aria-hidden="true">${leer ? '' : vkMotivHtml({ vendor: d.vendor })}</span>
+      <span class="vk-logo">${leer ? waLeerChip() : brandChipHtml(d.vendor)}</span>
+      <div class="vk-text">
+        <b class="wallet-card-name${leer ? ' wa-platzhalter' : ''}">${esc(d.vendor || 'Shop')}</b>
+        <span class="vk-art">Gutschein</span>
+        <span class="vk-code${d.code ? '' : ' wa-platzhalter'}">${esc(d.code || 'Ohne Code')}</span>
+        ${d.pin ? `<span class="vk-pin">PIN ${esc(d.pin)}</span>` : ''}
+      </div>
+      <div class="vk-rechts"><span class="wallet-card-balance${d.amount == null ? ' wa-platzhalter' : ''}">${euroFmt(d.amount ?? 0)}</span></div>
+      <div class="vk-fuss"><span>${fuss}</span></div>
+    </div>`;
+}
+function waRabattKarteHtml(d) {
+  const leer = !d.vendor;
+  const farbe = leer ? WA_LEER_FARBE : brandColor(d.vendor);
+  const n = rabattZahl(d.rabatt);
+  const wert = n == null ? (d.rabattArt === 'pct' ? '0 %' : '0,00 €')
+    : d.rabattArt === 'pct' ? `−${String(n).replace('.', ',')} %` : `−${euroFmt(n)}`;
+  const status = d.end ? (rabattAbgelaufen(d) ? 'abgelaufen' : 'bis ' + new Date(d.end).toLocaleDateString('de-DE')) : '';
+  return `
+    <div class="wallet-card rc-card${leer ? ' wa-leer' : brandHelligkeit(farbe) > 0.62 ? ' hell' : ''}"
+      style="--bc:${farbe}; --tc:${leer ? '#fff' : brandTextColor(d.vendor)}">
+      <div class="wallet-card-head">
+        ${leer ? waLeerChip() : brandChipHtml(d.vendor)}
+        <span class="wallet-card-name${leer ? ' wa-platzhalter' : ''}">${esc(d.vendor || 'Shop')}</span>
+        <span class="wallet-card-balance${n == null ? ' wa-platzhalter' : ''}">${esc(wert)}</span>
+      </div>
+      <div class="wallet-card-sub">
+        <span class="rc-code${d.code ? '' : ' wa-platzhalter'}">${esc(d.code || 'Ohne Code')}</span>
+        <span class="pill">${rabattMbwText(d)}</span>
+        ${status ? `<span class="pill">${status}</span>` : ''}
+      </div>
+    </div>`;
+}
+function waSparkarteHtml(d) {
+  const html = sparkarteHtml({ id: 'wa-vorschau', name: d.name || 'Karte', number: d.number, codeImg: d.codeImg, img: d.img });
+  return d.name ? html : html.replace('class="debitkarte ', 'class="debitkarte wa-leer ');
+}
+
+// bearbeiteId: dann wird eine vorhandene Sparkarte (oder ein Rabattcode)
+// geaendert statt neu angelegt. Alles andere bleibt gleich — nur der Titel,
+// die Vorbelegung und das Speichern unterscheiden sich.
 function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
   if (!state.token) { switchView('profile'); island('Für die Wallet bitte anmelden'); return; }
   if (walletGesperrt()) { aktualisiereSperre(); return; } // gesperrte Wallet: nichts zeigen
   waSaving = false;
-  addType = type || 'voucher';
+  addType = type === 'card' || type === 'rabatt' ? type : 'voucher';
   addPrefill = prefillName || '';
-  state.sheetMode = 'wallet-add';
   addEditId = bearbeiteId || '';
   const bearbeitet = !addEditId ? null
     : addType === 'card' ? state.wallet.cards.find(x => x.id === addEditId)
@@ -5244,139 +5367,234 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
   addCodeImg = bearbeitet?.codeImg || '';
   const isCard = addType === 'card';
   const isRabatt = addType === 'rabatt';
-  // Der Schieber startet dort, wo man herkam, und gleitet dann zum neuen Ziel
+  const titel = addEditId ? (isRabatt ? 'Rabattcode ändern' : 'Sparkarte ändern')
+    : isCard ? 'Sparkarte hinzufügen' : isRabatt ? 'Rabattcode hinzufügen' : 'Gutschein hinzufügen';
+
+  // Liegt die Seite schon oben (Umschalter, Duplikat, naechstes Bild), wird sie
+  // nur neu gefuellt — sonst gleitet eine neue herein
+  let seite = waSeiteOben();
+  if (seite) {
+    seite.el.querySelector('.wseite-titel').textContent = titel;
+    seite.el.setAttribute('aria-label', titel);
+  } else {
+    buzz(8);
+    // Liegt gerade ein Blatt ueber einer Seite (Marken-Blatt aus dem
+    // Laden-Hinweis), kaeme die neue Seite darunter zu liegen: Blatt erst zu
+    if (document.body.classList.contains('blatt-ueber-seite') && state.sheetMode) closeSheet();
+    seite = wseiteOeffnen({ art: 'hinzufuegen', titel, klasse: 'wa', baue: () => { } });
+    if (!seite) return;
+    const neu = seite;
+    neu.beimSchliessen = () => {
+      waScanLauf++;                              // laufende Scans tragen nichts mehr ein
+      neu.waRo?.disconnect();
+      if (waApi?.seite === neu) { waApi = null; waHandleImage = null; }
+      // Wer die Seite verlaesst, bricht auch den Rest ab (Ergaenzen, weitere
+      // geteilte Bilder) — sonst tauchte er beim naechsten Speichern ungefragt
+      // wieder auf. Nur die Sperre haelt ihn fest: danach geht es weiter.
+      if (!walletGesperrt()) { waFixQueue = []; waFixTotal = 0; geteiltSchlange = []; }
+    };
+  }
+  const el = seite.el;
+  const inhalt = el.querySelector('.wseite-inhalt');
+  const q = sel => el.querySelector(sel);
+
+  const art = isCard ? 'karten' : 'gutscheine';
+  const platz = walletPlatz(art);
+  const voll = !addEditId && platz.voll;
+  const platzText = platz.voll ? walletVollText(art)
+    : `${platz.n}${platz.g ? ` + ${platz.g} wartende Geschenke` : ''} von maximal ${platz.max} ${isCard ? 'Sparkarten' : 'Gutscheinen und Rabattcodes'} in deiner Wallet, noch ${platz.frei} frei.`;
   const modusVon = opts.von || addType;
-  $('#sheet-content').innerHTML = `
-    <div class="sheet-title">${addEditId ? (isRabatt ? 'Rabattcode ändern' : 'Sparkarte ändern')
-      : isCard ? 'Sparkarte hinzufügen' : isRabatt ? 'Rabattcode hinzufügen' : 'Gutschein hinzufügen'}</div>
+  const shopListe = waShopListe(addType);
+  const mehrere = addType === 'voucher';
+  let maus = false;
+  try { maus = matchMedia('(hover: hover) and (pointer: fine)').matches; } catch { /* alt */ }
+  const einfuegen = /Mac|iPhone|iPad/.test(navigator.platform || '') ? '⌘+V' : 'Strg+V';
+  const tipp = [mehrere && 'Mehrere Bilder auf einmal gehen auch.',
+    maus && `Oder mit ${einfuegen} einfügen oder hierher ziehen.`].filter(Boolean).join(' ');
+  const mehrInhalt = `<span class="wa-shop-mehr-bild">${icon('search', 'icon')}</span><span class="wa-shop-name">Weitere</span>`;
+  const wer = isCard ? 'Karte' : 'Shop';
+
+  inhalt.innerHTML = `
     ${!isCard && !addEditId ? `
-    <div class="wa-modus${modusVon === 'rabatt' ? ' rechts' : ''}" id="wa-modus" role="tablist" aria-label="Was fügst du hinzu?">
-      <span class="wa-modus-flaeche" aria-hidden="true"></span>
-      <button class="wa-modus-knopf${modusVon !== 'rabatt' ? ' an' : ''}" type="button" role="tab" data-wa-modus="voucher" aria-selected="${!isRabatt}">Gutschein</button>
-      <button class="wa-modus-knopf${modusVon === 'rabatt' ? ' an' : ''}" type="button" role="tab" data-wa-modus="rabatt" aria-selected="${isRabatt}">Rabattcode</button>
+    <div class="wa-schalter" id="wa-modus" role="tablist" aria-label="Was fügst du hinzu?" style="--i:${modusVon === 'rabatt' ? 1 : 0}">
+      <span class="wa-schalter-flaeche" aria-hidden="true"></span>
+      <button class="wa-schalter-knopf${modusVon !== 'rabatt' ? ' an' : ''}" type="button" role="tab" data-wa-modus="voucher" aria-selected="${!isRabatt}">Gutschein</button>
+      <button class="wa-schalter-knopf${modusVon === 'rabatt' ? ' an' : ''}" type="button" role="tab" data-wa-modus="rabatt" aria-selected="${isRabatt}">Rabattcode</button>
     </div>` : ''}
+    ${!addEditId && (platz.voll || platz.fast) ? `
+    <div class="wa-hinweis ${platz.voll ? 'voll' : 'fast'}">${icon('warning', 'icon')}<span>${esc(platzText)}</span></div>` : ''}
     <div class="wa-form${opts.von ? ' wa-form-neu' : ''}">
-    ${addEditId ? '' : (() => {
-      const art = isCard ? 'karten' : 'gutscheine';
-      const p = walletPlatz(art);
-      const was = isCard ? 'Sparkarten' : 'Gutscheine und Rabattcodes';
-      return `<p class="wa-platz ${p.voll ? 'voll' : p.fast ? 'fast' : ''}">${p.voll
-        ? walletVollText(art)
-        : `${p.n}${p.g ? ` + ${p.g} wartende Geschenke` : ''} von maximal ${p.max} ${was} in deiner Wallet · noch ${p.frei} frei`}</p>`;
-    })()}
+      <div class="wa-vorschau" id="wa-vorschau" aria-hidden="true"></div>
 
-    <!-- Bild zuerst: hochladen, fotografieren oder einfach reinziehen -->
-    <div class="dropzone" id="wa-drop">
-      <div class="dropzone-empty" id="wa-drop-empty">
-        ${icon('plus', 'icon')}
-        <span>Screenshot / Foto hierher ziehen,<br>einfügen (Strg+V) oder unten auswählen</span>
-      </div>
-      <div class="scan-frame" id="wa-scan-frame">
-        <img id="wa-preview" class="wallet-img hidden" alt="">
-        <div class="scan-line hidden" id="wa-scanline"></div>
-      </div>
-      <div class="scan-progress hidden" id="wa-progress">
-        <div class="scan-progress-track"><div class="scan-progress-fill" id="wa-progress-fill"></div></div>
-        <span id="wa-progress-txt">0 %</span>
-      </div>
-      <div id="wa-result" class="hidden"></div>
-      <div class="form-row" style="justify-content:center">
-        <label class="btn btn-small btn-ghost" style="cursor:pointer">${isCard || isRabatt ? 'Bild' : 'Bilder'} hochladen
-          <input id="wa-img" type="file" accept="image/*" ${isCard || isRabatt ? '' : 'multiple'} style="display:none"></label>
-        <label class="btn btn-small btn-ghost" style="cursor:pointer">Foto aufnehmen
-          <input id="wa-cam" type="file" accept="image/*" capture="environment" style="display:none"></label>
-      </div>
-      ${isCard ? '' : isRabatt ? '<p class="muted" style="font-size:.72rem; text-align:center; margin-top:4px">Screenshot vom Code? Dann liest die App Code, Rabatt und Mindestbestellwert selbst aus.</p>' : '<p class="muted" style="font-size:.72rem; text-align:center; margin-top:4px">Tipp: mehrere Bilder auswählen, dann landen alle erkannten Gutscheine auf einmal in der Wallet.</p>'}
-      <div id="wa-ai-msg" class="form-msg" style="text-align:center"></div>
-    </div>
+      <section class="gd-block wa-scan" id="wa-drop" aria-label="Foto oder Screenshot">
+        <div class="wa-scan-kopf">
+          <span class="wa-scan-symbol">${wIcon('scan')}</span>
+          <span class="wa-scan-text"><b>Foto oder Screenshot</b>
+            <small>${isCard ? 'Barcode und Kartennummer liest kumulio selbst aus.'
+              : isRabatt ? 'Code, Rabatt und Mindestbestellwert liest kumulio selbst aus.'
+              : 'Code, PIN und Wert liest kumulio selbst aus.'}</small></span>
+        </div>
+        <div class="wa-scan-bild hidden" id="wa-scan-frame">
+          <img id="wa-preview" alt="Dein Bild">
+          <div class="scan-line hidden" id="wa-scanline"></div>
+        </div>
+        <div class="scan-progress hidden" id="wa-progress">
+          <div class="scan-progress-track"><div class="scan-progress-fill" id="wa-progress-fill"></div></div>
+          <span id="wa-progress-txt">0 %</span>
+        </div>
+        <div id="wa-result" class="wa-scan-ergebnis hidden"></div>
+        <p id="wa-ai-msg" class="form-msg wa-scan-meldung" role="status"></p>
+        <div class="wa-scan-knoepfe">
+          <label class="wa-scan-knopf">${wIcon('kamera')}<span data-mit-bild="Neues Foto">Foto aufnehmen</span>
+            <input id="wa-cam" type="file" accept="image/*" capture="environment" hidden></label>
+          <label class="wa-scan-knopf">${wIcon('bild')}<span data-mit-bild="${mehrere ? 'Andere Bilder' : 'Anderes Bild'}">${mehrere ? 'Bilder' : 'Bild'} hochladen</span>
+            <input id="wa-img" type="file" accept="image/*" ${mehrere ? 'multiple' : ''} hidden></label>
+          <button class="wa-scan-knopf wa-scan-crop" id="wa-crop" type="button" aria-label="Bild zuschneiden" title="Zuschneiden">${wIcon('zuschnitt')}</button>
+        </div>
+        ${tipp ? `<p class="wa-scan-tipp">${esc(tipp)}</p>` : ''}
+      </section>
 
-    ${isCard ? `
-    <label class="f-label">Karte <span class="req">*</span></label>
-    <div class="vendor-grid" id="wa-card-grid">
-      ${CARD_GRID.map(v => `<button class="vendor-tile ${addPrefill === v ? 'on' : ''}" data-cg="${esc(v)}">
-        ${brandChipHtml(v)}
-        <span>${esc(v)}</span>
-      </button>`).join('')}
-    </div>
-    <input id="wa-cname" class="input ${addPrefill && !CARD_GRID.includes(addPrefill) ? '' : 'hidden'}" maxlength="30" placeholder="Kartenname eintippen" value="${esc(addPrefill && !CARD_GRID.includes(addPrefill) ? addPrefill : '')}">
-    <label class="f-label">Kartennummer <span class="opt">(optional)</span></label>
-    <input id="wa-cnumber" class="input" maxlength="30" placeholder="Falls die Karte eine hat"
-      value="${esc(bearbeitet?.number || '')}">
-    <p class="muted" style="font-size:.74rem; margin:4px 0 0">Manche Karten haben gar keine Nummer —
-      dann reicht ein Foto vom Barcode, oder du legst sie einfach ohne an.</p>
-    ` : isRabatt ? rabattFormHtml(bearbeitet) : `
-    <label class="f-label">Shop <span class="req">*</span></label>
-    <div class="vendor-grid" id="wa-vendor-grid">
-      ${VENDOR_GRID.map((v, i) => `<button class="vendor-tile ${i >= 6 ? 'hidden vendor-more' : ''}" data-vg="${esc(v)}">
-        ${brandChipHtml(v)}
-        <span>${esc(v)}</span>
-      </button>`).join('')}
-      <button class="vendor-tile" id="wa-vendor-showmore">
-        <span class="brand-chip" style="--bc:rgba(127,127,127,.4)">…</span>
-        <span>Weitere</span>
-      </button>
-    </div>
-    <input id="wa-vendor" class="input hidden" maxlength="30" placeholder="Shop-Name eintippen">
-    <div class="form-grid">
-      <div>
-        <label class="f-label" for="wa-amount">Wert (€) <span class="req">*</span></label>
-        <input id="wa-amount" class="input" inputmode="decimal" placeholder="z. B. 25">
+      <h3 class="gd-h">${wer}</h3>
+      <div class="wa-shops" id="wa-vendor-grid" role="group" aria-label="${wer} wählen">
+        ${shopListe.slice(0, 7).map(n => `<button class="wa-shop" type="button" data-vg="${esc(n)}" aria-pressed="false">
+          ${brandChipHtml(n)}<span class="wa-shop-name">${waKachelName(n)}</span></button>`).join('')}
+        <button class="wa-shop wa-shop-mehr" type="button" id="wa-vendor-showmore" aria-expanded="false" aria-controls="wa-suche"
+          aria-label="Weitere ${isCard ? 'Karten' : 'Shops'}">${mehrInhalt}</button>
       </div>
-      <div>
-        <label class="f-label" for="wa-pin">PIN <span class="opt">(optional)</span></label>
-        <input id="wa-pin" class="input" maxlength="16" placeholder="z. B. 0689">
+      <div class="gd-block wa-suche hidden" id="wa-suche">
+        <label class="wa-suche-zeile">${icon('search', 'icon')}
+          <input id="wa-vendor" type="search" maxlength="30" autocomplete="off" autocorrect="off" spellcheck="false"
+            enterkeyhint="done" placeholder="${wer} suchen oder eintippen" aria-label="${wer} suchen oder eintippen"></label>
+        <div class="wa-suche-liste" id="wa-suche-liste"></div>
       </div>
-    </div>
-    <label class="f-label" for="wa-code">Code / Kartennummer <span class="opt">(optional)</span></label>
-    <input id="wa-code" class="input" maxlength="40" placeholder="Falls vorhanden: der Code für die Kasse">
-    <label class="f-label" for="wa-end">Gültig bis <span class="opt">(optional)</span></label>
-    <input id="wa-end" class="input" type="date">
-    `}
-    <div class="form-row" style="margin-top:14px">
-      <button id="wa-save" class="btn">${addEditId ? 'Änderungen speichern' : 'Speichern'}</button>
-      <span id="wa-msg" class="form-msg"></span>
-    </div>
+
+      ${isCard ? `
+      <h3 class="gd-h">Kartennummer <small>optional</small></h3>
+      <input id="wa-cnumber" class="gd-feld wa-feld" maxlength="30" autocomplete="off" autocorrect="off" spellcheck="false"
+        placeholder="Falls die Karte eine hat" value="${esc(bearbeitet?.number || '')}" aria-label="Kartennummer">
+      <p class="wa-fussnote">Manche Karten haben gar keine Nummer. Dann reicht ein Foto vom Barcode, oder du legst sie einfach ohne an.</p>`
+      : isRabatt ? rabattFormHtml(bearbeitet) : `
+      <h3 class="gd-h">Wert</h3>
+      <label class="gd-block wa-betrag" id="wa-betrag">
+        <input id="wa-amount" inputmode="decimal" autocomplete="off" placeholder="0,00" aria-label="Wert in Euro">
+        <span class="wa-betrag-einheit" aria-hidden="true">€</span>
+      </label>
+      <h3 class="gd-h">Details <small>optional</small></h3>
+      <div class="gd-block wa-gruppe">
+        <label class="wa-zeile"><span class="wa-zeile-label">Code oder Kartennummer</span>
+          <input id="wa-code" class="wa-code-feld" maxlength="40" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="Für die Kasse, falls vorhanden"></label>
+        <label class="wa-zeile"><span class="wa-zeile-label">PIN</span>
+          <input id="wa-pin" class="wa-code-feld" maxlength="16" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="Falls vorhanden"></label>
+        <label class="wa-zeile"><span class="wa-zeile-label">Gültig bis</span>
+          <input id="wa-end" type="date"></label>
+      </div>`}
+      ${!addEditId && !(platz.voll || platz.fast) ? `<p class="wa-fussnote">${esc(platzText)}</p>` : ''}
     </div>`;
 
-  // Shop-Kacheln: Antippen wählt aus, "Anderer Gutschein" öffnet das Freitextfeld
-  let pickedVendor = '';
-  $('#wa-vendor-showmore')?.addEventListener('click', () => {
-    $('#sheet-content').querySelectorAll('.vendor-more').forEach(x => x.classList.remove('hidden'));
-    $('#wa-vendor-showmore').remove();
+  // Die feste Leiste unten: Meldung (falls es eine gibt) und Speichern
+  el.querySelectorAll('.wa-leiste').forEach(x => x.remove());
+  el.insertAdjacentHTML('beforeend', `
+    <div class="wseite-leiste wa-leiste">
+      <p class="wa-meldung" id="wa-msg" role="alert"></p>
+      <button class="gd-los wa-speichern aus" id="wa-save" type="button" aria-disabled="true">${addEditId ? 'Änderungen speichern' : 'Speichern'}</button>
+    </div>`);
+  // Der Inhalt bekommt unten genau so viel Luft, wie die Leiste hoch ist
+  seite.waRo?.disconnect();
+  if ('ResizeObserver' in window) {
+    seite.waRo = new ResizeObserver(() => {
+      const l = q('.wa-leiste');
+      if (l) el.style.setProperty('--wa-leiste-h', l.offsetHeight + 'px');
+    });
+    seite.waRo.observe(q('.wa-leiste'));
+  }
+  inhalt.scrollTop = 0;
+  // Neu gefuellt (Umschalter, naechstes Bild): der Fokus bleibt auf der Seite
+  if (!el.contains(document.activeElement)) el.focus({ preventScroll: true });
+  const meldung = (text, art = '') => {
+    const m = q('#wa-msg');
+    if (!m) return;
+    m.className = 'wa-meldung' + (art ? ' ' + art : '');
+    m.textContent = text || '';
+  };
+
+  // ---- Shop bzw. Karte: sieben Kacheln und "Weitere" mit Suche. Ein Name,
+  // der in keiner Kachel steht, erscheint in der achten Kachel.
+  let gewaehlt = '';
+  const kacheln = () => [...el.querySelectorAll('#wa-vendor-grid [data-vg]')];
+  const setzeShop = name => {
+    name = String(name || '').replace(/\s+/g, ' ').trim().slice(0, 30);
+    const bekannt = shopListe.find(n => n.toLowerCase() === name.toLowerCase());
+    if (bekannt) name = bekannt;
+    gewaehlt = name;
+    const kachel = kacheln().find(t => t.dataset.vg.toLowerCase() === name.toLowerCase()) || null;
+    kacheln().forEach(t => { t.classList.toggle('on', t === kachel); t.setAttribute('aria-pressed', String(t === kachel)); });
+    const mehr = q('#wa-vendor-showmore');
+    if (mehr) {
+      const fremd = name && !kachel ? name : '';
+      if ((mehr.dataset.zeigt || '') !== fremd) {
+        mehr.dataset.zeigt = fremd;
+        mehr.innerHTML = fremd ? `${brandChipHtml(fremd)}<span class="wa-shop-name">${esc(fremd)}</span>` : mehrInhalt;
+      }
+      mehr.classList.toggle('on', !!fremd);
+      mehr.setAttribute('aria-label', fremd ? `${fremd}, ${isCard ? 'andere Karte' : 'anderen Shop'} suchen` : `Weitere ${isCard ? 'Karten' : 'Shops'}`);
+    }
+    if (q('#wa-vendor')) q('#wa-vendor').value = '';
+    aktualisieren();
+  };
+  const currentVendor = () => gewaehlt;
+  const currentCard = () => gewaehlt;
+  const sucheOffen = () => !q('#wa-suche')?.classList.contains('hidden');
+  const sucheZeichnen = () => {
+    const liste = q('#wa-suche-liste'), feld = q('#wa-vendor');
+    if (!liste || !feld) return;
+    const text = feld.value.replace(/\s+/g, ' ').trim();
+    const low = text.toLowerCase();
+    const treffer = (low ? shopListe.filter(n => n.toLowerCase().includes(low)) : shopListe.slice(7)).slice(0, 12);
+    const exakt = shopListe.some(n => n.toLowerCase() === low);
+    // Echte Treffer zuerst, der eigene Name danach: Enter nimmt den obersten
+    liste.innerHTML = treffer.map(n => `
+      <button class="wa-treffer${n === gewaehlt ? ' an' : ''}" type="button" data-wahl="${esc(n)}">
+        ${brandChipHtml(n)}<span>${esc(n)}</span></button>`).join('')
+      + (text && !exakt ? `
+      <button class="wa-treffer wa-treffer-frei" type="button" data-wahl="${esc(text)}">
+        <span class="wa-treffer-plus">${icon('plus', 'icon')}</span><span>„${esc(text.slice(0, 30))}“ übernehmen</span></button>` : '');
+    liste.querySelectorAll('[data-wahl]').forEach(b => b.onclick = () => {
+      setzeShop(b.dataset.wahl);
+      sucheAuf(false);
+      buzz(6);
+    });
+  };
+  const sucheAuf = auf => {
+    const box = q('#wa-suche');
+    if (!box) return;
+    box.classList.toggle('hidden', !auf);
+    q('#wa-vendor-showmore')?.setAttribute('aria-expanded', String(auf));
+    if (auf) {
+      sucheZeichnen();
+      if (maus) q('#wa-vendor')?.focus({ preventScroll: true });
+    }
+  };
+  kacheln().forEach(b => b.addEventListener('click', () => { setzeShop(b.dataset.vg); sucheAuf(false); buzz(6); }));
+  q('#wa-vendor-showmore')?.addEventListener('click', () => { sucheAuf(!sucheOffen()); buzz(6); });
+  // Tippen filtert nur die Liste — uebernommen wird erst ein Eintrag (Antippen
+  // oder Enter). Sonst war jedes Bruchstueck ("ede") schon der gewaehlte Shop.
+  q('#wa-vendor')?.addEventListener('input', sucheZeichnen);
+  q('#wa-vendor')?.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const text = e.target.value.replace(/\s+/g, ' ').trim().toLowerCase();
+    const eintraege = [...el.querySelectorAll('#wa-suche-liste [data-wahl]')];
+    // Genau dieser Name, sonst der erste echte Treffer, sonst der eigene Name
+    const ziel = eintraege.find(b => !b.classList.contains('wa-treffer-frei') && b.dataset.wahl.toLowerCase() === text) || eintraege[0];
+    if (ziel && text) ziel.click(); else sucheAuf(false);
   });
-  $('#sheet-content').querySelectorAll('[data-vg]').forEach(b => b.addEventListener('click', () => {
-    $('#sheet-content').querySelectorAll('.vendor-tile').forEach(x => x.classList.toggle('on', x === b));
-    if (ANDERE_SHOPS.has(b.dataset.vg)) {
-      pickedVendor = '';
-      $('#wa-vendor').classList.remove('hidden');
-      $('#wa-vendor').focus();
-    } else {
-      pickedVendor = b.dataset.vg;
-      $('#wa-vendor').classList.add('hidden');
-    }
-  }));
-  const currentVendor = () => pickedVendor || $('#wa-vendor')?.value.trim() || '';
 
-  // Karten-Kacheln (Sparkarten): gleiche Mechanik wie beim Gutschein
-  let pickedCard = CARD_GRID.includes(addPrefill) ? addPrefill : '';
-  $('#sheet-content').querySelectorAll('[data-cg]').forEach(b => b.addEventListener('click', () => {
-    $('#sheet-content').querySelectorAll('[data-cg]').forEach(x => x.classList.toggle('on', x === b));
-    if (b.dataset.cg === 'Andere Karte') {
-      pickedCard = '';
-      $('#wa-cname').classList.remove('hidden');
-      $('#wa-cname').focus();
-    } else {
-      pickedCard = b.dataset.cg;
-      $('#wa-cname').classList.add('hidden');
-    }
-  }));
-  const currentCard = () => pickedCard || $('#wa-cname')?.value.trim() || '';
-
-  // Gutschein oder Rabattcode: der Schieber oben wechselt das Formular
-  const modus = $('#wa-modus');
+  // ---- Gutschein oder Rabattcode: der Schieber oben wechselt das Formular
+  const modus = q('#wa-modus');
   if (modus) {
     if (opts.von && opts.von !== addType) requestAnimationFrame(() => {
-      modus.classList.toggle('rechts', isRabatt);
+      void modus.offsetWidth;
+      modus.style.setProperty('--i', isRabatt ? 1 : 0);
       modus.querySelectorAll('[data-wa-modus]').forEach(k => k.classList.toggle('an', k.dataset.waModus === addType));
     });
     modus.querySelectorAll('[data-wa-modus]').forEach(k => k.addEventListener('click', () => {
@@ -5385,73 +5603,213 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
       openWalletAdd(k.dataset.waModus, '', '', { von: addType });
     }));
   }
-  // Rabatt in Euro oder Prozent
+
+  // ---- Rabatt in Euro oder Prozent, Mindestbestellwert per Schalter
   let waEinheit = bearbeitet?.rabattArt === 'pct' ? 'pct' : 'eur';
   const setzeEinheit = e => {
     waEinheit = e;
-    const box = $('#wa-einheit');
+    const box = q('#wa-einheit');
     if (!box) return;
     box.classList.toggle('rechts', e === 'pct');
     box.querySelectorAll('[data-einheit]').forEach(x => {
       x.classList.toggle('an', x.dataset.einheit === e);
       x.setAttribute('aria-pressed', String(x.dataset.einheit === e));
     });
+    aktualisieren();
   };
-  $('#wa-einheit')?.querySelectorAll('[data-einheit]').forEach(k => k.addEventListener('click', () => setzeEinheit(k.dataset.einheit)));
-  // Mindestbestellwert: Schalter blendet das Betragsfeld ein
+  q('#wa-einheit')?.querySelectorAll('[data-einheit]').forEach(k => k.addEventListener('click', () => { setzeEinheit(k.dataset.einheit); buzz(6); }));
+  // Die ganze Rabatt-Flaeche fuehrt ins Feld (ausser auf dem Schalter)
+  q('.wa-rabatt')?.addEventListener('click', e => { if (!e.target.closest('button, input')) q('#wa-rwert')?.focus(); });
   const mbwText = () => {
-    const t = $('#wa-mbw-text');
+    const t = q('#wa-mbw-text');
     if (!t) return;
-    const n = parseFloat(String($('#wa-mbw')?.value || '').replace(',', '.'));
-    t.textContent = $('#wa-mbw-an').checked ? (n > 0 ? 'ab ' + euroFmt(n) : 'Betrag eintragen') : 'ohne MBW';
+    const n = parseFloat(String(q('#wa-mbw')?.value || '').replace(',', '.'));
+    t.textContent = q('#wa-mbw-an').checked ? (n > 0 ? 'ab ' + euroFmt(n) : 'Betrag eintragen') : 'ohne MBW';
   };
-  $('#wa-mbw-an')?.addEventListener('change', e => {
-    $('#wa-mbw-feld').classList.toggle('hidden', !e.target.checked);
+  q('#wa-mbw-an')?.addEventListener('change', e => {
+    q('#wa-mbw-feld').classList.toggle('hidden', !e.target.checked);
     mbwText();
-    if (e.target.checked) setTimeout(() => $('#wa-mbw')?.focus(), 60);
+    aktualisieren();
+    if (e.target.checked) setTimeout(() => q('#wa-mbw')?.focus(), 60);
   });
-  $('#wa-mbw')?.addEventListener('input', mbwText);
-  // Beim Aendern (oder aus einem Marken-Blatt) den Shop vorwaehlen
-  if (isRabatt && (bearbeitet?.vendor || addPrefill)) {
-    const name = bearbeitet?.vendor || addPrefill;
-    const tile = [...document.querySelectorAll('#wa-vendor-grid [data-vg]')]
-      .find(t => !ANDERE_SHOPS.has(t.dataset.vg) && t.dataset.vg.toLowerCase() === name.toLowerCase());
-    if (tile) {
-      if (tile.classList.contains('vendor-more')) $('#wa-vendor-showmore')?.click();
-      tile.click();
-    } else {
-      document.querySelectorAll('#wa-vendor-grid .vendor-tile').forEach(x => x.classList.toggle('on', x.dataset.vg === 'Anderer Shop'));
-      $('#wa-vendor').classList.remove('hidden');
-      $('#wa-vendor').value = name;
-    }
-  }
+  q('#wa-mbw')?.addEventListener('input', mbwText);
 
+  // ---- Vorschau: aendert sich beim Ausfuellen mit. Bleibt die Marke gleich,
+  // werden nur die Texte getauscht — das Logo bleibt stehen (kein Flackern)
+  const zahlAus = sel => {
+    const n = parseFloat(String(q(sel)?.value || '').replace(/\s/g, '').replace(',', '.'));
+    return Number.isFinite(n) ? n : null;
+  };
+  const vorschauTeile = isCard ? ['.dk-nummer', '.dk-hinten'] : isRabatt
+    ? ['.wallet-card-name', '.wallet-card-balance', '.wallet-card-sub'] : ['.vk-text', '.vk-rechts', '.vk-fuss'];
+  let vorschauMarke = null;
+  const vorschauQuelle = {};
+  const vorschauZeichnen = () => {
+    const box = q('#wa-vorschau');
+    if (!box) return;
+    const a = zahlAus('#wa-amount');
+    const html = isCard
+      ? waSparkarteHtml({ name: gewaehlt, number: q('#wa-cnumber')?.value.trim() || '', codeImg: addCodeImg, img: addCodeImg ? '' : addImg })
+      : isRabatt
+        ? waRabattKarteHtml({ vendor: gewaehlt, code: (q('#wa-rcode')?.value || '').replace(/\s+/g, ''), rabatt: zahlAus('#wa-rwert'),
+            rabattArt: waEinheit, mbw: q('#wa-mbw-an')?.checked ? zahlAus('#wa-mbw') : null, end: q('#wa-end')?.value || '' })
+        : waGutscheinKarteHtml({ vendor: gewaehlt, amount: a != null && a >= 0 ? a : null,
+            code: (q('#wa-code')?.value || '').trim(), pin: (q('#wa-pin')?.value || '').trim(), end: q('#wa-end')?.value || '' });
+    const tpl = document.createElement('template');
+    tpl.innerHTML = html.trim();
+    const neu = tpl.content.firstElementChild;
+    const alt = box.firstElementChild;
+    if (!alt || vorschauMarke !== gewaehlt.toLowerCase()) {
+      vorschauMarke = gewaehlt.toLowerCase();
+      for (const sel of vorschauTeile) vorschauQuelle[sel] = neu.querySelector(sel)?.outerHTML;
+      box.replaceChildren(neu);
+      return;
+    }
+    for (const sel of vorschauTeile) {
+      const n = neu.querySelector(sel), o = alt.querySelector(sel);
+      const quelle = n?.outerHTML;
+      if (n && o && quelle !== vorschauQuelle[sel]) { vorschauQuelle[sel] = quelle; o.replaceWith(n); }
+    }
+  };
+  // Die Sparkarte dreht sich beim Antippen um (hinten der Code fuer die Kasse)
+  if (isCard) q('#wa-vorschau')?.addEventListener('click', () => {
+    q('#wa-vorschau .debitkarte')?.classList.toggle('gedreht');
+    buzz(8);
+  });
+
+  // ---- Was fehlt noch? Speichern ist erst aktiv, wenn alles Noetige da ist.
+  // Tippt man trotzdem, sagt die Leiste, was fehlt.
+  const pruefen = () => {
+    if (voll) return { fehlt: [], text: walletVollText(art) };
+    if (isCard) return gewaehlt ? null : { fehlt: ['shop'], text: 'Bitte eine Karte auswählen.' };
+    if (isRabatt) {
+      if (!gewaehlt) return { fehlt: ['shop'], text: 'Bitte einen Shop auswählen.' };
+      const n = zahlAus('#wa-rwert');
+      if (waEinheit === 'pct' && n > 100) return { fehlt: ['betrag'], text: 'Mehr als 100 % Rabatt gibt es nicht.' };
+      return null;
+    }
+    const a = zahlAus('#wa-amount');
+    const ohneWert = a == null || a < 0;
+    if (!gewaehlt && ohneWert) return { fehlt: ['shop', 'betrag'], text: 'Bitte noch Shop und Wert angeben.' };
+    if (!gewaehlt) return { fehlt: ['shop'], text: 'Bitte einen Shop auswählen.' };
+    if (ohneWert) return { fehlt: ['betrag'], text: 'Bitte den Wert eintragen.' };
+    return null;
+  };
+  const aktualisieren = () => {
+    vorschauZeichnen();
+    // Leeres Datum grau wie ein Platzhalter, nicht wie eine Eingabe
+    const ende = q('#wa-end');
+    if (ende) ende.classList.toggle('leer', !ende.value);
+    const f = pruefen();
+    const knopf = q('#wa-save');
+    if (knopf && !waSaving) {
+      knopf.classList.toggle('aus', !!f);
+      knopf.setAttribute('aria-disabled', String(!!f));
+    }
+    const fehlt = f ? f.fehlt : [];
+    if (!fehlt.includes('shop')) q('#wa-vendor-grid')?.classList.remove('err');
+    if (!fehlt.includes('betrag')) q('#wa-betrag')?.classList.remove('err');
+    const m = q('#wa-msg');
+    if (m && m.classList.contains('error') && !f) {
+      meldung('');
+      el.querySelectorAll('.wa-zeile.err').forEach(z => z.classList.remove('err'));
+    }
+  };
+  const fehlerZeigen = f => {
+    meldung(f.text, 'error');
+    q('#wa-vendor-grid')?.classList.toggle('err', f.fehlt.includes('shop'));
+    q('#wa-betrag')?.classList.toggle('err', f.fehlt.includes('betrag'));
+    buzz([40, 30, 40]);
+    if (!reducedMotion()) neuStarten(q('#wa-msg'), 'shake-once');
+    // Zum ersten fehlenden Feld; beim Wert gleich hinein
+    const ziel = f.fehlt.includes('shop') ? q('#wa-vendor-grid') : f.fehlt.includes('betrag') ? q('#wa-betrag') : null;
+    ziel?.scrollIntoView({ behavior: sperrRuhig() ? 'auto' : 'smooth', block: 'center' });
+    if (!f.fehlt.includes('shop') && f.fehlt.includes('betrag')) (q('#wa-amount') || q('#wa-rwert'))?.focus({ preventScroll: true });
+  };
+  ['#wa-amount', '#wa-code', '#wa-pin', '#wa-end', '#wa-rcode', '#wa-rwert', '#wa-mbw', '#wa-cnumber']
+    .forEach(sel => q(sel)?.addEventListener('input', aktualisieren));
+  q('#wa-end')?.addEventListener('change', aktualisieren);
+  // Enter springt ins naechste Feld, im letzten schliesst es die Tastatur
+  const felder = () => [...el.querySelectorAll('.wa-form input:not([type="file"]):not([type="checkbox"]):not([type="search"])')]
+    .filter(x => !x.closest('.hidden'));
+  el.querySelector('.wa-form').addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || e.target.type === 'search' || !e.target.matches('input')) return;
+    e.preventDefault();
+    const liste = felder();
+    const naechstes = liste[liste.indexOf(e.target) + 1];
+    if (naechstes) naechstes.focus(); else e.target.blur();
+  });
+
+  // Vorbelegung: beim Aendern der alte Name, sonst der mitgegebene (Marken-Blatt)
+  setzeShop(bearbeitet ? (isCard ? bearbeitet.name : bearbeitet.vendor) : addPrefill);
+
+  // ---- Bild: Vorschau im Scan-Feld, Zuschneiden, Scan
+  const bildZeigen = src => {
+    const img = q('#wa-preview');
+    if (!img) return;
+    if (src) img.src = src;
+    q('#wa-scan-frame')?.classList.toggle('hidden', !src);
+    // Mit Bild: die Knoepfe heissen "Neues Foto" / "Anderes Bild", daneben Zuschneiden
+    const drop = q('#wa-drop');
+    if (!drop || drop.classList.contains('hat-bild') === !!src) return;
+    drop.classList.toggle('hat-bild', !!src);
+    drop.querySelectorAll('[data-mit-bild]').forEach(t => {
+      const alt = t.textContent;
+      t.textContent = t.dataset.mitBild;
+      t.dataset.mitBild = alt;
+    });
+  };
+  const scanMeldung = (text, art = '') => {
+    const m = q('#wa-ai-msg');
+    if (!m) return;
+    m.className = 'form-msg wa-scan-meldung' + (art ? ' ' + art : '');
+    m.textContent = text || '';
+  };
   // Beim Aendern das schon hinterlegte Bild gleich zeigen — sonst sieht es aus,
   // als waere es weg, und man laedt es unnoetig neu hoch.
-  if (bearbeitet && (addCodeImg || addImg)) {
-    $('#wa-preview').src = addCodeImg || addImg;
-    $('#wa-preview').classList.remove('hidden');
-    $('#wa-drop-empty').classList.add('hidden');
-  }
+  if (bearbeitet && (addCodeImg || addImg)) bildZeigen(addCodeImg || addImg);
+  // Zuschneiden: vom ganzen Foto aus, damit der Ausschnitt auch wieder
+  // groesser werden kann. "Ganzes Bild" nimmt das Foto ohne Zuschnitt.
+  q('#wa-crop')?.addEventListener('click', () => {
+    const quelle = addOrig || addImg || addCodeImg;
+    if (!quelle) return;
+    openImgCrop(quelle, (out, info) => {
+      if (walletGesperrt() || waSeiteOben() !== seite || q('#wa-preview') == null) return;
+      if (info.ganz) { addImg = out; addCodeImg = ''; }
+      else { if (!addOrig && addImg) addOrig = addImg; addCodeImg = out; }
+      bildZeigen(addCodeImg || addImg);
+      aktualisieren();
+      buzz(8);
+    });
+  });
 
   // Scan-Fortschritt: erst der Code-Scan (bis 20 %), dann die Text-Erkennung
-  // Null-sicher: wird waehrenddessen ein anderes Blatt geoeffnet, fehlen die Elemente
+  // Null-sicher: wird waehrenddessen die Seite geschlossen, fehlen die Elemente
   const scanProgress = p => {
     const f = $('#wa-progress-fill'), t = $('#wa-progress-txt');
-    if (f) f.style.width = p + '%';
+    if (f) f.style.transform = `scaleX(${Math.max(0, Math.min(100, p)) / 100})`;
     if (t) t.textContent = Math.round(p) + ' %';
   };
   const handleImageFile = async f => {
-    const m = $('#wa-ai-msg');
     if (!f) return;
     const lauf = ++waScanLauf;
     const veraltet = () => lauf !== waScanLauf;
     try {
       for (const [sel, wert] of Object.entries(waAutoWerte)) {
-        if (sel === '__shop') { if (currentVendor() === wert) { pickedVendor = ''; document.querySelectorAll('.vendor-tile').forEach(x => x.classList.remove('on')); if ($('#wa-vendor')?.value === wert) $('#wa-vendor').value = ''; } continue; }
-        const el = $(sel); if (el && el.value === wert) el.value = '';
+        if (sel === '__shop') { if (currentVendor() === wert) setzeShop(''); continue; }
+        if (sel === '__mbwAn') continue;
+        const feld = $(sel); if (feld && feld.value === wert) feld.value = '';
       }
+      // Hatte der letzte Scan den MBW-Schalter eingeschaltet und steht kein
+      // eigener Betrag drin, geht er mit aus — sonst stuende "ab 15,00 €" da,
+      // waehrend Vorschau und Gespeichertes "ohne MBW" sagen
+      if (waAutoWerte.__mbwAn && q('#wa-mbw-an')?.checked && !q('#wa-mbw')?.value) {
+        q('#wa-mbw-an').checked = false;
+        q('#wa-mbw-feld')?.classList.add('hidden');
+      }
+      if (q('#wa-mbw-an')) mbwText();
       waAutoWerte = {};
+      aktualisieren();
       addCodeImg = '';
       addOrig = '';
       addImg = ''; // scheitert das neue Bild, darf nicht das alte mitgespeichert werden
@@ -5461,17 +5819,13 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
       const ganz = await readImageFile(f, 1600, 0.82, 'foto').catch(() => '');
       if (veraltet()) return;
       addOrig = ganz;
-      $('#wa-preview').src = addImg;
-      $('#wa-preview').classList.remove('hidden');
-      $('#wa-drop-empty').classList.add('hidden');
-      $('#wa-result').classList.add('hidden');
-      // Scan-Optik: Laserlinie über dem Bild + cleaner Prozent-Balken
-      $('#wa-scanline').classList.remove('hidden');
-      $('#wa-progress').classList.remove('hidden');
-      $('#wa-progress').classList.remove('done');
+      bildZeigen(addImg);
+      $('#wa-result')?.classList.add('hidden');
+      // Scan-Optik: Laserlinie über dem Bild + ruhiger Prozent-Balken
+      $('#wa-scanline')?.classList.remove('hidden');
+      $('#wa-progress')?.classList.remove('hidden', 'done');
       scanProgress(4);
-      m.className = 'form-msg';
-      m.textContent = 'Scanne das Bild …';
+      scanMeldung('Scanne das Bild …');
       // Analyse auf hochauflösender Fassung: kleine Schrift bleibt für die OCR lesbar
       const hiRes = await readImageFile(f, 2200, 0.9);
       if (veraltet()) return;
@@ -5479,11 +5833,11 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
       const r = await analyzeWalletImage(hiRes, p => {
         if (veraltet()) return;
         scanProgress(20 + p * 0.78);
-        m.textContent = 'Lese den Text im Bild … (kann beim ersten Mal etwas dauern)';
+        scanMeldung('Lese den Text im Bild … (kann beim ersten Mal etwas dauern)');
       });
       // Inzwischen kam ein anderes Bild: dieses Ergebnis gehoert nicht mehr hierher
       if (veraltet()) return;
-      if (r.codeImg) { addCodeImg = r.codeImg; $('#wa-preview').src = r.codeImg; }
+      if (r.codeImg) { addCodeImg = r.codeImg; bildZeigen(r.codeImg); }
       const felder = ['#wa-code', '#wa-pin', '#wa-amount', '#wa-cnumber', '#wa-rcode', '#wa-rwert', '#wa-mbw'];
       const vorher = Object.fromEntries(felder.map(sel => [sel, $(sel)?.value || '']));
       const filled = [];
@@ -5502,11 +5856,9 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
           }
           const low = r.text.toLowerCase();
           if (!currentVendor()) {
-            const hit = [...VENDOR_GRID.map(v => v.toLowerCase()), ...Object.keys(BRAND_COLORS)].find(k => low.includes(k));
+            const hit = [...VENDOR_GRID.filter(v => !ANDERE_SHOPS.has(v)).map(v => v.toLowerCase()), ...Object.keys(BRAND_COLORS)].find(k => low.includes(k));
             if (hit) {
-              const tile = [...document.querySelectorAll('[data-vg]')].find(t => t.dataset.vg.toLowerCase() === hit);
-              if (tile) tile.click();
-              else { $('#wa-vendor').classList.remove('hidden'); $('#wa-vendor').value = hit.charAt(0).toUpperCase() + hit.slice(1); }
+              setzeShop(hit.charAt(0).toUpperCase() + hit.slice(1));
               waAutoWerte.__shop = currentVendor();
               filled.push('Shop');
             }
@@ -5520,6 +5872,7 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
         const mbw = text.match(/(?:mindestbestellwert|mindestbestellung|mbw|bestellwert|einkaufswert)\D{0,20}?(\d{1,3}(?:[.,]\d{1,2})?)\s?(?:€|eur)/i)
           || text.match(/\bab\s+(\d{1,3}(?:[.,]\d{1,2})?)\s?(?:€|eur)/i);
         if (mbw && !$('#wa-mbw').value) {
+          if (!$('#wa-mbw-an').checked) waAutoWerte.__mbwAn = true;   // beim naechsten Bild wieder aus
           $('#wa-mbw-an').checked = true;
           $('#wa-mbw-feld').classList.remove('hidden');
           $('#wa-mbw').value = mbw[1];
@@ -5538,9 +5891,7 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
           const hit = [...RABATT_GRID.filter(x => !ANDERE_SHOPS.has(x)).map(x => x.toLowerCase()), ...Object.keys(BRAND_COLORS)]
             .find(k => k.length > 2 && low.includes(k));
           if (hit) {
-            const tile = [...document.querySelectorAll('#wa-vendor-grid [data-vg]')].find(t => t.dataset.vg.toLowerCase() === hit);
-            if (tile) { if (tile.classList.contains('vendor-more')) $('#wa-vendor-showmore')?.click(); tile.click(); }
-            else { $('#wa-vendor').classList.remove('hidden'); $('#wa-vendor').value = hit.charAt(0).toUpperCase() + hit.slice(1); }
+            setzeShop(hit.charAt(0).toUpperCase() + hit.slice(1));
             waAutoWerte.__shop = currentVendor();
             filled.push('Shop');
           }
@@ -5557,8 +5908,8 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
       if (r.codeImg) filled.push('Kassen-Code ausgeschnitten');
       // Scan fertig: Balken voll, Laserlinie aus, Ergebnis ordentlich untereinander
       scanProgress(100);
-      $('#wa-progress').classList.add('done');
-      $('#wa-scanline').classList.add('hidden');
+      $('#wa-progress')?.classList.add('done');
+      $('#wa-scanline')?.classList.add('hidden');
       setTimeout(() => $('#wa-progress')?.classList.add('hidden'), 1400);
       const resRow = (label, val) => val
         ? `<div class="scan-row"><span>${label}</span><b>${esc(val)}</b></div>` : '';
@@ -5572,26 +5923,24 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
             + resRow('Rabatt', $('#wa-rwert').value ? $('#wa-rwert').value + (waEinheit === 'pct' ? ' %' : ' €') : '')
             + resRow('Mindestbestellwert', $('#wa-mbw-an').checked && $('#wa-mbw').value ? 'ab ' + $('#wa-mbw').value + ' €' : '')
           : resRow('Kartennummer', resCode);
-      if (addCodeImg || resRows) {
+      if (resRows) {
         $('#wa-result').classList.remove('hidden');
         $('#wa-result').innerHTML = resRows;
       }
+      aktualisieren();
       // Lieber ehrlich als geraten: sagen, was fehlt und selbst geprüft werden muss
       const pinFehlt = addType === 'voucher' && !$('#wa-pin').value;
       if (filled.length) {
-        m.className = 'form-msg ok';
-        m.textContent = `Gescannt und ausgefüllt: ${filled.join(', ')}, bitte kurz prüfen.`
-          + (pinFehlt ? ' Der PIN war nicht sicher lesbar, bitte selbst eintragen.' : '');
+        scanMeldung(`Gescannt und ausgefüllt: ${filled.join(', ')}, bitte kurz prüfen.`
+          + (pinFehlt ? ' Der PIN war nicht sicher lesbar, bitte selbst eintragen.' : ''), 'ok');
       } else {
-        m.className = 'form-msg';
-        m.textContent = 'Nichts sicher erkannt, bitte die Felder ausfüllen. Gespeichert wird mit „Speichern“.';
+        scanMeldung('Nichts sicher erkannt, bitte die Felder ausfüllen. Gespeichert wird mit „Speichern“.');
       }
     } catch {
       if (veraltet()) return;
       $('#wa-scanline')?.classList.add('hidden');
       $('#wa-progress')?.classList.add('hidden');
-      m.className = 'form-msg error';
-      m.textContent = 'Bild konnte nicht gelesen werden.';
+      scanMeldung('Bild konnte nicht gelesen werden.', 'error');
     }
   };
   // Aus dem Scan einen fertigen Gutschein bauen (für den Mehrfach-Upload)
@@ -5613,22 +5962,20 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
   // Mehrere Gutscheine auf einmal: alle Bilder scannen, Duplikate überspringen,
   // nur die neuen und vollständig erkannten wandern in die Wallet
   const handleImageBatch = async files => {
-    const m = $('#wa-ai-msg');
-    $('#wa-drop-empty').classList.add('hidden');
-    $('#wa-preview').classList.remove('hidden');
-    $('#wa-progress').classList.remove('hidden');
-    $('#wa-progress').classList.remove('done');
-    $('#wa-scanline').classList.remove('hidden');
+    waScanLauf++; // ein laufender Einzel-Scan traegt nichts mehr ein
+    seite.stapelLaeuft = true;                  // Zurueck fragt solange nach (siehe zurueckFrage)
+    $('#wa-result')?.classList.add('hidden');
+    $('#wa-progress')?.classList.remove('hidden', 'done');
+    $('#wa-scanline')?.classList.remove('hidden');
     const results = [];
     const fresh = [];
     for (let i = 0; i < files.length; i++) {
-      m.className = 'form-msg';
-      m.textContent = `Scanne Gutschein ${i + 1} von ${files.length} …`;
+      scanMeldung(`Scanne Gutschein ${i + 1} von ${files.length} …`);
       scanProgress((i / files.length) * 100);
       let small = '';
       try {
         small = await readImageFile(files[i], 900, 0.82, 'vorschau');
-        if ($('#wa-preview')) $('#wa-preview').src = small;
+        bildZeigen(small);
         const hiRes = await readImageFile(files[i], 2200, 0.9);
         const r = await analyzeWalletImage(hiRes, p => scanProgress(((i + p / 100) / files.length) * 100));
         const ex = extractVoucher(r);
@@ -5662,7 +6009,7 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
       }
     }
     scanProgress(100);
-    // Wurde waehrenddessen ein anderes Blatt geoeffnet, fehlen diese Elemente —
+    // Wurde waehrenddessen die Seite geschlossen, fehlen diese Elemente —
     // gespeichert wird trotzdem
     $('#wa-progress')?.classList.add('done');
     $('#wa-scanline')?.classList.add('hidden');
@@ -5688,8 +6035,7 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
       save('wallet', state.wallet);
       renderWallet();
       if (state.token) {
-        m.className = 'form-msg';
-        m.textContent = 'Sichere am Konto …';
+        scanMeldung('Sichere am Konto …');
         const ok = await syncWalletNow();
         if (!ok && walletSyncFatal) {
           // Das Konto hat abgelehnt: die Gutscheine BLEIBEN auf dem Geraet
@@ -5713,29 +6059,52 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
     // wandert in die Ergänzen-Warteschlange statt verloren zu gehen
     const fixes = results.filter(res => res.fix).map(res => res.fix);
     fresh.forEach(zeigeNeuenGutschein);
-    // Anderes Blatt offen: Ergebnis nur als Meldung, das Blatt nicht kapern
-    if (state.sheetMode !== 'wallet-add') {
-      if (fresh.length) island(`${fresh.length} Gutschein${fresh.length > 1 ? 'e' : ''} gespeichert`);
+    seite.stapelLaeuft = false;
+    // Seite inzwischen zu (oder eine andere oben): Ergebnis nur als Meldung —
+    // samt der unvollstaendigen, die dabei ungespeichert wegfallen
+    if (waSeiteOben() !== seite) {
+      const teile = [fresh.length && `${fresh.length} Gutschein${fresh.length > 1 ? 'e' : ''} gespeichert`,
+        fixes.length && `${fixes.length} unvollständig und nicht gespeichert`].filter(Boolean);
+      if (teile.length) island(teile.join(', '), fixes.length ? 5000 : undefined);
       return;
     }
-    $('#sheet-content').innerHTML = `
-      <div class="sheet-title">Mehrere Gutscheine gescannt</div>
-      <p class="muted" style="font-size:.86rem">${fresh.length} von ${files.length} neu in der Wallet.</p>
-      ${results.map(res => res.ok
-        ? `<div class="batch-row ok">${icon('check', 'icon icon-sm')} <span><b>${esc(res.v.vendor)}</b> · ${euroFmt(res.v.amount)} · PIN ${esc(res.v.pin)}</span></div>`
-        : `<div class="batch-row bad">${icon('warning', 'icon icon-sm')} <span><b>${esc(res.name || 'Bild')}</b>: ${esc(res.warum)}</span></div>`).join('')}
-      <div class="form-row" style="margin-top:16px">
-        ${fixes.length ? `<button class="btn" id="wa-batch-fix">Fehlende ergänzen (${fixes.length})</button>` : ''}
-        <button class="btn ${fixes.length ? 'btn-ghost' : ''}" id="wa-batch-done">Fertig</button>
-        <button class="btn btn-ghost" id="wa-batch-more">Weitere hinzufügen</button>
+    // Zurueck (Pfeil, Wisch, Esc) fragt wie "Fertig", solange noch welche fehlen
+    const fertigFrage = () => `${fixes.length} Gutschein${fixes.length > 1 ? 'e sind' : ' ist'} noch unvollständig und ${fixes.length > 1 ? 'werden' : 'wird'} nicht gespeichert. Trotzdem fertig?`;
+    seite.zurueckFrage = () => fixes.length ? fertigFrage() : '';
+    el.querySelector('.wseite-titel').textContent = 'Gutscheine gescannt';
+    el.setAttribute('aria-label', 'Gutscheine gescannt');
+    inhalt.innerHTML = `
+      <p class="wa-stapel-summe"><b>${fresh.length} von ${files.length}</b> ${files.length === 1 ? 'Gutschein ist' : 'Gutscheinen sind'} neu in der Wallet.</p>
+      <div class="gd-block wa-stapel">
+        ${results.map(res => res.ok ? `
+        <div class="wa-stapel-zeile ok">
+          <span class="wa-stapel-zeichen">${icon('check', 'icon')}</span>
+          <span class="wa-stapel-text"><b>${esc(res.v.vendor)}</b><small>${euroFmt(res.v.amount)} · PIN ${esc(res.v.pin)}</small></span>
+        </div>` : `
+        <div class="wa-stapel-zeile bad">
+          <span class="wa-stapel-zeichen">${icon('warning', 'icon')}</span>
+          <span class="wa-stapel-text"><b>${esc(res.name || 'Bild')}</b><small>${esc(res.warum)}</small></span>
+        </div>`).join('')}
       </div>`;
-    $('#sheet-content').scrollTop = 0;
-    $('#wa-batch-done').onclick = async () => {
-      if (fixes.length && !await askConfirm(`${fixes.length} Gutschein${fixes.length > 1 ? 'e sind' : ' ist'} noch unvollständig und ${fixes.length > 1 ? 'werden' : 'wird'} nicht gespeichert. Trotzdem fertig?`, { okLabel: 'Ja, verwerfen' })) return;
-      closeSheet();
+    inhalt.scrollTop = 0;
+    waHandleImage = null; // hier gibt es kein Formular mehr, das ein Bild aufnimmt
+    el.querySelectorAll('.wa-leiste').forEach(x => x.remove());
+    el.insertAdjacentHTML('beforeend', `
+      <div class="wseite-leiste wa-leiste">
+        ${fixes.length ? `<button class="gd-los" id="wa-batch-fix" type="button">Fehlende ergänzen (${fixes.length})</button>` : ''}
+        <div class="wa-leiste-zwei">
+          <button class="gd-los leise" id="wa-batch-more" type="button">Weitere Bilder</button>
+          <button class="gd-los${fixes.length ? ' leise' : ''}" id="wa-batch-done" type="button">Fertig</button>
+        </div>
+      </div>`);
+    seite.waRo?.disconnect();
+    seite.waRo?.observe(q('.wa-leiste'));
+    q('#wa-batch-done').onclick = async () => {
+      if (fixes.length && !await askConfirm(fertigFrage(), { okLabel: 'Ja, verwerfen' })) return;
+      if (waSeiteOben() === seite) wseiteZurueck();
     };
-    $('#wa-batch-more').onclick = () => openWalletAdd('voucher');
-    $('#wa-batch-fix')?.addEventListener('click', () => {
+    q('#wa-batch-more').onclick = () => openWalletAdd('voucher');
+    q('#wa-batch-fix')?.addEventListener('click', () => {
       waFixQueue = fixes;
       waFixTotal = fixes.length;
       nextFixOrDone();
@@ -5745,11 +6114,7 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
       island(`${fresh.length} Gutschein${fresh.length > 1 ? 'e' : ''} gespeichert`);
     } else {
       playSfx('error'); buzz([60, 50, 60]); moneyFlash('red');
-      const c = $('#sheet-content');
-      if (c && !reducedMotion()) {
-        c.classList.remove('shake-once'); void c.offsetWidth; c.classList.add('shake-once');
-        setTimeout(() => c.classList.remove('shake-once'), 420);
-      }
+      if (!reducedMotion()) neuStarten(inhalt, 'shake-once');
     }
   };
 
@@ -5759,56 +6124,53 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
     if (addType === 'voucher' && list.length > 1) handleImageBatch(list);
     else handleImageFile(list[0]);
   };
-  $('#wa-img').addEventListener('change', e => pickFiles(e.target.files));
-  $('#wa-cam').addEventListener('change', e => handleImageFile(e.target.files[0]));
+  // Dieselbe Datei nochmal waehlen muss wieder ausloesen: danach leeren
+  q('#wa-img').addEventListener('change', e => { pickFiles(e.target.files); e.target.value = ''; });
+  q('#wa-cam').addEventListener('change', e => { handleImageFile(e.target.files[0]); e.target.value = ''; });
   // Strg+V: der globale Paste-Listener reicht das Bild hierher durch
   waHandleImage = handleImageFile;
-  // Drag & Drop (Web): Bilder einfach in die Zone ziehen (auch mehrere)
-  const drop = $('#wa-drop');
-  ['dragover', 'dragenter'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('drag'); }));
-  ['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('drag'); }));
-  drop.addEventListener('drop', e => pickFiles(e.dataTransfer.files));
+  // Drag & Drop (Web): Bilder irgendwo aufs Formular ziehen (auch mehrere)
+  const form = el.querySelector('.wa-form');
+  const drop = q('#wa-drop');
+  ['dragover', 'dragenter'].forEach(t => form.addEventListener(t, e => { e.preventDefault(); drop.classList.add('drag'); }));
+  form.addEventListener('dragleave', e => { if (!form.contains(e.relatedTarget)) drop.classList.remove('drag'); });
+  form.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('drag'); pickFiles(e.dataTransfer.files); });
 
-  $('#wa-save').addEventListener('click', async () => {
-    const msg = $('#wa-msg');
+  // Nach dem Speichern einer Karte aus dem Marken-Blatt heraus: das Blatt
+  // darunter zeigt gleich die neue Karte
+  const blattAuffrischen = () => {
+    if (!isCard || state.sheetMode !== 'brand' || !openBrandSheet.key) return;
+    if (walletBrands().some(b => b.key === openBrandSheet.key)) openBrandSheet(openBrandSheet.key);
+    else closeSheet();
+  };
+  const zu = () => { if (waSeiteOben() === seite) wseiteZurueck(); };
+
+  q('#wa-save').addEventListener('click', async () => {
+    const knopf = q('#wa-save');
     // Doppelklick-Schutz: solange gespeichert wird, ist der Button tabu, sonst
     // meldet der zweite Klick den EIGENEN Gutschein als Duplikat
     if (waSaving) return;
+    // Was fehlt, sagt die Leiste — gespeichert wird erst, wenn alles da ist
+    const fehler = pruefen();
+    if (fehler) { fehlerZeigen(fehler); return; }
     // Waehrend des Sicherns kann das Formular wechseln — danach zaehlt, was
     // beim Tippen auf "Speichern" galt
     const typ = addType, editId = addEditId;
     // Ohne Netz wird trotzdem gespeichert: die Wallet liegt dauerhaft auf dem
     // Geraet (IndexedDB) und geht hoch, sobald wieder Netz da ist
-    let savedItem = null, savedList = null;
-    // Wallet voll: ehrlich sagen statt still zu scheitern (Bearbeiten geht immer)
-    const platzArt = addType === 'card' ? 'karten' : 'gutscheine';
-    if (!addEditId && walletPlatz(platzArt).voll) {
-      msg.className = 'form-msg error';
-      msg.textContent = walletVollText(platzArt);
-      return;
-    }
+    let savedItem = null;
     if (addType === 'voucher') {
-      const amount = parseFloat($('#wa-amount').value.replace(',', '.'));
+      const amount = zahlAus('#wa-amount');
       const v = {
         id: Math.random().toString(36).slice(2, 9),
         vendor: currentVendor().slice(0, 30),
-        code: $('#wa-code').value.trim().slice(0, 40),
-        pin: $('#wa-pin').value.trim().slice(0, 16),
-        end: $('#wa-end').value || '',
-        amount: isNaN(amount) ? null : amount,
-        balance: isNaN(amount) ? null : amount,
+        code: q('#wa-code').value.trim().slice(0, 40),
+        pin: q('#wa-pin').value.trim().slice(0, 16),
+        end: q('#wa-end').value || '',
+        amount, balance: amount,
         // Originalfoto nur behalten, wenn es keinen Kassen-Zuschnitt gibt (Payload-Diät)
         img: addCodeImg ? '' : addImg, codeImg: addCodeImg, tx: [], added: Date.now(),
       };
-      // Pflicht: Shop und Wert (PIN und Code sind optional, nicht jeder Gutschein hat welche)
-      $('#wa-amount').classList.toggle('err', v.amount == null);
-      $('#wa-pin').classList.remove('err');
-      $('#wa-vendor-grid')?.classList.toggle('err', !v.vendor);
-      if (!v.vendor || v.amount == null) {
-        msg.className = 'form-msg error';
-        msg.textContent = !v.vendor ? 'Bitte einen Shop auswählen.' : 'Bitte die rot markierten Pflichtfelder ausfüllen.';
-        return;
-      }
       // Doppelte Gutscheine abfangen: gleiche PIN beim gleichen Shop oder gleicher Code
       const dupe = findDupe(v);
       if (dupe) {
@@ -5820,12 +6182,12 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
       // Gibt es einen Kassen-Zuschnitt, bleibt das ganze Foto als Original
       // erhalten — ausserhalb der Wallet
       if (addCodeImg && (addOrig || addImg)) origSichern(v, addOrig || addImg);
-      savedItem = v; savedList = state.wallet.vouchers;
+      savedItem = v;
     } else if (addType === 'rabatt') {
       const alt = addEditId ? state.wallet.vouchers.find(x => x.id === addEditId && istRabatt(x)) : null;
       const zahl = sel => {
-        const n = parseFloat(String($(sel)?.value || '').replace(',', '.'));
-        return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
+        const n = zahlAus(sel);
+        return n != null && n > 0 ? Math.round(n * 100) / 100 : null;
       };
       // amount/balance immer ausdruecklich null: sonst machte normalisiereWallet
       // (oder ein altes Geraet) aus dem Code Guthaben
@@ -5834,12 +6196,12 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
         id: alt ? alt.id : Math.random().toString(36).slice(2, 9),
         art: 'rabatt',
         vendor: currentVendor().slice(0, 30),
-        code: $('#wa-rcode').value.replace(/\s+/g, '').slice(0, 40),
+        code: q('#wa-rcode').value.replace(/\s+/g, '').slice(0, 40),
         rabatt: zahl('#wa-rwert'),
         rabattArt: waEinheit,
-        mbw: $('#wa-mbw-an').checked ? zahl('#wa-mbw') : null,
-        end: $('#wa-end').value || '',
-        notiz: $('#wa-notiz').value.trim().slice(0, 80),
+        mbw: q('#wa-mbw-an').checked ? zahl('#wa-mbw') : null,
+        end: q('#wa-end').value || '',
+        notiz: q('#wa-notiz').value.trim().slice(0, 80),
         pin: '', amount: null, balance: null,
         tx: alt ? (alt.tx || []) : [],
         img: addCodeImg ? '' : addImg, codeImg: addCodeImg,
@@ -5851,20 +6213,10 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
         rc.bildMt = Math.max(Date.now(), (alt.bildMt || 0) + 1);
         if (rc.orig && !addCodeImg) origEntfernen(rc);
       }
-      const zuViel = rc.rabattArt === 'pct' && rc.rabatt > 100;
-      $('#wa-vendor-grid')?.classList.toggle('err', !rc.vendor);
-      $('#wa-rcode').classList.remove('err');
-      $('#wa-rwert').classList.toggle('err', zuViel);
-      if (!rc.vendor || zuViel) {
-        msg.className = 'form-msg error';
-        msg.textContent = !rc.vendor ? 'Bitte einen Shop auswählen.' : 'Mehr als 100 % Rabatt gibt es nicht.';
-        return;
-      }
       const dupe = findDupe(rc);
       if (dupe && alt) {
-        $('#wa-rcode').classList.add('err');
-        msg.className = 'form-msg error';
-        msg.textContent = `Diesen Code hast du schon (${dupe.vendor}). Bitte einen anderen eintragen.`;
+        q('#wa-rcode').closest('.wa-zeile')?.classList.add('err');
+        fehlerZeigen({ fehlt: [], text: `Diesen Code hast du schon (${dupe.vendor}). Bitte einen anderen eintragen.` });
         return;
       }
       if (dupe) {
@@ -5874,46 +6226,42 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
       if (alt) state.wallet.vouchers[state.wallet.vouchers.indexOf(alt)] = rc;
       else state.wallet.vouchers.unshift(rc);
       if (addCodeImg && (addOrig || addImg) && (!alt || alt.codeImg !== addCodeImg)) origSichern(rc, addOrig || addImg);
-      savedItem = rc; savedList = state.wallet.vouchers;
+      savedItem = rc;
     } else {
       const alt = addEditId ? state.wallet.cards.find(x => x.id === addEditId) : null;
       const c = {
         id: alt ? alt.id : Math.random().toString(36).slice(2, 9),
         name: currentCard().slice(0, 30),
-        number: $('#wa-cnumber').value.trim().slice(0, 30),
+        number: q('#wa-cnumber').value.replace(/\s+/g, '').slice(0, 30),   // wie beim Scan: ohne Leerzeichen
         img: addCodeImg ? '' : addImg, codeImg: addCodeImg,
         added: alt ? alt.added : Date.now(),
         // mt = zuletzt bearbeitet. Der Server entscheidet Konflikte danach —
         // ohne das koennte ein zweites Geraet die Aenderung ueberschreiben.
         ...(alt ? { mt: Date.now() } : {}),
       };
-      // Nur die Marke ist Pflicht — REWE etwa hat gar keine Kartennummer
-      $('#wa-card-grid')?.classList.toggle('err', !c.name);
-      if (!c.name) { msg.className = 'form-msg error'; msg.textContent = 'Bitte eine Karte auswählen.'; return; }
-      if (alt) {
-        state.wallet.cards[state.wallet.cards.indexOf(alt)] = c;
-      } else {
-        state.wallet.cards.unshift(c);
-      }
-      savedItem = c; savedList = state.wallet.cards;
+      if (alt) state.wallet.cards[state.wallet.cards.indexOf(alt)] = c;
+      else state.wallet.cards.unshift(c);
+      savedItem = c;
     }
+    meldung('');
     save('wallet', state.wallet);
     renderWallet();
     // Erst wenn der Server es hat, gilt es als voll gesichert; unterwegs immer
     // sichtbar machen, dass gerade gespeichert wird
     if (state.token) {
       waSaving = true;
-      setBtnLoading($('#wa-save'), true);
-      msg.className = 'form-msg';
-      msg.textContent = 'Speichere und sichere am Konto …';
+      knopf.classList.remove('aus');
+      setBtnLoading(knopf, true);
+      meldung('Speichere und sichere am Konto …');
       const ok = await syncWalletNow();
       waSaving = false;
-      setBtnLoading($('#wa-save'), false);
+      setBtnLoading(knopf, false);
       if (!ok && walletSyncFatal) {
         // Das Konto hat abgelehnt: der Gutschein BLEIBT auf dem Geraet —
-        // wegwerfen waere das Schlimmste. Blatt zu (ein zweiter Klick legte
+        // wegwerfen waere das Schlimmste. Seite zu (ein zweiter Klick legte
         // ihn sonst doppelt an) und ehrlich sagen, was los ist.
-        closeSheet();
+        zu();
+        blattAuffrischen();
         showToast({
           title: 'Auf dem Gerät gespeichert',
           text: 'Das Konto hat das Sichern abgelehnt (' + (walletSyncError || 'unbekannt') + '). Bitte neu anmelden, dann wird nachgesichert.',
@@ -5923,24 +6271,29 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
       }
       if (!ok) {
         // Netzwackler/Timeout: Gutschein BLEIBT auf dem Gerät, der Hintergrund-Sync
-        // holt das Sichern nach — nichts wird still weggeworfen
-        closeSheet();
+        // holt das Sichern nach — nichts wird still weggeworfen. Warten noch
+        // weitere (Ergaenzen, geteilte Bilder), geht es mit dem naechsten weiter.
+        if (typ !== 'voucher' || !(waFixQueue.length || geteiltSchlange.length) || !nextFixOrDone()) {
+          zu();
+          blattAuffrischen();
+        }
         playSfx('kaching'); buzz(35);
         showToast({
           title: 'Gespeichert, Sicherung folgt',
           text: `Der Server war gerade nicht erreichbar. ${typ === 'rabatt' ? 'Der Rabattcode' : typ === 'card' ? 'Die Karte' : 'Der Gutschein'} bleibt auf dem Gerät und wird automatisch nachgesichert.`,
           iconName: 'warning',
         }, 8000);
-        if (typ === 'rabatt') zeigeRabattcodes(savedItem.id);
+        if (typ === 'rabatt' && !editId) zeigeRabattcodes(savedItem.id);
         return;
       }
     }
-    closeSheet();
     // Rabattcodes sind kein Guthaben: kein Geldregen, dafuer gleich zeigen, wo er liegt
+    // (beim Aendern liegt die Rabattcode-Seite darunter und zeigt den neuen Stand)
     if (typ === 'rabatt') {
+      zu();
       playSfx('coin'); buzz(20);
       island(editId ? 'Rabattcode geändert' : 'Rabattcode gespeichert');
-      zeigeRabattcodes(savedItem.id);
+      if (!editId) zeigeRabattcodes(savedItem.id);
       return;
     }
     // Ka-ching! Neues Guthaben in der Wallet
@@ -5949,10 +6302,50 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
     moneyFlash('green');
     billRain(7);
     island('In der Wallet gespeichert');
-    // Warten noch unvollständige Gutscheine aus dem Mehrfach-Upload? Direkt weiter
-    nextFixOrDone();
+    // Warten noch unvollständige Gutscheine aus dem Mehrfach-Upload (oder
+    // weitere geteilte Bilder)? Dann bleibt die Seite offen und fuellt sich neu
+    if (typ !== 'voucher' || !(waFixQueue.length || geteiltSchlange.length) || !nextFixOrDone()) {
+      zu();
+      blattAuffrischen();
+    }
   });
-  openSheetShell();
+
+  // Zurueck per Pfeil, Wisch oder Esc: Eingaben, Bild und Scan waeren weg.
+  // Verglichen wird mit dem Stand direkt nach dem Fuellen (Vorbelegung zaehlt
+  // nicht); Warteschlange und laufender Stapel fragen immer.
+  const formStand = () => JSON.stringify([gewaehlt, addImg, addCodeImg, waEinheit,
+    ...[...el.querySelectorAll('.wa-form input:not([type="file"]):not([type="search"]), .wa-form textarea')]
+      .map(x => x.type === 'checkbox' ? x.checked : x.value)]);
+  const anfang = formStand();
+  seite.zurueckFrage = () => {
+    if (waSaving) return '';                    // liegt schon in der Wallet, Sichern laeuft
+    if (seite.stapelLaeuft) return 'Die Bilder werden noch gescannt. Vollständig erkannte Gutscheine kommen trotzdem in die Wallet, unvollständige nicht. Trotzdem schließen?';
+    const rest = waFixQueue.length + geteiltSchlange.length;
+    const geaendert = formStand() !== anfang;
+    if (!geaendert && !rest) return '';
+    const teile = geaendert ? ['Deine Eingaben sind noch nicht gespeichert.'] : [];
+    if (rest) teile.push(geaendert
+      ? `Auch ${rest === 1 ? 'das übrige Bild wird' : `die übrigen ${rest} Bilder werden`} nicht gespeichert.`
+      : `${rest === 1 ? 'Ein weiteres Bild wartet' : `${rest} weitere Bilder warten`} noch und ${rest === 1 ? 'wird' : 'werden'} dann nicht gespeichert.`);
+    return teile.join(' ') + ' Verwerfen?';
+  };
+
+  // Nach aussen: Warteschlange und Teilen fuellen die Seite ueber diese Griffe
+  waApi = {
+    seite,
+    bild: src => bildZeigen(src),
+    shop: name => setzeShop(name),
+    aktualisieren,
+    hinweis: (art, html) => {
+      inhalt.querySelectorAll('.wa-hinweis.' + art).forEach(x => x.remove());
+      const b = document.createElement('div');
+      b.className = 'wa-hinweis ' + art;
+      b.innerHTML = `${icon(art === 'dupe' ? 'warning' : 'bulb', 'icon')}<span>${html}</span>`;
+      inhalt.prepend(b);
+      inhalt.scrollTop = 0;
+      return b;
+    },
+  };
 }
 
 // ---- Detail: Guthaben, Abbuchen/Aufladen mit Notiz, Verlauf mit Revert
@@ -5979,7 +6372,9 @@ function gutscheineZuMarke(name, max = 3) {
 // Vorderseite Logo und Nummer, Rueckseite der Code fuer die Kasse.
 function sparkarteHtml(c, klein) {
   const marke = brandColor(c.name);
-  const nummer = c.number ? String(c.number) : '';
+  // Eigene Leerzeichen raus, sonst zaehlen sie beim Vierer-Gruppieren mit
+  // ("3083 7123 4567" wurde zu "3083  712 3 45 67")
+  const nummer = c.number ? String(c.number).replace(/\s+/g, '') : '';
   const gruppiert = nummer.replace(/(.{4})/g, '$1 ').trim();
   return `
     <div class="debitkarte ${klein ? 'mini' : ''}" style="--bc:${marke}" data-karte="${esc(c.id)}">
@@ -6014,6 +6409,7 @@ function zeigeSchenkSchritt(v) {
   if (!v) return;
   if (walletGesperrt()) { aktualisiereSperre(); return; } // gesperrte Wallet: nichts zeigen
   if (!state.token) { island('Zum Verschenken bitte anmelden'); return; }
+  if (schenktGerade(v.id)) { island('Wird gerade verschenkt …'); return; }
   const freunde = myProfile?.friends || [];
   let anWen = '', suche = '', nachricht = '';
 
@@ -6112,43 +6508,77 @@ function zeigeSchenkSchritt(v) {
     emoteBtn.setAttribute('aria-expanded', String(auf));
   };
 
+  const pfeil = host.querySelector('.wseite-zurueck');
   if (senden) senden.onclick = async () => {
-    if (!anWen || senden.disabled) return;
+    if (!anWen || senden.disabled || walletGesperrt()) return;
     senden.disabled = true;
     senden.textContent = 'Wird verpackt …';
     const aktuell = state.wallet.vouchers.find(x => x.id === v.id) || v;
+    // Bis der Server antwortet, bleibt die Seite stehen (kein Zurueck, kein
+    // Wisch, kein Esc) und der Gutschein laesst sich nirgends buchen — der
+    // Stand hier ist schon unterwegs, eine Abbuchung jetzt ginge verloren
+    seite.fest = true;
+    seite.sendet = true;
+    if (pfeil) pfeil.disabled = true;
+    schenktGerade.ids.add(aktuell.id);
     try {
       // Liegt das Originalfoto noch nur auf dem Geraet, erst hoch damit —
       // der Server gibt es beim Verschenken an den Freund weiter
-      if (aktuell.orig && (origWartend().includes(aktuell.id) || origUploadLaeuft)) await origHochladen().catch(() => { });
+      if (aktuell.orig && (origWartend().includes(aktuell.id) || origUploadLaeuft)) {
+        await Promise.race([origHochladen().catch(() => { }), new Promise(ok => setTimeout(ok, 20000))]);
+      }
       // Die eigene Notiz bleibt hier: ohne sie und etwas juenger als der Stand
       // am Konto, damit beim Vereinigen diese Fassung gewinnt
       const { notiz: _notiz, ...ohneNotiz } = aktuell;
-      await api('/api/gift/send', { method: 'POST', body: JSON.stringify({
+      const antwort = api('/api/gift/send', { method: 'POST', body: JSON.stringify({
         to: anWen, id: aktuell.id, msg: (nachricht || '').trim(),
         // Die Fassung hier zaehlt (samt noch nicht gesicherter Abbuchung)
         voucher: _notiz ? { ...ohneNotiz, mt: Math.max(Date.now(), (aktuell.mt || 0) + 1) } : aktuell,
       }) });
+      antwort.catch(() => { });
+      // Antwortet der Server nicht, gibt die Seite nach 45 s frei. Ob das
+      // Geschenk trotzdem rausging, klaert der Abgleich mit dem Konto: dort
+      // steht dann ein Loeschmarker, und ein zweiter Versuch wird abgelehnt.
+      await Promise.race([antwort, new Promise((_, nein) => setTimeout(() => {
+        const f = new Error('Keine Antwort vom Server. Wir gleichen deine Wallet ab, ob das Geschenk rausging.');
+        f.zeitUm = true;
+        nein(f);
+      }, 45000))]);
     } catch (err) {
+      if (err && err.zeitUm) pullWallet().catch(() => { });
+      schenktGerade.ids.delete(aktuell.id);
+      seite.fest = false;
+      seite.sendet = false;
+      if (pfeil) pfeil.disabled = false;
       senden.disabled = false;
       senden.textContent = `An @${anWen} verschenken`;
       island(err.message || 'Hat nicht geklappt');
+      wseitenAbgleichen();
       return;
     }
     // Erst wenn der Server den Gutschein wirklich uebergeben hat, verschwindet
     // er hier — sonst waere er bei einem Fehler in beiden Wallets weg.
-    seite.sendet = true;
     tombstone(aktuell.id);
     state.wallet.vouchers = state.wallet.vouchers.filter(x => x.id !== aktuell.id);
+    schenktGerade.ids.delete(aktuell.id);
     saveWallet();
+    // Inzwischen gesperrt (Seiten sind dann schon zu): nur noch Bescheid geben
+    if (!wseiten().includes(seite)) {
+      renderWallet();
+      island(`An @${anWen} verschenkt`);
+      return;
+    }
     // Erst raeumt sich die Seite ab, dann faehrt die Karte in die Schachtel
     await seiteAufDieKarte(host);
     await packAnimation($('#schenk-karte'), 'ein');
-    wseitenZu({ sanft: true });
+    if (wseiten().includes(seite)) wseitenZu({ sanft: true });
     renderWallet();
     island(`An @${anWen} verschenkt`); playSfx('plop'); buzz([12, 40, 18]);
   };
 }
+// Gutscheine, die gerade verschenkt werden: bis zur Antwort des Servers tabu
+function schenktGerade(id) { return !!schenktGerade.ids?.has(id); }
+schenktGerade.ids = new Set();
 
 // Vor dem Einpacken raeumt sich die Seite ab: Freunde, Nachricht, Hinweis und
 // Knopf blenden gestaffelt aus, nur die Karte bleibt stehen. Erst danach faehrt
@@ -6409,6 +6839,8 @@ function wIcon(name, cls = 'icon') {
     rueck: '<path d="M9 5.5 4.5 10 9 14.5"/><path d="M4.5 10h9.5a5 5 0 0 1 0 10H11"/>',
     bild: '<rect x="4" y="5" width="16" height="14" rx="2.4"/><circle cx="9" cy="10" r="1.6"/><path d="M4.5 17l4.5-4.5 3.5 3.5 2.5-2.5 4.5 4.5"/>',
     zuschnitt: '<path d="M7 3.5V17h13.5"/><path d="M3.5 7H17v13.5"/>',
+    kamera: '<path d="M4.5 8.7a2 2 0 0 1 2-2h1.9l1.5-2.2h4.2l1.5 2.2h1.9a2 2 0 0 1 2 2v8.8a2 2 0 0 1-2 2h-11a2 2 0 0 1-2-2z"/><circle cx="12" cy="12.9" r="3.3"/>',
+    scan: '<path d="M4.5 8.5v-2a2 2 0 0 1 2-2h2M15.5 4.5h2a2 2 0 0 1 2 2v2M19.5 15.5v2a2 2 0 0 1-2 2h-2M8.5 19.5h-2a2 2 0 0 1-2-2v-2"/><path d="M8 12h8"/>',
   };
   return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${pfade[name] || ''}</svg>`;
 }
@@ -6473,7 +6905,7 @@ function wseiteOeffnen({ art, id = '', titel = '', klasse = '', baue, sofort = f
   host.appendChild(el);
   host.insertBefore(dimm, el);           // Abdunklung liegt direkt unter der obersten Seite
   wseitenRahmen(true);
-  el.querySelector('.wseite-zurueck').onclick = () => { if (wseiteOben() === seite) wseiteZurueck(); };
+  el.querySelector('.wseite-zurueck').onclick = () => wseiteVerlassen(seite);
   const inhalt = el.querySelector('.wseite-inhalt');
   inhalt.addEventListener('scroll', () => el.classList.toggle('gescrollt', inhalt.scrollTop > 2), { passive: true });
   wischZurueck(seite);
@@ -6496,6 +6928,7 @@ function wseiteZurueck({ vonP = 0, sofort = false } = {}) {
   const s = wseiten();
   const seite = s.pop();
   if (!seite) return;
+  try { seite.beimSchliessen?.(); } catch { /* darf das Zurueck nicht aufhalten */ }
   const host = $('#wseiten');
   const dimm = host.querySelector('.wseiten-dimm');
   const darunter = s[s.length - 1];
@@ -6526,6 +6959,21 @@ function wseiteZurueck({ vonP = 0, sofort = false } = {}) {
   a.onfinish = weg;
   setTimeout(weg, dauer + 80);   // falls onfinish ausbleibt (Tab im Hintergrund)
 }
+// Zurueck durch den Nutzer (Pfeil, Wisch, Esc). Eine festgehaltene Seite
+// (seite.fest: Verschenken laeuft) bleibt stehen. Liefert seite.zurueckFrage()
+// einen Text, gibt es erst eine Rueckfrage — beim Wisch federt die Seite dafuer
+// zurueck. vonP: so weit hat der Finger sie schon weggeschoben.
+function wseiteVerlassen(seite, { vonP = 0 } = {}) {
+  if (!seite || wseiteOben() !== seite) return;
+  let frage = '';
+  if (!seite.fest) { try { frage = seite.zurueckFrage?.() || ''; } catch { frage = ''; } }
+  if (!seite.fest && !frage) { wseiteZurueck({ vonP }); return; }
+  if (vonP) wseiteFedern(seite, vonP);
+  if (seite.fest) { buzz([20, 40, 20]); return; }
+  askConfirm(frage, { okLabel: 'Verwerfen' }).then(ja => {
+    if (ja && wseiteOben() === seite && !seite.fest) wseiteZurueck();
+  });
+}
 
 // Alle Seiten zu. sanft: die oberste blendet aus (nach Verschenken/Loeschen),
 // sonst ist alles sofort weg (Sperre: keine Codes im Baum lassen).
@@ -6535,6 +6983,7 @@ function wseitenZu({ sanft = false } = {}) {
   const oben = s[s.length - 1];
   while (s.length) {
     const x = s.pop();
+    try { x.beimSchliessen?.(); } catch { /* weiter zumachen */ }
     if (x !== oben || !sanft || !wseiteBewegt()) x.el.remove();
   }
   const host = $('#wseiten');
@@ -6560,7 +7009,7 @@ function wischZurueck(seite) {
   el.addEventListener('pointerdown', e => {
     if (w && w.lauf) return;             // ein zweiter Finger stoert den laufenden Wisch nicht
     w = null;
-    if (e.pointerType === 'mouse' || wseiteOben() !== seite || el.classList.contains('panel-offen')) return;
+    if (e.pointerType === 'mouse' || wseiteOben() !== seite || seite.fest || el.classList.contains('panel-offen')) return;
     if (e.target.closest('input, textarea, select, [data-kein-wisch]')) return;
     w = { x: e.clientX, y: e.clientY, id: e.pointerId, lauf: false, dx: 0, b: 1, v: 0, lx: e.clientX, lt: e.timeStamp };
   }, { passive: true });
@@ -6589,12 +7038,15 @@ function wischZurueck(seite) {
     el.dataset.gewischt = '1';
     setTimeout(() => delete el.dataset.gewischt, 80);
     const p = war.dx / war.b;
-    if (e.type !== 'pointercancel' && (p > .36 || (war.v > .45 && p > .05))) wseiteZurueck({ vonP: p });
+    if (e.type !== 'pointercancel' && (p > .36 || (war.v > .45 && p > .05))) wseiteVerlassen(seite, { vonP: p });
     else wseiteFedern(seite, p);
   };
   el.addEventListener('pointerup', ende);
   el.addEventListener('pointercancel', ende);
-  el.addEventListener('lostpointercapture', ende);
+  // Nur die eigene Capture zaehlt: am Handy haelt das angetippte Kind die
+  // implizite Touch-Capture, deren Verlust hochblubbert und den Wisch sonst
+  // gleich nach der ersten Bewegung beendete
+  el.addEventListener('lostpointercapture', e => { if (e.target === el) ende(e); });
   el.addEventListener('click', e => {
     if (el.dataset.gewischt) { e.stopPropagation(); e.preventDefault(); }
   }, true);
@@ -6637,35 +7089,28 @@ addEventListener('keydown', e => {
   const oben = wseiteOben();
   if (oben.el.classList.contains('panel-offen')) return gdPanelZu(oben);
   if (oben.el.querySelector('.gd-leiste.auf')) return gdOptionen(oben, false);
-  wseiteZurueck();
+  // Hinzufuegen: erst die aufgeklappte Shop-Suche zu
+  if (oben.el.querySelector('.wa-suche:not(.hidden)')) return oben.el.querySelector('#wa-vendor-showmore')?.click();
+  // Im Eingabefeld verlaesst Esc nur das Feld, nicht gleich die ganze Seite
+  const feld = document.activeElement;
+  if (feld && oben.el.contains(feld) && feld.matches('input, textarea, select')) { feld.blur(); oben.el.focus({ preventScroll: true }); return; }
+  wseiteVerlassen(oben);
 }, true);
 
-// Ein Blatt aus einer Seite heraus (Sparkarte hinzufuegen oder aendern) muss
-// ueber der Seite liegen. Die Klasse faellt weg, sobald das Blatt zu ist.
-function blattUeberSeite(fn) {
-  const blatt = $('#sheet');
-  const warOffen = !!blatt?.classList.contains('open');
-  document.body.classList.add('blatt-ueber-seite');
-  fn();
-  if (blatt) blatt.inert = false;
-  // Lag das Blatt schon offen unter der Seite (Marken-Blatt), kommt es jetzt
-  // sichtbar von unten hoch, statt ploetzlich ueber der Seite zu stehen
-  if (warOffen && blatt?.animate && wseiteBewegt()) {
-    blatt.animate([{ transform: 'translate(-50%, 100%)' }, { transform: 'translate(-50%, 0)' }],
-      { duration: 380, easing: 'cubic-bezier(.22, 1, .36, 1)' });
-  }
-}
-// Geht ein Blatt auf, waehrend eine Seite offen ist (auch von anderswo, etwa
-// "Karte zeigen" aus dem Laden-Hinweis), gehoert es nach oben
+// Geht ein Blatt auf, waehrend eine Seite offen ist (etwa "Karte zeigen" aus
+// dem Laden-Hinweis), gehoert es nach oben. Die Klasse faellt weg, sobald das
+// Blatt zu ist. (Sparkarte hinzufuegen und aendern sind seit Runde 118 selbst
+// Seiten und legen sich einfach obendrauf — dafuer braucht es kein Blatt mehr.)
 if ($('#sheet') && 'MutationObserver' in window) {
+  let blattWarOffen = false;
   new MutationObserver(() => {
     const blatt = $('#sheet');
     const offen = blatt.classList.contains('open');
-    if (offen && !blattUeberSeite.offen) {
-      blattUeberSeite.offen = true;
+    if (offen && !blattWarOffen) {
+      blattWarOffen = true;
       if (wseiten().length) { document.body.classList.add('blatt-ueber-seite'); blatt.inert = false; }
-    } else if (!offen && blattUeberSeite.offen) {
-      blattUeberSeite.offen = false;
+    } else if (!offen && blattWarOffen) {
+      blattWarOffen = false;
       document.body.classList.remove('blatt-ueber-seite');
       if (wseiten().length) blatt.inert = true;
     }
@@ -6681,6 +7126,16 @@ function wseitenAbgleichen() {
   if (s.some(x => x.sendet)) return;          // Verschenken laeuft gerade
   for (let i = 0; i < s.length; i++) {
     const seite = s[i];
+    if (seite.art === 'rabatt') {
+      const r = state.wallet.vouchers.find(x => x.id === seite.id && istRabatt(x));
+      if (!r) {
+        while (s.length > i + 1) wseiteZurueck({ sofort: true });
+        wseiteZurueck();
+        return;
+      }
+      if (seite.stand !== rpStand(r) && !seite.el.querySelector('.gd-leiste.auf')) zeichneRabattSeite(seite);
+      continue;
+    }
     if (seite.art !== 'gutschein' && seite.art !== 'schenken') continue;
     const v = state.wallet.vouchers.find(x => x.id === seite.id);
     if (!v) {
@@ -6717,6 +7172,7 @@ function oeffneGutscheinSeite(id, { animFrom = null, buchen = 0 } = {}) {
   if (walletGesperrt()) { aktualisiereSperre(); return; } // gesperrte Wallet: nichts zeigen
   const v = state.wallet.vouchers.find(x => x.id === id);
   if (!v) return;
+  if (schenktGerade(id)) { island('Wird gerade verschenkt …'); return; }
   if (istRabatt(v)) return openRabattSheet(id);
   if (v.giftFrom && !v.giftSeen) { v.giftSeen = true; saveWallet(); }
   // Dieselbe Seite liegt schon oben (Bild getauscht): nur neu zeichnen
@@ -6905,7 +7361,7 @@ function gdLeisteMessen(seite) {
   leiste.style.setProperty('--gd-opt-h', optH + 'px');
   seite.el.style.setProperty('--gd-leiste-h', Math.max(0, leiste.offsetHeight - optH) + 'px');
 }
-addEventListener('resize', () => wseiten().forEach(s => { if (s.art === 'gutschein') gdLeisteMessen(s); }), { passive: true });
+addEventListener('resize', () => wseiten().forEach(s => { if (s.art === 'gutschein' || s.art === 'rabatt') gdLeisteMessen(s); }), { passive: true });
 
 function verdrahteGutscheinSeite(seite, v, karte) {
   const el = seite.el;
@@ -6918,11 +7374,12 @@ function verdrahteGutscheinSeite(seite, v, karte) {
       ...(karte.number
         ? [{ text: 'Nummer kopieren', icon: 'check', leise: true, bleibt: true, fn: () => copyText(karte.number) }]
         : []),
-      { text: 'Ändern', verwalten: true, fn: () => blattUeberSeite(() => openWalletAdd('card', karte.name, karte.id)) },
+      // Hinzufuegen und Aendern sind eigene Seiten: sie legen sich auf diese
+      { text: 'Ändern', verwalten: true, fn: () => openWalletAdd('card', karte.name, karte.id) },
       { text: 'Löschen', verwalten: true, gefahr: true, bleibt: true, fn: () => karteLoeschen(karte) },
     ],
   }));
-  el.querySelector('#wv-addkarte')?.addEventListener('click', () => blattUeberSeite(() => openWalletAdd('card', v.vendor)));
+  el.querySelector('#wv-addkarte')?.addEventListener('click', () => openWalletAdd('card', v.vendor));
   wireVoucherImage(v); // Bild tauschen / zuschneiden / vergroessern
   el.querySelectorAll('[data-revert]').forEach(b => b.onclick = () => gdRueckgaengig(seite, b.dataset.revert));
   el.querySelectorAll('[data-buchen]').forEach(b => b.onclick = () => gdBuchenOeffnen(seite, Number(b.dataset.buchen)));
@@ -6982,6 +7439,7 @@ function gdPanelZu(seite) {
 function gdBuchenOeffnen(seite, sign) {
   const v = state.wallet.vouchers.find(x => x.id === seite.id);
   if (!v || v.balance == null || walletGesperrt()) return;
+  if (schenktGerade(v.id)) { island('Wird gerade verschenkt …'); return; }
   const ab = sign < 0;
   if (ab && !(v.balance > 0)) return;
   const betragText = n => n.toFixed(2).replace('.', ',');
@@ -7037,6 +7495,7 @@ function gutscheinBuchen(seite, sign, amt, note) {
   const v = state.wallet.vouchers.find(x => x.id === seite.id);
   if (!v || v.balance == null) return 'Diesen Gutschein gibt es nicht mehr.';
   if (walletGesperrt()) { aktualisiereSperre(); return 'Die Wallet ist gesperrt.'; }
+  if (schenktGerade(v.id)) return 'Der Gutschein wird gerade verschenkt.';
   if (isNaN(amt) || amt <= 0) return 'Betrag angeben.';
   amt = Math.round(amt * 100) / 100;
   // Nie ins Minus: mehr als das Restguthaben laesst sich nicht abbuchen
@@ -7066,17 +7525,25 @@ function gutscheinBuchen(seite, sign, amt, note) {
   return '';
 }
 async function gdRueckgaengig(seite, txId) {
-  const v = state.wallet.vouchers.find(x => x.id === seite.id);
-  const t = v?.tx?.find(x => x.id === txId);
-  if (!t || t.reverted) return;
-  const neu = Math.round((v.balance - t.amt) * 100) / 100;
-  if (neu < -0.001) {
-    island('Erst die spätere Abbuchung rückgängig machen, sonst wäre das Guthaben im Minus', 3600);
-    return;
-  }
-  if (!await askConfirm(`${t.amt < 0 ? 'Abbuchung' : 'Aufladung'} über ${euroFmt(Math.abs(t.amt))} rückgängig machen?`,
+  // Gutschein und Buchung jedes Mal frisch holen: waehrend der Rueckfrage kann
+  // ein Abgleich beide durch neue Objekte ersetzt haben
+  const hole = () => {
+    const v = state.wallet.vouchers.find(x => x.id === seite.id);
+    return { v, t: v?.tx?.find(x => x.id === txId) };
+  };
+  const imMinus = ({ v, t }) => Math.round((v.balance - t.amt) * 100) / 100 < -0.001;
+  const minusText = 'Erst die spätere Abbuchung rückgängig machen, sonst wäre das Guthaben im Minus';
+  const vorab = hole();
+  if (!vorab.t || vorab.t.reverted || schenktGerade(seite.id)) return;
+  if (imMinus(vorab)) { island(minusText, 3600); return; }
+  if (!await askConfirm(`${vorab.t.amt < 0 ? 'Abbuchung' : 'Aufladung'} über ${euroFmt(Math.abs(vorab.t.amt))} rückgängig machen?`,
     { okLabel: 'Rückgängig machen' })) return;
-  if (walletGesperrt() || t.reverted) return;
+  if (walletGesperrt() || schenktGerade(seite.id)) return;
+  // Nach der Rueckfrage mit dem Stand von jetzt rechnen, nicht mit dem von vorhin
+  const { v, t } = hole();
+  if (!t || t.reverted || v.balance == null) return;
+  if (imMinus({ v, t })) { island(minusText, 3600); return; }
+  const neu = Math.round((v.balance - t.amt) * 100) / 100;
   const before = v.balance;
   t.reverted = true;
   v.balance = Math.max(0, neu);
@@ -7779,9 +8246,12 @@ function openBrandSheet(key, richtung) {
   if (walletGesperrt()) { aktualisiereSperre(); return; } // gesperrte Wallet: nichts zeigen
   const b = walletBrands().find(x => x.key === key);
   if (!b) return;
+  // Gemerkt fuer das Auffrischen, wenn darueber eine Karte gespeichert wurde
+  openBrandSheet.key = key;
   const c = b.card;
   // Passende Gutscheine: kleinster Rest zuerst, damit man die Reste aufbraucht
   const gutscheine = gutscheineZuMarke(b.name);
+  openBrandSheet.stand = markenBlattStand(b);
   state.sheetMode = 'brand';
   $('#sheet-content').innerHTML = `
     <div class="offer-head">
@@ -7858,6 +8328,25 @@ function openBrandSheet(key, richtung) {
   // Die Coupons dieser Marke direkt darunter — kein zweites Blatt mehr
   if (b.coupons) ladeCouponsIn(b.coupons.key, b.coupons.brand, $('#cc-slot'), !ccBesitzt(b.coupons));
   openSheetShell(richtung);
+}
+// Was das Marken-Blatt aus der Wallet zeigt: Karte und zahlbare Gutscheine
+function markenBlattStand(b) {
+  return b ? [b.card ? itemHash(b.card) : '', gutscheineZuMarke(b.name).map(itemHash).join(',')].join('|') : '';
+}
+// Nach renderWallet: hat sich fuer das offene Marken-Blatt etwas geaendert,
+// wird es neu gezeichnet (die Stelle, an der man war, bleibt)
+function markenBlattAbgleichen() {
+  const key = openBrandSheet.key;
+  if (state.sheetMode !== 'brand' || !key || walletGesperrt() || !state.token) return;
+  const b = walletBrands().find(x => x.key === key);
+  if (!b) { closeSheet(); return; }
+  if (markenBlattStand(b) === openBrandSheet.stand) return;
+  const inhalt = $('#sheet-content');
+  const scroll = inhalt.scrollTop;
+  openBrandSheet(key);
+  inhalt.scrollTop = scroll;
+  // Liegt noch eine Seite darueber, bleibt das Blatt darunter unbedienbar
+  if (wseiten().length && !document.body.classList.contains('blatt-ueber-seite')) $('#sheet').inert = true;
 }
 // Alte Aufrufe (z. B. aus der Wallet-Liste) landen im selben Blatt
 function openCardSheet(id) {
@@ -7989,7 +8478,7 @@ function rabattMbwText(v) { const n = rabattZahl(v && v.mbw); return n ? `ab ${e
 function rabattAbgelaufen(v) { return !!(v && v.end) && Date.parse(v.end + 'T23:59:59') < Date.now(); }
 function rabattShopUrl(name) {
   const d = BRAND_DOMAINS[String(name || '').trim().toLowerCase()];
-  return d ? `https://www.${d}` : '';
+  return d ? `https://www.${d.replace(/^www\./, '')}` : '';
 }
 function rabattCardHtml(v) {
   const aus = !!v.eingeloest || rabattAbgelaufen(v);
@@ -8070,126 +8559,172 @@ function zeigeRabattcodes(id) {
     if (!sperrRuhig()) neuStarten(el, 'rc-neu');
   }, 380);
 }
-function openRabattSheet(id, richtung) {
+// ---- Rabattcode als eigene Seite, gebaut wie die Gutschein-Seite: oben die
+// Karte mit Rabatt und Mindestbestellwert, darunter der Code zum Kopieren,
+// der Sprung in den Shop, Notiz und Bild. Unten fest: eingeloest und
+// aendern, unter "Mehr" das Loeschen.
+function rpStand(v) { return [itemHash(v), state.token ? 1 : 0].join('|'); }
+function openRabattSheet(id) {
   if (walletGesperrt()) { aktualisiereSperre(); return; } // gesperrte Wallet: nichts zeigen
   const v = state.wallet.vouchers.find(x => x.id === id && istRabatt(x));
   if (!v) return;
-  state.sheetMode = 'rabatt-detail';
+  // Dieselbe Seite liegt schon oben (Bild getauscht): nur neu zeichnen
+  const oben = wseiteOben();
+  if (oben && oben.art === 'rabatt' && oben.id === id) { zeichneRabattSeite(oben); return; }
+  buzz(8);
+  wseiteOeffnen({ art: 'rabatt', id, titel: v.vendor, klasse: 'gd rp', baue: s => zeichneRabattSeite(s) });
+}
+function rabattSeiteHtml(v) {
+  const farbe = brandColor(v.vendor);
   const abgelaufen = rabattAbgelaufen(v);
   const wert = rabattWertText(v);
+  const mbw = rabattZahl(v.mbw);
+  const tag = ts => new Date(ts).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const status = v.eingeloest ? `eingelöst am ${tag(v.eingeloest)}`
+    : v.end ? `${abgelaufen ? 'abgelaufen am' : 'Gültig bis'} ${waTag(v.end)}` : 'ohne Ablaufdatum';
   const shop = rabattShopUrl(v.vendor);
-  $('#sheet-content').innerHTML = `
-    <div class="offer-head">
-      ${brandChipHtml(v.vendor)}
-      <div class="offer-brand">
-        <div class="offer-merchant">${esc(v.vendor)}</div>
-        <div class="offer-cat">Rabattcode · ${v.eingeloest ? 'eingelöst'
-          : v.end ? (abgelaufen ? 'abgelaufen' : 'gültig bis ' + new Date(v.end).toLocaleDateString('de-DE')) : 'ohne Ablaufdatum'}</div>
+  const bildSrc = v.codeImg || v.img;
+  return `
+    <div class="gd-karte rp-karte${v.eingeloest || abgelaufen ? ' rp-aus' : ''}${brandHelligkeit(farbe) > 0.62 ? ' hell' : ''}" id="gd-karte"
+      style="--bc:${farbe}; --tc:${brandTextColor(v.vendor)}">
+      <span class="vk-motiv gd-motiv" aria-hidden="true">${vkMotivHtml(v)}</span>
+      <div class="gd-karte-kopf">
+        <span class="vk-logo">${brandChipHtml(v.vendor)}</span>
+        <span class="gd-karte-namen"><b>${esc(v.vendor)}</b><span>Rabattcode</span></span>
       </div>
+      <div class="gd-guthaben"><b>${wert ? '−' + wert : 'Rabatt'}</b>
+        <span>${mbw ? `ab ${esc(euroFmt(mbw))} Bestellwert` : 'ohne Mindestbestellwert'}</span></div>
+      <div class="gd-karte-fuss"><span>${status}</span></div>
     </div>
-    <div class="rc-gross${v.eingeloest || abgelaufen ? ' rc-aus' : ''}" style="--bc:${brandColor(v.vendor)}; --tc:${brandTextColor(v.vendor)}">
-      <div class="rc-gross-wert">${wert ? '−' + wert : 'Rabatt'}</div>
-      <div class="rc-gross-mbw">${rabattZahl(v.mbw) ? `ab ${esc(euroFmt(rabattZahl(v.mbw)))} Bestellwert` : 'ohne Mindestbestellwert'}</div>
-    </div>
-    ${v.code ? `<div class="rc-codefeld">
-      <span class="wallet-code rc-codetext">${esc(v.code)}</span>
-      <button class="btn btn-small" data-copy-txt="${esc(v.code)}" type="button">Code kopieren</button>
-    </div>` : ''}
-    <p class="rc-info">${icon('bulb', 'icon icon-sm')}
-      <span>${v.code ? 'Zählt nicht zum Wallet-Guthaben: den Code gibst du beim Bestellen ein.'
-        : 'Zählt nicht zum Wallet-Guthaben. Ohne Code gilt der Rabatt meist direkt im Shop oder in der App.'}</span></p>
-    ${v.notiz ? `<p class="rc-info">${icon('list', 'icon icon-sm')}<span>${esc(v.notiz)}</span></p>` : ''}
-    ${v.codeImg ? `<img class="wallet-code-img" id="wv-bild" src="${esc(v.codeImg)}" alt="Bild zum Rabattcode"
-        role="button" tabindex="0" aria-label="Bild vergrößern">`
-      : v.img ? `<img class="wallet-img" id="wv-bild" src="${esc(v.img)}" alt="Bild zum Rabattcode"
-        role="button" tabindex="0" aria-label="Bild vergrößern">` : ''}
-    <div class="bild-aktionen">
-      <label class="bild-btn">
-        ${icon(v.codeImg || v.img ? 'wand' : 'plus', 'icon')}
-        <span>${v.codeImg || v.img ? 'Bild tauschen' : 'Bild hinzufügen'}</span>
-        <input type="file" id="wv-img-file" accept="image/*" style="display:none">
-      </label>
-      ${v.codeImg || v.img ? `<button class="bild-btn" id="wv-img-crop">
-        ${icon('sliders', 'icon')}<span>Zuschneiden</span></button>
-        <button class="bild-btn bild-btn-rund" id="wv-img-zoom" aria-label="Bild vergrößern" title="Vergrößern">
-        ${icon('search', 'icon')}</button>` : ''}
-    </div>
-    ${shop ? `<a class="app-jump" href="${shop}" target="_blank" rel="noopener noreferrer" style="--bc:${brandColor(v.vendor)}">
-      ${brandChipHtml(v.vendor)}
-      <span class="app-jump-txt"><b>Zu ${esc(v.vendor)}</b><small>${v.code ? 'Code kopieren, dort bestellen und einlösen' : 'Dort bestellen und den Rabatt nutzen'}</small></span>
-      ${icon('arrow-right', 'icon icon-sm')}
+    ${v.code ? `
+    <div class="gd-block gd-codes">
+      <div class="gd-code-zeile">
+        <span class="gd-code-text"><small>Rabattcode</small><b>${esc(v.code)}</b></span>
+        <button class="gd-kopier" type="button" data-copy-txt="${esc(v.code)}" aria-label="Rabattcode kopieren" title="Rabattcode kopieren">${wIcon('kopie')}</button>
+      </div>
+    </div>` : `
+    <button class="gd-block gd-leer" type="button" data-rp="aendern">${wIcon('stift')}<span>Code ergänzen</span></button>`}
+    <p class="rp-info">${v.code ? 'Zählt nicht zum Wallet-Guthaben: den Code gibst du beim Bestellen ein.'
+      : 'Zählt nicht zum Wallet-Guthaben. Ohne Code gilt der Rabatt meist direkt im Shop oder in der App.'}</p>
+    ${shop ? `
+    <a class="gd-block gd-zeile" href="${shop}" target="_blank" rel="noopener noreferrer">
+      <span class="gd-zeile-plus">${brandChipHtml(v.vendor)}</span>
+      <span class="gd-zeile-text"><b>Zu ${esc(v.vendor)}</b><small>${v.code ? 'Code kopieren, dort bestellen und einlösen' : 'Dort bestellen und den Rabatt nutzen'}</small></span>
+      ${icon('arrow-right', 'icon gd-pfeil')}
     </a>` : ''}
-    <div class="form-row rc-aktionen">
-      <button class="btn btn-small" id="rc-eingeloest" type="button">${v.eingeloest ? 'Wieder aktiv' : 'Als eingelöst markieren'}</button>
-      <button class="btn btn-small btn-ghost" id="rc-aendern" type="button">Ändern</button>
-    </div>
-    ${v.added ? `<p class="added-line">Hinzugefügt am ${new Date(v.added).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })}</p>` : ''}
-    <button class="btn btn-danger" id="rc-del" type="button" style="margin-top:14px">Rabattcode löschen</button>`;
-  $('#sheet-content').querySelectorAll('[data-copy-txt]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copyTxt)));
-  wireVoucherImage(v); // Bild tauschen / zuschneiden / nachtraeglich hochladen
-  $('#rc-eingeloest').addEventListener('click', () => {
-    v.eingeloest = v.eingeloest ? 0 : Date.now();
-    saveWallet();
-    buzz(12);
-    island(v.eingeloest ? 'Als eingelöst markiert' : 'Wieder aktiv');
-    openRabattSheet(v.id);
-  });
-  $('#rc-aendern').addEventListener('click', () => openWalletAdd('rabatt', v.vendor, v.id));
-  $('#rc-del').addEventListener('click', async () => {
-    if (!await askConfirm(`Den ${esc(v.vendor)}-Rabattcode löschen?`, { okLabel: 'Löschen' }) || walletGesperrt()) return;
-    tombstone(v.id);
-    state.wallet.vouchers = state.wallet.vouchers.filter(x => x.id !== v.id);
-    saveWallet(); closeSheet(); island('Rabattcode gelöscht');
-  });
-  openSheetShell(richtung);
+    ${v.notiz ? `
+    <button class="gd-block gd-notiz" type="button" data-rp="aendern" aria-label="Notiz ändern">
+      <span class="gd-notiz-kopf">${wIcon('notiz')}<small>Notiz</small>${wIcon('stift', 'icon gd-notiz-stift')}</span>
+      <span class="gd-notiz-text">${esc(v.notiz)}</span>
+    </button>` : ''}
+    ${bildSrc ? `
+    <div class="gd-block gd-bild">
+      <img class="${v.codeImg ? 'wallet-code-img' : 'wallet-img'}" id="wv-bild" src="${esc(bildSrc)}"
+        alt="Bild zum Rabattcode" role="button" tabindex="0" aria-label="Bild vergrößern">
+      <div class="gd-bild-knoepfe">
+        <label class="gd-bild-knopf">${wIcon('bild')}<span>Tauschen</span>
+          <input type="file" id="wv-img-file" accept="image/*" style="display:none"></label>
+        <button class="gd-bild-knopf" id="wv-img-crop" type="button">${wIcon('zuschnitt')}<span>Zuschneiden</span></button>
+        <button class="gd-bild-knopf gd-bild-lupe" id="wv-img-zoom" type="button" aria-label="Bild vergrößern" title="Vergrößern">${icon('search')}</button>
+      </div>
+    </div>` : `
+    <label class="gd-block gd-leer">${wIcon('bild')}<span>Bild zum Rabattcode hinzufügen</span>
+      <input type="file" id="wv-img-file" accept="image/*" style="display:none"></label>`}
+    ${v.added ? `<p class="rp-fuss">Hinzugefügt am ${tag(v.added)}</p>` : ''}`;
 }
-// Formularteil fuer Rabattcodes (im Blatt "Hinzufuegen")
+function rpLeisteHtml(v) {
+  return `
+    <div class="wseite-leiste gd-leiste">
+      <div class="gd-knoepfe">
+        <button class="gd-knopf gd-ab" type="button" data-rp="eingeloest">${v.eingeloest ? wIcon('rueck') : icon('check')}<span>${v.eingeloest ? 'Wieder aktiv' : 'Eingelöst'}</span></button>
+        <button class="gd-knopf gd-auf" type="button" data-rp="aendern">${wIcon('stift')}<span>Ändern</span></button>
+      </div>
+      <button class="gd-mehr" type="button" aria-expanded="false" aria-controls="gd-optionen">
+        <span>Mehr</span>${icon('chevron-down', 'icon gd-mehr-pfeil')}</button>
+      <div class="gd-optionen" id="gd-optionen" role="menu" aria-label="Weitere Aktionen">
+        <button class="gd-option gefahr" type="button" role="menuitem" data-rp="loeschen" tabindex="-1">
+          <span class="gd-option-bild">${wIcon('muell')}</span>
+          <span class="gd-option-text"><b>Rabattcode löschen</b></span>
+        </button>
+      </div>
+      <div class="gd-fuss" aria-hidden="true"></div>
+    </div>`;
+}
+function zeichneRabattSeite(seite) {
+  const v = state.wallet.vouchers.find(x => x.id === seite.id && istRabatt(x));
+  if (!v) return;
+  const el = seite.el;
+  const inhalt = el.querySelector('.wseite-inhalt');
+  const scroll = inhalt.scrollTop;
+  seite.stand = rpStand(v);
+  el.querySelector('.wseite-titel').textContent = v.vendor;
+  el.setAttribute('aria-label', `${v.vendor}-Rabattcode`);
+  inhalt.innerHTML = rabattSeiteHtml(v);
+  el.querySelectorAll('.gd-leiste, .gd-dimm').forEach(x => x.remove());
+  el.insertAdjacentHTML('beforeend', rpLeisteHtml(v) + '<div class="gd-dimm" aria-hidden="true"></div>');
+  inhalt.scrollTop = scroll;
+  gdLeisteMessen(seite);
+  el.querySelectorAll('[data-copy-txt]').forEach(b => b.onclick = () => { copyText(b.dataset.copyTxt); buzz(10); });
+  wireVoucherImage(v); // Bild tauschen / zuschneiden / vergroessern
+  el.querySelector('.gd-mehr').onclick = () => gdOptionen(seite);
+  el.querySelector('.gd-dimm').onclick = () => gdOptionen(seite, false);
+  el.querySelectorAll('[data-rp]').forEach(b => b.onclick = () => {
+    const x = state.wallet.vouchers.find(y => y.id === seite.id && istRabatt(y));
+    if (!x || walletGesperrt()) return;
+    const k = b.dataset.rp;
+    if (k === 'aendern') { gdOptionen(seite, false); openWalletAdd('rabatt', x.vendor, x.id); }
+    else if (k === 'loeschen') { gdOptionen(seite, false); rabattLoeschen(x); }
+    else if (k === 'eingeloest') {
+      x.eingeloest = x.eingeloest ? 0 : Date.now();
+      zeichneRabattSeite(seite);
+      saveWallet();
+      buzz(12);
+      island(x.eingeloest ? 'Als eingelöst markiert' : 'Wieder aktiv');
+    }
+  });
+}
+async function rabattLoeschen(v) {
+  if (!await askConfirm(`Den ${esc(v.vendor)}-Rabattcode löschen?`, { okLabel: 'Löschen' }) || walletGesperrt()) return;
+  tombstone(v.id);
+  state.wallet.vouchers = state.wallet.vouchers.filter(x => x.id !== v.id);
+  // Erst die Seite vom Stapel, dann speichern: der Abgleich danach sucht sie nicht mehr
+  const oben = wseiteOben();
+  if (oben && oben.art === 'rabatt' && oben.id === v.id) wseiteZurueck();
+  saveWallet();
+  island('Rabattcode gelöscht');
+}
+// Formularteil fuer Rabattcodes (auf der Seite "Hinzufuegen")
 function rabattFormHtml(v) {
   const pct = v?.rabattArt === 'pct';
+  const mbw = rabattZahl(v?.mbw);
   return `
-    <label class="f-label">Shop <span class="req">*</span></label>
-    <div class="vendor-grid" id="wa-vendor-grid">
-      ${RABATT_GRID.map((n, i) => `<button class="vendor-tile ${i >= 6 ? 'hidden vendor-more' : ''}" data-vg="${esc(n)}" type="button">
-        ${brandChipHtml(n)}
-        <span>${esc(n)}</span>
-      </button>`).join('')}
-      <button class="vendor-tile" id="wa-vendor-showmore" type="button">
-        <span class="brand-chip" style="--bc:rgba(127,127,127,.4)">…</span>
-        <span>Weitere</span>
-      </button>
-    </div>
-    <input id="wa-vendor" class="input hidden" maxlength="30" placeholder="Shop-Name eintippen">
-    <label class="f-label" for="wa-rcode">Rabattcode <span class="opt">(optional)</span></label>
-    <input id="wa-rcode" class="input rc-eingabe" maxlength="40" placeholder="z. B. SPAR5, falls es einen gibt"
-      autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" value="${esc(v?.code || '')}">
-    <label class="f-label" for="wa-rwert">Rabatt <span class="opt">(optional)</span></label>
-    <div class="rc-wertzeile">
-      <input id="wa-rwert" class="input" inputmode="decimal" placeholder="z. B. 5"
-        value="${v?.rabatt != null ? esc(String(v.rabatt).replace('.', ',')) : ''}">
-      <div class="wa-modus klein${pct ? ' rechts' : ''}" id="wa-einheit" role="group" aria-label="Rabatt in Euro oder Prozent">
-        <span class="wa-modus-flaeche" aria-hidden="true"></span>
-        <button class="wa-modus-knopf${pct ? '' : ' an'}" type="button" data-einheit="eur" aria-pressed="${!pct}">€</button>
-        <button class="wa-modus-knopf${pct ? ' an' : ''}" type="button" data-einheit="pct" aria-pressed="${pct}">%</button>
+      <h3 class="gd-h">Rabatt <small>optional</small></h3>
+      <div class="gd-block wa-betrag wa-rabatt" id="wa-betrag">
+        <input id="wa-rwert" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Rabatt"
+          value="${v?.rabatt != null ? esc(String(v.rabatt).replace('.', ',')) : ''}">
+        <div class="wa-einheit${pct ? ' rechts' : ''}" id="wa-einheit" role="group" aria-label="Rabatt in Euro oder Prozent">
+          <span class="wa-einheit-flaeche" aria-hidden="true"></span>
+          <button class="wa-einheit-knopf${pct ? '' : ' an'}" type="button" data-einheit="eur" aria-pressed="${!pct}">€</button>
+          <button class="wa-einheit-knopf${pct ? ' an' : ''}" type="button" data-einheit="pct" aria-pressed="${pct}">%</button>
+        </div>
       </div>
-    </div>
-    <div class="rc-mbw-zeile">
-      <span class="rc-mbw-txt"><b>Mindestbestellwert</b><small id="wa-mbw-text">${v?.mbw ? 'ab ' + euroFmt(v.mbw) : 'ohne MBW'}</small></span>
-      <label class="switch"><input type="checkbox" id="wa-mbw-an" ${v?.mbw ? 'checked' : ''}><span class="switch-slider"></span></label>
-    </div>
-    <div id="wa-mbw-feld" class="${v?.mbw ? '' : 'hidden'}">
-      <input id="wa-mbw" class="input" inputmode="decimal" placeholder="Ab welchem Bestellwert? z. B. 15"
-        value="${v?.mbw ? esc(String(v.mbw).replace('.', ',')) : ''}">
-    </div>
-    <div class="form-grid">
-      <div>
-        <label class="f-label" for="wa-end">Gültig bis <span class="opt">(optional)</span></label>
-        <input id="wa-end" class="input" type="date" value="${esc(v?.end || '')}">
-      </div>
-      <div>
-        <label class="f-label" for="wa-notiz">Notiz <span class="opt">(optional)</span></label>
-        <input id="wa-notiz" class="input" maxlength="80" placeholder="z. B. nur Neukunden" value="${esc(v?.notiz || '')}">
-      </div>
-    </div>`;
+      <h3 class="gd-h">Details <small>optional</small></h3>
+      <div class="gd-block wa-gruppe">
+        <label class="wa-zeile"><span class="wa-zeile-label">Rabattcode</span>
+          <input id="wa-rcode" class="wa-code-feld" maxlength="40" placeholder="Falls es einen gibt"
+            autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" value="${esc(v?.code || '')}"></label>
+        <div class="wa-zeile wa-zeile-schalter">
+          <span class="wa-zeile-text"><span class="wa-zeile-label">Mindestbestellwert</span>
+            <span class="wa-zeile-wert" id="wa-mbw-text">${mbw ? 'ab ' + euroFmt(mbw) : 'ohne MBW'}</span></span>
+          <label class="switch"><input type="checkbox" id="wa-mbw-an" aria-label="Mindestbestellwert"${mbw ? ' checked' : ''}><span class="switch-slider"></span></label>
+        </div>
+        <label class="wa-zeile${mbw ? '' : ' hidden'}" id="wa-mbw-feld"><span class="wa-zeile-label">Ab welchem Bestellwert? (€)</span>
+          <input id="wa-mbw" inputmode="decimal" autocomplete="off" placeholder="z. B. 15" value="${mbw ? esc(String(mbw).replace('.', ',')) : ''}"></label>
+        <label class="wa-zeile"><span class="wa-zeile-label">Gültig bis</span>
+          <input id="wa-end" type="date" value="${esc(v?.end || '')}"></label>
+        <label class="wa-zeile"><span class="wa-zeile-label">Notiz</span>
+          <input id="wa-notiz" maxlength="80" autocomplete="off" placeholder="z. B. nur für Neukunden" value="${esc(v?.notiz || '')}"></label>
+      </div>`;
 }
 
 // ---- Marken-Ansicht: Farben und schwebende Logos im Kopf
@@ -8674,6 +9209,9 @@ function renderWallet() {
   $('#view-wallet').querySelectorAll('[data-wadd-prefill]').forEach(el => el.onclick = () => openWalletAdd('card', el.dataset.waddPrefill));
   // Offene Gutschein- und Analyse-Seiten ziehen mit
   wseitenAbgleichen();
+  // ... und ein offenes Marken-Blatt (auf der Gutschein-Seite darueber gebucht,
+  // verschenkt oder geloescht, oder ein anderes Geraet hat abgeglichen)
+  markenBlattAbgleichen();
 }
 
 // Zuletzt verwendet: der Gutschein der letzten Abbuchung (nicht rueckgaengig
@@ -9049,6 +9587,12 @@ function rangSpanne(r) {
   return r.bis === Infinity ? `über ${davor.bis} €` : `über ${davor.bis} bis ${r.bis} €`;
 }
 function zeigeRang() {
+  // Gesperrt: der Rang verraet das Guthaben — erst zur Sperre der Wallet
+  if (walletGesperrt()) {
+    if (state.activeView !== 'wallet') switchView('wallet', 'enter-drop');
+    else aktualisiereSperre();
+    return;
+  }
   const total = rangGuthaben();
   const jetzt = rankFor(total);
   state.sheetMode = 'rang';
@@ -9730,6 +10274,9 @@ function msgMenuHtml(own, id) {
 let chatMode = 'dmlist';
 let dmPartner = '';
 let dmLastTs = 0;
+// Zaehlt jeden Wechsel (Liste <-> Einzelchat, anderer Partner). Eine Antwort,
+// die zu einem frueheren Stand gehoert, schreibt nichts mehr in #chat-list.
+let chatLauf = 0;
 // Angefangene Nachrichten je Gespraech: ein Entwurf fuer A landet nie bei B
 const chatEntwuerfe = new Map();
 
@@ -9737,6 +10284,7 @@ function setChatMode(mode, partner) {
   const vorherMode = chatMode;
   const inp = $('#chat-input');
   if (vorherMode === 'dm' && dmPartner) chatEntwuerfe.set(dmPartner, inp.value);
+  chatLauf++;
   chatMode = mode;
   dmPartner = partner || '';
   dmLastTs = 0;
@@ -9868,10 +10416,15 @@ async function pollChat(force) {
   // nachgesehen. Frueher lief hier alle vier Sekunden der ganze Global-Chat
   // mit — auch wenn man ihn gar nicht offen hatte.
   if (!force && state.activeView !== 'chat') { refreshDmBadge(); return; }
+  // Stand vor dem Warten merken: wechselt inzwischen der Chat (etwa "Schreiben"
+  // direkt nach switchView('chat')), gehoert die Antwort nicht mehr hierher
+  const lauf = chatLauf, modus = chatMode, fuer = dmPartner;
+  const veraltet = () => lauf !== chatLauf || modus !== chatMode || fuer !== dmPartner;
   try {
     if (chatMode === 'dmlist') {
       if (!state.token) { $('#chat-list').innerHTML = '<div class="status">Zum Flüstern bitte anmelden.</div>'; return; }
       const r = await api('/api/dm/list');
+      if (veraltet()) return;
       // Profilbild, sonst der Anfangsbuchstabe auf der Chat-Farbe
       const ava = (name, avatar) => avatar
         ? `<img class="avatar-mini avatar-img" src="${sichereBildUrl(avatar)}" alt="">`
@@ -9923,6 +10476,7 @@ async function pollChat(force) {
       $('#chat-freunde-finden')?.addEventListener('click', () => switchView('friends', 'enter-drop'));
     } else if (chatMode === 'dm') {
       const r = await api(`/api/dm/with?user=${encodeURIComponent(dmPartner)}&since=${dmLastTs}`);
+      if (veraltet()) return;           // anderer Chat offen: nichts anhaengen, dmLastTs bleibt
       (r.updates || []).forEach(id => {
         const el = $('#chat-list').querySelector(`[data-mid="${id}"] .chat-text`);
         if (el) { el.className = 'chat-text chat-deleted'; el.textContent = 'Nachricht gelöscht'; }
@@ -9993,8 +10547,16 @@ async function sendChat() {
   // Emote-Fenster schließt beim Absenden, die Nachricht ist ja raus
   if (!$('#chat-emotes').classList.contains('hidden')) toggleEmotes();
   if (!state.token) { switchView('profile'); island('Zum Schreiben bitte anmelden'); return; }
+  const lauf = chatLauf, an = dmPartner;
   try {
-    const r = await api('/api/dm/send', { method: 'POST', body: JSON.stringify({ to: dmPartner, text }) });
+    const r = await api('/api/dm/send', { method: 'POST', body: JSON.stringify({ to: an, text }) });
+    // Inzwischen ein anderer Chat offen: die Nachricht ist raus, gehoert aber
+    // nicht in diese Liste — nur ihren Entwurf beim alten Gespraech leeren
+    if (lauf !== chatLauf) {
+      if ((chatEntwuerfe.get(an) || '').trim() === text) chatEntwuerfe.delete(an);
+      if (chatMode === 'dm' && dmPartner === an && inp.value.trim() === text) { inp.value = ''; chatEingabeStand(); }   // derselbe Chat neu geoeffnet
+      return;
+    }
     inp.value = '';
     if (!$('#chat-list').querySelector(`[data-mid="${r.message.id}"]`)) {
       $('#chat-list').insertAdjacentHTML('beforeend', dmMsgHtml(r.message));
@@ -10011,7 +10573,11 @@ async function sendChat() {
 let userPageReturn = 'feed';
 async function openUserPop(user, msgId) {
   if (user === state.userName) { switchView('profile'); return; }
-  if (state.activeView !== 'user') userPageReturn = state.activeView;
+  if (state.activeView !== 'user') {
+    userPageReturn = state.activeView;
+    // Aus einem Einzelchat: Zurueck fuehrt wieder in dieses Gespraech (siehe switchView)
+    openUserPop.gespraech = state.activeView === 'chat' && chatMode === 'dm' ? dmPartner : '';
+  }
   const pop = $('#user-page');
   pop.innerHTML = '<div class="status">Lade Profil …</div>';
   switchView('user', 'enter-drop');
@@ -10516,6 +11082,7 @@ function aktualisiereSperre() {
   const warSichtbar = !el.classList.contains('hidden') && !geht;
   document.body.classList.toggle('wallet-zu', zu);
   setzeLeistenfarbe();
+  renderRangKarte();   // Rang im Profil: gesperrt ohne Betrag, entsperrt wieder mit
   // Nicht nur ein Vorhang: darunter ist nichts bedien- oder per Tastatur erreichbar
   for (const sel of ['#wallet-kopf', '#wallet-content', '#coupons-content', '#wallet-gate', '#wallet-mini', '#wallet-modes']) {
     const n = $(sel);
@@ -10578,6 +11145,9 @@ function schliesseWalletAnsichten() {
   if (bildOffen) bildOffen.querySelector('.bl-zu')?.click();
   document.querySelectorAll('.gift-overlay').forEach(x => x.remove());
   document.querySelectorAll('.cc-big').forEach(x => (x.closest('.overlay') || x).remove());
+  // Zuschneiden zeigt das ganze Gutscheinbild und liegt ueber der Sperre:
+  // sofort weg, ohne Uebernahme (die Rueckrufe pruefen die Sperre zusaetzlich)
+  document.querySelectorAll('.crop-overlay').forEach(x => x.remove());
   // Offene Rueckfragen ("Loeschen?") gelten als abgebrochen — sonst laegen sie
   // ueber der Sperre und liessen sich weiter bestaetigen
   document.querySelectorAll('.overlay.rueckfrage').forEach(x => x.click());
@@ -11677,7 +12247,8 @@ function verarbeiteGeteiltes() {
     // gespeichert wird erst mit "Speichern" — danach kommt das naechste
     geteiltSchlange = dateien.slice(1);
     openWalletAdd('voucher');
-    if (state.sheetMode === 'wallet-add' && waHandleImage) {
+    if (waApi) waApi.ausSchlange = true;
+    if (waOffen() && waHandleImage) {
       waHandleImage(dateien[0]);
       if (geteiltSchlange.length) island(`Bild 1 von ${dateien.length}: prüfen und speichern, dann kommt das nächste`, 4200);
     }
@@ -11685,16 +12256,16 @@ function verarbeiteGeteiltes() {
   }
   // Nur Text: als Rabattcode vorschlagen
   openWalletAdd('rabatt');
-  if (state.sheetMode !== 'wallet-add') return;
+  if (!waOffen() || !waApi) return;
   const code = detectCode(text);
   if (code && $('#wa-rcode')) $('#wa-rcode').value = code.slice(0, 40);
   const low = text.toLowerCase();
-  const tile = [...document.querySelectorAll('#wa-vendor-grid [data-vg]')]
-    .find(t => !ANDERE_SHOPS.has(t.dataset.vg) && low.includes(t.dataset.vg.toLowerCase()));
-  if (tile) { if (tile.classList.contains('vendor-more')) $('#wa-vendor-showmore')?.click(); tile.click(); }
+  const shop = RABATT_GRID.find(n => !ANDERE_SHOPS.has(n) && low.includes(n.toLowerCase()));
+  if (shop) waApi.shop(shop);
   if ($('#wa-notiz')) $('#wa-notiz').value = text.replace(/\s+/g, ' ').trim().slice(0, 80);
+  waApi.aktualisieren();
   const m = $('#wa-ai-msg');
-  if (m) { m.className = 'form-msg ok'; m.textContent = code ? 'Code aus dem geteilten Text übernommen, bitte kurz prüfen.' : 'Kein Code erkannt, bitte selbst eintragen.'; }
+  if (m) { m.className = 'form-msg wa-scan-meldung' + (code ? ' ok' : ''); m.textContent = code ? 'Code aus dem geteilten Text übernommen, bitte kurz prüfen.' : 'Kein Code erkannt, bitte selbst eintragen.'; }
 }
 
 // ---------------- Neu in kumulio (Update-Log) ----------------
