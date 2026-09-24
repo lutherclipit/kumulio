@@ -251,11 +251,8 @@
 #sheet-content #comment-text { margin-top: 12px; min-height: 64px; }
 
 /* =============================================================================
-   Gutschein-Blatt
+   Code-Zeilen und Bild-Knoepfe (Marken- und Rabattcode-Blatt)
    ========================================================================== */
-#sheet-content .balance-big { font-size: 2.3rem; font-weight: 850; letter-spacing: -.03em; color: var(--text); line-height: 1.1; }
-#sheet-content .balance-big .stars-count { font-size: .88rem; font-weight: 650; letter-spacing: 0; margin-left: 4px; }
-/* Code-, PIN- und Verlaufszeilen: weisse Karten */
 #sheet-content .tx-row {
   gap: 10px; min-height: 52px; margin-top: 8px; padding: 10px 10px 10px 14px;
   background: var(--karte); border: 0; border-radius: 14px; box-shadow: var(--schatten-1);
@@ -265,15 +262,6 @@
 #sheet-content .tx-row .btn-small { flex: none; }
 #sheet-content .tx-row .btn, #sheet-content .rc-codefeld .btn { box-shadow: none; }
 #sheet-content .tx-row .btn-ghost { background: var(--karte-2); }
-#sheet-content .tx-amt { font-size: .95rem; min-width: 76px; }
-#sheet-content .tx-amt.minus { color: #D23A2C; }
-#sheet-content .tx-amt.plus { color: #1A9A55; }
-:root[data-theme="dark"] #sheet-content .tx-amt.minus { color: #FF7B6E; }
-:root[data-theme="dark"] #sheet-content .tx-amt.plus { color: #3FD68B; }
-#sheet-content .tx-note { color: var(--text); font-weight: 600; }
-#sheet-content .tx-note small { font-weight: 500; margin-top: 1px; }
-#sheet-content .tx-row.reverted { opacity: .55; box-shadow: none; background: var(--karte-2); }
-/* Bilder und Bild-Knoepfe */
 #sheet-content .wallet-img, #sheet-content .wallet-code-img { border-radius: 14px; box-shadow: var(--schatten-1); }
 #sheet-content .bild-aktionen { gap: 8px; margin-top: 10px; }
 #sheet-content .bild-btn {
@@ -283,32 +271,528 @@
 #sheet-content .bild-btn:active { border-color: transparent; }
 #sheet-content .bild-btn .icon { width: 18px; height: 18px; color: var(--akzent-text); }
 #sheet-content .bild-btn-rund { flex: 0 0 46px; padding: 0; }
-/* Schnellbetraege */
-#sheet-content .amt-presets { gap: 8px; margin-bottom: 2px; }
-#sheet-content .amt-presets .chip {
-  height: 38px; padding: 0 14px; border-radius: 10px; border: 0;
-  background: var(--karte); box-shadow: var(--schatten-1); font-size: .86rem; font-weight: 750;
+
+/* =============================================================================
+   Wallet-Seiten (Gutschein, Verschenken, Analyse): gleiten von rechts ueber
+   die ganze App. Grund --seite, Inhalte auf weissen Karten, unten eine feste
+   Leiste. Ueber Blatt (50) und Menue, unter Toast (60), Lupe und Dialogen.
+   ========================================================================== */
+.wseiten {
+  position: fixed; left: 0; right: 0; top: 0; bottom: 0; z-index: 52;
+  visibility: hidden; pointer-events: none; overflow: hidden;
 }
-#sheet-content .amt-presets .chip:active { transform: scale(.95); }
-#sheet-content .form-row > .input { margin-top: 0; }
-/* Abbuchen rot, Aufladen gruen (Geld raus / Geld rein), gleich breit */
-#sheet-content .btn-book-sub, #sheet-content .btn-book-add {
-  flex: 1 1 0; min-width: 0; padding: 13px 10px; border-radius: 12px; font-size: .95rem; font-weight: 800;
+.wseiten.offen { visibility: visible; pointer-events: auto; }
+.wseiten-dimm { position: absolute; inset: 0; background: rgba(10, 14, 20, .3); opacity: 0; }
+.wseiten.offen .wseiten-dimm { opacity: 1; }
+:root[data-theme="dark"] .wseiten-dimm { background: rgba(0, 0, 0, .5); }
+.wseite {
+  --rand: max(16px, calc((100% - 608px) / 2));
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  background: var(--seite); color: var(--text); outline: none;
+  box-shadow: -12px 0 32px rgba(16, 24, 32, .14);
+  touch-action: pan-y;
 }
-#sheet-content .btn-book-sub { background: #E5484D !important; box-shadow: 0 6px 16px rgba(229, 72, 77, .24); }
-#sheet-content .btn-book-add { background: #1FA85B !important; box-shadow: 0 6px 16px rgba(31, 168, 91, .24); }
-#sheet-content .btn-book-add ~ .form-msg { flex-basis: 100%; }
-/* Verschenken: ruhige weisse Zeile statt Metall-Knopf */
-#sheet-content .gift-btn {
-  justify-content: flex-start; gap: 12px; padding: 10px 14px 10px 10px; border-radius: 16px;
+:root[data-theme="dark"] .wseite { box-shadow: -12px 0 32px rgba(0, 0, 0, .45); }
+.wseite.verdeckt { visibility: hidden; }
+.wseite-kopf {
+  position: relative; z-index: 3; flex: none;
+  display: grid; grid-template-columns: 42px minmax(0, 1fr) 42px; align-items: center; gap: 8px;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) var(--rand) 10px;
+  background: var(--seite); transition: box-shadow .2s ease;
+}
+.wseite.gescrollt .wseite-kopf { box-shadow: 0 1px 0 var(--linie), 0 8px 18px rgba(16, 24, 32, .05); }
+.wseite-zurueck {
+  width: 42px; height: 42px; border-radius: 50%; border: 0; padding: 0; cursor: pointer;
+  display: grid; place-items: center; background: var(--karte); color: var(--text);
+  box-shadow: var(--schatten-1); touch-action: manipulation;
+  transition: transform .2s var(--spring);
+}
+.wseite-zurueck:active { transform: scale(.9); }
+.wseite-zurueck .icon { width: 21px; height: 21px; stroke-width: 2; }
+.wseite-titel {
+  margin: 0; text-align: center; font-size: 1.06rem; font-weight: 800; letter-spacing: -.01em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wseite-inhalt {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
+  padding: 6px var(--rand) calc(28px + env(safe-area-inset-bottom, 0px));
+}
+.wseite-leiste {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 5;
+  padding: 12px var(--rand) calc(12px + env(safe-area-inset-bottom, 0px));
+  background: var(--karte); border-radius: 18px 18px 0 0;
+  box-shadow: 0 -1px 0 var(--linie), 0 -10px 30px rgba(16, 24, 32, .08);
+}
+:root[data-theme="dark"] .wseite-leiste { box-shadow: 0 -1px 0 var(--linie), 0 -10px 30px rgba(0, 0, 0, .4); }
+body.wseite-offen { overflow: hidden; }
+/* Der Hinweis nach dem Buchen steht ueber der Leiste, nicht auf ihr */
+body.wseite-offen .toast { bottom: calc(126px + env(safe-area-inset-bottom, 0px)); }
+/* Ein Blatt, das aus einer Seite heraus aufgeht, liegt ueber ihr */
+body.blatt-ueber-seite .sheet { z-index: 54; }
+body.blatt-ueber-seite #sheet-backdrop { z-index: 53; }
+/* Logos auf weissen Flaechen brauchen eine feine Kante */
+.wseite .gd-block .brand-chip.hat-logo, .ana-marke .brand-chip.hat-logo, .gw-chip .brand-chip.hat-logo {
+  box-shadow: inset 0 0 0 1px var(--linie);
+}
+
+/* ---- Gemeinsame Bausteine */
+.gd-block {
+  display: block; width: 100%; margin-top: 12px;
+  background: var(--karte); border: 0; border-radius: 16px; box-shadow: var(--schatten-1);
+  color: var(--text); font: inherit; text-align: left;
+}
+button.gd-block, label.gd-block { cursor: pointer; -webkit-tap-highlight-color: transparent; transition: transform .2s var(--spring); }
+button.gd-block:active, label.gd-block:active { transform: scale(.985); }
+.gd-h { margin: 24px 2px 0; font-size: 1rem; font-weight: 800; letter-spacing: -.01em; }
+.gd-h small { margin-left: 4px; font-size: .76rem; font-weight: 600; color: var(--muted); }
+.gd-h + .gd-block, .gd-h + .gd-feld { margin-top: 10px; }
+.gd-feld {
+  display: block; width: 100%; height: 48px; margin-top: 10px; padding: 0 14px;
+  border: 1.5px solid transparent; border-radius: 12px; background: var(--karte-2);
+  color: var(--text); font: inherit; font-size: .95rem; outline: none;
+  transition: border-color .2s ease;
+}
+.wseite-inhalt .gd-feld { background: var(--karte); box-shadow: var(--schatten-1); }
+.gd-feld:focus { border-color: color-mix(in srgb, var(--text) 28%, transparent); }
+.gd-feld::placeholder { color: var(--muted); opacity: .85; }
+.gd-textfeld { height: auto; min-height: 96px; padding: 12px 14px; resize: none; line-height: 1.45; }
+.gd-los {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; height: 52px; margin-top: 12px; padding: 0 16px; border: 0; border-radius: 13px;
+  background: #16191E; color: #fff; font: inherit; font-size: 1rem; font-weight: 800; cursor: pointer;
+  touch-action: manipulation; transition: transform .2s var(--spring), opacity .2s ease;
+}
+.gd-los:active { transform: scale(.98); }
+.gd-los:disabled { opacity: .38; cursor: default; transform: none; }
+.gd-los.leise { background: var(--karte-2); color: var(--text); }
+:root[data-theme="dark"] .gd-los:not(.leise) { background: #EEF1F5; color: #14171B; }
+
+/* =============================================================================
+   Gutschein-Seite
+   ========================================================================== */
+.gd .wseite-inhalt { padding-bottom: calc(var(--gd-leiste-h, 120px) + 24px); }
+/* Grosse Karte im Stil der Wallet-Karten: Markenton, Logo, Guthaben, Balken */
+.gd-karte {
+  position: relative; overflow: hidden; isolation: isolate;
+  margin-top: 4px; padding: 16px 16px 14px; border-radius: 18px;
+  color: var(--tc, #fff);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--bc) 94%, #fff), color-mix(in srgb, var(--bc) 72%, #000));
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--bc) 26%, transparent), inset 0 1px 0 rgba(255, 255, 255, .22);
+}
+.gd-karte > * { position: relative; z-index: 1; }
+.gd-karte > .gd-motiv {
+  position: absolute; z-index: 0; right: -18px; top: 50%; width: 150px; height: 150px;
+  transform: translateY(-50%) rotate(-10deg); opacity: .12; pointer-events: none;
+  display: grid; place-items: center; filter: grayscale(1) brightness(3);
+}
+.gd-karte.hell > .gd-motiv { filter: grayscale(1) brightness(.2); }
+.gd-motiv img { width: 100%; height: 100%; object-fit: contain; }
+.gd-motiv i { font-style: normal; font-weight: 900; font-size: 4.2rem; color: #fff; }
+.gd-karte-kopf { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.gd-karte .vk-logo .brand-chip { width: 46px; height: 46px; border-radius: 12px; }
+.gd-karte-namen { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.gd-karte-namen b {
+  font-size: 1.14rem; font-weight: 850; letter-spacing: -.01em; line-height: 1.2;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.gd-karte-namen span { font-size: .8rem; font-weight: 600; line-height: 1.3; opacity: .9; }
+.gd-guthaben { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; margin-top: 18px; }
+.gd-guthaben b {
+  font-size: 2.3rem; font-weight: 850; letter-spacing: -.03em; line-height: 1.05;
+  font-variant-numeric: tabular-nums; text-shadow: 0 2px 10px rgba(0, 0, 0, .14);
+}
+.gd-guthaben span { font-size: .86rem; font-weight: 650; opacity: .9; }
+.gd-balken {
+  height: 6px; margin-top: 12px; border-radius: 3px; overflow: hidden;
+  background: color-mix(in srgb, var(--tc, #fff) 24%, transparent);
+}
+.gd-balken i { display: block; height: 100%; border-radius: inherit; background: var(--tc, #fff); transform-origin: left center; }
+.gd-karte-fuss {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+  margin-top: 12px; font-size: .78rem; font-weight: 600; line-height: 1.3; opacity: .92;
+}
+.gd-karte-fuss > span:only-child { margin-left: 0; }
+.gd-karte-fuss .pill { border: 0; border-radius: 8px; padding: 3px 8px; font-size: .72rem; background: color-mix(in srgb, var(--tc, #fff) 20%, transparent); color: inherit; }
+
+/* Code und PIN: eine Karte, je Zeile ein Kopier-Knopf */
+.gd-codes { padding: 2px 8px 2px 16px; }
+.gd-code-zeile { display: flex; align-items: center; gap: 12px; min-height: 64px; }
+.gd-code-zeile + .gd-code-zeile { border-top: 1px solid var(--linie); }
+.gd-code-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.gd-code-text small { font-size: .76rem; font-weight: 650; color: var(--muted); }
+.gd-code-text b {
+  font-family: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+  font-size: 1.06rem; font-weight: 700; letter-spacing: .06em; line-height: 1.3;
+  overflow-wrap: anywhere; -webkit-user-select: text; user-select: text;
+}
+.gd-kopier {
+  flex: none; width: 42px; height: 42px; border: 0; border-radius: 12px; padding: 0;
+  display: grid; place-items: center; background: var(--karte-2); color: var(--text); cursor: pointer;
+  touch-action: manipulation; transition: transform .2s var(--spring);
+}
+.gd-kopier .icon { width: 19px; height: 19px; }
+.gd-kopier:active { transform: scale(.9); }
+/* Leer: gestrichelt statt Karte — hier fehlt noch etwas */
+.gd-leer {
+  display: flex; align-items: center; justify-content: center; gap: 9px; min-height: 56px; padding: 0 16px;
+  background: none; box-shadow: none; border: 1.5px dashed color-mix(in srgb, var(--muted) 40%, transparent);
+  font-size: .9rem; font-weight: 750;
+}
+.gd-leer .icon { width: 19px; height: 19px; color: var(--muted); }
+/* Bild: gross und weiss hinterlegt (Scanner), darunter drei gleiche Knoepfe */
+.gd-bild { padding: 10px; }
+.gd-bild #wv-bild {
+  display: block; width: 100%; max-height: 320px; margin: 0; padding: 10px; box-sizing: border-box;
+  object-fit: contain; background: #fff; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--linie); cursor: zoom-in;
+}
+.gd-bild-knoepfe { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 40px; gap: 8px; margin-top: 10px; }
+.gd-bild-knopf {
+  display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 0;
+  height: 40px; padding: 0 8px; border: 0; border-radius: 12px; background: var(--karte-2); color: var(--text);
+  font: inherit; font-size: .8rem; font-weight: 750; cursor: pointer; white-space: nowrap;
+}
+.gd-bild-knopf span { overflow: hidden; text-overflow: ellipsis; }
+.gd-bild-knopf .icon { width: 17px; height: 17px; flex: none; }
+.gd-bild-lupe { padding: 0; }
+/* Sparkarte (oder: hinzufuegen) als Zeile */
+.gd-zeile { display: flex; align-items: center; gap: 12px; min-height: 66px; padding: 10px 12px; }
+.gd-zeile-bild { flex: none; width: 62px; line-height: 0; }
+.gd-zeile-plus { position: relative; flex: none; width: 62px; display: grid; place-items: center; }
+.gd-zeile-plus .brand-chip { width: 42px; height: 42px; flex: 0 0 42px; border-radius: 11px; font-size: .7rem; }
+.gd-zeile-plus i {
+  position: absolute; right: 6px; bottom: -4px; width: 20px; height: 20px; border-radius: 50%;
+  display: grid; place-items: center; background: #16191E; color: #fff; box-shadow: 0 0 0 2px var(--karte);
+}
+:root[data-theme="dark"] .gd-zeile-plus i { background: #EEF1F5; color: #14171B; }
+.gd-zeile-plus i .icon { width: 12px; height: 12px; stroke-width: 2.8; }
+.gd-zeile-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.gd-zeile-text b { font-size: .95rem; font-weight: 800; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gd-zeile-text small { font-size: .78rem; line-height: 1.35; color: var(--muted); }
+.gd-pfeil { flex: none; width: 18px; height: 18px; color: var(--muted); }
+/* Notiz */
+.gd-notiz { padding: 12px 14px 14px; }
+.gd-notiz-kopf { display: flex; align-items: center; gap: 7px; color: var(--muted); }
+.gd-notiz-kopf .icon { width: 17px; height: 17px; flex: none; }
+.gd-notiz-kopf small { flex: 1; font-size: .78rem; font-weight: 700; }
+.gd-notiz-text { display: block; margin-top: 6px; font-size: .93rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Verlauf: neueste Buchung oben, ganz unten der Anfang */
+.gd-verlauf { padding: 2px 6px 2px 14px; }
+.gd-tx { display: flex; align-items: center; gap: 12px; min-height: 62px; }
+.gd-tx + .gd-tx { border-top: 1px solid var(--linie); }
+.gd-tx-zeichen {
+  flex: none; width: 34px; height: 34px; border-radius: 10px;
+  display: grid; place-items: center; background: var(--karte-2); color: var(--muted);
+}
+.gd-tx-zeichen .icon { width: 17px; height: 17px; stroke-width: 2.1; }
+.gd-tx-zeichen.minus { background: color-mix(in srgb, #E5484D 12%, var(--karte)); color: #D23A2C; }
+.gd-tx-zeichen.plus { background: color-mix(in srgb, #1FA85B 13%, var(--karte)); color: #1A9A55; }
+.gd-tx-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.gd-tx-text b { font-size: .92rem; font-weight: 700; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gd-tx-text small { font-size: .74rem; color: var(--muted); line-height: 1.3; }
+.gd-tx-betrag { flex: none; font-size: .95rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.gd-tx-betrag.minus { color: #D23A2C; }
+.gd-tx-betrag.plus { color: #1A9A55; }
+:root[data-theme="dark"] .gd-tx-betrag.minus, :root[data-theme="dark"] .gd-tx-zeichen.minus { color: #FF7B6E; }
+:root[data-theme="dark"] .gd-tx-betrag.plus, :root[data-theme="dark"] .gd-tx-zeichen.plus { color: #3FD68B; }
+.gd-tx-rueck, .gd-tx-platz { flex: none; width: 34px; height: 34px; }
+.gd-tx-rueck {
+  border: 0; border-radius: 10px; padding: 0; background: none; color: var(--muted);
+  display: grid; place-items: center; cursor: pointer; touch-action: manipulation;
+}
+.gd-tx-rueck .icon { width: 17px; height: 17px; }
+.gd-tx-rueck:active { background: var(--karte-2); }
+.gd-tx.zurueck .gd-tx-betrag { color: var(--muted); text-decoration: line-through; }
+.gd-tx.zurueck .gd-tx-zeichen { opacity: .5; }
+.gd-tx.zurueck .gd-tx-text b { color: var(--muted); }
+
+/* Feste Leiste: Abbuchen und Aufladen, darunter der Pfeil zu "Mehr".
+   Die Leiste ist so hoch wie alles zusammen, zugeklappt aber um die Aktionen
+   nach unten geschoben (--gd-opt-h, gemessen) — aufklappen schiebt sie hoch.
+   Nur transform. Zugeklappt haelt der obere (unsichtbare) Teil der Aktionen
+   den Abstand zur Home-Leiste, aufgeklappt tut das .gd-fuss. */
+.gd-leiste {
+  padding-bottom: 0;
+  transform: translate3d(0, var(--gd-opt-h, 0px), 0);
+  transition: transform .34s cubic-bezier(.22, 1, .36, 1);
+}
+.gd-leiste.auf { transform: translate3d(0, 0, 0); }
+.gd-knoepfe { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.gd-knopf {
+  display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0;
+  height: 52px; padding: 0 12px; border: 0; border-radius: 13px; cursor: pointer;
+  font: inherit; font-size: .98rem; font-weight: 800; letter-spacing: -.005em;
+  touch-action: manipulation; transition: transform .2s var(--spring), opacity .2s ease;
+}
+.gd-knopf .icon { width: 20px; height: 20px; stroke-width: 2.3; flex: none; }
+.gd-knopf:active { transform: scale(.97); }
+.gd-ab { background: #16191E; color: #fff; box-shadow: 0 6px 16px rgba(16, 24, 32, .18); }
+.gd-auf { background: var(--karte-2); color: var(--text); }
+:root[data-theme="dark"] .gd-ab { background: #EEF1F5; color: #14171B; box-shadow: none; }
+.gd-knopf:disabled, :root[data-theme="dark"] .gd-knopf:disabled {
+  background: var(--karte-2); color: var(--muted); opacity: .7; cursor: default; box-shadow: none; transform: none;
+}
+.gd-mehr {
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  width: 100%; height: 38px; margin-top: 4px; padding: 0; border: 0; background: none; cursor: pointer;
+  color: var(--muted); font: inherit; font-size: .82rem; font-weight: 700; touch-action: manipulation;
+}
+.gd-mehr-pfeil { width: 17px; height: 17px; stroke-width: 2.2; transition: transform .3s cubic-bezier(.22, 1, .36, 1); }
+.gd-leiste.auf .gd-mehr-pfeil { transform: rotate(180deg); }
+.gd-optionen {
+  padding: 0 0 10px;
+  opacity: 0; visibility: hidden;
+  transition: opacity .16s ease, visibility 0s linear .34s;
+}
+.gd-leiste.auf .gd-optionen { opacity: 1; visibility: visible; transition: opacity .26s ease .04s; }
+.gd-fuss { height: env(safe-area-inset-bottom, 0px); }
+.gd-option {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 58px; padding: 8px 2px;
+  border: 0; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.gd-option + .gd-option { border-top: 1px solid var(--linie); }
+.gd-option-bild {
+  flex: none; width: 38px; height: 38px; border-radius: 11px;
+  display: grid; place-items: center; background: var(--karte-2);
+}
+.gd-option-bild .icon { width: 19px; height: 19px; }
+.gd-option-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.gd-option-text b { font-size: .95rem; font-weight: 750; line-height: 1.25; }
+.gd-option-text small { font-size: .76rem; line-height: 1.3; color: var(--muted); }
+.gd-option:active .gd-option-bild { transform: scale(.92); }
+.gd-option.gefahr { color: #C8363B; }
+.gd-option.gefahr .gd-option-bild { background: color-mix(in srgb, #E5484D 11%, var(--karte)); }
+:root[data-theme="dark"] .gd-option.gefahr { color: #FF8A8D; }
+/* Abdunklung ueber der Seite, solange "Mehr" oder ein Feld offen ist */
+.gd-dimm {
+  position: absolute; inset: 0; z-index: 4; background: rgba(10, 14, 20, .3);
+  opacity: 0; pointer-events: none; transition: opacity .26s ease;
+}
+.gd-dimm.an { opacity: 1; pointer-events: auto; }
+:root[data-theme="dark"] .gd-dimm { background: rgba(0, 0, 0, .5); }
+/* Feld von unten: Buchen, Notiz, Bearbeiten */
+.gd-panel {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 6;
+  max-height: calc(100% - 64px - env(safe-area-inset-top, 0px));
+  overflow-y: auto; overscroll-behavior: contain;
+  padding: 6px var(--rand) calc(16px + env(safe-area-inset-bottom, 0px));
+  background: var(--karte); border-radius: 18px 18px 0 0;
+  box-shadow: 0 -12px 34px rgba(16, 24, 32, .16);
+  transform: translate3d(0, 105%, 0); visibility: hidden;
+  transition: transform .32s cubic-bezier(.4, 0, .6, 1), visibility 0s linear .32s;
+}
+.gd-panel.auf { transform: translate3d(0, 0, 0); visibility: visible; transition: transform .4s cubic-bezier(.22, 1, .36, 1); }
+.gd-panel-kopf { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 52px; }
+.gd-panel-kopf b { font-size: 1.14rem; font-weight: 850; letter-spacing: -.01em; }
+.gd-panel-zu {
+  flex: none; width: 36px; height: 36px; border: 0; border-radius: 50%; padding: 0;
+  display: grid; place-items: center; background: var(--karte-2); color: var(--text); cursor: pointer;
+}
+.gd-panel-zu .icon { width: 17px; height: 17px; stroke-width: 2.2; }
+.gd-panel-info { margin: 0 0 12px; font-size: .86rem; line-height: 1.4; color: var(--muted); }
+.gd-panel-info b { color: var(--text); font-weight: 800; }
+.gd-panel-info.klein { margin: 8px 2px 0; font-size: .76rem; }
+.gd-betrag {
+  display: flex; align-items: center; gap: 6px; height: 66px; padding: 0 18px;
+  border: 1.5px solid transparent; border-radius: 14px; background: var(--karte-2); cursor: text;
+  transition: border-color .2s ease;
+}
+.gd-betrag:focus-within { border-color: color-mix(in srgb, var(--text) 28%, transparent); }
+.gd-betrag input {
+  flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: none; outline: none; color: var(--text);
+  font: inherit; font-size: 2rem; font-weight: 850; letter-spacing: -.02em; font-variant-numeric: tabular-nums;
+}
+.gd-betrag input::placeholder { color: var(--muted); opacity: .45; }
+.gd-betrag span { font-size: 1.5rem; font-weight: 800; color: var(--muted); }
+.gd-vorschlaege { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.gd-vorschlag {
+  height: 38px; padding: 0 14px; border: 0; border-radius: 10px; background: var(--karte-2); color: var(--text);
+  font: inherit; font-size: .86rem; font-weight: 750; cursor: pointer; touch-action: manipulation;
+  transition: background-color .2s ease, color .2s ease, transform .2s var(--spring);
+}
+.gd-vorschlag:active { transform: scale(.95); }
+.gd-vorschlag.an { background: #16191E; color: #fff; }
+:root[data-theme="dark"] .gd-vorschlag.an { background: #EEF1F5; color: #14171B; }
+.gd-meldung { margin: 8px 2px 0; font-size: .82rem; font-weight: 650; color: #D23A2C; }
+.gd-meldung:empty { display: none; }
+:root[data-theme="dark"] .gd-meldung { color: #FF8A8D; }
+.gd-label { display: block; margin: 12px 2px 0; font-size: .8rem; font-weight: 750; color: var(--muted); }
+.gd-panel-inhalt > .gd-label:first-child { margin-top: 0; }
+.gd-label + .gd-feld { margin-top: 6px; }
+.gd-zwei { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.gd-panel-knoepfe { display: flex; gap: 10px; }
+.gd-panel-knoepfe .gd-los { flex: 1 1 0; }
+
+/* =============================================================================
+   Verschenken (Auswahl und "An wen?")
+   ========================================================================== */
+.gw-frage { margin: 4px 2px 12px; font-size: .92rem; line-height: 1.4; color: var(--muted); }
+.gw-marken {
+  display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;
+  margin: 0 calc(-1 * var(--rand)) 4px; padding: 2px var(--rand) 10px; scroll-padding-inline: var(--rand);
+}
+.gw-marken::-webkit-scrollbar { display: none; }
+.gw-chip {
+  flex: none; display: inline-flex; align-items: center; gap: 7px;
+  height: 38px; padding: 0 13px 0 8px; border: 0; border-radius: 11px;
   background: var(--karte); color: var(--text); box-shadow: var(--schatten-1);
-  font-size: .95rem; font-weight: 750;
+  font: inherit; font-size: .86rem; font-weight: 750; cursor: pointer;
+  transition: background-color .2s ease, color .2s ease;
 }
-#sheet-content .gift-btn .icon {
-  width: 38px; height: 38px; padding: 9px; box-sizing: border-box; border-radius: 11px;
-  background: var(--akzent-weich); color: var(--akzent-text);
+.gw-chip:first-child { padding: 0 14px; }
+.gw-chip .brand-chip { width: 24px; height: 24px; flex: 0 0 24px; border-radius: 7px; font-size: .5rem; }
+.gw-chip.an { background: #16191E; color: #fff; }
+:root[data-theme="dark"] .gw-chip.an { background: #EEF1F5; color: #14171B; }
+.gw-sortierung, .ana-zeitraum {
+  position: relative; display: grid; padding: 4px; border-radius: 13px;
+  background: var(--karte); box-shadow: var(--schatten-1);
 }
-#sheet-content .gift-btn:active { transform: scale(.98); box-shadow: var(--schatten-1); }
+.gw-sortierung { grid-template-columns: 1fr 1fr; margin-bottom: 14px; }
+.gw-flaeche, .ana-flaeche {
+  position: absolute; top: 4px; bottom: 4px; left: 4px; border-radius: 10px;
+  transform: translate3d(calc(var(--i, 0) * 100%), 0, 0);
+  transition: transform .34s cubic-bezier(.22, 1, .36, 1);
+}
+.gw-flaeche { width: calc((100% - 8px) / 2); background: var(--karte-2); }
+.gw-sort, .ana-tab {
+  position: relative; z-index: 1; height: 38px; padding: 0 6px; border: 0; background: none;
+  font: inherit; font-size: .88rem; font-weight: 700; color: var(--muted); cursor: pointer;
+  transition: color .25s ease;
+}
+.gw-sort.an { color: var(--text); font-weight: 800; }
+.gw-liste { margin-top: 0; }
+.gw-liste .wallet-card { margin: 0; cursor: pointer; }
+.gw .schenk-gruppe { margin: 0; }
+.gw .schenk-gruppe .wallet-card { margin: 0; }
+.gw .schenk-mehr {
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  width: 100%; height: 38px; margin-top: 6px; padding: 0 12px; border: 0; border-radius: 11px;
+  background: var(--karte); color: var(--muted); box-shadow: var(--schatten-1);
+  font-size: .8rem; font-weight: 750;
+}
+.gw .schenk-mehr .icon { width: 15px; height: 15px; }
+.gw .deck-more { border: 0; border-radius: 12px; background: var(--karte); box-shadow: var(--schatten-1); }
+
+.gp .wseite-inhalt { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
+.gp .schenk-karte { margin-top: 4px; }
+.gp .gp-block { margin-top: 0; }
+.gp .gp-suche { height: 44px; margin-top: 10px; }
+.gp .gp-freunde { display: block; max-height: none; overflow: visible; padding: 0 12px; }
+.gp .gp-freund {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 58px; padding: 8px 0;
+  border: 0; border-radius: 0; background: none; box-shadow: none; color: var(--text);
+  font: inherit; text-align: left; cursor: pointer;
+}
+.gp .gp-freund + .gp-freund { border-top: 1px solid var(--linie); }
+.gp .gp-freund:active { transform: none; }
+.gp .gp-ava { width: 36px; height: 36px; flex: 0 0 36px; font-size: .9rem; background: var(--fc, var(--akzent)); color: #fff; }
+.gp .gp-name { flex: 1; min-width: 0; font-size: .95rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gp-haken {
+  flex: none; width: 26px; height: 26px; border-radius: 50%;
+  display: grid; place-items: center; color: transparent;
+  border: 1.5px solid color-mix(in srgb, var(--muted) 45%, transparent);
+  transition: background-color .2s ease, border-color .2s ease, color .2s ease;
+}
+.gp .gp-haken .icon { width: 14px; height: 14px; margin: 0; stroke-width: 2.8; color: inherit; }
+.gp .gp-freund.gewaehlt .gp-haken { background: #16191E; border-color: #16191E; color: #fff; }
+:root[data-theme="dark"] .gp .gp-freund.gewaehlt .gp-haken { background: #EEF1F5; border-color: #EEF1F5; color: #14171B; }
+.gp-leer { margin: 10px 2px; font-size: .86rem; color: var(--muted); }
+.gp .gp-eingabe { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+.gp .gp-eingabe .gd-feld { flex: 1; min-width: 0; margin-top: 0; }
+.gp-emote-btn {
+  flex: none; width: 48px; height: 48px; border: 0; border-radius: 12px; padding: 0;
+  display: grid; place-items: center; background: var(--karte); color: var(--text);
+  box-shadow: var(--schatten-1); cursor: pointer;
+}
+.gp .gp-emotes { margin-top: 8px; padding: 8px; border-radius: 14px; background: var(--karte); box-shadow: var(--schatten-1); }
+.gp .gp-haftung {
+  margin: 20px 2px 0; padding: 0; border: 0; background: none; box-shadow: none;
+  font-size: .74rem; line-height: 1.5; color: var(--muted);
+}
+.gp .gp-haftung a { color: var(--text); font-weight: 700; }
+.gp-leiste .gd-los { margin-top: 0; }
+.gp-keine { padding: 16px; }
+.gp-keine p { margin: 0; font-size: .9rem; line-height: 1.45; color: var(--muted); }
+
+/* =============================================================================
+   Analyse
+   ========================================================================== */
+.ana-zeitraum { grid-template-columns: repeat(3, 1fr); margin-top: 4px; }
+.ana-flaeche {
+  width: calc((100% - 8px) / 3); background: var(--akzent-tief);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--akzent) 26%, transparent);
+}
+.ana-tab { font-size: .9rem; font-weight: 750; }
+.ana-tab.an { color: #fff; }
+.ana-periode { margin: 16px 2px 8px; font-size: .86rem; font-weight: 650; color: var(--muted); }
+.ana-kacheln { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.ana-kachel {
+  display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 14px 14px 13px;
+  border-radius: 16px; background: var(--karte); box-shadow: var(--schatten-1);
+}
+.ana-kachel-kopf { display: flex; align-items: center; gap: 7px; font-size: .8rem; font-weight: 700; color: var(--muted); }
+.ana-kachel b { font-size: 1.42rem; font-weight: 850; letter-spacing: -.02em; line-height: 1.15; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ana-punkt { display: inline-block; width: 9px; height: 9px; flex: none; border-radius: 3px; }
+.ana-punkt.rein, .ana-paar .rein { background: var(--akzent); }
+.ana-punkt.raus, .ana-paar .raus { background: color-mix(in srgb, var(--preis) 82%, #fff); }
+.ana-karte { margin-top: 12px; padding: 14px 14px 12px; border-radius: 16px; background: var(--karte); box-shadow: var(--schatten-1); }
+.ana-karte-kopf { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.ana-karte-kopf h3 { margin: 0; font-size: 1rem; font-weight: 800; letter-spacing: -.01em; }
+.ana-legende { display: flex; align-items: center; gap: 6px; font-size: .76rem; font-weight: 650; color: var(--muted); }
+.ana-legende .ana-punkt ~ .ana-punkt { margin-left: 8px; }
+.ana-summe { font-size: .95rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.ana-balken { display: grid; grid-template-columns: repeat(var(--n, 6), minmax(0, 1fr)); gap: 2px; height: 156px; }
+.ana-monat {
+  display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 0; padding: 0;
+  border: 0; background: none; color: var(--muted); font: inherit; cursor: pointer; touch-action: manipulation;
+}
+.ana-paar {
+  flex: 1; display: flex; align-items: flex-end; justify-content: center; gap: 3px;
+  padding: 8px 0 0; border-radius: 10px; transition: background-color .2s ease;
+}
+.ana-monat.an .ana-paar { background: var(--karte-2); }
+.ana-paar i {
+  display: block; width: min(12px, 32%); border-radius: 4px 4px 2px 2px;
+  transform-origin: 50% 100%; animation: anaWachsen .5s cubic-bezier(.22, 1, .36, 1) both;
+}
+.ana-paar .raus { animation-delay: .05s; }
+.ana-monat.blass .ana-paar i { opacity: .42; }
+.ana-monat small { font-size: .72rem; font-weight: 650; line-height: 1.2; text-align: center; white-space: nowrap; }
+.ana-monat.an small { color: var(--text); font-weight: 800; }
+@keyframes anaWachsen { from { transform: scaleY(0); } }
+.ana-auswahl {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px;
+  margin: 12px 2px 0; font-size: .86rem;
+}
+.ana-auswahl b { margin-right: auto; font-weight: 800; }
+.ana-auswahl span { color: var(--muted); font-weight: 650; }
+.ana-auswahl .ana-plus { color: #1A9A55; font-weight: 750; font-variant-numeric: tabular-nums; }
+.ana-auswahl .ana-minus { color: #D23A2C; font-weight: 750; font-variant-numeric: tabular-nums; }
+:root[data-theme="dark"] .ana-auswahl .ana-plus { color: #3FD68B; }
+:root[data-theme="dark"] .ana-auswahl .ana-minus { color: #FF7B6E; }
+.ana-leer { margin: 2px 2px 6px; font-size: .86rem; line-height: 1.5; color: var(--muted); }
+.ana-marken { display: flex; flex-direction: column; }
+.ana-marke {
+  display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center;
+  column-gap: 12px; row-gap: 7px; padding: 10px 0;
+}
+.ana-marke + .ana-marke { border-top: 1px solid var(--linie); }
+.ana-marke .brand-chip { grid-row: 1 / 3; width: 36px; height: 36px; flex: 0 0 36px; border-radius: 10px; font-size: .6rem; }
+.ana-marke-text { display: flex; flex-direction: column; min-width: 0; }
+.ana-marke-text b { font-size: .92rem; font-weight: 750; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ana-marke-text small { font-size: .74rem; color: var(--muted); }
+.ana-marke-betrag { font-size: .92rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.ana-marke-balken { grid-column: 2 / 4; height: 5px; border-radius: 3px; overflow: hidden; background: var(--karte-2); }
+.ana-marke-balken i { display: block; height: 100%; border-radius: inherit; background: var(--bc); transform-origin: left center; }
+.ana-fussnote { margin: 12px 2px 0; font-size: .76rem; line-height: 1.45; color: var(--muted); }
+
+/* ---- Ruhige Bewegung */
+body.sparsam .gd-leiste, body.sparsam .gd-panel, body.sparsam .gd-dimm,
+body.sparsam .gw-flaeche, body.sparsam .ana-flaeche { transition: none; }
+body.sparsam .ana-paar i { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .gd-leiste, .gd-panel, .gd-dimm, .gd-mehr-pfeil, .gw-flaeche, .ana-flaeche { transition: none; }
+  .ana-paar i { animation: none; }
+}
 
 /* =============================================================================
    Marken-Blatt
@@ -400,20 +884,6 @@
 #sheet-content .scan-progress-fill { border-radius: 4px; background: var(--akzent); }
 #sheet-content .scan-progress.done span { color: var(--akzent-text); }
 #sheet-content #wa-save { min-width: 150px; padding: 14px 26px; border-radius: 13px; font-size: .95rem; font-weight: 800; }
-
-/* ---- Verschenken im Blatt */
-#sheet-content .back-btn { border: 0; background: var(--karte); box-shadow: var(--schatten-1); }
-#sheet-content .schenk-kopf .sheet-title { margin-top: 0; }
-#sheet-content .gp-label { font-size: .84rem; font-weight: 750; }
-#sheet-content .gp-freund {
-  border: 0; border-radius: 13px; padding: 9px 12px; background: var(--karte); box-shadow: var(--schatten-1);
-}
-#sheet-content .gp-freund.gewaehlt { background: var(--karte); box-shadow: 0 0 0 2px var(--akzent), var(--schatten-1); }
-#sheet-content .gp-freund .icon { color: var(--akzent-text); }
-#sheet-content .gp-ava { background: var(--akzent-weich); color: var(--akzent-text); }
-#sheet-content .gp-haftung { background: var(--karte); border: 0; border-radius: 12px; box-shadow: var(--schatten-1); }
-#sheet-content .gp-haftung a { color: var(--akzent-text); }
-#sheet-content .gp-senden { border-radius: 13px; width: 100%; }
 
 /* ---- Bild- und Kartenlupe: abgedunkelt statt weichgezeichnet */
 .lupe-grund { background: rgba(10, 14, 20, .78); backdrop-filter: none; -webkit-backdrop-filter: none; }

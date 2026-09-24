@@ -213,15 +213,7 @@ body.marken-modus #view-wallet { --wk-akzent: var(--marke-k1); }
 /* Eingeklappt (Karten & Coupons) bleibt die Polsterung stehen — unsichtbar und
    nicht antippbar, damit nichts darunter blockiert wird */
 #wallet-kopf-geld.zu { pointer-events: none; }
-/* Rueckseite (Analyse): gleiche Polsterung, damit der Schatten nicht
-   abgeschnitten wird, und kompakt — etwa so hoch wie die Vorderseite */
-#kopf-hinten { padding: 0 14px 26px; margin: 0 -14px -26px; }
-.wk-glas .stat-kopf { min-height: 30px; }
-.wk-glas .stat-kopf > .wallet-kopf-sub { font-size: .95rem; font-weight: 750; opacity: 1; margin: 0; }
-.wk-glas .stat-ranges .chip { height: 28px; padding: 0 11px; font-size: .74rem; border-radius: 9px; }
-.wk-glas .stat-zahlen { margin: 8px 0 0; gap: 14px; }
-.wk-glas .verlauf-svg { height: 58px; margin-top: 2px; }
-.wk-glas .stat-zurueck { margin: 6px auto 0; padding: 6px 13px; font-size: .72rem; border-radius: 10px; }
+/* (Die Analyse ist jetzt eine eigene Seite — die Rueckseite des Kopfes ist weg) */
 
 /* Kompakte Karte wie im Entwurf — kein Glas, sondern ein Fenster: die Flaeche
    liegt etwas tiefer als der Grund, der Schatten faellt nach innen, unten
@@ -335,32 +327,39 @@ body.marken-modus #view-wallet { --wk-schein: var(--marke-k3, var(--kopf-k3, #2F
    Entwurf fehlt er, und rechts steht das Maskottchen). Antippen des Betrags
    oeffnet weiterhin die Rang-Uebersicht. */
 .wk-glas .wallet-kopf-sub .rang-klein, .wk-glas .wallet-kopf-sub .rang-trenner { display: none; }
+/* Sicherungs-Punkt direkt hinter der Gutschein-Zahl. Absolut (left: 100%)
+   landete er am Rand der halben Karte — mitten im Gesicht des Maskottchens. */
+.wk-glas .wallet-kopf-sub .sync-punkt { position: relative; left: auto; top: auto; margin: 0 0 0 1px; transform: none; flex: none; }
 
-/* Drei Griffe in gleich breiten Spalten: Quadrat mittig, Beschriftung darunter
-   mit Luft zur Nachbarin. Die Zeile rueckt um die halbe Luft nach links, damit
-   das erste Quadrat genau unter dem Text beginnt. */
+/* Drei Griffe als gleich grosse Quadrate ohne Beschriftung — am Handy war fuer
+   drei Woerter nebeneinander kein Platz. Hinzufuegen steht vorn und ist weiss
+   (der Haupt-Griff), Verschenken und Analyse bleiben Glas. Die Zeile beginnt
+   genau unter dem Text darueber; die Namen stehen in aria-label und title. */
 .wk-glas .wallet-aktionen {
-  --wa-spalte: 66px; --wa-q: 40px;
+  --wa-q: 44px;
   position: relative; z-index: 2;
-  display: grid; grid-template-columns: repeat(3, var(--wa-spalte)); column-gap: 2px;
-  justify-items: center; justify-content: start; align-items: start;
-  max-width: none; margin: 10px 0 0 calc((var(--wa-q) - var(--wa-spalte)) / 2);
+  display: flex; gap: 10px; justify-content: flex-start; align-items: center;
+  max-width: none; margin: 12px 0 2px;
 }
-.wk-glas .wa-btn {
-  width: var(--wa-spalte); gap: 6px; padding: 0;
-  font-size: .66rem; font-weight: 700; line-height: 1.1; letter-spacing: 0; text-align: center;
+.wk-glas .wa-btn { width: auto; flex: none; gap: 0; padding: 0; border-radius: 12px; }
+.wk-glas .wa-kreis {
+  width: var(--wa-q); height: var(--wa-q); border-radius: 12px;
+  background: rgba(255, 255, 255, .2); border: 1px solid rgba(255, 255, 255, .36);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, .1), inset 0 1px 0 rgba(255, 255, 255, .4);
 }
-.wk-glas .wa-btn > span:last-child { white-space: nowrap; opacity: .96; text-shadow: 0 1px 4px rgba(0, 0, 0, .14); }
-.wk-glas .wa-kreis, .wk-glas .wa-haupt .wa-kreis {
-  width: var(--wa-q); height: var(--wa-q); border-radius: 10px;
-  background: rgba(255, 255, 255, .22); border: 1px solid rgba(255, 255, 255, .4);
-  box-shadow: 0 3px 8px rgba(0, 0, 0, .1), inset 0 1px 0 rgba(255, 255, 255, .5);
+.wk-glas .wa-haupt .wa-kreis {
+  background: #fff; border-color: #fff;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .16);
 }
-.wk-glas .wa-kreis .icon, .wk-glas .wa-haupt .wa-kreis .icon { width: 20px; height: 20px; stroke-width: 2; }
+.wk-glas .wa-kreis .icon { width: 21px; height: 21px; stroke-width: 2; color: #fff; }
+.wk-glas .wa-haupt .wa-kreis .icon { width: 22px; height: 22px; stroke-width: 2.4; color: var(--wk-akzent); }
+.wk-glas .wa-btn:active .wa-kreis { transform: scale(.9); opacity: 1; background: rgba(255, 255, 255, .3); }
+.wk-glas .wa-haupt:active .wa-kreis { background: #fff; }
+.wk-glas .wa-btn:focus-visible { outline: none; }
+.wk-glas .wa-btn:focus-visible .wa-kreis { box-shadow: 0 0 0 3px rgba(255, 255, 255, .75); }
 @media (max-width: 370px) {
   .wk-glas { --wk-rand: 15px; }
-  .wk-glas .wallet-aktionen { --wa-spalte: 62px; }
-  .wk-glas .wa-btn { font-size: .62rem; }
+  .wk-glas .wallet-aktionen { --wa-q: 42px; gap: 9px; }
 }
 
 /* Schieber Gutscheine | Karten & Coupons — eckiger, dicht unter der Karte */
@@ -420,7 +419,40 @@ body.marken-modus #view-wallet { --wk-schein: var(--marke-k3, var(--kopf-k3, #2F
 #wallet-content .bereich-zeile .bereich-titel { font-size: 1.32rem; white-space: nowrap; }
 #wallet-content .bereich-zeile .wallet-platz { font-size: .74rem; white-space: nowrap; }
 #wallet-sort-btn { margin-left: auto; }
-#wallet-val-chips { order: 3; flex-basis: 100%; }
+/* Am schmalen Handy passen Titel, Zaehler und Sortier-Knopf sonst nicht in
+   eine Zeile — der Knopf rutschte allein in die naechste */
+@media (max-width: 380px) {
+  #wallet-content .bereich-zeile { column-gap: 8px; }
+  #wallet-content .bereich-zeile .bereich-titel { font-size: 1.2rem; }
+  #wallet-content .bereich-zeile .wallet-platz { padding: 4px 8px; font-size: .7rem; }
+}
+/* Wert-Filter (10/25/50/100) bei gewaehlter Marke: kleine Kaertchen, keine Pillen */
+#wallet-val-chips { order: 3; flex-basis: 100%; display: flex; gap: 8px; margin: 0; }
+#wallet-val-chips:empty { display: none; }
+#wallet-val-chips .val-chip {
+  height: 34px; min-width: 48px; padding: 0 12px; border-radius: 10px; border: 0;
+  background: var(--karte); color: var(--text); box-shadow: var(--schatten-1);
+  font-size: .84rem; font-weight: 750;
+}
+#wallet-val-chips .val-chip.active { background: var(--wk-akzent); color: #fff; }
+
+/* Zuletzt verwendet: eine ruhige weisse Zeile unter Suche und Marke */
+.zv { margin-top: 12px; }
+.zv-zeile {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  min-height: 62px; padding: 10px 14px 10px 11px;
+  background: var(--karte); color: var(--text); border: 0; border-radius: 16px;
+  box-shadow: var(--schatten-1); font: inherit; text-align: left; cursor: pointer;
+  -webkit-tap-highlight-color: transparent; transition: transform .2s var(--spring);
+}
+.zv-zeile:active { transform: scale(.98); }
+.zv-zeile .brand-chip { width: 40px; height: 40px; flex: 0 0 40px; border-radius: 11px; font-size: .72rem; }
+.zv-zeile .brand-chip.hat-logo { box-shadow: inset 0 0 0 1px var(--linie); }
+.zv-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.zv-text small { font-size: .76rem; font-weight: 650; color: var(--muted); line-height: 1.3; }
+.zv-text b { font-size: 1rem; font-weight: 800; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.zv-betrag { flex: none; font-size: 1.02rem; font-weight: 850; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.zv-pfeil { flex: none; width: 18px; height: 18px; margin-left: -4px; color: var(--muted); }
 
 /* ---- Gutschein-Karte (vk), kompakt wie im Entwurf:
    [Logo] Name / Gutschein / Code / PIN        Betrag (…)
@@ -549,6 +581,59 @@ body.wallet-farbe.kopf-weg .topbar .k-wordmark { color: #fff; }
 /* "+ Rabattcode" auf dem farbigen Grund */
 .rc-kopf .rc-neu-chip { border-radius: 11px; background: #fff; color: var(--wk-akzent); border: 0; }
 :root[data-theme="dark"] .rc-kopf .rc-neu-chip { background: var(--karte); color: var(--akzent-text); }
+#voucher-list > .status { color: rgba(255, 255, 255, .86); }
+
+/* Beim Betreten der Wallet blendet der Farbgrund mit dem Inhalt ein, wie die
+   anderen Reiter. Vorher sprang er sofort da: renderWallet setzt wallet-farbe,
+   waehrend body.misst zum Vermessen alle Uebergaenge abschaltet — auch die
+   Deckkraft. Beim Messen soll nur die Verschiebung stillstehen. */
+body.misst #wallet-farbfeld { transition: opacity .24s ease-out !important; }
+body.wallet-farbe #wallet-farbfeld { transition: opacity .24s ease-out, transform .32s cubic-bezier(.22, 1, .32, 1); }
+body.sparsam.wallet-farbe #wallet-farbfeld { transition: opacity .24s ease-out; }
+@media (prefers-reduced-motion: reduce) { body.wallet-farbe #wallet-farbfeld { transition: opacity .24s ease-out; } }
+/* Marken- und Rang-Farben blenden so schnell ueber wie der Bereichswechsel */
+.ff-marke { transition: opacity .4s ease, transform .32s cubic-bezier(.22, 1, .32, 1); }
+@media (prefers-reduced-motion: reduce) { .ff-marke { transition: none; } }
+
+/* =============================================================================
+   Marken-Ansicht: der Kopf traegt die Markenfarben, darunter laeuft der Verlauf
+   zu Weiss (Grund der Seite) aus — nicht in die Rang-Farbe, sonst beissen sich
+   die Farben. Die Seite darunter ist hell, Ueberschriften und Texte dunkel.
+   Karten & Coupons bleiben immer in der Rang-Farbe (marken-modus gilt dort nie).
+   ========================================================================== */
+body.wallet-farbe.marken-modus,
+:root[data-theme="dark"] body.wallet-farbe.marken-modus { --wallet-grund: var(--seite); }
+/* Kurzer Auslauf: bis zur Ueberschrift "Deine Gutscheine" ist die Farbe weg */
+body.marken-modus #wallet-farbfeld {
+  --auslauf: linear-gradient(to bottom,
+      rgba(0, 0, 0, 1) var(--ff-kopf, 0px),
+      rgba(0, 0, 0, .97) calc(var(--ff-kopf, 0px) + 12px),
+      rgba(0, 0, 0, .88) calc(var(--ff-kopf, 0px) + 24px),
+      rgba(0, 0, 0, .72) calc(var(--ff-kopf, 0px) + 38px),
+      rgba(0, 0, 0, .52) calc(var(--ff-kopf, 0px) + 52px),
+      rgba(0, 0, 0, .32) calc(var(--ff-kopf, 0px) + 66px),
+      rgba(0, 0, 0, .16) calc(var(--ff-kopf, 0px) + 80px),
+      rgba(0, 0, 0, .06) calc(var(--ff-kopf, 0px) + 94px),
+      rgba(0, 0, 0, 0) calc(var(--ff-kopf, 0px) + 110px));
+}
+body.marken-modus #view-wallet .bereich-titel { color: var(--text); text-shadow: none; }
+body.marken-modus #voucher-list > .status, body.marken-modus #wallet-content > .status { color: var(--muted); }
+body.marken-modus .wallet-platz, :root[data-theme="dark"] body.marken-modus .wallet-platz {
+  background: var(--karte); color: var(--muted); box-shadow: var(--schatten-1);
+}
+body.marken-modus .wsl-suche { box-shadow: var(--schatten-1); }
+/* Im Dunkeln stand der Markenname in der Rang-Farbe — gruen neben Rot */
+:root[data-theme="dark"] body.marken-modus .wsl-marke { color: var(--marke-k3); }
+/* Mini-Guthaben unten: Symbol und Betrag in derselben Farbe, im Dunkeln hell */
+body.marken-modus #wallet-mini .icon { color: var(--marke-k1); }
+:root[data-theme="dark"] #wallet-mini.rangfarbe #wallet-mini-total { color: var(--kopf-k3, #23D992); }
+:root[data-theme="dark"] body.marken-modus #wallet-mini.rangfarbe #wallet-mini-total,
+:root[data-theme="dark"] body.marken-modus #wallet-mini .icon { color: var(--marke-k3); }
+/* Weggescrollt: helle Kopfzeile wie in den anderen Reitern, Logo in Tinte */
+body.marken-modus.wallet-farbe.kopf-weg .topbar .k-wordmark { color: var(--k-ink); }
+:root[data-theme="dark"] body.marken-modus.wallet-farbe.kopf-weg .topbar .k-wordmark { color: var(--k-paper); }
+body.marken-modus.wallet-farbe.kopf-weg .topbar .k-wordmark .k-dot { fill: var(--k-accent); }
+
 /* Karten und Kacheln: weniger rund */
 .wallet-card.vk { border-radius: 16px; }
 .rc-card, .cc-card, .mk-kachel, .used-fold, .wallet-card-add { border-radius: 16px; }

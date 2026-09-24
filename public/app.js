@@ -556,7 +556,9 @@ function switchView(next, animClass) {
     updateChatGate();
     pollChat(true);
   }
-  // Wallet immer aufgeräumt betreten: alle Stapel wieder zusammengelegt
+  // Wallet immer aufgeräumt betreten: alle Stapel wieder zusammengelegt.
+  // Offene Wallet-Seiten (Gutschein, Analyse) gehoeren zur alten Ansicht.
+  wseitenZu();
   if (next === 'wallet') { restack(); renderWallet(); }
   aktualisiereSperre(); // gesperrte Wallet: Sperrbildschirm (nur auf der Wallet-Seite)
   if (next === 'settings') { renderSicherheit(); if ($('#sw-laden')) $('#sw-laden').checked = ladenErkennungAn(); }
@@ -7079,201 +7081,163 @@ function sparkarteHtml(c, klein) {
     </div>`;
 }
 
-// ---- Verschenken laeuft im Blatt weiter, nicht in einem zweiten Fenster.
-// Vorher rutschte das Blatt herunter und ein Pop-Up kam hoch — man verlor den
-// Gutschein aus den Augen, den man gerade verschenken wollte. Jetzt schiebt der
-// naechste Schritt seitlich herein, die Karte bleibt oben stehen.
-function zeigeSchenkSchritt(v, richtung = 'vor', zurueck) {
+// ---- Verschenken als eigene Seite: oben der Gutschein, darunter an wen und
+// eine Nachricht, unten fest der Knopf. Kam man vom Gutschein, fuehrt der
+// Pfeil dorthin zurueck; aus der Auswahl zurueck in die Auswahl.
+function zeigeSchenkSchritt(v) {
   if (!v) return;
+  if (walletGesperrt()) { aktualisiereSperre(); return; } // gesperrte Wallet: nichts zeigen
   if (!state.token) { island('Zum Verschenken bitte anmelden'); return; }
-  state.sheetMode = 'gift-send';
   const freunde = myProfile?.friends || [];
   let anWen = '', suche = '', nachricht = '';
 
-  const zeichnen = () => {
-    const gefiltert = suche
-      ? freunde.filter(f => f.toLowerCase().includes(suche.toLowerCase()))
-      : freunde;
-    $('#sheet-content').innerHTML = `
-      <div class="schenk-kopf">
-        <button class="iconbtn back-btn" data-gs="zurueck" aria-label="Zurück">
-          ${icon('arrow-back', 'icon icon-sm')}</button>
-        <span class="sheet-title" style="margin:0">Verschenken</span>
-      </div>
+  const freundeHtml = () => {
+    const gefiltert = suche ? freunde.filter(f => f.toLowerCase().includes(suche.toLowerCase())) : freunde;
+    return gefiltert.map(f => `
+      <button class="gp-freund${anWen === f ? ' gewaehlt' : ''}" type="button" data-gp-an="${esc(f)}" aria-pressed="${anWen === f}">
+        <span class="gp-ava" style="--fc:${chatColor(f)}">${esc(f.slice(0, 1).toUpperCase())}</span>
+        <span class="gp-name">@${esc(f)}</span>
+        <span class="gp-haken">${icon('check', 'icon icon-sm')}</span>
+      </button>`).join('') || '<p class="gp-leer">Niemand gefunden.</p>';
+  };
 
-      <div class="schenk-karte" id="schenk-karte">${voucherCardHtml(v)}</div>
-
-      ${freunde.length ? `
+  const seite = wseiteOeffnen({
+    art: 'schenken', id: v.id, titel: 'Verschenken', klasse: 'gp',
+    baue: s => {
+      s.el.querySelector('.wseite-inhalt').innerHTML = `
+        <div class="schenk-karte" id="schenk-karte">${voucherCardHtml(v)}</div>
+        ${freunde.length ? `
         <div class="gp-block">
-          <label class="gp-label">An wen?</label>
-          ${freunde.length > 6
-            ? `<input class="input gp-suche" placeholder="Freund suchen …" value="${esc(suche)}">` : ''}
-          <div class="gp-freunde">
-            ${gefiltert.map(f => `
-              <button class="gp-freund ${anWen === f ? 'gewaehlt' : ''}" data-gp-an="${esc(f)}">
-                <span class="gp-ava">${esc(f.slice(0, 1).toUpperCase())}</span>
-                <span class="gp-name">@${esc(f)}</span>
-                ${anWen === f ? icon('check', 'icon icon-sm') : ''}
-              </button>`).join('')
-              || '<div class="status">Niemand gefunden.</div>'}
-          </div>
+          <h3 class="gd-h">An wen?</h3>
+          ${freunde.length > 6 ? `<input class="gd-feld gp-suche" type="search" placeholder="Freund suchen …" autocomplete="off" aria-label="Freund suchen">` : ''}
+          <div class="gd-block gp-freunde">${freundeHtml()}</div>
         </div>
-
         <div class="gp-block">
-          <label class="gp-label">Nachricht <small>(freiwillig, max. 140)</small></label>
+          <h3 class="gd-h">Nachricht <small>freiwillig, max. 140 Zeichen</small></h3>
           <div class="gp-eingabe">
-            <input class="input gp-text" maxlength="140" placeholder="Viel Spaß damit!" value="${esc(nachricht)}">
-            <button class="iconbtn gp-emote-btn" aria-label="Emotes">${icon('smile', 'icon icon-sm')}</button>
+            <input class="gd-feld gp-text" maxlength="140" placeholder="Viel Spaß damit!" autocomplete="off" aria-label="Nachricht">
+            <button class="gp-emote-btn" type="button" aria-label="Emotes" aria-expanded="false">${icon('smile')}</button>
           </div>
           <div class="gp-emotes hidden"></div>
         </div>
-
         <p class="gp-haftung">
           Der Gutschein wechselt endgültig den Besitzer — zurückholen geht nicht.
           kumulio verwahrt keine Gutscheine und haftet nicht für Wert, Gültigkeit
           oder Einlösbarkeit. Verschenke nur an Leute, die du kennst.
           <a href="/agb.html#verschenken" target="_blank" rel="noopener">AGB, Abschnitt 7</a>
-        </p>
+        </p>` : `
+        <div class="gd-block gp-keine">
+          <p>Verschenken geht nur an Freunde — und du hast noch keine.</p>
+          <button class="gd-los" type="button" data-gs="freunde">Freunde finden</button>
+        </div>`}`;
+      if (freunde.length) {
+        s.el.insertAdjacentHTML('beforeend', `
+          <div class="wseite-leiste gp-leiste">
+            <button class="gd-los gp-senden" type="button" disabled>Freund auswählen</button>
+          </div>`);
+      }
+    },
+  });
+  if (!seite) return;
+  const host = seite.el;
 
-        <button class="btn btn-big gp-senden" disabled>Verschenken</button>
-      ` : `
-        <p class="status" style="margin-top:14px">
-          Verschenken geht nur an Freunde — und du hast noch keine.</p>
-        <button class="btn btn-big" data-gs="freunde" style="margin-top:12px">Freunde finden</button>
-      `}`;
-    verdrahten();
-  };
-
-  const verdrahten = () => {
-    const host = $('#sheet-content');
-    host.querySelector('[data-gs="zurueck"]').onclick = () => {
-      if (zurueck) zurueck();
-      else { renderSchenkAuswahl(); openSheetShell('zurueck'); }
-    };
-    host.querySelector('[data-gs="freunde"]')?.addEventListener('click', () => {
-      closeSheet(); switchView('friends', 'enter-drop');
+  host.querySelector('[data-gs="freunde"]')?.addEventListener('click', () => {
+    wseitenZu();
+    switchView('friends', 'enter-drop');
+  });
+  const senden = host.querySelector('.gp-senden');
+  const liste = host.querySelector('.gp-freunde');
+  const verdrahteFreunde = () => liste?.querySelectorAll('[data-gp-an]').forEach(b => b.onclick = () => {
+    anWen = b.dataset.gpAn;
+    // Nur die Auswahl umhaengen statt neu zu zeichnen (Fokus bleibt im Feld)
+    liste.querySelectorAll('.gp-freund').forEach(x => {
+      const an = x.dataset.gpAn === anWen;
+      x.classList.toggle('gewaehlt', an);
+      x.setAttribute('aria-pressed', String(an));
     });
+    if (senden) { senden.disabled = false; senden.textContent = `An @${anWen} verschenken`; }
+    buzz(8);
+  });
+  verdrahteFreunde();
+  const suchfeld = host.querySelector('.gp-suche');
+  if (suchfeld) suchfeld.oninput = e => { suche = e.target.value; liste.innerHTML = freundeHtml(); verdrahteFreunde(); };
+  const text = host.querySelector('.gp-text');
+  if (text) text.oninput = e => { nachricht = e.target.value; };
 
-    const text = host.querySelector('.gp-text');
-    if (text) text.oninput = e => { nachricht = e.target.value; };
-    const senden = host.querySelector('.gp-senden');
-    if (senden) senden.disabled = !anWen;
-
-    const suchfeld = host.querySelector('.gp-suche');
-    if (suchfeld) suchfeld.oninput = e => {
-      suche = e.target.value;
-      const stand = e.target.selectionStart;
-      zeichnen();
-      const neu = $('#sheet-content').querySelector('.gp-suche');
-      if (neu) { neu.focus(); neu.setSelectionRange(stand, stand); }
-    };
-
-    host.querySelectorAll('[data-gp-an]').forEach(b => b.onclick = () => {
-      anWen = b.dataset.gpAn;
-      // Nur die Auswahl umhaengen statt neu zu zeichnen: sonst verliert das
-      // Nachrichtenfeld beim Tippen den Fokus.
-      host.querySelectorAll('.gp-freund').forEach(x => {
-        const an = x.dataset.gpAn === anWen;
-        x.classList.toggle('gewaehlt', an);
-        x.querySelector('.icon')?.remove();
-        if (an) x.insertAdjacentHTML('beforeend', icon('check', 'icon icon-sm'));
+  // Emotes wie im Chat: Namen in Doppelpunkten, beim Anzeigen werden Bilder daraus
+  const emoteBtn = host.querySelector('.gp-emote-btn');
+  const emoteBox = host.querySelector('.gp-emotes');
+  if (emoteBtn && emoteBox) emoteBtn.onclick = () => {
+    const auf = emoteBox.classList.contains('hidden');
+    if (auf && !emoteBox.dataset.gebaut) {
+      const namen = Object.keys(allEmoteIds()).filter(emoteOwned);
+      emoteBox.innerHTML = namen.length
+        ? namen.map(n => `<button class="emote-pick" type="button" data-gp-emote="${esc(n)}">${emoteHtml(n)}</button>`).join('')
+        : '<span class="gp-leer">Noch keine Emotes da.</span>';
+      emoteBox.dataset.gebaut = '1';
+      emoteBox.querySelectorAll('[data-gp-emote]').forEach(e => e.onclick = () => {
+        if (!text) return;
+        nachricht = (text.value + (text.value ? ' ' : '') + ':' + e.dataset.gpEmote + ':').slice(0, 140);
+        text.value = nachricht;
+        text.focus();
       });
-      if (senden) senden.disabled = false;
-      buzz(8);
-    });
-
-    // Emotes wie im Chat: Namen in Doppelpunkten, beim Anzeigen werden Bilder daraus
-    const emoteBtn = host.querySelector('.gp-emote-btn');
-    const emoteBox = host.querySelector('.gp-emotes');
-    if (emoteBtn && emoteBox) emoteBtn.onclick = () => {
-      const auf = emoteBox.classList.contains('hidden');
-      if (auf && !emoteBox.dataset.gebaut) {
-        const namen = Object.keys(allEmoteIds()).filter(emoteOwned);
-        emoteBox.innerHTML = namen.length
-          ? namen.map(n => `<button class="emote-pick" data-gp-emote="${esc(n)}">${emoteHtml(n)}</button>`).join('')
-          : '<span class="form-msg">Du hast noch keine Emotes gezogen.</span>';
-        emoteBox.dataset.gebaut = '1';
-        emoteBox.querySelectorAll('[data-gp-emote]').forEach(e => e.onclick = () => {
-          const t = $('#sheet-content').querySelector('.gp-text');
-          if (!t) return;
-          nachricht = (t.value + (t.value ? ' ' : '') + ':' + e.dataset.gpEmote + ':').slice(0, 140);
-          t.value = nachricht;
-          t.focus();
-        });
-      }
-      emoteBox.classList.toggle('hidden', !auf);
-    };
-
-    if (senden) senden.onclick = async () => {
-      if (!anWen || senden.disabled) return;
-      senden.disabled = true;
-      senden.textContent = 'Wird verpackt …';
-      try {
-        // Liegt das Originalfoto noch nur auf dem Geraet, erst hoch damit —
-        // der Server gibt es beim Verschenken an den Freund weiter
-        if (v.orig && (origWartend().includes(v.id) || origUploadLaeuft)) await origHochladen().catch(() => { });
-        await api('/api/gift/send', { method: 'POST', body: JSON.stringify({
-          to: anWen, id: v.id, msg: (nachricht || '').trim(),
-          // Die Fassung hier zaehlt (samt noch nicht gesicherter Abbuchung)
-          voucher: v,
-        }) });
-      } catch (err) {
-        senden.disabled = false;
-        senden.textContent = 'Verschenken';
-        island(err.message || 'Hat nicht geklappt');
-        return;
-      }
-      // Erst wenn der Server den Gutschein wirklich uebergeben hat, verschwindet
-      // er hier — sonst waere er bei einem Fehler in beiden Wallets weg.
-      tombstone(v.id);
-      state.wallet.vouchers = state.wallet.vouchers.filter(x => x.id !== v.id);
-      saveWallet();
-      // Erst raeumt sich das Blatt ab: Formular verschwindet, das Blatt zieht
-      // sich um die Karte zusammen. Dann erst wird eingepackt. Vorher stand
-      // noch das ganze Menue drumherum und alles ging in einem Rutsch vorbei.
-      await blattAufDieKarte(host);
-      await packAnimation($('#schenk-karte'), 'ein');
-      // Erst loesen, dann schliessen — sonst haelt die Animation das Blatt fest
-      blattSchrumpf?.cancel();
-      blattSchrumpf = null;
-      closeSheet();
-      renderWallet();
-      island(`An @${anWen} verschenkt`); playSfx('plop'); buzz([12, 40, 18]);
-    };
+    }
+    emoteBox.classList.toggle('hidden', !auf);
+    emoteBtn.setAttribute('aria-expanded', String(auf));
   };
 
-  zeichnen();
-  openSheetShell(richtung);
+  if (senden) senden.onclick = async () => {
+    if (!anWen || senden.disabled) return;
+    senden.disabled = true;
+    senden.textContent = 'Wird verpackt …';
+    const aktuell = state.wallet.vouchers.find(x => x.id === v.id) || v;
+    try {
+      // Liegt das Originalfoto noch nur auf dem Geraet, erst hoch damit —
+      // der Server gibt es beim Verschenken an den Freund weiter
+      if (aktuell.orig && (origWartend().includes(aktuell.id) || origUploadLaeuft)) await origHochladen().catch(() => { });
+      // Die eigene Notiz bleibt hier: ohne sie und etwas juenger als der Stand
+      // am Konto, damit beim Vereinigen diese Fassung gewinnt
+      const { notiz: _notiz, ...ohneNotiz } = aktuell;
+      await api('/api/gift/send', { method: 'POST', body: JSON.stringify({
+        to: anWen, id: aktuell.id, msg: (nachricht || '').trim(),
+        // Die Fassung hier zaehlt (samt noch nicht gesicherter Abbuchung)
+        voucher: _notiz ? { ...ohneNotiz, mt: Math.max(Date.now(), (aktuell.mt || 0) + 1) } : aktuell,
+      }) });
+    } catch (err) {
+      senden.disabled = false;
+      senden.textContent = `An @${anWen} verschenken`;
+      island(err.message || 'Hat nicht geklappt');
+      return;
+    }
+    // Erst wenn der Server den Gutschein wirklich uebergeben hat, verschwindet
+    // er hier — sonst waere er bei einem Fehler in beiden Wallets weg.
+    seite.sendet = true;
+    tombstone(aktuell.id);
+    state.wallet.vouchers = state.wallet.vouchers.filter(x => x.id !== aktuell.id);
+    saveWallet();
+    // Erst raeumt sich die Seite ab, dann faehrt die Karte in die Schachtel
+    await seiteAufDieKarte(host);
+    await packAnimation($('#schenk-karte'), 'ein');
+    wseitenZu({ sanft: true });
+    renderWallet();
+    island(`An @${anWen} verschenkt`); playSfx('plop'); buzz([12, 40, 18]);
+  };
 }
 
-// Vor dem Einpacken raeumt sich das Blatt ab: Kopfzeile, Freundeliste,
-// Nachricht und Hinweis blenden gestaffelt aus, dann schrumpft das Blatt um die
-// Karte herum. Erst danach faehrt die Karte in die Schachtel — sonst passiert
-// beides gleichzeitig und man sieht nichts davon.
-function blattAufDieKarte(host) {
+// Vor dem Einpacken raeumt sich die Seite ab: Freunde, Nachricht, Hinweis und
+// Knopf blenden gestaffelt aus, nur die Karte bleibt stehen. Erst danach faehrt
+// sie in die Schachtel — sonst passiert beides gleichzeitig.
+function seiteAufDieKarte(host) {
   return new Promise(fertig => {
     if (reducedMotion() || !host.animate) return fertig();
-    const weg = [...host.querySelectorAll('.schenk-kopf, .gp-block, .gp-haftung, .gp-senden')];
+    const weg = [...host.querySelectorAll('.wseite-kopf, .gp-block, .gp-haftung, .gp-leiste')];
     weg.forEach((el, i) => {
       el.style.pointerEvents = 'none';
       el.animate(
-        [{ opacity: 1, transform: 'translateY(0)' },
-         { opacity: 0, transform: 'translateY(14px)' }],
+        [{ opacity: 1, transform: 'translateY(0)' }, { opacity: 0, transform: 'translateY(14px)' }],
         { duration: 240, delay: i * 55, easing: 'cubic-bezier(.4,0,.8,.4)', fill: 'forwards' });
     });
-    const ende = 240 + Math.max(0, weg.length - 1) * 55;
-    setTimeout(() => {
-      // Das Blatt zieht sich zusammen — die Karte bleibt, wo sie ist
-      const blatt = $('#sheet');
-      // Merken! Eine Animation mit fill:'forwards' ueberschreibt die CSS-Regel
-      // dauerhaft — ohne das Loesen weiter unten koennte closeSheet das Blatt
-      // hinterher nicht mehr wegschieben und es bliebe stehen.
-      blattSchrumpf = blatt?.animate(
-        [{ transform: 'translateX(-50%) scale(1)' },
-         { transform: 'translateX(-50%) scale(.955)' }],
-        { duration: 320, easing: 'cubic-bezier(.22,1,.32,1)', fill: 'forwards' }) || null;
-      setTimeout(fertig, 300);
-    }, ende + 60);
+    setTimeout(fertig, 240 + Math.max(0, weg.length - 1) * 55 + 80);
   });
 }
 
@@ -7495,197 +7459,786 @@ function oeffneKartenLupe(key, kachel) {
 // showKarteBig ist entfallen: beide Wege zur grossen Karte laufen jetzt ueber
 // zeigeKarteGross (Zoom aus der Kachel, Rest unscharf, dreht auf dem Weg).
 
-function openVoucherSheet(id, animFrom, zurueckZu, richtung) {
+// =============================================================================
+// Wallet-Seiten (Runde 117): Gutschein, Verschenken und Analyse sind eigene
+// Seiten statt Blaetter von unten. Sie gleiten von rechts ueber die ganze App
+// (Kopfzeile und Menue eingeschlossen) und stapeln sich: Gutschein ->
+// Verschenken. Zurueck per Pfeil oben links, Wisch nach rechts oder Esc.
+// Bewegt wird nur transform und opacity.
+// Der Zustand haengt an der Funktion statt an einem let hier oben: renderWallet
+// laeuft schon beim Start, lange bevor diese Zeilen erreicht sind (TDZ).
+// =============================================================================
+function wseiten() { return wseiten.stapel || (wseiten.stapel = []); }
+function wseiteOben() { const s = wseiten(); return s[s.length - 1] || null; }
+function wseiteBewegt() { return !reducedMotion() && !document.body.classList.contains('sparsam'); }
+// Symbole, die es im Sprite nicht gibt — gleiche Strichstaerke wie dort
+function wIcon(name, cls = 'icon') {
+  const pfade = {
+    links: '<path d="M19.5 12H5"/><path d="M11 5.5 4.5 12l6.5 6.5"/>',
+    minus: '<path d="M5.5 12h13"/>',
+    kopie: '<rect x="8.5" y="8.5" width="11" height="11" rx="2.4"/><path d="M15.5 8.5V6.4a1.9 1.9 0 0 0-1.9-1.9H6.4a1.9 1.9 0 0 0-1.9 1.9v7.2a1.9 1.9 0 0 0 1.9 1.9h2.1"/>',
+    stift: '<path d="M4.5 19.5l1-4.2L15.8 5a2 2 0 0 1 2.9 0l.3.3a2 2 0 0 1 0 2.9L8.7 18.5z"/><path d="M13.8 7l3.2 3.2"/>',
+    notiz: '<path d="M6.5 4.5h8l3 3v12h-11z"/><path d="M14.5 4.5v3h3M9 12h6M9 15.5h4"/>',
+    muell: '<path d="M4.5 7h15M9.5 7V5.2a.7.7 0 0 1 .7-.7h3.6a.7.7 0 0 1 .7.7V7M6.5 7l.9 11.6a1.5 1.5 0 0 0 1.5 1.4h6.2a1.5 1.5 0 0 0 1.5-1.4L17.5 7"/><path d="M10.3 11v5.5M13.7 11v5.5"/>',
+    rueck: '<path d="M9 5.5 4.5 10 9 14.5"/><path d="M4.5 10h9.5a5 5 0 0 1 0 10H11"/>',
+    bild: '<rect x="4" y="5" width="16" height="14" rx="2.4"/><circle cx="9" cy="10" r="1.6"/><path d="M4.5 17l4.5-4.5 3.5 3.5 2.5-2.5 4.5 4.5"/>',
+    zuschnitt: '<path d="M7 3.5V17h13.5"/><path d="M3.5 7H17v13.5"/>',
+  };
+  return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${pfade[name] || ''}</svg>`;
+}
+
+// Der Rahmen um alle Seiten: sichtbar, sobald eine offen ist. Darunter ist
+// dann nichts bedienbar (inert) — auch nicht per Tastatur.
+function wseitenRahmen(offen) {
+  const host = $('#wseiten');
+  if (!host) return;
+  host.classList.toggle('offen', offen);
+  host.setAttribute('aria-hidden', offen ? 'false' : 'true');
+  document.body.classList.toggle('wseite-offen', offen);
+  const main = document.querySelector('main');
+  if (main) main.inert = offen;
+  const gesperrt = document.body.classList.contains('wallet-zu');
+  for (const sel of ['.topbar', '#tabbar', '#note-banner']) {
+    const n = $(sel);
+    if (n) n.inert = offen || gesperrt;
+  }
+  const blatt = $('#sheet');
+  if (blatt) blatt.inert = offen ? !document.body.classList.contains('blatt-ueber-seite') : !blatt.classList.contains('open');
+  $('#wallet-mini')?.classList.remove('show');
+  if (offen) wseitenViewport();
+  else { host.style.top = ''; host.style.height = ''; }
+}
+// Tastatur auf dem Handy: die Seiten nehmen nur den sichtbaren Teil ein, damit
+// die Leiste unten (Abbuchen, Betrag) ueber der Tastatur steht
+function wseitenViewport() {
+  const host = $('#wseiten'), vv = window.visualViewport;
+  if (!host || !vv || !wseiten().length || !(vv.height > 0)) return;
+  host.style.top = Math.round(vv.offsetTop) + 'px';
+  host.style.height = Math.round(vv.height) + 'px';
+}
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', wseitenViewport);
+  window.visualViewport.addEventListener('scroll', wseitenViewport);
+}
+
+// Neue Seite oben auf den Stapel. baue(seite) fuellt den Inhalt.
+function wseiteOeffnen({ art, id = '', titel = '', klasse = '', baue, sofort = false }) {
+  const host = $('#wseiten');
+  if (!host) return null;
+  schliesseVkMenue();
+  schliesseMarkenMenue();
+  const vorige = wseiteOben();
+  const el = document.createElement('section');
+  el.className = 'wseite' + (klasse ? ' ' + klasse : '');
+  el.setAttribute('role', 'dialog');
+  el.setAttribute('aria-modal', 'true');
+  el.setAttribute('aria-label', titel);
+  el.tabIndex = -1;
+  el.innerHTML = `
+    <header class="wseite-kopf">
+      <button class="wseite-zurueck" type="button" aria-label="Zurück">${wIcon('links')}</button>
+      <h2 class="wseite-titel">${esc(titel)}</h2>
+      <span class="wseite-rechts" aria-hidden="true"></span>
+    </header>
+    <div class="wseite-inhalt"></div>`;
+  const seite = { el, art, id, fokusVorher: document.activeElement };
+  wseiten().push(seite);
+  const dimm = host.querySelector('.wseiten-dimm');
+  host.appendChild(el);
+  host.insertBefore(dimm, el);           // Abdunklung liegt direkt unter der obersten Seite
+  wseitenRahmen(true);
+  el.querySelector('.wseite-zurueck').onclick = () => { if (wseiteOben() === seite) wseiteZurueck(); };
+  const inhalt = el.querySelector('.wseite-inhalt');
+  inhalt.addEventListener('scroll', () => el.classList.toggle('gescrollt', inhalt.scrollTop > 2), { passive: true });
+  wischZurueck(seite);
+  baue(seite);
+  dimm.getAnimations?.().forEach(a => a.cancel());
+  dimm.style.opacity = '';
+  if (!sofort && wseiteBewegt() && el.animate) {
+    el.animate([{ transform: 'translate3d(100%, 0, 0)' }, { transform: 'translate3d(0, 0, 0)' }],
+      { duration: 380, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+    dimm.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 380, easing: 'ease-out' });
+  }
+  // Die Seite darunter muss nicht mehr gezeichnet werden, sobald sie bedeckt ist
+  if (vorige) setTimeout(() => { if (wseiteOben() === seite) vorige.el.classList.add('verdeckt'); }, sofort ? 0 : 400);
+  requestAnimationFrame(() => el.focus({ preventScroll: true }));
+  return seite;
+}
+
+// Eine Seite zurueck. vonP: wie weit der Finger sie schon weggeschoben hat (0..1)
+function wseiteZurueck({ vonP = 0, sofort = false } = {}) {
+  const s = wseiten();
+  const seite = s.pop();
+  if (!seite) return;
+  const host = $('#wseiten');
+  const dimm = host.querySelector('.wseiten-dimm');
+  const darunter = s[s.length - 1];
+  darunter?.el.classList.remove('verdeckt');
+  seite.el.inert = true;
+  let fertig = false;
+  const weg = () => {
+    if (fertig) return;
+    fertig = true;
+    seite.el.remove();
+    // Ging inzwischen schon die naechste Seite auf, gehoert ihr die Abdunklung
+    const oben = wseiteOben();
+    if (oben && oben !== darunter) return;
+    dimm.getAnimations?.().forEach(a => a.cancel());
+    dimm.style.opacity = '';
+    if (oben) host.insertBefore(dimm, oben.el);
+    else wseitenRahmen(false);
+    const ziel = oben ? oben.el : seite.fokusVorher;
+    if (ziel?.isConnected) ziel.focus?.({ preventScroll: true });
+  };
+  if (sofort || !wseiteBewegt() || !seite.el.animate) return weg();
+  const dauer = Math.max(150, Math.round(300 * (1 - vonP)));
+  const a = seite.el.animate(
+    [{ transform: `translate3d(${(vonP * 100).toFixed(2)}%, 0, 0)` }, { transform: 'translate3d(100%, 0, 0)' }],
+    { duration: dauer, easing: 'cubic-bezier(.32, .72, .4, 1)', fill: 'forwards' });
+  dimm.getAnimations?.().forEach(x => x.cancel());
+  dimm.animate([{ opacity: 1 - vonP }, { opacity: 0 }], { duration: dauer, easing: 'ease-out', fill: 'forwards' });
+  a.onfinish = weg;
+  setTimeout(weg, dauer + 80);   // falls onfinish ausbleibt (Tab im Hintergrund)
+}
+
+// Alle Seiten zu. sanft: die oberste blendet aus (nach Verschenken/Loeschen),
+// sonst ist alles sofort weg (Sperre: keine Codes im Baum lassen).
+function wseitenZu({ sanft = false } = {}) {
+  const s = wseiten();
+  if (!s.length) return;
+  const oben = s[s.length - 1];
+  while (s.length) {
+    const x = s.pop();
+    if (x !== oben || !sanft || !wseiteBewegt()) x.el.remove();
+  }
+  const host = $('#wseiten');
+  const dimm = host?.querySelector('.wseiten-dimm');
+  if (!oben.el.isConnected) { dimm?.getAnimations?.().forEach(a => a.cancel()); wseitenRahmen(false); return; }
+  oben.el.inert = true;
+  oben.el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 220, easing: 'ease-out', fill: 'forwards' });
+  dimm?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 220, easing: 'ease-out', fill: 'forwards' });
+  setTimeout(() => {
+    oben.el.remove();
+    if (wseiten().length) return;       // schon wieder eine neue Seite offen
+    dimm?.getAnimations?.().forEach(a => a.cancel());
+    wseitenRahmen(false);
+  }, 230);
+}
+
+// Wisch nach rechts = zurueck. Nur Finger (am Rechner gibt es den Pfeil), und
+// nur waagerecht: senkrecht scrollt die Seite wie gewohnt. Die Seite folgt dem
+// Finger; losgelassen faehrt sie ganz raus oder federt zurueck.
+function wischZurueck(seite) {
+  const el = seite.el;
+  let w = null;
+  el.addEventListener('pointerdown', e => {
+    if (w && w.lauf) return;             // ein zweiter Finger stoert den laufenden Wisch nicht
+    w = null;
+    if (e.pointerType === 'mouse' || wseiteOben() !== seite || el.classList.contains('panel-offen')) return;
+    if (e.target.closest('input, textarea, select, [data-kein-wisch]')) return;
+    w = { x: e.clientX, y: e.clientY, id: e.pointerId, lauf: false, dx: 0, b: 1, v: 0, lx: e.clientX, lt: e.timeStamp };
+  }, { passive: true });
+  el.addEventListener('pointermove', e => {
+    if (!w || e.pointerId !== w.id) return;
+    const dx = e.clientX - w.x, dy = e.clientY - w.y;
+    if (!w.lauf) {
+      if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { w = null; return; }
+      if (dx < 14 || dx < Math.abs(dy) * 1.3) return;
+      w.lauf = true;
+      w.b = el.offsetWidth || innerWidth;
+      try { el.setPointerCapture(e.pointerId); } catch { /* synthetische Pointer */ }
+      wseiteZiehen(seite, 0);
+    }
+    const dt = e.timeStamp - w.lt;
+    if (dt > 0) { w.v = (e.clientX - w.lx) / dt; w.lx = e.clientX; w.lt = e.timeStamp; }
+    w.dx = Math.max(0, dx);
+    wseiteZiehen(seite, w.dx / w.b);
+  });
+  const ende = e => {
+    if (!w || e.pointerId !== w.id) return;
+    const war = w;
+    w = null;
+    if (!war.lauf) return;
+    // Der Klick nach dem Wisch gehoert nicht dem Knopf unter dem Finger
+    el.dataset.gewischt = '1';
+    setTimeout(() => delete el.dataset.gewischt, 80);
+    const p = war.dx / war.b;
+    if (e.type !== 'pointercancel' && (p > .36 || (war.v > .45 && p > .05))) wseiteZurueck({ vonP: p });
+    else wseiteFedern(seite, p);
+  };
+  el.addEventListener('pointerup', ende);
+  el.addEventListener('pointercancel', ende);
+  el.addEventListener('lostpointercapture', ende);
+  el.addEventListener('click', e => {
+    if (el.dataset.gewischt) { e.stopPropagation(); e.preventDefault(); }
+  }, true);
+}
+function wseiteZiehen(seite, p) {
+  const s = wseiten();
+  const darunter = s[s.indexOf(seite) - 1];
+  darunter?.el.classList.remove('verdeckt');
+  seite.el.getAnimations?.().forEach(a => a.cancel());
+  const dimm = $('#wseiten .wseiten-dimm');
+  dimm?.getAnimations?.().forEach(a => a.cancel());
+  seite.el.style.transform = `translate3d(${(p * 100).toFixed(2)}%, 0, 0)`;
+  if (dimm) dimm.style.opacity = String(1 - p);
+}
+function wseiteFedern(seite, p) {
+  const el = seite.el;
+  const dimm = $('#wseiten .wseiten-dimm');
+  const fertig = () => {
+    el.style.transform = '';
+    if (dimm) dimm.style.opacity = '';
+    const s = wseiten();
+    const darunter = s[s.indexOf(seite) - 1];
+    if (darunter && wseiteOben() === seite) darunter.el.classList.add('verdeckt');
+  };
+  if (!el.animate || !wseiteBewegt()) return fertig();
+  const a = el.animate([{ transform: `translate3d(${(p * 100).toFixed(2)}%, 0, 0)` }, { transform: 'translate3d(0, 0, 0)' }],
+    { duration: 260, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+  dimm?.animate([{ opacity: 1 - p }, { opacity: 1 }], { duration: 260, easing: 'ease-out' });
+  el.style.transform = '';
+  if (dimm) dimm.style.opacity = '';
+  a.onfinish = fertig;
+}
+// Esc: erst das Aufgeklappte der obersten Seite, dann die Seite selbst
+addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || !wseiten().length) return;
+  if (document.querySelector('.overlay:not(.hidden), .karten-lupe, .bild-lupe, .vk-menue, .pack-buehne')) return;
+  if (document.body.classList.contains('blatt-ueber-seite')) return;   // das Blatt schliesst sich selbst
+  e.stopPropagation();
+  e.preventDefault();
+  const oben = wseiteOben();
+  if (oben.el.classList.contains('panel-offen')) return gdPanelZu(oben);
+  if (oben.el.querySelector('.gd-leiste.auf')) return gdOptionen(oben, false);
+  wseiteZurueck();
+}, true);
+
+// Ein Blatt aus einer Seite heraus (Sparkarte hinzufuegen oder aendern) muss
+// ueber der Seite liegen. Die Klasse faellt weg, sobald das Blatt zu ist.
+function blattUeberSeite(fn) {
+  const blatt = $('#sheet');
+  const warOffen = !!blatt?.classList.contains('open');
+  document.body.classList.add('blatt-ueber-seite');
+  fn();
+  if (blatt) blatt.inert = false;
+  // Lag das Blatt schon offen unter der Seite (Marken-Blatt), kommt es jetzt
+  // sichtbar von unten hoch, statt ploetzlich ueber der Seite zu stehen
+  if (warOffen && blatt?.animate && wseiteBewegt()) {
+    blatt.animate([{ transform: 'translate(-50%, 100%)' }, { transform: 'translate(-50%, 0)' }],
+      { duration: 380, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+  }
+}
+// Geht ein Blatt auf, waehrend eine Seite offen ist (auch von anderswo, etwa
+// "Karte zeigen" aus dem Laden-Hinweis), gehoert es nach oben
+if ($('#sheet') && 'MutationObserver' in window) {
+  new MutationObserver(() => {
+    const blatt = $('#sheet');
+    const offen = blatt.classList.contains('open');
+    if (offen && !blattUeberSeite.offen) {
+      blattUeberSeite.offen = true;
+      if (wseiten().length) { document.body.classList.add('blatt-ueber-seite'); blatt.inert = false; }
+    } else if (!offen && blattUeberSeite.offen) {
+      blattUeberSeite.offen = false;
+      document.body.classList.remove('blatt-ueber-seite');
+      if (wseiten().length) blatt.inert = true;
+    }
+  }).observe($('#sheet'), { attributes: true, attributeFilter: ['class'] });
+}
+
+// Nach jedem renderWallet: offene Seiten an den neuen Stand anpassen. Ist ihr
+// Gutschein weg (anderes Geraet, verschenkt), gehen sie zu.
+function wseitenAbgleichen() {
+  const s = wseiten();
+  if (!s.length) return;
+  if (walletGesperrt() || !state.token) { wseitenZu(); return; }
+  if (s.some(x => x.sendet)) return;          // Verschenken laeuft gerade
+  for (let i = 0; i < s.length; i++) {
+    const seite = s[i];
+    if (seite.art !== 'gutschein' && seite.art !== 'schenken') continue;
+    const v = state.wallet.vouchers.find(x => x.id === seite.id);
+    if (!v) {
+      while (s.length > i + 1) wseiteZurueck({ sofort: true });
+      wseiteZurueck();
+      return;
+    }
+    if (seite.art === 'gutschein' && seite.stand !== gdStand(v) && !seite.el.classList.contains('panel-offen')) {
+      zeichneGutscheinSeite(seite);
+    }
+  }
+  const oben = wseiteOben();
+  if (oben?.art === 'analyse') zeichneAnalyse(oben, { nurWennNeu: true });
+}
+
+// =============================================================================
+// Gutschein-Seite: grosse Karte, Code und PIN zum Kopieren, Bild, Sparkarte,
+// Notiz und Verlauf. Unten fest: Abbuchen und Aufladen, darunter der Pfeil zu
+// den weiteren Aktionen (Verschenken, Anmerken, Bearbeiten, Loeschen).
+// =============================================================================
+function gdStand(v) {
+  const k = karteZuMarke(v.vendor);
+  return [itemHash(v), k ? k.id + ':' + itemHash(k) : '', state.token ? 1 : 0,
+    walletPlatz('gutscheine').voll ? 1 : 0].join('|');
+}
+function gdAbgelaufen(v) { return !!v.end && Date.parse(v.end + 'T23:59:59') < Date.now(); }
+function gdLoeschbar(v) {
+  return v.balance == null || v.balance <= 0 || gdAbgelaufen(v) || walletPlatz('gutscheine').voll;
+}
+
+// Alte Aufrufe (Marken-Blatt, Bild tauschen) landen auf der neuen Seite
+function openVoucherSheet(id, animFrom) { oeffneGutscheinSeite(id, { animFrom }); }
+function oeffneGutscheinSeite(id, { animFrom = null, buchen = 0 } = {}) {
   if (walletGesperrt()) { aktualisiereSperre(); return; } // gesperrte Wallet: nichts zeigen
   const v = state.wallet.vouchers.find(x => x.id === id);
   if (!v) return;
-  if (istRabatt(v)) return openRabattSheet(id, richtung);
+  if (istRabatt(v)) return openRabattSheet(id);
   if (v.giftFrom && !v.giftSeen) { v.giftSeen = true; saveWallet(); }
-  state.sheetMode = 'wallet-detail';
-  const expired = v.end && Date.parse(v.end + 'T23:59:59') < Date.now();
-  // Passende Sparkarte? Dann sitzt oben rechts ihr Logo statt des X — an der
-  // Kasse braucht man beides, und raus kommt man per Pfeil oder Runterwischen.
-  const karte = karteZuMarke(v.vendor);
-  // Kam man aus dem Marken-Blatt? Dann fuehrt oben ein Weg zurueck.
-  const zurueck = zurueckZu || null;
-  $('#sheet-content').innerHTML = `
-    <div class="offer-head">
-      <span class="brand-chip" style="--bc:${brandColor(v.vendor)}">${esc(brandInitials(v.vendor))}</span>
-      <div class="offer-brand">
-        <div class="offer-merchant">${esc(v.vendor)}</div>
-        <div class="offer-cat">${v.end ? (expired ? 'abgelaufen' : 'gültig bis ' + new Date(v.end).toLocaleDateString('de-DE')) : 'Gutschein'}</div>
-      </div>
-      ${karte
-        ? `<button class="karte-btn" id="wv-karte" style="--bc:${brandColor(v.vendor)}"
-            title="${esc(v.vendor)}-Sparkarte zeigen" aria-label="${esc(v.vendor)}-Sparkarte zeigen">
-            ${sparkarteHtml(karte, true)}</button>`
-        : `<button class="karte-btn neu" id="wv-addkarte" style="--bc:${brandColor(v.vendor)}"
-            title="${esc(v.vendor)}-Sparkarte hinzufügen" aria-label="${esc(v.vendor)}-Sparkarte hinzufügen">
-            <span class="karte-btn-chip">${brandChipHtml(v.vendor)}<span class="karte-plus">${icon('plus')}</span></span>
-          </button>`}
-    </div>
-    ${zurueck ? `<button class="zurueck-zeile" id="wv-back">
-      ${icon('arrow-back', 'icon icon-sm')} Zurück zur ${esc(v.vendor)}-Sparkarte</button>` : ''}
-    ${karte ? `<p class="karte-annot">${icon('bulb', 'icon icon-sm')}
-      Oben rechts liegt deine ${esc(v.vendor)}-Sparkarte — antippen und an der Kasse zeigen.</p>` : ''}
-    ${!karte ? `<p class="karte-annot">${icon('bulb', 'icon icon-sm')}
-      Du hast die ${esc(v.vendor)}-Sparkarte noch nicht hinterlegt — oben rechts hinzufügen,
-      dann hast du sie an der Kasse zusammen mit dem Gutschein zur Hand.</p>` : ''}
-    ${v.balance != null ? `<div class="balance-big" style="margin-top:12px"><span id="wv-balance">${euroFmt(v.balance)}</span>
-      ${v.amount != null && v.amount !== v.balance ? `<span class="stars-count">von ${euroFmt(v.amount)}</span>` : ''}</div>` : ''}
-    ${v.code ? `<div class="tx-row" style="margin-top:12px">
-      <span class="wallet-code" style="flex:1">${esc(v.code)}</span>
-      <button class="btn btn-small" data-copy-txt="${esc(v.code)}">Code kopieren</button>
-    </div>` : ''}
-    ${v.pin ? `<div class="tx-row"><span class="wallet-code" style="flex:1">PIN: ${esc(v.pin)}</span>
-      <button class="btn btn-small btn-ghost" data-copy-txt="${esc(v.pin)}">PIN kopieren</button></div>` : ''}
-    ${v.codeImg ? `<img class="wallet-code-img" id="wv-bild" src="${esc(v.codeImg)}" alt="Code für die Kasse"
-        role="button" tabindex="0" aria-label="Bild vergrößern">`
-      : v.img ? `<img class="wallet-img" id="wv-bild" src="${esc(v.img)}" alt="QR/Barcode"
-        role="button" tabindex="0" aria-label="Bild vergrößern">` : ''}
-    <div class="bild-aktionen">
-      <label class="bild-btn">
-        ${icon(v.codeImg || v.img ? 'wand' : 'plus', 'icon')}
-        <span>${v.codeImg || v.img ? 'Bild tauschen' : 'Bild hochladen'}</span>
-        <input type="file" id="wv-img-file" accept="image/*" style="display:none">
-      </label>
-      ${v.codeImg || v.img ? `<button class="bild-btn" id="wv-img-crop">
-        ${icon('sliders', 'icon')}<span>Zuschneiden</span></button>
-        <button class="bild-btn bild-btn-rund" id="wv-img-zoom" aria-label="Bild vergrößern" title="Vergrößern">
-        ${icon('search', 'icon')}</button>` : ''}
-    </div>
-    ${v.balance != null ? `
-    <div class="sheet-section">
-      <h3>Betrag abbuchen / aufladen</h3>
-      <div class="amt-presets">
-        ${[2, 5, 10].map(n => `<button class="chip" data-preset="${n}">${n} €</button>`).join('')}
-        <button class="chip" data-preset="max">Max (${euroFmt(v.balance)})</button>
-      </div>
-      <div class="form-row">
-        <input id="wv-amt" class="input" inputmode="decimal" placeholder="Betrag (€)">
-        <input id="wv-note" class="input" maxlength="60" placeholder="Wofür? (Notiz)">
-      </div>
-      <div class="form-row">
-        <button id="wv-sub" class="btn btn-book-sub">− Abbuchen</button>
-        <button id="wv-addamt" class="btn btn-book-add">+ Aufladen</button>
-        <span id="wv-msg" class="form-msg"></span>
-      </div>
-    </div>` : ''}
-    ${(v.tx || []).length ? `
-    <div class="sheet-section">
-      <h3>Verlauf</h3>
-      ${v.tx.map(t => `
-      <div class="tx-row ${t.reverted ? 'reverted' : ''}">
-        <span class="tx-amt ${t.amt < 0 ? 'minus' : 'plus'}">${t.amt < 0 ? '−' : '+'}${euroFmt(Math.abs(t.amt))}</span>
-        <span class="tx-note">${esc(t.note || (t.amt < 0 ? 'Abbuchung' : 'Aufladung'))}
-          <small>${new Date(t.ts).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</small></span>
-        ${!t.reverted ? `<button class="btn btn-small btn-ghost" data-revert="${esc(t.id)}">Rückgängig</button>` : ''}
-      </div>`).join('')}
-    </div>` : ''}
-    ${v.balance != null && v.balance > 0 ? `
-    <div class="sheet-section">
-      <button class="gift-btn" id="wv-gift">
-        ${icon('gift', 'icon')}
-        <span>An Freund verschenken</span>
-      </button>
-    </div>` : ''}
-    ${v.giftFrom ? `<p class="added-line">${icon('gift', 'icon icon-sm')} Geschenk von @${esc(v.giftFrom)}</p>` : ''}
-    ${v.added ? `<p class="added-line">Hinzugefügt am ${new Date(v.added).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })} um ${new Date(v.added).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} Uhr</p>` : ''}
-    ${(v.balance == null || v.balance <= 0 || expired || walletPlatz('gutscheine').voll)
-      ? '<button class="btn btn-danger" id="wv-del" style="margin-top:14px">Gutschein löschen</button>' : ''}`;
+  // Dieselbe Seite liegt schon oben (Bild getauscht): nur neu zeichnen
+  const oben = wseiteOben();
+  if (oben && oben.art === 'gutschein' && oben.id === id) {
+    zeichneGutscheinSeite(oben, { animFrom });
+    if (buchen) gdBuchenOeffnen(oben, buchen);
+    return;
+  }
+  buzz(8);
+  const seite = wseiteOeffnen({
+    art: 'gutschein', id, titel: v.vendor, klasse: 'gd',
+    baue: s => zeichneGutscheinSeite(s, { animFrom }),
+  });
+  if (seite && buchen) setTimeout(() => { if (wseiteOben() === seite) gdBuchenOeffnen(seite, buchen); }, wseiteBewegt() ? 300 : 0);
+}
 
-  $('#sheet-content').querySelectorAll('[data-copy-txt]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copyTxt)));
-  $('#wv-close')?.addEventListener('click', closeSheet);
-  // Oben rechts liegt dieselbe Karte wie im Raster — also auch derselbe
-  // Mechanismus: sie zoomt in die Mitte und dreht sich dabei um.
-  $('#wv-karte')?.addEventListener('click', e => zeigeKarteGross({
-    karteObj: karte, name: v.vendor, vonEl: e.currentTarget,
+// Motiv hinten auf der Karte: das Marken-Logo gross und blass
+function vkMotivHtml(v) {
+  const domain = BRAND_DOMAINS[String(v.vendor || '').toLowerCase()];
+  return domain
+    ? `<img src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128" alt="" loading="lazy" decoding="async" onerror="this.remove()">`
+    : `<i>${esc(brandInitials(v.vendor))}</i>`;
+}
+
+function gutscheinSeiteHtml(v, karte) {
+  const farbe = brandColor(v.vendor);
+  const tag = d => d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const zeit = ts => new Date(ts).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const ende = v.end ? new Date(v.end + 'T12:00:00') : null;
+  const hatBetrag = v.balance != null;
+  const pct = hatBetrag && v.amount ? Math.max(0, Math.min(1, (v.balance || 0) / v.amount)) : 1;
+  const fuss = ende && !isNaN(ende)
+    ? (gdAbgelaufen(v) ? `abgelaufen am ${tag(ende)}` : `Gültig bis ${tag(ende)}`)
+    : 'ohne Ablaufdatum';
+
+  const codeZeile = (label, wert) => `
+    <div class="gd-code-zeile">
+      <span class="gd-code-text"><small>${label}</small><b>${esc(wert)}</b></span>
+      <button class="gd-kopier" type="button" data-copy-txt="${esc(wert)}" aria-label="${label} kopieren" title="${label} kopieren">${wIcon('kopie')}</button>
+    </div>`;
+  const codes = v.code || v.pin
+    ? `<div class="gd-block gd-codes">${v.code ? codeZeile('Code', v.code) : ''}${v.pin ? codeZeile('PIN', v.pin) : ''}</div>`
+    : `<button class="gd-block gd-leer" type="button" data-gd="bearbeiten">${wIcon('stift')}<span>Code oder PIN ergänzen</span></button>`;
+
+  const bildSrc = v.codeImg || v.img;
+  const bild = bildSrc ? `
+    <div class="gd-block gd-bild">
+      <img class="${v.codeImg ? 'wallet-code-img' : 'wallet-img'}" id="wv-bild" src="${esc(bildSrc)}"
+        alt="${v.codeImg ? 'Code für die Kasse' : 'QR/Barcode'}" role="button" tabindex="0" aria-label="Bild vergrößern">
+      <div class="gd-bild-knoepfe">
+        <label class="gd-bild-knopf">${wIcon('bild')}<span>Tauschen</span>
+          <input type="file" id="wv-img-file" accept="image/*" style="display:none"></label>
+        <button class="gd-bild-knopf" id="wv-img-crop" type="button">${wIcon('zuschnitt')}<span>Zuschneiden</span></button>
+        <button class="gd-bild-knopf gd-bild-lupe" id="wv-img-zoom" type="button" aria-label="Bild vergrößern" title="Vergrößern">${icon('search')}</button>
+      </div>
+    </div>` : `
+    <label class="gd-block gd-leer">${wIcon('bild')}<span>Bild vom Code hinzufügen</span>
+      <input type="file" id="wv-img-file" accept="image/*" style="display:none"></label>`;
+
+  // Sparkarte: an der Kasse gehoert sie zum Gutschein dazu
+  const sparkarte = karte ? `
+    <button class="gd-block gd-zeile" type="button" id="wv-karte">
+      <span class="gd-zeile-bild">${sparkarteHtml(karte, true)}</span>
+      <span class="gd-zeile-text"><b>${esc(v.vendor)}-Sparkarte</b><small>Erst die Karte zeigen, dann mit dem Gutschein zahlen</small></span>
+      ${icon('chevron', 'icon gd-pfeil')}
+    </button>`
+    : cardApp(v.vendor)?.ohneKarte ? '' : `
+    <button class="gd-block gd-zeile" type="button" id="wv-addkarte">
+      <span class="gd-zeile-plus">${brandChipHtml(v.vendor)}<i>${icon('plus')}</i></span>
+      <span class="gd-zeile-text"><b>Sparkarte hinzufügen</b><small>Dann hast du die ${esc(v.vendor)}-Karte an der Kasse gleich dabei</small></span>
+      ${icon('chevron', 'icon gd-pfeil')}
+    </button>`;
+
+  const notiz = v.notiz ? `
+    <button class="gd-block gd-notiz" type="button" data-gd="notiz" aria-label="Notiz ändern">
+      <span class="gd-notiz-kopf">${wIcon('notiz')}<small>Notiz</small>${wIcon('stift', 'icon gd-notiz-stift')}</span>
+      <span class="gd-notiz-text">${esc(v.notiz)}</span>
+    </button>` : '';
+
+  // Verlauf: neueste Buchung oben, ganz unten der Anfang (hinzugefuegt/geschenkt)
+  const buchungen = (v.tx || []).map(t => {
+    const minus = t.amt < 0;
+    return `
+      <div class="gd-tx${t.reverted ? ' zurueck' : ''}">
+        <span class="gd-tx-zeichen ${minus ? 'minus' : 'plus'}">${minus ? wIcon('minus') : icon('plus')}</span>
+        <span class="gd-tx-text"><b>${esc(t.note || (minus ? 'Abbuchung' : 'Aufladung'))}</b>
+          <small>${zeit(t.ts)}${t.reverted ? ' · rückgängig gemacht' : ''}</small></span>
+        <span class="gd-tx-betrag ${minus ? 'minus' : 'plus'}">${minus ? '−' : '+'}${euroFmt(Math.abs(t.amt))}</span>
+        ${t.reverted ? '<span class="gd-tx-platz"></span>'
+          : `<button class="gd-tx-rueck" type="button" data-revert="${esc(t.id)}" aria-label="Buchung rückgängig machen" title="Rückgängig">${wIcon('rueck')}</button>`}
+      </div>`;
+  }).join('');
+  const anfang = v.added ? `
+      <div class="gd-tx anfang">
+        <span class="gd-tx-zeichen anfang">${icon(v.giftFrom ? 'gift' : 'wallet')}</span>
+        <span class="gd-tx-text"><b>${v.giftFrom ? `Geschenk von @${esc(v.giftFrom)}` : 'Hinzugefügt'}</b><small>${zeit(v.added)}</small></span>
+        <span class="gd-tx-betrag">${v.amount != null ? euroFmt(v.amount) : ''}</span>
+        <span class="gd-tx-platz"></span>
+      </div>` : '';
+
+  return `
+    <div class="gd-karte${brandHelligkeit(farbe) > 0.62 ? ' hell' : ''}" id="gd-karte"
+      style="--bc:${farbe}; --tc:${brandTextColor(v.vendor)}">
+      <span class="vk-motiv gd-motiv" aria-hidden="true">${vkMotivHtml(v)}</span>
+      <div class="gd-karte-kopf">
+        <span class="vk-logo">${brandChipHtml(v.vendor)}</span>
+        <span class="gd-karte-namen"><b>${esc(v.vendor)}</b><span>${v.giftFrom ? `Geschenk von @${esc(v.giftFrom)}` : 'Gutschein'}</span></span>
+      </div>
+      ${hatBetrag ? `
+      <div class="gd-guthaben"><b id="gd-guthaben">${euroFmt(v.balance)}</b>
+        ${v.amount != null && v.amount !== v.balance ? `<span>von ${euroFmt(v.amount)}</span>` : ''}</div>
+      ${v.amount ? `<div class="gd-balken" role="img" aria-label="${Math.round(pct * 100)} Prozent übrig"><i style="transform:scaleX(${pct.toFixed(4)})"></i></div>` : ''}` : ''}
+      <div class="gd-karte-fuss">${entferntAmHtml(v)}<span>${fuss}</span></div>
+    </div>
+    ${codes}
+    ${bild}
+    ${sparkarte}
+    ${notiz}
+    ${buchungen || anfang ? `<h3 class="gd-h">Verlauf</h3><div class="gd-block gd-verlauf">${buchungen}${anfang}</div>` : ''}`;
+}
+
+// Die feste Leiste unten. Die weiteren Aktionen liegen unter dem Pfeil: die
+// Leiste ist so hoch wie alles zusammen, zugeklappt aber um die Aktionen nach
+// unten verschoben (nur transform) — aufklappen schiebt sie hoch.
+function gdLeisteHtml(v) {
+  const hatBetrag = v.balance != null;
+  const rest = hatBetrag && v.balance > 0;
+  const opts = [
+    rest && state.token && ['schenken', 'Verschenken', 'An Freunde weitergeben'],
+    ['notiz', v.notiz ? 'Notiz ändern' : 'Anmerken', 'Eine Notiz nur für dich'],
+    ['bearbeiten', 'Bearbeiten', 'Code, PIN und Gültigkeit'],
+    gdLoeschbar(v) && ['loeschen', 'Gutschein löschen', ''],
+  ].filter(Boolean);
+  const bild = { schenken: icon('gift'), notiz: wIcon('notiz'), bearbeiten: wIcon('stift'), loeschen: wIcon('muell') };
+  return `
+    <div class="wseite-leiste gd-leiste">
+      ${hatBetrag ? `<div class="gd-knoepfe">
+        <button class="gd-knopf gd-ab" type="button" data-buchen="-1"${rest ? '' : ' disabled'}>${wIcon('minus')}<span>Abbuchen</span></button>
+        <button class="gd-knopf gd-auf" type="button" data-buchen="1">${icon('plus')}<span>Aufladen</span></button>
+      </div>` : ''}
+      <button class="gd-mehr" type="button" aria-expanded="false" aria-controls="gd-optionen">
+        <span>Mehr</span>${icon('chevron-down', 'icon gd-mehr-pfeil')}</button>
+      <div class="gd-optionen" id="gd-optionen" role="menu" aria-label="Weitere Aktionen">
+        ${opts.map(([k, t, sub]) => `
+        <button class="gd-option${k === 'loeschen' ? ' gefahr' : ''}" type="button" role="menuitem" data-gd="${k}" tabindex="-1">
+          <span class="gd-option-bild">${bild[k]}</span>
+          <span class="gd-option-text"><b>${t}</b>${sub ? `<small>${sub}</small>` : ''}</span>
+        </button>`).join('')}
+      </div>
+      <div class="gd-fuss" aria-hidden="true"></div>
+    </div>`;
+}
+
+function zeichneGutscheinSeite(seite, { animFrom = null } = {}) {
+  const v = state.wallet.vouchers.find(x => x.id === seite.id);
+  if (!v) return;
+  const el = seite.el;
+  const inhalt = el.querySelector('.wseite-inhalt');
+  const scroll = inhalt.scrollTop;
+  const karte = karteZuMarke(v.vendor);
+  seite.stand = gdStand(v);
+  el.querySelector('.wseite-titel').textContent = v.vendor;
+  el.setAttribute('aria-label', `${v.vendor}-Gutschein`);
+  inhalt.innerHTML = gutscheinSeiteHtml(v, karte);
+  el.querySelectorAll('.gd-leiste, .gd-dimm, .gd-panel').forEach(x => x.remove());
+  el.classList.remove('panel-offen');
+  el.insertAdjacentHTML('beforeend', gdLeisteHtml(v)
+    + '<div class="gd-dimm" aria-hidden="true"></div><div class="gd-panel" role="dialog" aria-modal="true"></div>');
+  inhalt.scrollTop = scroll;
+  gdLeisteMessen(seite);
+  verdrahteGutscheinSeite(seite, v, karte);
+  if (animFrom != null && v.balance != null && animFrom !== v.balance) {
+    animateNumber(el.querySelector('#gd-guthaben'), animFrom, v.balance);
+  }
+}
+
+// Zugeklappt ragen nur die beiden Knoepfe und der Pfeil hervor: die Leiste
+// wird um die Hoehe der Aktionen nach unten geschoben, der Inhalt bekommt
+// unten genau so viel Luft, wie von der Leiste zu sehen ist
+function gdLeisteMessen(seite) {
+  const leiste = seite.el.querySelector('.gd-leiste');
+  const opt = leiste?.querySelector('.gd-optionen');
+  if (!opt) return;
+  const optH = opt.offsetHeight;
+  leiste.style.setProperty('--gd-opt-h', optH + 'px');
+  seite.el.style.setProperty('--gd-leiste-h', Math.max(0, leiste.offsetHeight - optH) + 'px');
+}
+addEventListener('resize', () => wseiten().forEach(s => { if (s.art === 'gutschein') gdLeisteMessen(s); }), { passive: true });
+
+function verdrahteGutscheinSeite(seite, v, karte) {
+  const el = seite.el;
+  el.querySelectorAll('[data-copy-txt]').forEach(b => b.onclick = () => { copyText(b.dataset.copyTxt); buzz(10); });
+  // Die Sparkarte zoomt in die Mitte und dreht sich dabei um (wie im Raster)
+  el.querySelector('#wv-karte')?.addEventListener('click', e => zeigeKarteGross({
+    karteObj: karte, name: v.vendor, vonEl: e.currentTarget.querySelector('.debitkarte') || e.currentTarget,
     aktionen: [
       { text: 'Umdrehen', icon: 'arrow-out', leise: true, drehen: true },
       ...(karte.number
-        ? [{ text: 'Nummer kopieren', icon: 'check', leise: true, bleibt: true,
-             fn: () => copyText(karte.number) }]
+        ? [{ text: 'Nummer kopieren', icon: 'check', leise: true, bleibt: true, fn: () => copyText(karte.number) }]
         : []),
-      { text: 'Ändern', verwalten: true, fn: () => openWalletAdd('card', karte.name, karte.id) },
+      { text: 'Ändern', verwalten: true, fn: () => blattUeberSeite(() => openWalletAdd('card', karte.name, karte.id)) },
       { text: 'Löschen', verwalten: true, gefahr: true, bleibt: true, fn: () => karteLoeschen(karte) },
     ],
   }));
-  $('#wv-addkarte')?.addEventListener('click', () => openWalletAdd('card', v.vendor));
-  $('#wv-back')?.addEventListener('click', () => openBrandSheet(zurueck, 'zurueck'));
-  // Verschenken laeuft ueber ein eigenes Fenster
-  $('#wv-gift')?.addEventListener('click', () =>
-    zeigeSchenkSchritt(v, 'vor', () => openVoucherSheet(v.id, null, zurueck, 'zurueck')));
-  // Löschen gibt es nur bei aufgebrauchten Gutscheinen, immer mit Rückfrage
-  wireVoucherImage(v); // Bild tauschen / zuschneiden / nachtraeglich hochladen
-  $('#wv-del')?.addEventListener('click', async () => {
-    const rest = v.balance != null && v.balance > 0;
-    if (rest && !(expired || walletPlatz('gutscheine').voll)) return;
-    if (!await askConfirm(rest
-      ? `Auf diesem ${esc(v.vendor)}-Gutschein sind noch ${euroFmt(v.balance)}. Trotzdem löschen?`
-      : `Bist du sicher, dass du den ${esc(v.vendor)}-Gutschein löschen willst?`, rest ? { okLabel: 'Trotzdem löschen' } : undefined)) return;
-    if (walletGesperrt()) return;
-    tombstone(id);
-    state.wallet.vouchers = state.wallet.vouchers.filter(x => x.id !== id);
-    saveWallet(); closeSheet(); island('Gutschein gelöscht');
+  el.querySelector('#wv-addkarte')?.addEventListener('click', () => blattUeberSeite(() => openWalletAdd('card', v.vendor)));
+  wireVoucherImage(v); // Bild tauschen / zuschneiden / vergroessern
+  el.querySelectorAll('[data-revert]').forEach(b => b.onclick = () => gdRueckgaengig(seite, b.dataset.revert));
+  el.querySelectorAll('[data-buchen]').forEach(b => b.onclick = () => gdBuchenOeffnen(seite, Number(b.dataset.buchen)));
+  el.querySelector('.gd-mehr').onclick = () => gdOptionen(seite);
+  el.querySelector('.gd-dimm').onclick = () => { gdPanelZu(seite); gdOptionen(seite, false); };
+  el.querySelectorAll('[data-gd]').forEach(b => b.onclick = () => {
+    const k = b.dataset.gd;
+    const x = state.wallet.vouchers.find(y => y.id === seite.id);
+    if (!x) return;
+    if (k === 'schenken') { gdOptionen(seite, false); zeigeSchenkSchritt(x); }
+    else if (k === 'notiz') gdNotizOeffnen(seite);
+    else if (k === 'bearbeiten') gdBearbeitenOeffnen(seite);
+    else if (k === 'loeschen') { gdOptionen(seite, false); gutscheinLoeschen(x); }
   });
-  // Schnellbeträge: 2/5/10 € oder alles auf einmal
-  $('#sheet-content').querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => {
-    $('#wv-amt').value = b.dataset.preset === 'max'
-      ? String(v.balance).replace('.', ',')
-      : b.dataset.preset;
-    $('#wv-amt').focus();
-  }));
-  const book = sign => {
-    const amt = parseFloat($('#wv-amt').value.replace(',', '.'));
-    const msg = $('#wv-msg');
-    if (isNaN(amt) || amt <= 0) { msg.className = 'form-msg error'; msg.textContent = 'Betrag angeben.'; return; }
-    // Nie ins Minus: mehr als das Restguthaben lässt sich nicht abbuchen
-    if (sign < 0 && amt > v.balance + 0.001) {
-      msg.className = 'form-msg error';
-      msg.textContent = `Nur noch ${euroFmt(v.balance)} drauf, mehr geht nicht.`;
-      return;
-    }
-    const before = v.balance;
-    v.tx = v.tx || [];
-    v.tx.unshift({ id: Math.random().toString(36).slice(2, 9), amt: sign * amt, note: $('#wv-note').value.trim().slice(0, 60), ts: Date.now() });
-    v.balance = Math.round((v.balance + sign * amt) * 100) / 100;
-    saveWallet();
-    openVoucherSheet(id, before);
-    // Spielgefühl: Geld raus = Apple-Pay-Sound, rotes Aufleuchten, kurzer Shake;
-    // Geld rein = Ka-ching, grünes Aufleuchten, Geldscheine
-    if (sign < 0) {
-      playSfx('pay'); buzz([45, 40, 45]); moneyFlash('red');
-      // Ein kurzer, kleiner Ruckler am Inhalt, nicht am Sheet selbst
-      // (das ist per translateX(-50%) zentriert, ein Transform-Shake würde es zur Seite reißen)
-      const c = $('#sheet-content');
-      if (c && !reducedMotion()) {
-        c.classList.remove('shake-once'); void c.offsetWidth; c.classList.add('shake-once');
-        setTimeout(() => c.classList.remove('shake-once'), 420);
-      }
-    } else {
-      playSfx('kaching'); buzz(35); moneyFlash('green'); billRain(5);
-    }
-    showToast({
-      title: sign < 0 ? 'Abbuchung gespeichert' : 'Aufladung gespeichert',
-      text: `Restguthaben: ${euroFmt(v.balance)}`,
-      success: true,
-    }, 3500);
-  };
-  $('#wv-sub')?.addEventListener('click', () => book(-1));
-  $('#wv-addamt')?.addEventListener('click', () => book(1));
-  // Guthaben zählt sichtbar vom alten zum neuen Stand
-  if (animFrom != null && v.balance != null) animateNumber($('#wv-balance'), animFrom, v.balance);
-  $('#sheet-content').querySelectorAll('[data-revert]').forEach(b => b.addEventListener('click', () => {
-    const t = v.tx.find(x => x.id === b.dataset.revert);
-    if (!t || t.reverted) return;
-    const before = v.balance;
-    t.reverted = true;
-    v.balance = Math.round((v.balance - t.amt) * 100) / 100;
-    saveWallet();
-    openVoucherSheet(id, before);
-    island('Buchung rückgängig gemacht');
-  }));
-  openSheetShell(richtung);
+}
+
+// Weitere Aktionen unter dem Pfeil auf- und zuklappen
+function gdOptionen(seite, auf) {
+  const l = seite?.el.querySelector('.gd-leiste');
+  if (!l) return;
+  const jetzt = l.classList.contains('auf');
+  if (auf === undefined) auf = !jetzt;
+  if (auf === jetzt) return;
+  l.classList.toggle('auf', auf);
+  l.querySelector('.gd-mehr').setAttribute('aria-expanded', String(auf));
+  l.querySelectorAll('.gd-option').forEach(o => { o.tabIndex = auf ? 0 : -1; });
+  seite.el.querySelector('.gd-dimm')?.classList.toggle('an', auf);
+  buzz(6);
+}
+
+// Ein Feld von unten (Buchen, Notiz, Bearbeiten): gleitet ueber die Leiste
+function gdPanelOeffnen(seite, { titel, html, verdrahten }) {
+  gdOptionen(seite, false);
+  const p = seite.el.querySelector('.gd-panel');
+  if (!p) return;
+  p.innerHTML = `
+    <div class="gd-panel-kopf"><b>${esc(titel)}</b>
+      <button class="gd-panel-zu" type="button" aria-label="Schließen">${icon('x')}</button></div>
+    <div class="gd-panel-inhalt">${html}</div>`;
+  p.setAttribute('aria-label', titel);
+  p.querySelector('.gd-panel-zu').onclick = () => gdPanelZu(seite);
+  seite.el.classList.add('panel-offen');
+  seite.el.querySelector('.gd-dimm')?.classList.add('an');
+  p.classList.add('auf');
+  verdrahten?.(p);
+}
+function gdPanelZu(seite) {
+  const p = seite?.el.querySelector('.gd-panel.auf');
+  if (!p) return;
+  if (p.contains(document.activeElement)) document.activeElement.blur();
+  p.classList.remove('auf');
+  seite.el.classList.remove('panel-offen');
+  seite.el.querySelector('.gd-dimm')?.classList.remove('an');
+}
+
+// Abbuchen / Aufladen: Betrag, Schnellbetraege (2/5/10 € und alles), Notiz
+function gdBuchenOeffnen(seite, sign) {
+  const v = state.wallet.vouchers.find(x => x.id === seite.id);
+  if (!v || v.balance == null || walletGesperrt()) return;
+  const ab = sign < 0;
+  if (ab && !(v.balance > 0)) return;
+  const betragText = n => n.toFixed(2).replace('.', ',');
+  const vorschlaege = [[2, '2 €'], [5, '5 €'], [10, '10 €']];
+  if (ab) vorschlaege.push([v.balance, `Alles · ${euroFmt(v.balance)}`]);
+  else if (v.amount != null && v.amount > v.balance) {
+    vorschlaege.push([Math.round((v.amount - v.balance) * 100) / 100, `Auf ${euroFmt(v.amount)}`]);
+  }
+  gdPanelOeffnen(seite, {
+    titel: ab ? 'Abbuchen' : 'Aufladen',
+    html: `
+      <p class="gd-panel-info">${ab ? 'Noch' : 'Gerade'} <b>${euroFmt(v.balance)}</b> auf dem Gutschein</p>
+      <label class="gd-betrag">
+        <input id="gd-betrag" inputmode="decimal" enterkeyhint="done" autocomplete="off" placeholder="0,00" aria-label="Betrag in Euro">
+        <span aria-hidden="true">€</span>
+      </label>
+      <div class="gd-vorschlaege">${vorschlaege.map(([n, t]) =>
+        `<button class="gd-vorschlag" type="button" data-betrag="${n}">${esc(t)}</button>`).join('')}</div>
+      <input id="gd-wofuer" class="gd-feld" maxlength="60" autocomplete="off" placeholder="Wofür? (optional)">
+      <p class="gd-meldung" role="alert"></p>
+      <button class="gd-los ${ab ? 'ab' : 'auf'}" type="button">${ab ? 'Abbuchen' : 'Aufladen'}</button>`,
+    verdrahten: p => {
+      const feld = p.querySelector('#gd-betrag');
+      const los = p.querySelector('.gd-los');
+      const meldung = p.querySelector('.gd-meldung');
+      const zahl = () => parseFloat(String(feld.value).replace(/\s/g, '').replace(',', '.'));
+      const beschriften = () => {
+        const n = zahl();
+        los.textContent = n > 0 ? `${euroFmt(Math.round(n * 100) / 100)} ${ab ? 'abbuchen' : 'aufladen'}` : (ab ? 'Abbuchen' : 'Aufladen');
+        meldung.textContent = '';
+      };
+      feld.oninput = () => { p.querySelectorAll('.gd-vorschlag.an').forEach(x => x.classList.remove('an')); beschriften(); };
+      p.querySelectorAll('[data-betrag]').forEach(b => b.onclick = () => {
+        feld.value = betragText(Number(b.dataset.betrag));
+        p.querySelectorAll('.gd-vorschlag').forEach(x => x.classList.toggle('an', x === b));
+        beschriften();
+        buzz(6);
+      });
+      const senden = () => {
+        const fehler = gutscheinBuchen(seite, sign, zahl(), p.querySelector('#gd-wofuer').value);
+        if (!fehler) return;
+        meldung.textContent = fehler;
+        if (!reducedMotion()) neuStarten(meldung, 'shake-once');
+      };
+      los.onclick = senden;
+      feld.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); senden(); } };
+      p.querySelector('#gd-wofuer').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); senden(); } };
+    },
+  });
+}
+// Gibt einen Fehlertext zurueck oder '' (gebucht)
+function gutscheinBuchen(seite, sign, amt, note) {
+  const v = state.wallet.vouchers.find(x => x.id === seite.id);
+  if (!v || v.balance == null) return 'Diesen Gutschein gibt es nicht mehr.';
+  if (walletGesperrt()) { aktualisiereSperre(); return 'Die Wallet ist gesperrt.'; }
+  if (isNaN(amt) || amt <= 0) return 'Betrag angeben.';
+  amt = Math.round(amt * 100) / 100;
+  // Nie ins Minus: mehr als das Restguthaben laesst sich nicht abbuchen
+  if (sign < 0 && amt > v.balance + 0.001) return `Nur noch ${euroFmt(v.balance)} drauf, mehr geht nicht.`;
+  const before = v.balance;
+  v.tx = v.tx || [];
+  v.tx.unshift({ id: Math.random().toString(36).slice(2, 9), amt: sign * amt, note: String(note || '').trim().slice(0, 60), ts: Date.now() });
+  v.balance = Math.round((v.balance + sign * amt) * 100) / 100;
+  gdPanelZu(seite);
+  // Erst zeichnen, dann speichern: der Abgleich nach renderWallet sieht dann
+  // schon den neuen Stand und zeichnet nicht ein zweites Mal
+  zeichneGutscheinSeite(seite, { animFrom: before });
+  saveWallet();
+  // Geld raus = Apple-Pay-Klang, rotes Aufleuchten, kurzer Ruckler an der
+  // Karte; Geld rein = Ka-ching, gruenes Aufleuchten, Geldscheine
+  if (sign < 0) {
+    playSfx('pay'); buzz([45, 40, 45]); moneyFlash('red');
+    if (!reducedMotion()) neuStarten(seite.el.querySelector('#gd-karte'), 'shake-once');
+  } else {
+    playSfx('kaching'); buzz(35); moneyFlash('green'); billRain(5);
+  }
+  showToast({
+    title: sign < 0 ? 'Abbuchung gespeichert' : 'Aufladung gespeichert',
+    text: `Restguthaben: ${euroFmt(v.balance)}`,
+    success: true,
+  }, 3500);
+  return '';
+}
+async function gdRueckgaengig(seite, txId) {
+  const v = state.wallet.vouchers.find(x => x.id === seite.id);
+  const t = v?.tx?.find(x => x.id === txId);
+  if (!t || t.reverted) return;
+  const neu = Math.round((v.balance - t.amt) * 100) / 100;
+  if (neu < -0.001) {
+    island('Erst die spätere Abbuchung rückgängig machen, sonst wäre das Guthaben im Minus', 3600);
+    return;
+  }
+  if (!await askConfirm(`${t.amt < 0 ? 'Abbuchung' : 'Aufladung'} über ${euroFmt(Math.abs(t.amt))} rückgängig machen?`,
+    { okLabel: 'Rückgängig machen' })) return;
+  if (walletGesperrt() || t.reverted) return;
+  const before = v.balance;
+  t.reverted = true;
+  v.balance = Math.max(0, neu);
+  zeichneGutscheinSeite(seite, { animFrom: before });
+  saveWallet();
+  island('Buchung rückgängig gemacht');
+}
+
+// Anmerken: eine Notiz nur fuer einen selbst (die Wallet-Suche findet sie)
+function gdNotizOeffnen(seite) {
+  const v = state.wallet.vouchers.find(x => x.id === seite.id);
+  if (!v) return;
+  gdPanelOeffnen(seite, {
+    titel: v.notiz ? 'Notiz ändern' : 'Anmerken',
+    html: `
+      <textarea id="gd-notiz-feld" class="gd-feld gd-textfeld" maxlength="200" rows="3"
+        placeholder="z. B. nur in der Filiale einlösbar">${esc(v.notiz || '')}</textarea>
+      <p class="gd-panel-info klein">Die Wallet-Suche findet auch deine Notizen. Beim Verschenken bleibt sie bei dir.</p>
+      <div class="gd-panel-knoepfe">
+        ${v.notiz ? '<button class="gd-los leise" type="button" data-notiz="weg">Entfernen</button>' : ''}
+        <button class="gd-los" type="button" data-notiz="ok">Speichern</button>
+      </div>`,
+    verdrahten: p => {
+      const feld = p.querySelector('#gd-notiz-feld');
+      const speichern = text => {
+        const x = state.wallet.vouchers.find(y => y.id === seite.id);
+        if (!x || walletGesperrt()) return;
+        const neu = String(text || '').trim().slice(0, 200);
+        if (neu) x.notiz = neu; else delete x.notiz;
+        gdPanelZu(seite);
+        zeichneGutscheinSeite(seite);
+        saveWallet();
+        island(neu ? 'Notiz gespeichert' : 'Notiz entfernt');
+      };
+      p.querySelector('[data-notiz="ok"]').onclick = () => speichern(feld.value);
+      p.querySelector('[data-notiz="weg"]')?.addEventListener('click', () => speichern(''));
+    },
+  });
+}
+
+// Bearbeiten: Code, PIN und Gueltigkeit nachtragen oder korrigieren
+function gdBearbeitenOeffnen(seite) {
+  const v = state.wallet.vouchers.find(x => x.id === seite.id);
+  if (!v) return;
+  gdPanelOeffnen(seite, {
+    titel: 'Bearbeiten',
+    html: `
+      <label class="gd-label" for="gd-code">Code / Kartennummer</label>
+      <input id="gd-code" class="gd-feld" maxlength="40" autocomplete="off" spellcheck="false"
+        placeholder="Falls vorhanden" value="${esc(v.code || '')}">
+      <div class="gd-zwei">
+        <div><label class="gd-label" for="gd-pin">PIN</label>
+          <input id="gd-pin" class="gd-feld" maxlength="16" autocomplete="off" spellcheck="false" placeholder="optional" value="${esc(v.pin || '')}"></div>
+        <div><label class="gd-label" for="gd-ende">Gültig bis</label>
+          <input id="gd-ende" class="gd-feld" type="date" value="${esc(v.end || '')}"></div>
+      </div>
+      <button class="gd-los" type="button" data-bearb="ok">Speichern</button>`,
+    verdrahten: p => {
+      p.querySelector('[data-bearb="ok"]').onclick = () => {
+        const x = state.wallet.vouchers.find(y => y.id === seite.id);
+        if (!x || walletGesperrt()) return;
+        x.code = p.querySelector('#gd-code').value.trim().slice(0, 40);
+        x.pin = p.querySelector('#gd-pin').value.trim().slice(0, 16);
+        const ende = p.querySelector('#gd-ende').value;
+        x.end = /^\d{4}-\d{2}-\d{2}$/.test(ende) ? ende : '';
+        gdPanelZu(seite);
+        zeichneGutscheinSeite(seite);
+        saveWallet();
+        island('Gespeichert');
+      };
+    },
+  });
+}
+
+// Loeschen gibt es nur bei aufgebrauchten oder abgelaufenen Gutscheinen (und
+// wenn die Wallet voll ist), immer mit Rueckfrage
+async function gutscheinLoeschen(v) {
+  if (!v || !gdLoeschbar(v)) return;
+  const rest = v.balance != null && v.balance > 0;
+  if (!await askConfirm(rest
+    ? `Auf diesem ${esc(v.vendor)}-Gutschein sind noch ${euroFmt(v.balance)}. Trotzdem löschen?`
+    : `Bist du sicher, dass du den ${esc(v.vendor)}-Gutschein löschen willst?`, rest ? { okLabel: 'Trotzdem löschen' } : undefined)) return;
+  if (walletGesperrt()) return;
+  tombstone(v.id);
+  state.wallet.vouchers = state.wallet.vouchers.filter(x => x.id !== v.id);
+  wseitenZu({ sanft: true });
+  saveWallet();
+  island('Gutschein gelöscht');
 }
 
 // EAN-13 als SVG zeichnen. Muss sein, weil die Netto-Codes jede Woche wechseln —
@@ -8405,10 +8958,7 @@ function entferntAmHtml(v) {
 function voucherCardHtml(v, { mehr = false } = {}) {
   const pct = v.amount ? Math.max(0, Math.min(100, Math.round(((v.balance || 0) / v.amount) * 100))) : 100;
   const farbe = brandColor(v.vendor);
-  const domain = BRAND_DOMAINS[String(v.vendor || '').toLowerCase()];
-  const motiv = domain
-    ? `<img src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128" alt="" loading="lazy" decoding="async" onerror="this.remove()">`
-    : `<i>${esc(brandInitials(v.vendor))}</i>`;
+  const motiv = vkMotivHtml(v);
   const tag = d => d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
   // Mittags parsen: "2026-09-23" als UTC-Mitternacht rutschte sonst einen Tag
   const ende = v.end ? new Date(v.end + 'T12:00:00') : null;
@@ -8449,7 +8999,8 @@ function setzeWalletMaskottchen(tier) {
   img.src = `${basis}-480.webp`;
 }
 
-// "…" an der Karte: Code/PIN kopieren, Verschenken, Details — ohne das Blatt
+// "…" an der Karte: Code/PIN kopieren, Abbuchen, Verschenken, Details — der
+// schnelle Weg, ohne erst die Seite zu lesen
 function schliesseVkMenue() { document.querySelectorAll('.vk-menue').forEach(m => m.remove()); }
 function oeffneVkMenue(id, knopf) {
   const offen = document.querySelector('.vk-menue');
@@ -8457,18 +9008,20 @@ function oeffneVkMenue(id, knopf) {
   if (offen && offen.dataset.id === id) return;
   const v = state.wallet.vouchers.find(x => x.id === id);
   if (!v || walletGesperrt()) return;
+  const rest = v.balance != null && v.balance > 0;
   const eintraege = [
-    v.code && ['code', 'Code kopieren', 'list'],
-    v.pin && ['pin', 'PIN kopieren', 'lock'],
-    v.balance != null && v.balance > 0 && ['schenken', 'Verschenken', 'gift'],
-    ['details', 'Buchen und Details', 'arrow-right'],
+    v.code && ['code', 'Code kopieren', wIcon('kopie', 'icon icon-sm')],
+    v.pin && ['pin', 'PIN kopieren', icon('lock', 'icon icon-sm')],
+    rest && ['abbuchen', 'Abbuchen', wIcon('minus', 'icon icon-sm')],
+    rest && state.token && ['schenken', 'Verschenken', icon('gift', 'icon icon-sm')],
+    ['details', 'Details und Verlauf', icon('arrow-right', 'icon icon-sm')],
   ].filter(Boolean);
   const m = document.createElement('div');
   m.className = 'vk-menue';
   m.dataset.id = id;
   m.setAttribute('role', 'menu');
-  m.innerHTML = eintraege.map(([k, t, ic]) =>
-    `<button class="vk-menue-zeile" type="button" role="menuitem" data-vk="${k}">${icon(ic, 'icon icon-sm')}<span>${t}</span></button>`).join('');
+  m.innerHTML = eintraege.map(([k, t, bild]) =>
+    `<button class="vk-menue-zeile" type="button" role="menuitem" data-vk="${k}">${bild}<span>${t}</span></button>`).join('');
   document.body.appendChild(m);
   const r = knopf.getBoundingClientRect();
   const h = m.offsetHeight;
@@ -8481,8 +9034,9 @@ function oeffneVkMenue(id, knopf) {
     const k = b.dataset.vk;
     if (k === 'code') { copyText(v.code); buzz(10); }
     else if (k === 'pin') { copyText(v.pin); buzz(10); }
-    else if (k === 'schenken') { zeigeSchenkSchritt(v, 'vor'); openSheetShell(); }
-    else openVoucherSheet(v.id);
+    else if (k === 'abbuchen') oeffneGutscheinSeite(v.id, { buchen: -1 });
+    else if (k === 'schenken') zeigeSchenkSchritt(v);
+    else oeffneGutscheinSeite(v.id);
   });
 }
 document.addEventListener('pointerdown', e => {
@@ -8785,43 +9339,88 @@ function zeigeMarkenLogos(name) {
     </span>`).join(''));
 }
 
-// Drei Wallet-Bereiche: Gutscheine, Sparkarten (App-Raster), Coupons
+// Welche Marke traegt der Kopf? Nur mit Markenfilter und nur, solange es von
+// ihr noch Gutscheine mit Guthaben gibt (sonst wieder das Gesamtguthaben).
+function walletMarkeName() {
+  const f = state.walletFilter && state.walletFilter !== 'alle' ? String(state.walletFilter).toLowerCase() : '';
+  if (!f) return '';
+  const v = state.wallet.vouchers.find(x => !istRabatt(x) && (x.balance == null || x.balance > 0)
+    && String(x.vendor || '').toLowerCase() === f);
+  return v ? v.vendor : '';
+}
+
+// Zwei Wallet-Bereiche: Gutscheine | Karten & Coupons
 let walletTab = 'gutscheine';
+// Der Wechsel blendet ueber: der alte Bereich (und beim Weg zu den Coupons der
+// Guthaben-Block) blendet aus, dann wird in EINEM Schritt umgeschaltet, der
+// Schieber gleitet an seine neue Stelle und der neue Bereich blendet ein.
+// Karten & Coupons sind universell — dort gelten immer die Rang-Farben, nie
+// die der gewaehlten Marke.
 function updateWalletTab(anim) {
   const coupons = walletTab === 'coupons' || walletTab === 'karten';
   const gated = !state.token && !coupons;
-  $('#wallet-gate').classList.toggle('hidden', !gated);
-  $('#wallet-content').classList.toggle('hidden', gated || coupons);
-  // Im Coupon-Bereich faehrt der Guthaben-Teil weich ein statt zu verschwinden
-  document.body.classList.toggle('wallet-farbe',
-    state.activeView === 'wallet' && !!state.token);
-  // Erst das Ziel messen, dann umschalten — so faehrt das Farbfeld von Anfang
-  // an auf den richtigen Wert zu und nicht hinter dem Kopf her.
-  const kopfZiel = kopfZielUnten(coupons || gated);
-  // Fuer die Dauer der Umschaltung ruhen die teuren Weichzeichner (siehe CSS)
-  if (anim) {
-    pruefeBildrate();   // das Geraet misst sich selbst, siehe oben
-    document.body.classList.add('wallet-wechsel');
-    clearTimeout(updateWalletTab.ruheTimer);
-    updateWalletTab.ruheTimer = setTimeout(
-      () => document.body.classList.remove('wallet-wechsel'), 420);
-  }
+  document.body.classList.toggle('wallet-farbe', state.activeView === 'wallet' && !!state.token);
   $('#wallet-modes')?.classList.toggle('rechts', coupons);
   document.querySelectorAll('[data-wtab]').forEach(b =>
     b.setAttribute('aria-selected', b.classList.contains('active') ? 'true' : 'false'));
-  if ((coupons || gated) && kopfGedreht) kopfDrehen(false);
-  kopfUmschalten(coupons || gated, anim, kopfZiel);
-  $('#coupons-content').classList.toggle('hidden', !coupons);
-  if (coupons) renderCoupons($('#coupons-content'));
+  setzeMarkenModus(coupons || gated ? '' : walletMarkeName());
   if (!walletTab.startsWith('gutscheine')) $('#wallet-mini')?.classList.remove('show');
-  if (anim) {
-    const host = coupons ? $('#coupons-content') : $('#wallet-content');
-    host.classList.remove('tab-in');
-    void host.offsetWidth;                       // Animation neu starten
-    host.classList.add('tab-in');
-    // will-change wieder abgeben, sonst hält das Handy die Ebene unnötig vor
-    host.addEventListener('animationend', () => host.classList.remove('tab-in'), { once: true });
+
+  const wc = $('#wallet-content'), cc = $('#coupons-content'), geld = $('#wallet-kopf-geld');
+  const setzen = (neuZeichnen = true) => {
+    $('#wallet-gate').classList.toggle('hidden', !gated);
+    wc.classList.toggle('hidden', gated || coupons);
+    cc.classList.toggle('hidden', !coupons);
+    if (coupons && neuZeichnen) renderCoupons(cc);
+  };
+  const altHost = !cc.classList.contains('hidden') ? cc : !wc.classList.contains('hidden') ? wc : null;
+  const neuHost = coupons ? cc : gated ? null : wc;
+  const lauf = (updateWalletTab.lauf || 0) + 1;
+  updateWalletTab.lauf = lauf;
+  // Ein laufender Wechsel ist mit diesem erledigt: seine Blenden loesen
+  for (const el of [wc, cc, geld]) el?.getAnimations?.().forEach(a => { if (a.id === 'wtab') a.cancel(); });
+
+  const bewegt = anim && altHost !== neuHost && !reducedMotion()
+    && !document.body.classList.contains('sparsam') && !!wc.animate;
+  if (!bewegt) {
+    setzen();
+    kopfUmschalten(coupons || gated, false, kopfZielUnten(coupons || gated));
+    return;
   }
+  // Die Coupons schon jetzt aufbauen, solange sie noch versteckt sind (kostet
+  // dann kein Layout) — sonst faellt die Arbeit genau in den Moment, in dem der
+  // Schieber losgleiten soll
+  if (coupons) renderCoupons(cc);
+  pruefeBildrate();   // das Geraet misst sich selbst, siehe unten
+  // Fuer die Dauer der Umschaltung ruhen die teuren Weichzeichner (siehe CSS)
+  document.body.classList.add('wallet-wechsel');
+  clearTimeout(updateWalletTab.ruheTimer);
+  updateWalletTab.ruheTimer = setTimeout(() => document.body.classList.remove('wallet-wechsel'), 700);
+  const zuKlappen = (coupons || gated) && !geld.classList.contains('zu');
+  const raus = [altHost, zuKlappen && geld].filter(Boolean);
+  const blende = (el, von, nach, dauer, verz = 0) => {
+    const a = el.animate([{ opacity: von }, { opacity: nach }],
+      { duration: dauer, delay: verz, easing: nach ? 'cubic-bezier(.22, 1, .36, 1)' : 'cubic-bezier(.4, 0, 1, 1)', fill: 'both' });
+    a.id = 'wtab';
+    return a;
+  };
+  raus.forEach(el => blende(el, 1, 0, 130));
+  let getan = false;
+  const weiter = () => {
+    if (getan || updateWalletTab.lauf !== lauf) return;
+    getan = true;
+    const aufKlappen = !(coupons || gated) && geld.classList.contains('zu');
+    const kopfZiel = kopfZielUnten(coupons || gated);
+    setzen(false);
+    kopfUmschalten(coupons || gated, true, kopfZiel);
+    raus.forEach(el => el.getAnimations().forEach(a => { if (a.id === 'wtab') a.cancel(); }));
+    const rein = [neuHost, aufKlappen && geld].filter(Boolean);
+    rein.forEach(el => {
+      const a = blende(el, 0, 1, 240, 30);
+      a.onfinish = () => a.cancel();
+    });
+  };
+  setTimeout(weiter, 140);   // nicht auf onfinish warten: gedrosselte Tabs melden es spaet
 }
 
 const walletDeckOpen = new Set();
@@ -8871,12 +9470,13 @@ function renderWallet() {
   const allActive = state.wallet.vouchers.filter(v => !istRabatt(v) && (v.balance == null || v.balance > 0));
   const used = state.wallet.vouchers.filter(v => !istRabatt(v) && v.balance != null && v.balance <= 0);
 
-  // Suche (Shop, Code, PIN, Buchungs-Notizen) + Filter-Chips
+  // Suche (Shop, Code, PIN, eigene Notiz, Buchungs-Notizen) + Filter-Chips
   const q = (state.walletQuery || '').trim().toLowerCase();
   const vMatch = v => !q
-    || v.vendor.toLowerCase().includes(q)
-    || v.code.toLowerCase().includes(q)
-    || (v.pin || '').toLowerCase().includes(q)
+    || String(v.vendor || '').toLowerCase().includes(q)
+    || String(v.code || '').toLowerCase().includes(q)
+    || String(v.pin || '').toLowerCase().includes(q)
+    || String(v.notiz || '').toLowerCase().includes(q)
     || (v.tx || []).some(t => (t.note || '').toLowerCase().includes(q));
   // Filter = die Shops, die man wirklich besitzt (dynamische Chips)
   const fMatch = v => !state.walletFilter || state.walletFilter === 'alle'
@@ -8952,7 +9552,8 @@ function renderWallet() {
     : allActive.length
       ? `über ${allActive.length} Gutschein${allActive.length > 1 ? 'e' : ''}`
       : 'noch keine Gutscheine mit Guthaben';
-  setzeMarkenModus(markeName);
+  // Die Markenfarben setzt updateWalletTab (oben) — nur bei den Gutscheinen
+  renderZuletztVerwendet(q, fMarke);
   // Platz in der Wallet: alle Gutscheine zaehlen, auch aufgebrauchte
   const platzEl = $('#wallet-platz');
   if (platzEl) {
@@ -9142,6 +9743,46 @@ function renderWallet() {
   $('#view-wallet').querySelectorAll('[data-wc]').forEach(el => el.onclick = () => openCardSheet(el.dataset.wc));
   $('#view-wallet').querySelectorAll('[data-wadd]').forEach(el => el.onclick = () => openWalletAdd(el.dataset.wadd));
   $('#view-wallet').querySelectorAll('[data-wadd-prefill]').forEach(el => el.onclick = () => openWalletAdd('card', el.dataset.waddPrefill));
+  // Offene Gutschein- und Analyse-Seiten ziehen mit
+  wseitenAbgleichen();
+}
+
+// Zuletzt verwendet: der Gutschein der letzten Abbuchung (nicht rueckgaengig
+// gemacht), solange er noch Guthaben hat. Nicht waehrend einer Suche; mit
+// Markenfilter nur, wenn er zu dieser Marke gehoert.
+function zuletztVerwendet() {
+  let best = null, bestTs = 0;
+  for (const v of state.wallet.vouchers) {
+    if (istRabatt(v) || !(v.balance > 0)) continue;
+    for (const t of v.tx || []) {
+      const ts = Number(t && t.ts) || 0;
+      if (t && t.amt < 0 && !t.reverted && ts > bestTs) { best = v; bestTs = ts; }
+    }
+  }
+  return best ? { v: best, ts: bestTs } : null;
+}
+function renderZuletztVerwendet(q, fMarke) {
+  const host = $('#zuletzt-verwendet');
+  if (!host) return;
+  const z = !q ? zuletztVerwendet() : null;
+  const passt = z && (!fMarke || String(z.v.vendor || '').toLowerCase() === fMarke);
+  host.classList.toggle('hidden', !passt);
+  if (!passt) { host.innerHTML = ''; delete host.dataset.stand; return; }
+  const { v, ts } = z;
+  const tage = Math.floor((new Date().setHours(0, 0, 0, 0) - new Date(ts).setHours(0, 0, 0, 0)) / 864e5);
+  const wann = tage <= 0 ? 'heute' : tage === 1 ? 'gestern' : tage < 7 ? `vor ${tage} Tagen`
+    : new Date(ts).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+  const stand = [v.id, v.balance, wann].join('|');
+  if (host.dataset.stand === stand) return;
+  host.dataset.stand = stand;
+  host.innerHTML = `
+    <button class="zv-zeile" type="button" data-zv="${esc(v.id)}" aria-label="Zuletzt verwendet: ${esc(v.vendor)}, ${euroFmt(v.balance)} übrig. Öffnen">
+      ${brandChipHtml(v.vendor)}
+      <span class="zv-text"><small>Zuletzt verwendet · ${wann}</small><b>${esc(v.vendor)}</b></span>
+      <span class="zv-betrag">${euroFmt(v.balance)}</span>
+      ${icon('chevron', 'icon zv-pfeil')}
+    </button>`;
+  host.querySelector('[data-zv]').onclick = e => oeffneGutscheinSeite(e.currentTarget.dataset.zv);
 }
 
 // App-Raster per Gedrückthalten sortieren (Maus + Touch über Pointer Events)
@@ -9265,8 +9906,7 @@ document.querySelectorAll('[data-wtab]').forEach(b => b.addEventListener('click'
 // Hinzufügen ganz oben, ohne Scrollen
 $('#wallet-add-top')?.addEventListener('click', () => openWalletAdd('voucher'));
 
-// ---- Gesamtguthaben-Karte: antippen dreht zur Statistik (Monat/Jahr/Gesamt)
-let statsRange = 'monat';
+// ---- Zahlen fuer die Analyse: rein und raus je Zeitraum (Monat/Jahr/Gesamt)
 function walletStats(range) {
   const now = new Date();
   const inRange = ts => {
@@ -9330,53 +9970,145 @@ function walletVerlauf(monate = 6) {
   return felder;
 }
 
-// Balkenpaare als SVG — leicht genug fuer jedes Handy, kein Diagramm-Paket
-// hoch = Balkenhoehe in Einheiten; die Karte (Rueckseite) ist kompakt und
-// nimmt 40, damit die Beschriftung nicht gestaucht wird
-function verlaufSvg(felder, { hoch = 78 } = {}) {
-  const max = Math.max(1, ...felder.map(f => Math.max(f.rein, f.raus)));
-  const B = 44, H = hoch, luecke = 5, bb = 13;
-  const w = felder.length * B;
-  const balken = felder.map((f, i) => {
-    const x = i * B + (B - bb * 2 - luecke) / 2;
-    const hr = Math.round((f.rein / max) * H), ha = Math.round((f.raus / max) * H);
-    return `
-      <rect x="${x}" y="${H - hr}" width="${bb}" height="${Math.max(f.rein ? 2 : 0, hr)}" rx="3" fill="var(--stat-rein)"/>
-      <rect x="${x + bb + luecke}" y="${H - ha}" width="${bb}" height="${Math.max(f.raus ? 2 : 0, ha)}" rx="3" fill="var(--stat-raus)"/>
-      <text x="${i * B + B / 2}" y="${H + 13}" text-anchor="middle" font-size="9"
-        fill="var(--stat-achse)" font-family="inherit">${esc(f.label)}</text>`;
-  }).join('');
-  return `<svg class="verlauf-svg" viewBox="0 0 ${w} ${H + 18}" width="100%" height="${H + 18}"
-    preserveAspectRatio="none" role="img" aria-label="Verlauf der letzten Monate">${balken}</svg>`;
+// ---- Analyse als eigene Seite (frueher drehte sich dafuer die Karte im Kopf,
+// das ruckelte). Oben der Zeitraum, darunter rein und raus, der Verlauf der
+// Monate und das Guthaben nach Marke. Alles reine Zahlen aus der Wallet.
+function oeffneAnalyse() {
+  if (walletGesperrt()) { aktualisiereSperre(); return; } // gesperrte Wallet: nichts zeigen
+  if (!state.token) return;
+  buzz(10);
+  wseiteOeffnen({ art: 'analyse', titel: 'Analyse', klasse: 'ana', baue: s => zeichneAnalyse(s) });
 }
-
-function renderWalletStats(range) {
-  statsRange = range;
-  const s = walletStats(range);
-  const felder = walletVerlauf(6);
-  const host = $('#kopf-hinten');
-  if (!host) return;
-  host.innerHTML = `<div class="wk-glas">
-    <div class="stat-kopf">
-      <span class="wallet-kopf-sub">Rein und raus</span>
-      <div class="stat-ranges">
-        ${[['monat', 'Monat'], ['jahr', 'Jahr'], ['gesamt', 'Gesamt']].map(([r, l]) =>
-          `<button class="chip ${r === range ? 'active' : ''}" data-strange="${r}">${l}</button>`).join('')}
+const ANA_BEREICHE = [['monat', 'Monat'], ['jahr', 'Jahr'], ['gesamt', 'Gesamt']];
+// Wie viele Monate zeigt der Verlauf? Monat: das letzte halbe Jahr, Jahr: das
+// laufende Jahr bis heute, Gesamt: die letzten zwoelf Monate
+function anaMonate(bereich) {
+  return bereich === 'jahr' ? new Date().getMonth() + 1 : bereich === 'gesamt' ? 12 : 6;
+}
+function anaPeriode(bereich) {
+  const jetzt = new Date();
+  if (bereich === 'monat') return jetzt.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
+  if (bereich === 'jahr') return `Seit Januar ${jetzt.getFullYear()}`;
+  return 'Seit du kumulio nutzt';
+}
+function anaMonatText(f) {
+  return new Date(f.jahr, f.monat, 1).toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
+}
+function anaDiagrammHtml(felder, gewaehlt, bereich) {
+  const max = Math.max(1, ...felder.map(f => Math.max(f.rein, f.raus)));
+  const jetzt = new Date();
+  const hoehe = x => (x > 0 ? Math.max(3, Math.round((x / max) * 100)) : 0);
+  return `<div class="ana-balken" style="--n:${felder.length}">${felder.map((f, i) => {
+    const imZeitraum = bereich === 'monat' ? f.jahr === jetzt.getFullYear() && f.monat === jetzt.getMonth() : true;
+    return `
+    <button class="ana-monat${i === gewaehlt ? ' an' : ''}${imZeitraum ? '' : ' blass'}" type="button" data-monat="${i}"
+      aria-pressed="${i === gewaehlt}" aria-label="${esc(anaMonatText(f))}: ${euroFmt(f.rein) || '0,00 €'} rein, ${euroFmt(f.raus) || '0,00 €'} raus">
+      <span class="ana-paar">
+        <i class="rein" style="height:${hoehe(f.rein)}%"></i><i class="raus" style="height:${hoehe(f.raus)}%"></i>
+      </span>
+      <small>${esc(f.label.replace('.', ''))}</small>
+    </button>`;
+  }).join('')}</div>`;
+}
+function anaAuswahlHtml(f) {
+  if (!f) return '';
+  return f.rein || f.raus
+    ? `<b>${esc(anaMonatText(f))}</b><span class="ana-plus">+${euroFmt(f.rein) || '0,00 €'}</span><span class="ana-minus">−${euroFmt(f.raus) || '0,00 €'}</span>`
+    : `<b>${esc(anaMonatText(f))}</b><span>keine Bewegung</span>`;
+}
+function anaMarkenHtml() {
+  const aktiv = state.wallet.vouchers.filter(v => !istRabatt(v) && v.balance != null && v.balance > 0);
+  if (!aktiv.length) return '';
+  const pro = new Map();
+  for (const v of aktiv) {
+    const e = pro.get(v.vendor) || { n: 0, summe: 0 };
+    e.n++; e.summe += v.balance;
+    pro.set(v.vendor, e);
+  }
+  const marken = [...pro.entries()].sort((a, b) => b[1].summe - a[1].summe || a[0].localeCompare(b[0], 'de'));
+  const gesamt = Math.round(aktiv.reduce((x, v) => x + v.balance, 0) * 100) / 100;
+  const max = marken[0][1].summe || 1;
+  const zeig = marken.slice(0, 6);
+  const rest = marken.slice(6);
+  return `
+    <section class="ana-karte">
+      <div class="ana-karte-kopf"><h3>Guthaben nach Marke</h3><span class="ana-summe">${euroFmt(gesamt)}</span></div>
+      <div class="ana-marken">${zeig.map(([name, e]) => `
+        <div class="ana-marke">
+          ${brandChipHtml(name)}
+          <span class="ana-marke-text"><b>${esc(name)}</b><small>${e.n} Gutschein${e.n === 1 ? '' : 'e'}</small></span>
+          <b class="ana-marke-betrag">${euroFmt(Math.round(e.summe * 100) / 100)}</b>
+          <span class="ana-marke-balken" aria-hidden="true"><i style="--bc:${brandColor(name)}; transform:scaleX(${(e.summe / max).toFixed(4)})"></i></span>
+        </div>`).join('')}
       </div>
+      ${rest.length ? `<p class="ana-fussnote">Dazu ${rest.length} weitere Marke${rest.length === 1 ? '' : 'n'} mit zusammen ${euroFmt(Math.round(rest.reduce((x, [, e]) => x + e.summe, 0) * 100) / 100)}.</p>` : ''}
+    </section>`;
+}
+function zeichneAnalyse(seite, { nurWennNeu = false } = {}) {
+  const bereich = zeichneAnalyse.bereich || 'monat';
+  const s = walletStats(bereich);
+  const felder = walletVerlauf(anaMonate(bereich));
+  const marken = anaMarkenHtml();
+  const hatAufgeraeumt = Object.keys(state.wallet.statistik || {}).length > 0;
+  const stand = JSON.stringify([bereich, s, felder.map(f => [f.rein, f.raus]), marken]);
+  if (nurWennNeu && seite.stand === stand) return;
+  const vorher = seite.zahlen;
+  seite.stand = stand;
+  seite.zahlen = s;
+  if (seite.gewaehlt == null || seite.gewaehlt >= felder.length) seite.gewaehlt = felder.length - 1;
+  const idx = ANA_BEREICHE.findIndex(([k]) => k === bereich);
+  const inhalt = seite.el.querySelector('.wseite-inhalt');
+  inhalt.innerHTML = `
+    <div class="ana-zeitraum" role="tablist" aria-label="Zeitraum" data-kein-wisch style="--i:${idx}">
+      <span class="ana-flaeche" aria-hidden="true"></span>
+      ${ANA_BEREICHE.map(([k, t]) => `<button class="ana-tab${k === bereich ? ' an' : ''}" type="button" role="tab"
+        aria-selected="${k === bereich}" data-bereich="${k}">${t}</button>`).join('')}
     </div>
-    <div class="stat-zahlen">
-      <div><span class="stat-punkt rein"></span>Aufgeladen<b>${euroFmt(s.added) || '0,00 €'}</b></div>
-      <div><span class="stat-punkt raus"></span>Ausgegeben<b>${euroFmt(s.spent) || '0,00 €'}</b></div>
+    <p class="ana-periode">${esc(anaPeriode(bereich))}</p>
+    <div class="ana-kacheln">
+      <div class="ana-kachel"><span class="ana-kachel-kopf"><i class="ana-punkt rein"></i>Aufgeladen</span>
+        <b id="ana-rein">${euroFmt(s.added) || '0,00 €'}</b></div>
+      <div class="ana-kachel"><span class="ana-kachel-kopf"><i class="ana-punkt raus"></i>Ausgegeben</span>
+        <b id="ana-raus">${euroFmt(s.spent) || '0,00 €'}</b></div>
     </div>
-    ${felder.some(f => f.rein || f.raus)
-      ? verlaufSvg(felder, { hoch: 40 })
-      : `<p class="wallet-kopf-sub" style="margin-top:10px">Noch keine Bewegungen — buch etwas ab, dann füllt sich der Verlauf.</p>`}
-    <button class="stat-zurueck" id="stat-zurueck">${icon('arrow-back', 'icon icon-sm')} Zurück zum Guthaben</button></div>`;
-  host.querySelectorAll('[data-strange]').forEach(b => b.onclick = e => {
-    e.stopPropagation();
-    renderWalletStats(b.dataset.strange);
+    <section class="ana-karte">
+      <div class="ana-karte-kopf"><h3>Verlauf</h3>
+        <span class="ana-legende"><i class="ana-punkt rein"></i>rein<i class="ana-punkt raus"></i>raus</span></div>
+      ${felder.some(f => f.rein || f.raus)
+        ? `<div class="ana-diagramm">${anaDiagrammHtml(felder, seite.gewaehlt, bereich)}</div>
+           <p class="ana-auswahl">${anaAuswahlHtml(felder[seite.gewaehlt])}</p>`
+        : '<p class="ana-leer">Noch keine Bewegungen — buch etwas ab, dann füllt sich der Verlauf.</p>'}
+    </section>
+    ${marken}
+    ${hatAufgeraeumt ? '<p class="ana-fussnote">Aufgeräumte Gutscheine zählen mit ihren Buchungen weiter mit.</p>' : ''}`;
+  // Beim Zeitraumwechsel zaehlen die Summen vom alten Stand aus
+  if (vorher && !nurWennNeu) {
+    animateNumber(inhalt.querySelector('#ana-rein'), vorher.added, s.added, 500);
+    animateNumber(inhalt.querySelector('#ana-raus'), vorher.spent, s.spent, 500);
+  }
+  inhalt.querySelectorAll('[data-bereich]').forEach(b => b.onclick = () => {
+    if (b.dataset.bereich === (zeichneAnalyse.bereich || 'monat')) return;
+    zeichneAnalyse.bereich = b.dataset.bereich;
+    seite.gewaehlt = null;
+    buzz(6);
+    // Erst die Flaeche gleiten lassen, dann neu zeichnen — sonst springt sie
+    const leiste = inhalt.querySelector('.ana-zeitraum');
+    leiste.style.setProperty('--i', ANA_BEREICHE.findIndex(([k]) => k === b.dataset.bereich));
+    leiste.querySelectorAll('.ana-tab').forEach(x => x.classList.toggle('an', x === b));
+    clearTimeout(zeichneAnalyse.uhr);
+    zeichneAnalyse.uhr = setTimeout(() => { if (wseiten().includes(seite)) zeichneAnalyse(seite); }, wseiteBewegt() ? 200 : 0);
   });
-  host.querySelector('#stat-zurueck').onclick = e => { e.stopPropagation(); kopfDrehen(false); };
+  inhalt.querySelectorAll('[data-monat]').forEach(b => b.onclick = () => {
+    seite.gewaehlt = Number(b.dataset.monat);
+    inhalt.querySelectorAll('.ana-monat').forEach(x => {
+      const an = x === b;
+      x.classList.toggle('an', an);
+      x.setAttribute('aria-pressed', String(an));
+    });
+    const aus = inhalt.querySelector('.ana-auswahl');
+    if (aus) aus.innerHTML = anaAuswahlHtml(felder[seite.gewaehlt]);
+    buzz(4);
+  });
 }
 
 // Alle Stufen auf einen Blick — als Liste, wie man sie aus Banking-Apps kennt
@@ -9402,73 +10134,6 @@ function zeigeRang() {
       </div>`;
     }).join('')}</div>`;
   openSheetShell();
-}
-
-// Vorder- und Rueckseite des Kopfes wechseln seitwaerts, nicht per Kartendreh.
-// Der Dreh brauchte eine 3D-Ebene ueber den halben Kopf und hat trotzdem nie
-// gut ausgesehen; seitwaerts passt zum Schieber darueber und kostet nur eine
-// Verschiebung. Die Hoehe faehrt getrennt mit, damit nichts springt.
-let kopfGedreht = false, kopfDrehtGerade = false, kopfHoeheTimer = 0;
-let balanceFlipped = false;   // wird von renderWalletStats weiter genutzt
-function kopfDrehen(zu) {
-  const geld = $('#wallet-kopf-geld');
-  const vorne = $('#kopf-vorne'), hinten = $('#kopf-hinten');
-  if (!geld || !vorne || !hinten || kopfDrehtGerade) return;
-  const ziel = zu === undefined ? !kopfGedreht : zu;
-  if (ziel === kopfGedreht) return;
-  kopfGedreht = ziel;
-  balanceFlipped = ziel;
-  if (ziel) renderWalletStats(statsRange);
-  buzz(12);
-
-  const raus = ziel ? vorne : hinten;
-  const rein = ziel ? hinten : vorne;
-  const vorher = geld.getBoundingClientRect().height;
-
-  const tauschen = () => {
-    raus.classList.add('hidden');
-    rein.classList.remove('hidden');
-    if (!geld.classList.contains('zu')) {
-      const nachher = rein.scrollHeight;
-      geld.style.gridTemplateRows = Math.round(vorher) + 'px';
-      void geld.offsetHeight;
-      geld.style.gridTemplateRows = Math.round(nachher) + 'px';
-      clearTimeout(kopfHoeheTimer);
-      kopfHoeheTimer = setTimeout(() => {
-        geld.style.gridTemplateRows = '';
-        setzeFarbfeldNeu();   // andere Seite, andere Kopfhoehe
-      }, 430);
-    }
-    passeFarbfeldAn();
-    pruefeKopfzeile();
-  };
-
-  if (reducedMotion() || !rein.animate) { tauschen(); return; }
-  kopfDrehtGerade = true;
-  const weite = 26;
-  // Erst die alte Seite hinausschieben, dann die neue von der anderen Seite
-  // hereinholen — nur transform und opacity, also billig.
-  const a1 = raus.animate(
-    [{ transform: 'translate3d(0,0,0)', opacity: 1 },
-     { transform: `translate3d(${ziel ? -weite : weite}px,0,0)`, opacity: 0 }],
-    { duration: 170, easing: 'cubic-bezier(.4,0,.9,.4)', fill: 'forwards' });
-
-  const weiter = () => {
-    if (!kopfDrehtGerade) return;
-    a1.cancel();
-    tauschen();
-    const a2 = rein.animate(
-      [{ transform: `translate3d(${ziel ? weite : -weite}px,0,0)`, opacity: 0 },
-       { transform: 'translate3d(0,0,0)', opacity: 1 }],
-      { duration: 260, easing: 'cubic-bezier(.22,1,.32,1)', fill: 'forwards' });
-    const fertig = () => { a2.cancel(); kopfDrehtGerade = false; };
-    a2.onfinish = fertig;
-    setTimeout(fertig, 340);
-  };
-  a1.onfinish = weiter;
-  // Manche Umgebungen halten Animationen an (versteckter Tab, gedrosselte
-  // Wiedergabe) — dann kaeme onfinish nie und die Seite bliebe stehen
-  setTimeout(weiter, 220);
 }
 
 // Farbige Kopfzeile nur, solange der Kopf darunter noch steht. Sonst haengt
@@ -9663,70 +10328,24 @@ addEventListener('load', () => setTimeout(zeigeFpsAnzeige, 800));
 
 // Den Kopf auf- oder zuklappen — ohne Hoehenanimation.
 //
-// Vorher fuhr #wallet-kopf-geld seine Grid-Zeile von 1fr auf 0fr. Eine Hoehe zu
-// animieren heisst: in JEDEM Bild Layout rechnen und den Kopf neu zeichnen, und
-// alles darunter rueckt mit. Das war nach den anderen Aufraeumarbeiten der
-// letzte Posten, der ueberhaupt noch neu gezeichnet hat.
-//
-// Jetzt in zwei Schritten: der Guthaben-Block blendet aus (Deckkraft, laeuft
-// auf der Grafikkarte), dann faellt die Hoehe in EINEM Schritt, und was
-// darunter liegt, startet an seiner alten Stelle und faehrt per Verschiebung an
-// die neue. Ein einziges Layout pro Umschaltung statt achtzehn.
-let kopfGeldHoehe = 0;
+// Die Hoehe faellt in EINEM Schritt (ein Layout statt eines pro Bild). Die
+// Blenden macht updateWalletTab; hier gleitet nur der Schieber von seiner alten
+// an die neue Stelle (FLIP, reine Verschiebung) und das Farbfeld faehrt mit.
 function kopfUmschalten(zu, anim, kopfZiel) {
   const geld = $('#wallet-kopf-geld'), kopf = $('#wallet-kopf'), modes = $('#wallet-modes');
   if (!geld || !kopf) return;
   const warZu = geld.classList.contains('zu');
-  const setzen = () => {
-    kopf.classList.toggle('nur-tabs', zu);
-    geld.classList.toggle('zu', zu);
-  };
-
-  // Auf dem Handy in einem Schritt: kein Ausblenden, kein Nachschieben, keine
-  // grosse Flaeche, die sich bewegt. Der Schieber oben zeigt den Wechsel an,
-  // der Rest springt gemeinsam an seinen Platz.
-  const hart = matchMedia('(hover: none) and (pointer: coarse)').matches
-    || document.body.classList.contains('sparsam');
-  if (!anim || warZu === zu || hart || reducedMotion() || !geld.animate) {
-    setzen();
-    passeFarbfeldAn(kopfZiel, true);
-    return;
-  }
-
-  // Wie weit rueckt alles? Beim Zuklappen die aktuelle Hoehe, beim Aufklappen
-  // die gemerkte — im zugeklappten Zustand ist sie null und nicht messbar.
-  const h = zu
-    ? Math.round(geld.getBoundingClientRect().height)
-    : (kopfGeldHoehe || Math.round(geld.querySelector('.kopf-geld-inner:not(.hidden)')?.scrollHeight || 0));
-  if (zu && h) kopfGeldHoehe = h;
-
-  const nachziehen = () => {
-    setzen();
-    // Das Farbfeld faehrt ab demselben Moment los wie die Bereichswahl, sonst
-    // liefe die weiche Kante der Leiste davon.
-    passeFarbfeldAn(kopfZiel, false);
-    if (h && modes?.animate) {
-      const a = modes.animate(
-        [{ transform: `translate3d(0, ${zu ? h : -h}px, 0)` }, { transform: 'translate3d(0, 0, 0)' }],
-        { duration: 300, easing: 'cubic-bezier(.22, 1, .32, 1)' });
-      // Sicherheitsnetz: haelt die Umgebung Animationen an (Tab im Hintergrund,
-      // gedrosselte Wiedergabe), bliebe die Bereichswahl sonst verschoben stehen.
-      setTimeout(() => a.cancel(), 400);
-    }
-  };
-
-  if (zu) {
-    let getan = false;
-    const einmal = () => { if (!getan) { getan = true; nachziehen(); } };
-    const a = geld.animate([{ opacity: 1 }, { opacity: 0 }],
-      { duration: 130, easing: 'cubic-bezier(.4, 0, .9, .4)', fill: 'forwards' });
-    a.onfinish = () => { a.cancel(); einmal(); };
-    setTimeout(einmal, 170);   // Sicherheitsnetz, falls onfinish ausbleibt
-  } else {
-    nachziehen();
-    geld.animate([{ opacity: 0 }, { opacity: 1 }],
-      { duration: 240, delay: 80, easing: 'cubic-bezier(.22, 1, .32, 1)' });
-  }
+  const vorher = anim && warZu !== zu && modes?.animate ? modes.getBoundingClientRect().top : null;
+  kopf.classList.toggle('nur-tabs', zu);
+  geld.classList.toggle('zu', zu);
+  passeFarbfeldAn(kopfZiel, vorher === null);
+  if (vorher === null) return;
+  const dy = Math.round(vorher - modes.getBoundingClientRect().top);
+  if (!dy) return;
+  const a = modes.animate([{ transform: `translate3d(0, ${dy}px, 0)` }, { transform: 'translate3d(0, 0, 0)' }],
+    { duration: 320, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+  // Sicherheitsnetz: haelt die Umgebung Animationen an, bliebe er verschoben stehen
+  setTimeout(() => a.cancel(), 420);
 }
 
 // Wo endet der Kopf, NACHDEM er auf- oder zugeklappt ist? Wir schalten kurz um,
@@ -9756,20 +10375,24 @@ addEventListener('orientationchange', () => setTimeout(messeKopfzeile, 250));
 messeKopfzeile();
 addEventListener('load', messeKopfzeile);
 
-// Antippen des Guthabens oder "Analyse" dreht den Kopf zur Verlaufsseite
+// Antippen des Guthabens zeigt die Rang-Uebersicht, "Analyse" oeffnet ihre Seite
 $('#balance-flip')?.addEventListener('click', () => zeigeRang());
-$('#wa-statistik')?.addEventListener('click', () => kopfDrehen(true));
-// Verschenken: erst fragen, welcher Gutschein — danach uebernimmt das Geschenk-Fenster
-// Verschenken: nicht alle Gutscheine auf einmal, sondern wie in der Wallet —
-// nach Marke gebuendelt, mit Filter und Sortierung.
+$('#wa-statistik')?.addEventListener('click', () => oeffneAnalyse());
+// Verschenken: erst waehlen, welcher Gutschein — auf einer eigenen Seite, nach
+// Marke gebuendelt, mit Filter und Sortierung. Danach schiebt der Schritt
+// "An wen?" herein, zurueck fuehrt wieder in die Auswahl.
 let schenkFilter = '', schenkSort = 'niedrig';
 // Wie viele Gutscheine die Auswahl hoechstens gleichzeitig zeigt
 let schenkSicht = 12;
 function renderSchenkAuswahl() {
+  const seite = wseiten().find(x => x.art === 'schenk-wahl');
+  if (seite) zeichneSchenkAuswahl(seite);
+}
+function zeichneSchenkAuswahl(seite) {
   if (walletGesperrt()) { aktualisiereSperre(); return; } // gesperrte Wallet: nichts zeigen
-  state.sheetMode = 'gift-pick';   // auch beim Zurueckgehen aus Schritt zwei
   const alle = state.wallet.vouchers.filter(v => !istRabatt(v) && (v.balance == null || v.balance > 0));
   const marken = [...new Set(alle.map(v => v.vendor))];
+  if (schenkFilter && !marken.includes(schenkFilter)) schenkFilter = '';
   let liste = schenkFilter ? alle.filter(v => v.vendor === schenkFilter) : alle;
   liste = [...liste].sort((a, b) => schenkSort === 'niedrig'
     ? (a.balance ?? Infinity) - (b.balance ?? Infinity)
@@ -9786,54 +10409,61 @@ function renderSchenkAuswahl() {
     inhalt = [...proMarke.entries()].map(([marke, vs]) => `
       <div class="schenk-gruppe">
         ${voucherCardHtml(vs[0])}
-        ${vs.length > 1 ? `<button class="schenk-mehr" data-schenk-marke="${esc(marke)}">
-          ${vs.length - 1} weitere von ${esc(marke)}</button>` : ''}
+        ${vs.length > 1 ? `<button class="schenk-mehr" type="button" data-schenk-marke="${esc(marke)}">
+          ${vs.length - 1} weitere von ${esc(marke)}${icon('chevron', 'icon icon-sm')}</button>` : ''}
       </div>`).join('');
   } else {
     // Auch hier eine Obergrenze: mit einer Marke im Filter standen sonst alle
-    // Gutscheine dieser Marke auf einen Schlag im Baum — bei vielen Karten war
-    // das dieselbe Wand wie in der Wallet, nur an anderer Stelle.
+    // Gutscheine dieser Marke auf einen Schlag im Baum
     const zeig = liste.slice(0, schenkSicht);
-    inhalt = zeig.map(voucherCardHtml).join('')
+    inhalt = zeig.map(v => voucherCardHtml(v)).join('')
       + (liste.length > zeig.length
-        ? `<button class="deck-more" data-schenk-mehr="1">${liste.length - zeig.length} weitere anzeigen</button>`
+        ? `<button class="deck-more" type="button" data-schenk-mehr="1">${liste.length - zeig.length} weitere anzeigen</button>`
         : '');
   }
 
-  $('#sheet-content').innerHTML = `
-    <div class="sheet-title">Welchen Gutschein verschenken?</div>
-    <div class="wallet-filters">
-      <button class="chip ${!schenkFilter ? 'active' : ''}" data-sf="">Alle</button>
-      ${marken.map(m => `<button class="chip ${schenkFilter === m ? 'active' : ''}" data-sf="${esc(m)}">
-        ${brandChipHtml(m)}<span class="chip-label">${esc(m)}</span></button>`).join('')}
+  const host = seite.el.querySelector('.wseite-inhalt');
+  host.innerHTML = `
+    <p class="gw-frage">Welchen Gutschein möchtest du verschenken?</p>
+    ${marken.length > 1 ? `<div class="gw-marken" data-kein-wisch role="toolbar" aria-label="Nach Marke filtern">
+      <button class="gw-chip${!schenkFilter ? ' an' : ''}" type="button" data-sf="">Alle</button>
+      ${marken.map(m => `<button class="gw-chip${schenkFilter === m ? ' an' : ''}" type="button" data-sf="${esc(m)}">
+        ${brandChipHtml(m)}<span>${esc(m)}</span></button>`).join('')}
+    </div>` : ''}
+    <div class="gw-sortierung" role="tablist" aria-label="Sortieren" style="--i:${schenkSort === 'hoch' ? 1 : 0}">
+      <span class="gw-flaeche" aria-hidden="true"></span>
+      <button class="gw-sort${schenkSort === 'niedrig' ? ' an' : ''}" type="button" role="tab" aria-selected="${schenkSort === 'niedrig'}" data-ss="niedrig">Kleinster Rest</button>
+      <button class="gw-sort${schenkSort === 'hoch' ? ' an' : ''}" type="button" role="tab" aria-selected="${schenkSort === 'hoch'}" data-ss="hoch">Größter Rest</button>
     </div>
-    <div class="wallet-filters" style="margin-top:6px">
-      <button class="chip ${schenkSort === 'niedrig' ? 'active' : ''}" data-ss="niedrig">Kleinster Rest</button>
-      <button class="chip ${schenkSort === 'hoch' ? 'active' : ''}" data-ss="hoch">Größter Rest</button>
-    </div>
-    <div class="wallet-list" style="margin-top:12px">${inhalt || '<div class="status">Kein Gutschein mit Guthaben.</div>'}</div>`;
+    <div class="wallet-list gw-liste">${inhalt || '<p class="gp-leer">Kein Gutschein mit Guthaben.</p>'}</div>`;
 
-  const host = $('#sheet-content');
-  host.querySelectorAll('[data-sf]').forEach(b => b.onclick = () => { schenkFilter = b.dataset.sf; schenkSicht = 12; renderSchenkAuswahl(); });
-  host.querySelectorAll('[data-ss]').forEach(b => b.onclick = () => { schenkSort = b.dataset.ss; schenkSicht = 12; renderSchenkAuswahl(); });
-  host.querySelectorAll('[data-schenk-marke]').forEach(b => b.onclick = () => { schenkFilter = b.dataset.schenkMarke; schenkSicht = 12; renderSchenkAuswahl(); });
-  host.querySelector('[data-schenk-mehr]')?.addEventListener('click', () => { schenkSicht += 12; renderSchenkAuswahl(); });
+  host.querySelectorAll('[data-sf]').forEach(b => b.onclick = () => { schenkFilter = b.dataset.sf; schenkSicht = 12; buzz(6); zeichneSchenkAuswahl(seite); });
+  host.querySelectorAll('[data-ss]').forEach(b => b.onclick = () => {
+    if (schenkSort === b.dataset.ss) return;
+    schenkSort = b.dataset.ss; schenkSicht = 12; buzz(6);
+    // Erst die Flaeche gleiten lassen, dann neu sortieren
+    host.querySelector('.gw-sortierung').style.setProperty('--i', schenkSort === 'hoch' ? 1 : 0);
+    host.querySelectorAll('.gw-sort').forEach(x => x.classList.toggle('an', x === b));
+    setTimeout(() => { if (wseiten().includes(seite)) zeichneSchenkAuswahl(seite); }, wseiteBewegt() ? 180 : 0);
+  });
+  host.querySelectorAll('[data-schenk-marke]').forEach(b => b.onclick = () => { schenkFilter = b.dataset.schenkMarke; schenkSicht = 12; zeichneSchenkAuswahl(seite); });
+  host.querySelector('[data-schenk-mehr]')?.addEventListener('click', () => { schenkSicht += 12; zeichneSchenkAuswahl(seite); });
   host.querySelectorAll('[data-wv]').forEach(el => el.onclick = () => {
     const v = state.wallet.vouchers.find(x => x.id === el.dataset.wv);
-    // Kein Runterwischen und kein zweites Fenster: der naechste Schritt
-    // schiebt im selben Blatt herein, die Karte bleibt sichtbar.
-    if (v) zeigeSchenkSchritt(v, 'vor');
+    if (v) zeigeSchenkSchritt(v);
   });
+  // Die gewaehlte Marke ins Bild holen, falls die Reihe weiter reicht
+  host.querySelector('.gw-chip.an')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
 }
 $('#wa-schenken')?.addEventListener('click', () => {
+  if (walletGesperrt()) { aktualisiereSperre(); return; }
+  if (!state.token) { island('Zum Verschenken bitte anmelden'); return; }
   const offen = state.wallet.vouchers.filter(v => !istRabatt(v) && (v.balance == null || v.balance > 0));
   if (!offen.length) { island('Du hast gerade keinen Gutschein mit Guthaben'); return; }
   buzz(12);
   schenkFilter = '';
   schenkSicht = 12;
-  state.sheetMode = 'gift-pick';
-  renderSchenkAuswahl();
-  openSheetShell();
+  wseiteOeffnen({ art: 'schenk-wahl', titel: 'Verschenken', klasse: 'gw', baue: s => zeichneSchenkAuswahl(s) });
 });
 
 // ---- Mini-Guthaben: erscheint über dem Menü, sobald die große Karte aus dem Bild ist
@@ -10994,6 +11624,8 @@ function sperreAuftritt(el) {
 function schliesseWalletAnsichten() {
   schliesseMarkenMenue();
   schliesseVkMenue();
+  // Gutschein-, Verschenken- und Analyse-Seiten: sofort weg, samt Inhalt
+  wseitenZu();
   if (state.sheetMode) closeSheet();
   // Das zugeklappte Blatt behaelt sonst Code, PIN und Knoepfe im Baum
   const inhalt = $('#sheet-content');
@@ -11150,7 +11782,8 @@ function walletAuftritt({ menue = false } = {}) {
     $('#wallet-modes'),
     ...(coupons
       ? [...$('#coupons-content').children].slice(0, 6)
-      : [$('#pin-empfehlung:not(.hidden)'), $('.wallet-tools'), $('#wallet-content .bereich-zeile'), ...[...$('#voucher-list').children].slice(0, 6)]),
+      : [$('#pin-empfehlung:not(.hidden)'), $('.wallet-tools'), $('#zuletzt-verwendet:not(.hidden)'),
+        $('#wallet-content .bereich-zeile'), ...[...$('#voucher-list').children].slice(0, 6)]),
   ].filter(Boolean);
   teile.forEach((el, i) => {
     el.style.setProperty('--ad', Math.min(i * 45, 460) + 'ms');
