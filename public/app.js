@@ -26,7 +26,7 @@ const state = {
   activeView: 'feed',
   deals: [],
   currentDeal: null,
-  sheetMode: null, // 'deal' | 'channels' | 'favs'
+  sheetMode: null, // offenes Blatt, z. B. 'brand' | 'admin-post' (Deals sind seit Runde 120 eine eigene Seite)
   userName: localStorage.getItem('ra.user') || '',
   token: localStorage.getItem('ra.token') || '',
   featured: [],
@@ -757,6 +757,7 @@ async function loadFeed() {
   loader.done();
   renderFeed(true);
   enrichCompares();
+  dealSeitenAbgleichen(); // offene Deal-Seiten (bearbeitet) und ?deal= vom Start
 }
 
 // Suche als eigener Tab: durchsucht alle Angebote (Titel, Marke, Text)
@@ -788,51 +789,33 @@ function renderStars(d) {
     </span>`;
 }
 
-// Eine Sternereihe fürs Sheet: zeigt den Schnitt und nimmt deine Bewertung an
-function renderStarsCombined(d) {
-  const mine = state.stars[d.id] || 0;
-  const avg = d.rating || 0;
-  const shown = mine || Math.round(avg);
-  return `
-    <div class="stars-combined" data-rate-deal="${esc(d.id)}">
-      <span class="stars-input">${[1, 2, 3, 4, 5].map(i => icon('star', 'icon' + (i <= shown ? ' on' : ''))).join('')}</span>
-      <span class="stars-meta">${d.ratingCount ? `${avg.toFixed(1)} von 5 (${d.ratingCount})` : 'Noch keine Bewertungen'}${mine ? ` · deine Bewertung: ${mine}` : ' · tippe einen Stern zum Bewerten'}</span>
-    </div>`;
-}
-
-document.addEventListener('click', async e => {
-  const box = e.target.closest('[data-rate-deal]');
-  if (!box) return;
-  const iconEl = e.target.closest('.icon');
-  if (!iconEl) return;
-  const starsEls = [...box.querySelectorAll('.icon')];
-  const val = starsEls.indexOf(iconEl) + 1;
-  if (val < 1) return;
-  const id = box.dataset.rateDeal;
-  const d = state.deals.find(x => x.id === id) || state.favs[id]?.deal;
-  if (!d) return;
+// Einen Deal mit 1-5 Sternen bewerten (Sternereihe auf der Deal-Seite)
+async function dealBewerten(id, val, x, y) {
+  const d = state.deals.find(z => z.id === id) || state.favs[id]?.deal;
+  if (!d || !(val >= 1 && val <= 5)) return;
   const prev = state.stars[id] || null;
   state.stars[id] = val;
   save('stars', state.stars);
   if (val >= 4) bumpAff(d, 2);
+  buzz(8);
   // Feedback: Stern schwebt hoch
-  const fl = document.createElement('div');
-  fl.className = 'vote-float up';
-  fl.textContent = '★'.repeat(val);
-  fl.style.left = (e.clientX - 20) + 'px';
-  fl.style.top = (e.clientY - 26) + 'px';
-  document.body.appendChild(fl);
-  setTimeout(() => fl.remove(), 750);
+  if (!reducedMotion()) {
+    const fl = document.createElement('div');
+    fl.className = 'vote-float up';
+    fl.textContent = '★'.repeat(val);
+    fl.style.left = (x - 20) + 'px';
+    fl.style.top = (y - 26) + 'px';
+    document.body.appendChild(fl);
+    setTimeout(() => fl.remove(), 750);
+  }
+  dealSeitenSterne(id);          // eigene Wahl sofort zeigen, der Schnitt kommt gleich
   try {
     const r = await api('/api/rate', { method: 'POST', body: JSON.stringify({ dealId: id, stars: val, prev }) });
     d.rating = r.rating; d.ratingCount = r.ratingCount;
   } catch { /* offline */ }
   renderFeed();
-  if (state.sheetMode === 'deal' && state.currentDeal?.id === id) {
-    const slot = $('#sheet-stars-slot');
-    if (slot) slot.innerHTML = renderStarsCombined(d);
-  }
-});
+  dealSeitenSterne(id);
+}
 
 // Spar-Badges: Rabatt / Gratis / Verdienst / Preisfehler, auf einen Blick
 // Hinweise im Deal-Blatt, in normaler Schreibweise wie auf den Kacheln (die
@@ -1313,23 +1296,33 @@ function sendDealToFriend(d) {
   if (!state.token) { island('Zum Schicken bitte anmelden'); return; }
   const friends = myProfile?.friends || [];
   if (!friends.length) { island('Noch keine Freunde zum Schicken'); return; }
+  // Auswahl im neuen Look: Freunde als Zeilen mit Bild und Namen (ohne @)
   const wrap = document.createElement('div');
   wrap.className = 'overlay';
-  wrap.innerHTML = `<div class="modal modal-left">
-    <h2 class="card-h">An wen schicken?</h2>
-    <div class="wallet-filters" style="margin-top:8px">${friends.map(f => `<button class="chip" data-send-to="${esc(f)}">@${esc(f)}</button>`).join('')}</div>
+  wrap.innerHTML = `<div class="modal modal-left dl-schicken" role="dialog" aria-modal="true" aria-label="Deal an Freund schicken">
+    <div class="dl-schicken-kopf">
+      <h2 class="card-h">An wen schicken?</h2>
+      <button class="dl-schicken-zu" type="button" data-zu aria-label="Schließen">${icon('x', 'icon')}</button>
+    </div>
+    <p class="dl-schicken-deal">${esc(d.title)}</p>
+    <div class="dl-schicken-liste">${friends.map(f => `
+      <button class="dl-schicken-freund" type="button" data-send-to="${esc(f)}">
+        ${avatarHtml(f, '', 'avatar-mini dl-schicken-ava')}<span>${esc(f)}</span>${icon('send', 'icon')}
+      </button>`).join('')}</div>
   </div>`;
   document.body.appendChild(wrap);
+  const zu = () => { wrap.remove(); removeEventListener('keydown', taste, true); };
+  const taste = e => { if (e.key === 'Escape') { e.stopPropagation(); zu(); } };
+  addEventListener('keydown', taste, true);
+  wrap.querySelector('.dl-schicken-freund')?.focus({ preventScroll: true });
   wrap.addEventListener('click', async e => {
     const b = e.target.closest('[data-send-to]');
-    if (!b && e.target !== wrap) return;
-    if (b) {
-      try {
-        await api('/api/dm/send', { method: 'POST', body: JSON.stringify({ to: b.dataset.sendTo, text: `[deal:${d.id}] ${d.title.slice(0, 90)}` }) });
-        island(`An @${b.dataset.sendTo} geschickt`); playSfx('plop');
-      } catch (err) { island(err.message); }
-    }
-    wrap.remove();
+    if (!b) { if (e.target === wrap || e.target.closest('[data-zu]')) zu(); return; }
+    zu();
+    try {
+      await api('/api/dm/send', { method: 'POST', body: JSON.stringify({ to: b.dataset.sendTo, text: `[deal:${d.id}] ${d.title.slice(0, 90)}` }) });
+      island(`An ${b.dataset.sendTo} geschickt`); playSfx('plop');
+    } catch (err) { island(err.message); }
   });
 }
 // Nachrichtentext: der [deal:id]-Marker wird zur antippbaren Deal-Karte
@@ -1343,7 +1336,7 @@ function chatBodyHtml(text) {
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-open-deal]');
   if (!b) return;
-  const d = state.deals.find(x => x.id === b.dataset.openDeal);
+  const d = dealVonId(b.dataset.openDeal);
   if (d) openDealSheet(d);
   else island('Dieser Deal ist nicht mehr im Feed');
 });
@@ -2269,15 +2262,11 @@ function renderComparePrice(d) {
   return '';
 }
 
-function renderCompareBtn(d) {
-  if (d.free || !d.compare?.url) return '';
-  return `<a class="btn btn-block btn-compare" href="${esc(d.compare.url)}" target="_blank" rel="noopener noreferrer">
-    ${icon('chart', 'icon icon-sm')} Preisvergleich: ab ${esc(d.compare.price)} · billiger.de</a>`;
-}
-
 function patchCompare(d) {
   document.querySelectorAll(`[data-deal="${CSS.escape(d.id)}"] .compare-slot`).forEach(slot => { slot.innerHTML = renderComparePrice(d); });
-  if (state.sheetMode === 'deal' && state.currentDeal?.id === d.id) openDealSheet(d);
+  // Offene Deal-Seite: nur Preiszeile und Preisvergleich nachziehen — Text,
+  // Kommentare und ein angefangener Kommentar bleiben stehen
+  dealSeiten(d.id).forEach(s => { s.deal = d; dealSeitePreise(s); });
 }
 
 function requestCompare(d) {
@@ -2307,137 +2296,442 @@ function compareQuery(title) {
     .replace(/\s+/g, ' ').trim().split(' ').slice(0, 7).join(' ');
 }
 
-function openDealSheet(deal) {
-  state.currentDeal = deal;
-  state.sheetMode = 'deal';
-  const d = deal;
-  const c = channelBySlug(d.channel);
-  const cta = d.dealUrl || d.sourceUrl;
-  const isFav = !!state.favs[d.id];
-  const images = (d.images && d.images.length ? d.images : (d.image ? [d.image] : []));
-  const flags = (d.flags || []).map(f => `<span class="pill pill-warn">${icon('warning', 'icon icon-sm')} ${esc(f)}</span>`).join(' ');
-  requestCompare(d); // Marktpreis nachladen, falls noch nicht da
-  // Preisvergleich: Markt-Preis (live) und/oder "statt"-Preis aus dem Deal
-  const priceNum = parsePriceNum(d.price);
-  const origNum = parsePriceNum(d.origPrice);
-  const cmpNum = d.compare?.priceNum || null;
-  const maxNum = Math.max(priceNum || 0, origNum || 0, cmpNum || 0);
-  const bar = v => Math.max(10, Math.round(v / maxNum * 150));
-  // Zeitangabe als Pille mit Uhr wie auf der Kachel (Preisfehler: Live-Zaehler).
-  // Vorbei: dann zaehlt, wann er kam — "abgelaufen" sagt schon der Hinweis davor.
-  const zeit = d.stale ? { ico: 'clock', html: esc(timeAgo(d.ts)) } : dealZeitChip(d);
-
-  $('#sheet-content').innerHTML = `
-    ${images.length ? `
-    <div class="gallery">
-      <div class="gallery-track" id="gal-track">
-        ${images.map(u => `<img src="${esc(u)}" alt="" draggable="false" onerror="this.closest('.gallery')?.remove()">`).join('')}
-      </div>
-      ${images.length > 1 ? `<div class="gallery-dots" id="gal-dots">${images.map((_, i) => `<i class="${i === 0 ? 'on' : ''}"></i>`).join('')}</div>` : ''}
-    </div>` : BRAND_DOMAINS[(d.merchant || '').toLowerCase()] ? `
-    <div class="brand-hero" style="--bc:${brandColor(d.merchant)}">
-      <img src="https://www.google.com/s2/favicons?domain=${BRAND_DOMAINS[(d.merchant || '').toLowerCase()]}&sz=128" alt="${esc(d.merchant)}" onerror="this.closest('.brand-hero').remove()">
-    </div>` : ''}
-    <div class="sheet-title">${esc(d.title)}</div>
-    <div class="sheet-subrow">
-      ${d.price ? `<span class="sheet-price">${esc(d.price)}</span>` : ''}
-      <span style="font-size:1.05rem">${renderComparePrice(d)}</span>
-      <span id="sheet-stars-slot">${renderStarsCombined(d)}</span>
-    </div>
-    <div class="sheet-subrow">
-      ${d.stale ? `<span class="badge badge-stale">Vermutlich vorbei</span>` : ''}
-      ${renderBadges(d)}
-      <span class="pill pill-zeit">${icon(zeit.ico, 'icon')}<span>${zeit.html}</span></span>
-      ${d.merchant ? `<span class="pill">${esc(d.merchant)}</span>` : ''}
-      ${d.user ? `<span class="pill pill-accent">@${esc(d.user)}</span>` : ''}
-      ${c && c.slug !== 'preisfehler' ? `<span class="pill">${icon(c.icon, 'icon icon-sm')} ${esc(c.name)}</span>` : ''}
-      ${flags}
-      <button class="btn-share" id="btn-sheet-send" aria-label="An Freund schicken">${icon('send')}</button>
-      <button class="btn-share" id="btn-sheet-share" aria-label="Teilen">${icon('share')}</button>
-    </div>
-    ${state.role === 'admin' && d.source === 'community' ? `
-    <button class="btn btn-small btn-ghost" id="btn-deal-edit" style="margin-top:10px">Deal bearbeiten</button>` : ''}
-    ${cta ? `
-    <div class="sheet-cta">
-      <a class="btn btn-block" href="${esc(cta)}" target="_blank" rel="noopener noreferrer">
-        ${d.source === 'community' ? 'Link öffnen, auf eigene Gefahr' : 'zum Produkt'} ${icon('arrow-right', 'icon icon-sm')}
-      </a>
-      ${renderCompareBtn(d)}
-      ${d.source === 'mydealz' ? `<div class="sheet-source">${d.dealUrl ? 'öffnet die Händlerseite' : 'öffnet die Deal-Quelle'} · automatisch gefunden</div>` : ''}
-    </div>` : ''}
-    ${priceNum && (origNum || cmpNum) ? `
-    <div class="sheet-section compare">
-      <h3>${icon('chart', 'icon icon-sm')} Preisvergleich</h3>
-      ${origNum ? `<div class="compare-row"><span class="compare-label">vorher</span><span class="compare-bar" style="width:${bar(origNum)}px"></span><b>${esc(d.origPrice)}</b></div>` : ''}
-      ${cmpNum ? `<div class="compare-row"><span class="compare-label">Markt ab</span><span class="compare-bar" style="width:${bar(cmpNum)}px"></span><b>${esc(d.compare.price)}</b></div>` : ''}
-      <div class="compare-row"><span class="compare-label">Deal</span><span class="compare-bar now" style="width:${bar(priceNum)}px"></span><b>${esc(d.price)}${d.discount != null ? ` (−${d.discount} %)` : ''}</b></div>
-      <div class="sheet-source" style="text-align:left; margin-top:6px">${cmpNum ? 'Marktpreis live von billiger.de (günstigstes Angebot)' : 'Vergleichspreis aus den Deal-Angaben'} · Preishistorie folgt mit dem Backend</div>
-    </div>` : ''}
-    <div class="sheet-votebar">
-      <button class="votebtn${isFav ? ' on' : ''}" id="btn-sheet-fav">${icon(isFav ? 'heart-f' : 'heart')} ${isFav ? 'Gemerkt, entfernen' : 'Merken'}</button>
-    </div>
-    ${d.excerpt ? `
-    <div class="sheet-section">
-      <h3>Beschreibung</h3>
-      <div class="sheet-desc ${d.excerpt.length > 240 ? 'clamped' : ''}" id="sheet-desc">${esc(d.excerpt)}</div>
-      ${d.excerpt.length > 240 ? '<button class="desc-more" id="desc-more">Mehr anzeigen</button>' : ''}
-    </div>` : ''}
-    ${c?.rules?.length ? `
-    <div class="sheet-section">
-      <details class="rules-fold">
-        <summary>${icon('list', 'icon icon-sm')} Regeln &amp; Richtlinien ${icon('chevron', 'icon icon-sm chev')}</summary>
-        <div class="rules">
-          ${c.rules.map(r => `<div class="rule">${icon('check')} <span>${esc(r)}</span></div>`).join('')}
-        </div>
-      </details>
-    </div>` : ''}
-    <div class="sheet-section">
-      <h3>${icon('message', 'icon icon-sm')} Kommentare</h3>
-      <div id="sheet-comments" class="sheet-comments"><div class="status">Lade …</div></div>
-      <input type="hidden" id="comment-parent" value="">
-      <div id="comment-replyhint" class="form-msg hidden"></div>
-      ${state.token
-        ? `<textarea id="comment-text" class="input" maxlength="600" rows="2" placeholder="Kommentar schreiben …"></textarea>
-      <div class="form-row">
-        <button id="btn-comment-send" class="btn">Senden</button>
-        <span id="comment-msg" class="form-msg"></span>
-      </div>`
-        : '<div class="status">Zum Kommentieren bitte anmelden.</div>'}
-    </div>`;
-
-  $('#btn-comment-send')?.addEventListener('click', sendComment);
-  $('#desc-more')?.addEventListener('click', () => {
-    const dd = $('#sheet-desc');
-    const collapsed = dd.classList.toggle('clamped');
-    $('#desc-more').textContent = collapsed ? 'Mehr anzeigen' : 'Weniger anzeigen';
-  });
-  $('#btn-sheet-share')?.addEventListener('click', () => shareDeal(d));
-  $('#btn-sheet-send')?.addEventListener('click', () => sendDealToFriend(d));
-  $('#btn-deal-edit')?.addEventListener('click', () => openAdminPost(d));
-  $('#btn-sheet-fav').addEventListener('click', () => {
-    toggleFav(d.id);
-    openDealSheet(d); // Button-Text aktualisieren
-  });
-  // Galerie-Punkte beim Swipen mitführen
-  const track = $('#gal-track');
-  const dots = $('#gal-dots');
-  if (track && dots) {
-    track.addEventListener('scroll', () => {
-      const i = Math.round(track.scrollLeft / track.clientWidth);
-      dots.querySelectorAll('i').forEach((el, j) => el.classList.toggle('on', j === i));
-    }, { passive: true });
-  }
-  openSheetShell();
-  refreshComments();
+// =============================================================================
+// Deal als eigene Seite (Runde 120), gebaut wie die Gutschein-Seite: gleitet
+// von rechts herein, der Pfeil oben links und ein Wisch nach rechts fuehren
+// zurueck. Oben das Bild (ohne Bild das Logo gross auf der Markenfarbe wie auf
+// der Kachel), darunter Titel, Preis, Hinweise und Bewertung, dann
+// Preisvergleich, Beschreibung, Regeln und Kommentare. Unten fest: "Zum Deal"
+// und Merken, unter "Mehr" Teilen, an einen Freund schicken und (Redaktion)
+// bearbeiten. Das alte Deal-Blatt gibt es nicht mehr.
+// =============================================================================
+function dealVonId(id) { return state.deals.find(x => x.id === id) || state.favs[id]?.deal || null; }
+function dealSeiten(id) { return wseiten().filter(s => s.art === 'deal' && (id == null || s.id === id)); }
+function dealMarke(d) { return d.merchant || channelBySlug(d.channel)?.name || 'Deal'; }
+// Wohin der grosse Knopf fuehrt: Deal-Link, sonst die Quelle, sonst der Shop
+// der Marke (nur bei bekannter Domain) — dann heisst der Knopf auch so
+function dealZiel(d) {
+  const url = [d.dealUrl, d.sourceUrl].find(u => /^https?:\/\//.test(u || ''));
+  if (url) return { url, text: 'Zum Deal' };
+  const shop = rabattShopUrl(d.merchant);
+  return shop ? { url: shop, text: `Zu ${d.merchant}` } : null;
 }
 
-// Ein Kommentar mit Reaktionen (Like/Hilfreich/Emote), Antworten und Löschen
+// Alle Aufrufer (Kacheln, Banner, Suche, Geld zurueck, Merkliste, Chat,
+// Erinnerung, ?deal=) landen hier — immer mit dem frischesten Stand des Deals
+function openDealSheet(deal) {
+  if (!deal) return;
+  oeffneDealSeite(dealVonId(deal.id) || deal);
+}
+function oeffneDealSeite(d) {
+  // Eine offene Tastatur (Chat) erst zu, sonst stuende die Seite verschoben
+  const fokus = document.activeElement;
+  if (fokus?.matches?.('input, textarea') && !fokus.closest('.wseite')) fokus.blur();
+  // Derselbe Deal liegt schon oben: nur auffrischen
+  const oben = wseiteOben();
+  if (oben && oben.art === 'deal' && oben.id === d.id) { oben.deal = d; dealSeitePreise(oben); dealSeitenSterne(d.id); return; }
+  // Liegt ein Blatt ueber einer Seite, kaeme die neue Seite darunter: Blatt zu
+  if (document.body.classList.contains('blatt-ueber-seite') && state.sheetMode) closeSheet();
+  // Vibrieren nur nach einem Tipp (per ?deal= beim Start blockt der Browser es)
+  if (navigator.userActivation?.hasBeenActive !== false) buzz(8);
+  requestCompare(d); // Marktpreis nachladen, falls noch nicht da
+  const seite = wseiteOeffnen({
+    art: 'deal', id: d.id, titel: dealMarke(d), klasse: 'gd dl',
+    baue: s => { s.deal = d; zeichneDealSeite(s); },
+  });
+  if (!seite) return;
+  seite.el.addEventListener('click', e => dealSeiteKlick(seite, e));
+  refreshComments(seite);
+}
+
+// Bild oben: Fotos zum Durchwischen, ohne Foto das Logo auf der Markenfarbe
+function dealBildHtml(d) {
+  const marke = dealMarke(d);
+  const bilder = [...new Set(d.images && d.images.length ? d.images : [d.image])].filter(u => /^https?:\/\//.test(u || ''));
+  const logo = `<span class="dl-logo" aria-hidden="true">${brandChipHtml(marke, true)}</span>`;
+  if (!bilder.length) return `<div class="dl-bild ohne" style="--bc:${brandColor(marke)}">${logo}${rabattPill(d)}</div>`;
+  return `
+    <div class="dl-bild" style="--bc:${brandColor(marke)}">
+      <div class="dl-bilder"${bilder.length > 1 ? ' data-kein-wisch' : ''}>
+        ${bilder.map((u, i) => `<img src="${esc(u)}" alt="${i ? '' : esc(d.title)}" draggable="false" decoding="async" referrerpolicy="no-referrer"${i ? ' loading="lazy"' : ''}>`).join('')}
+      </div>
+      ${logo}
+      ${rabattPill(d)}
+      ${bilder.length > 1 ? `<div class="dl-punkte" aria-hidden="true">${bilder.map((_, i) => `<i class="${i ? '' : 'an'}"></i>`).join('')}</div>` : ''}
+    </div>`;
+}
+
+// Preis rot, daneben der Streichpreis und (falls da) der Marktpreis
+function dealPreiseHtml(d) {
+  const teile = [];
+  if (d.free) teile.push('<b class="dl-preis">Gratis</b>');
+  else if (d.price) teile.push(`<b class="dl-preis">${esc(preisFmt(d.price))}</b>`);
+  if (!d.free && d.origPrice) teile.push(`<s>${esc(preisFmt(d.origPrice))}</s>`);
+  if (!d.free && d.compare?.price) {
+    teile.push(`<span class="dl-markt">${d.compare.last ? 'zuletzt' : 'Markt ab'} ${esc(preisFmt(d.compare.price))}</span>`);
+  }
+  return teile.join('');
+}
+
+// Hinweise als kleine Pillen: Neukunden, Zeit mit Uhr, Kanal, Warnungen
+function dealPillenHtml(d) {
+  const c = channelBySlug(d.channel);
+  const zeit = d.stale ? { ico: 'clock', html: esc(timeAgo(d.ts)) } : dealZeitChip(d);
+  const p = [];
+  // Rabatt und "Preisfehler" stehen schon gelb bzw. rot oben auf dem Bild
+  if (d.stale) p.push('<span class="dl-pille alt">Vermutlich vorbei</span>');
+  if (d.newCustomer) p.push(`<span class="dl-pille neu">${icon('user', 'icon')}Nur Neukunden</span>`);
+  if (d.earn) p.push(`<span class="dl-pille verdienst">${icon('banknote', 'icon')}Verdienst</span>`);
+  if (d.compareChecked) p.push(`<span class="dl-pille ok" title="Vergleichspreis mit billiger.de geprüft">${icon('check', 'icon')}Preis geprüft</span>`);
+  p.push(`<span class="dl-pille zeit">${icon(zeit.ico, 'icon')}<span>${zeit.html}</span></span>`);
+  if (c && c.slug !== 'preisfehler') p.push(`<span class="dl-pille">${icon(c.icon || 'tag', 'icon')}${esc(c.name)}</span>`);
+  (d.flags || []).forEach(f => p.push(`<span class="dl-pille warn">${icon('warning', 'icon')}${esc(f)}</span>`));
+  return `<div class="dl-pillen">${p.join('')}</div>`;
+}
+
+// Bewertung: Schnitt links, rechts fuenf Sterne zum Antippen
+function dealSterneHtml(d) {
+  const mein = state.stars[d.id] || 0;
+  const schnitt = d.rating || 0;
+  const n = d.ratingCount || 0;
+  const zeigen = mein || Math.round(schnitt);
+  const unten = [n ? `${n} ${n === 1 ? 'Bewertung' : 'Bewertungen'}` : (mein ? '' : 'Noch keine Bewertung'), mein ? `deine: ${mein}` : '']
+    .filter(Boolean).join(' · ');
+  return `
+    <div class="gd-block dl-bewertung">
+      <span class="dl-bew-text"><b>${n ? `${schnitt.toFixed(1).replace('.', ',')} von 5` : 'Bewerten'}</b><small>${unten}</small></span>
+      <span class="dl-sterne" role="group" aria-label="Deal bewerten">${[1, 2, 3, 4, 5].map(i => `
+        <button class="dl-stern${i <= zeigen ? ' an' : ''}" type="button" data-stern="${i}"
+          aria-label="Mit ${i} ${i === 1 ? 'Stern' : 'Sternen'} bewerten"${mein === i ? ' aria-pressed="true"' : ''}>${icon('star', 'icon')}</button>`).join('')}
+      </span>
+    </div>`;
+}
+
+// Preisvergleich: vorher / Markt / Deal als Balken (nur transform), darunter
+// der Sprung zu billiger.de, falls der Marktpreis von dort kommt
+function dealVergleichHtml(d) {
+  if (d.free) return '';
+  const jetzt = parsePriceNum(d.price);
+  const vorher = parsePriceNum(d.origPrice);
+  const markt = d.compare?.priceNum || null;
+  const link = /^https?:\/\//.test(d.compare?.url || '') ? d.compare.url : '';
+  const balken = jetzt && (vorher || markt);
+  if (!balken && !link) return '';
+  const max = Math.max(jetzt || 0, vorher || 0, markt || 0) || 1;
+  const zeile = (label, wert, text, cls = '') => `
+      <div class="dl-v-zeile${cls}">
+        <span class="dl-v-label">${label}</span>
+        <span class="dl-v-spur"><i style="transform:scaleX(${Math.max(0.06, wert / max).toFixed(4)})"></i></span>
+        <b>${text}</b>
+      </div>`;
+  return `
+    <h3 class="gd-h">Preisvergleich</h3>
+    <div class="gd-block dl-vergleich">
+      ${balken ? `
+      ${vorher ? zeile('vorher', vorher, esc(preisFmt(d.origPrice))) : ''}
+      ${markt ? zeile(d.compare.last ? 'Markt zuletzt' : 'Markt ab', markt, esc(preisFmt(d.compare.price))) : ''}
+      ${zeile('Deal', jetzt, `${esc(preisFmt(d.price))}${d.discount != null && d.discount > 0 ? ` <small>−${Math.round(d.discount)} %</small>` : ''}`, ' jetzt')}
+      <p class="dl-v-quelle">${markt
+        ? `Marktpreis von billiger.de, ${d.compare.last ? 'zuletzt bekannt' : 'günstigstes Angebot'}${d.compare.shippingIncluded ? ' inkl. Versand' : ''}`
+        : 'Vergleichspreis aus den Deal-Angaben'}</p>` : ''}
+      ${link ? `
+      <a class="dl-v-link" href="${esc(link)}" target="_blank" rel="noopener noreferrer">
+        <span><b>Bei billiger.de ansehen</b>${d.compare.price ? `<small>ab ${esc(preisFmt(d.compare.price))}</small>` : ''}</span>
+        ${icon('arrow-out', 'icon')}
+      </a>` : ''}
+    </div>`;
+}
+
+// Beschreibung: die Texte bringen teils Markdown mit (## Ueberschrift, **fett**,
+// * Liste). Einfache Umsetzung: jeder Textteil wird escaped, erst danach werden
+// die bekannten Zeichen zu Tags. Links werden antippbar (neuer Tab).
+function dealTextHtml(text) {
+  const zeilen = String(text || '').replace(/\r\n?/g, '\n').split('\n');
+  const aus = [];
+  let absatz = [];
+  let liste = null;
+  const absatzZu = () => { if (absatz.length) { aus.push(`<p>${absatz.map(mdZeile).join('<br>')}</p>`); absatz = []; } };
+  const listeZu = () => {
+    if (!liste) return;
+    aus.push(`<${liste.art}>${liste.punkte.map(p => `<li>${mdZeile(p)}</li>`).join('')}</${liste.art}>`);
+    liste = null;
+  };
+  const inListe = (art, punkt) => {
+    absatzZu();
+    if (liste?.art !== art) { listeZu(); liste = { art, punkte: [] }; }
+    liste.punkte.push(punkt);
+  };
+  for (const roh of zeilen) {
+    const z = roh.trim();
+    let m;
+    if (!z) { absatzZu(); listeZu(); }
+    else if ((m = z.match(/^(#{1,6})\s+(.+)$/))) {
+      absatzZu(); listeZu();
+      aus.push(`<h4 class="dl-md-h${m[1].length <= 2 ? ' gross' : ''}">${mdZeile(m[2].replace(/\s+#+$/, ''))}</h4>`);
+    }
+    else if (/^([-*_])(\s*\1){2,}$/.test(z)) { absatzZu(); listeZu(); aus.push('<hr>'); }
+    else if ((m = z.match(/^[*\-•+]\s+(.+)$/))) inListe('ul', m[1]);
+    else if ((m = z.match(/^\d{1,2}[.)]\s+(.+)$/))) inListe('ol', m[1]);
+    else { listeZu(); absatz.push(z.replace(/^>\s?/, '')); }
+  }
+  absatzZu(); listeZu();
+  return aus.join('');
+}
+// Eine Zeile: Links ([Text](url) oder nackte URL) herausloesen, der Rest
+// bekommt fett/kursiv/durchgestrichen/Code
+function mdZeile(roh) {
+  const s = String(roh || '');
+  const re = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>"'\])]+)/g;
+  let aus = '', pos = 0, m;
+  while ((m = re.exec(s))) {
+    aus += mdBetonung(s.slice(pos, m.index));
+    let url = m[2] || m[3], text = m[1] || '', rest = '';
+    if (!text) {
+      const satz = url.match(/[.,;:!?]+$/);        // Satzzeichen am Ende gehoeren nicht zum Link
+      if (satz) { rest = satz[0]; url = url.slice(0, -rest.length); }
+      text = url.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '');
+      if (text.length > 40) text = text.slice(0, 38) + '…';
+    }
+    aus += `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer nofollow">${mdBetonung(text)}</a>${esc(rest)}`;
+    pos = re.lastIndex;
+  }
+  return aus + mdBetonung(s.slice(pos));
+}
+function mdBetonung(roh) {
+  return esc(roh)
+    .replace(/\*\*(?=\S)(.*?\S)\*\*/g, '<strong>$1</strong>')
+    .replace(/__(?=\S)(.*?\S)__/g, '<strong>$1</strong>')
+    .replace(/~~(?=\S)(.*?\S)~~/g, '<s>$1</s>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/(^|[\s(])\*(?=\S)([^*]*?\S)\*(?=$|[\s).,!?:;])/g, '$1<em>$2</em>')
+    .replace(/\*\*/g, '');                           // uebrig gebliebene Sternchen-Paare
+}
+
+// Unten: Kommentar schreiben (angemeldet) bzw. der Weg zum Anmelden
+function dealSchreibenHtml() {
+  if (!state.token) return `
+    <div class="gd-block dl-schreiben gast">
+      <span>Zum Kommentieren bitte anmelden.</span>
+      <button class="dl-anmelden" type="button" data-dl="anmelden">Anmelden</button>
+    </div>`;
+  return `
+    <div class="gd-block dl-schreiben">
+      <div class="dl-antwort" hidden><span></span>
+        <button type="button" data-dl="antwort-weg" aria-label="Antwort abbrechen">${icon('x', 'icon')}</button></div>
+      <div class="dl-eingabe">
+        <textarea class="dl-feld" maxlength="600" rows="1" placeholder="Kommentar schreiben …" aria-label="Kommentar schreiben"></textarea>
+        <button class="dl-senden" type="button" data-dl="kommentar" disabled aria-label="Kommentar senden">${icon('send', 'icon')}</button>
+      </div>
+      <p class="dl-meldung" role="alert"></p>
+    </div>`;
+}
+
+// Feste Leiste unten: "Zum Deal" und Merken, darunter "Mehr"
+function dealLeisteHtml(d) {
+  const ziel = dealZiel(d);
+  const an = !!state.favs[d.id];
+  const opts = [
+    ['teilen', icon('share'), 'Teilen', 'Link teilen oder kopieren'],
+    ['freund', icon('send'), 'An Freund schicken', 'Als Nachricht im Chat'],
+    state.role === 'admin' && d.source === 'community' && ['bearbeiten', wIcon('stift'), 'Deal bearbeiten', 'Nur für die Redaktion'],
+  ].filter(Boolean);
+  return `
+    <div class="wseite-leiste gd-leiste dl-leiste">
+      <div class="dl-knoepfe${ziel ? '' : ' ohne-ziel'}">
+        ${ziel ? `<a class="gd-knopf gd-ab dl-los" href="${esc(ziel.url)}" target="_blank" rel="noopener noreferrer" data-dl="los">
+          <span>${esc(ziel.text)}</span>${icon('arrow-out', 'icon')}</a>` : ''}
+        <button class="gd-knopf dl-herz${an ? ' on' : ''}" type="button" data-dl="merken" data-bm="${esc(d.id)}"
+          aria-pressed="${an}" aria-label="${an ? 'Nicht mehr merken' : 'Merken'}">
+          <span class="dl-herz-bild">${icon('heart', 'icon dl-h-o')}${icon('heart-f', 'icon dl-h-f')}</span>${ziel ? '' : `<span class="dl-herz-text">${an ? 'Gemerkt' : 'Merken'}</span>`}
+        </button>
+      </div>
+      <button class="gd-mehr" type="button" aria-expanded="false" aria-controls="dl-opt-${esc(d.id)}">
+        <span>Mehr</span>${icon('chevron-down', 'icon gd-mehr-pfeil')}</button>
+      <div class="gd-optionen" id="dl-opt-${esc(d.id)}" role="menu" aria-label="Weitere Aktionen">
+        ${opts.map(([k, bild, t, sub]) => `
+        <button class="gd-option" type="button" role="menuitem" data-dl="${k}" tabindex="-1">
+          <span class="gd-option-bild">${bild}</span>
+          <span class="gd-option-text"><b>${t}</b><small>${sub}</small></span>
+        </button>`).join('')}
+      </div>
+      <div class="gd-fuss" aria-hidden="true"></div>
+    </div>`;
+}
+
+function zeichneDealSeite(seite) {
+  const d = seite.deal;
+  const el = seite.el;
+  const inhalt = el.querySelector('.wseite-inhalt');
+  const rules = channelBySlug(d.channel)?.rules || [];
+  el.querySelector('.wseite-titel').textContent = dealMarke(d);
+  el.setAttribute('aria-label', `Deal: ${d.title}`);
+  const tag = new Date(d.ts).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const vergleich = dealVergleichHtml(d);
+  inhalt.innerHTML = `
+    ${dealBildHtml(d)}
+    <h1 class="dl-titel">${esc(d.title)}</h1>
+    <div class="dl-preise" data-dl-preise>${dealPreiseHtml(d)}</div>
+    ${dealPillenHtml(d)}
+    <div data-dl-sterne>${dealSterneHtml(d)}</div>
+    <div data-dl-vergleich>${vergleich}</div>
+    ${d.excerpt ? `
+    <h3 class="gd-h">Beschreibung</h3>
+    <div class="gd-block dl-text zu">${dealTextHtml(d.excerpt)}</div>
+    <button class="dl-mehr-text" type="button" data-dl="mehr-text" aria-expanded="false" hidden>
+      <span>Mehr anzeigen</span>${icon('chevron-down', 'icon')}</button>` : ''}
+    ${rules.length ? `
+    <details class="gd-block dl-regeln">
+      <summary>${icon('list', 'icon')}<span>Regeln &amp; Richtlinien</span>${icon('chevron-down', 'icon dl-regeln-pfeil')}</summary>
+      <ul class="dl-regeln-liste">${rules.map(r => `<li>${icon('check', 'icon')}<span>${esc(r)}</span></li>`).join('')}</ul>
+    </details>` : ''}
+    <h3 class="gd-h">Kommentare <small class="dl-k-zahl"></small></h3>
+    <div class="dl-kommentare sheet-comments"><p class="dl-leise">Lade …</p></div>
+    ${dealSchreibenHtml()}
+    <p class="dl-fuss">${d.source === 'mydealz' ? 'Automatisch gefunden' : 'Eingestellt von der Redaktion'} · ${tag}</p>`;
+  inhalt.scrollTop = 0;
+  inhalt.querySelector('[data-dl-vergleich]')._quelle = vergleich;
+  gdLeisteSetzen(seite, dealLeisteHtml(d));
+  gdLeisteMessen(seite);
+  dealSeiteVerdrahten(seite);
+}
+
+// Nur die Preiszeile und den Preisvergleich neu (Marktpreis kam nach)
+function dealSeitePreise(seite) {
+  const d = seite.deal;
+  const preise = seite.el.querySelector('[data-dl-preise]');
+  if (preise) preise.innerHTML = dealPreiseHtml(d);
+  const v = seite.el.querySelector('[data-dl-vergleich]');
+  if (v) {
+    const neu = dealVergleichHtml(d);
+    if (v._quelle !== neu) { v._quelle = neu; v.innerHTML = neu; if (neu) reinGleiten([...v.children], { versatz: 8 }); }
+  }
+}
+// Sterne auf allen offenen Seiten dieses Deals
+function dealSeitenSterne(id) {
+  dealSeiten(id).forEach(s => {
+    const slot = s.el.querySelector('[data-dl-sterne]');
+    if (slot) slot.innerHTML = dealSterneHtml(dealVonId(id) || s.deal);
+  });
+}
+function dealHerzAuffrischen(seite) {
+  const b = seite.el.querySelector('.dl-herz');
+  if (!b) return;
+  const an = !!state.favs[seite.id];
+  b.classList.toggle('on', an);
+  b.setAttribute('aria-pressed', String(an));
+  b.setAttribute('aria-label', an ? 'Nicht mehr merken' : 'Merken');
+  const t = b.querySelector('.dl-herz-text');
+  if (t) t.textContent = an ? 'Gemerkt' : 'Merken';
+}
+
+// Nach jedem Zeichnen: Bilder, Text-Laenge, Kommentarfeld
+function dealSeiteVerdrahten(seite) {
+  const el = seite.el;
+  // Bilder: kaputte fallen weg; bleibt keins, steht das Logo auf der Markenfarbe
+  const bild = el.querySelector('.dl-bild:not(.ohne)');
+  if (bild) {
+    const leiste = bild.querySelector('.dl-bilder');
+    const punkte = bild.querySelector('.dl-punkte');
+    const weg = img => {
+      const i = [...leiste.children].indexOf(img);
+      img.remove();
+      if (punkte && i >= 0) punkte.children[i]?.remove();
+      if (!leiste.children.length) { bild.classList.add('ohne'); leiste.remove(); punkte?.remove(); }
+      else if (leiste.children.length < 2) { punkte?.remove(); leiste.removeAttribute('data-kein-wisch'); }
+    };
+    leiste.querySelectorAll('img').forEach(img => {
+      if (img.complete && !img.naturalWidth) weg(img);
+      else img.addEventListener('error', () => weg(img), { once: true });
+    });
+    if (punkte) leiste.addEventListener('scroll', () => {
+      const i = Math.round(leiste.scrollLeft / Math.max(1, leiste.clientWidth));
+      [...punkte.children].forEach((p, j) => p.classList.toggle('an', j === i));
+    }, { passive: true });
+  }
+  // "Mehr anzeigen" nur, wenn der Text wirklich laenger ist
+  const text = el.querySelector('.dl-text');
+  const mehr = el.querySelector('.dl-mehr-text');
+  if (text && mehr) {
+    if (text.scrollHeight > text.clientHeight + 16) mehr.hidden = false;
+    else text.classList.remove('zu');
+  }
+  // Kommentarfeld waechst mit (bis etwa sechs Zeilen), Senden erst ab 2 Zeichen
+  const feld = el.querySelector('.dl-feld');
+  if (feld) {
+    const senden = el.querySelector('.dl-senden');
+    feld.addEventListener('input', () => {
+      feld.style.height = 'auto';
+      feld.style.height = Math.min(feld.scrollHeight, 150) + 'px';
+      senden.disabled = feld.value.trim().length < 2;
+      el.querySelector('.dl-meldung').textContent = '';
+    });
+    feld.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendComment(seite); }
+    });
+  }
+}
+
+// Ein Element im Inhalt der Seite sichtbar machen — nur der Inhalt scrollt.
+// (scrollIntoView verschoebe auch den Rahmen #wseiten und damit die Leiste.)
+// Unten zaehlt nur, was nicht hinter der festen Leiste liegt.
+function dealHinScrollen(seite, ziel) {
+  const inhalt = seite.el.querySelector('.wseite-inhalt');
+  if (!inhalt || !ziel) return;
+  const r = ziel.getBoundingClientRect();
+  const ri = inhalt.getBoundingClientRect();
+  const unten = ri.bottom - (parseFloat(getComputedStyle(seite.el).getPropertyValue('--gd-leiste-h')) || 0);
+  const d = r.top < ri.top + 12 ? r.top - ri.top - 12 : r.bottom > unten - 12 ? Math.min(r.bottom - unten + 12, r.top - ri.top - 12) : 0;
+  if (d) inhalt.scrollBy({ top: d, behavior: reducedMotion() ? 'auto' : 'smooth' });
+}
+// Der Rahmen um die Seiten scrollt nie selbst (overflow: hidden). Ein Fokus
+// oder Sprung koennte ihn sonst verschieben — dann stuende die Leiste mitten
+// im Bild. Sofort zurueck an den Anfang.
+$('#wseiten')?.addEventListener('scroll', e => {
+  const h = e.currentTarget;
+  if (h.scrollTop || h.scrollLeft) h.scrollTo(0, 0);
+}, { passive: true });
+
+// Ein Klick-Verteiler je Seite (Leiste, Sterne, Kommentare, Text)
+function dealSeiteKlick(seite, e) {
+  const d = seite.deal;
+  // Eine offene Emote-Auswahl geht bei jedem Klick daneben wieder zu
+  if (!e.target.closest('.comment-emote-pick, [data-cemote]')) {
+    seite.el.querySelectorAll('.comment-emote-pick').forEach(p => p.remove());
+  }
+  const stern = e.target.closest('[data-stern]');
+  if (stern) { dealBewerten(d.id, Number(stern.dataset.stern), e.clientX, e.clientY); return; }
+  if (e.target.closest('.gd-mehr')) { gdOptionen(seite); return; }
+  if (e.target.closest('.gd-dimm')) { gdOptionen(seite, false); return; }
+  const cm = e.target.closest('.comment[data-cid]');
+  if (cm && dealKommentarKlick(seite, e, cm)) return;
+  const b = e.target.closest('[data-dl]');
+  if (!b) return;
+  const k = b.dataset.dl;
+  if (k === 'los') trackClick(d);                    // der Link oeffnet sich selbst
+  else if (k === 'merken') { toggleFav(d.id); dealHerzAuffrischen(seite); }
+  else if (k === 'teilen') { gdOptionen(seite, false); shareDeal(d); }
+  else if (k === 'freund') { gdOptionen(seite, false); sendDealToFriend(d); }
+  else if (k === 'bearbeiten') { gdOptionen(seite, false); openAdminPost(d); }
+  else if (k === 'mehr-text') {
+    const text = seite.el.querySelector('.dl-text');
+    const zu = text.classList.toggle('zu');
+    b.setAttribute('aria-expanded', String(!zu));
+    b.querySelector('span').textContent = zu ? 'Mehr anzeigen' : 'Weniger anzeigen';
+    if (zu) dealHinScrollen(seite, text);
+  }
+  else if (k === 'kommentar') sendComment(seite);
+  else if (k === 'antwort-weg') dealAntwortWeg(seite);
+  else if (k === 'anmelden') switchView('profile');
+}
+
+// Ein Kommentar mit Reaktionen (Like/Hilfreich/Emote), Antworten und Löschen.
+// Namen ohne @ — wie ueberall im neuen Look nur der Name in seiner Farbe.
 function commentHtml(c, replies) {
   if (c.deleted) {
-    return `<div class="comment comment-tomb"><div class="comment-text chat-deleted">${icon('x', 'icon icon-sm')} Kommentar entfernt</div>
+    return `<div class="comment comment-tomb" data-cid="${esc(c.id)}"><div class="comment-text chat-deleted">${icon('x', 'icon icon-sm')} Kommentar entfernt</div>
       ${replies.map(r => commentHtml(r, [])).join('')}</div>`;
   }
-  const role = c.role === 'admin' ? `<svg class="icon icon-sm chat-badge role-admin"><use href="#i-crown"/></svg>` : '';
+  const role = c.role === 'admin' ? `<svg class="icon icon-sm chat-badge role-admin" aria-label="Redaktion"><use href="#i-crown"/></svg>` : '';
   const rx = c.reactions || {};
   const mine = k => (rx[k] || []).includes(state.userName);
   // Reaktionen mit Emotes, die es nicht mehr gibt, fallen weg
@@ -2453,88 +2747,159 @@ function commentHtml(c, replies) {
     <div class="comment" data-cid="${esc(c.id)}">
       <div class="comment-head">
         ${ava}
-        <span class="comment-user${ns.cls}" style="${ns.style}">@${esc(c.user)}</span>
+        <span class="comment-user${ns.cls}" style="${ns.style}">${esc(c.user)}</span>
         ${role}
         <span class="comment-time">${esc(timeAgo(c.ts))}</span>
         ${(c.flags || []).map(f => `<span class="pill pill-warn">${icon('warning', 'icon icon-sm')} ${esc(f)}</span>`).join('')}
       </div>
       <div class="comment-text">${withEmotes(esc(c.text))}</div>
       <div class="comment-actions">
-        <button class="c-act ${mine('like') ? 'on' : ''}" data-creact="like">${icon('thumb-up', 'icon icon-sm')} ${(rx.like || []).length || ''}</button>
-        <button class="c-act ${mine('helpful') ? 'on' : ''}" data-creact="helpful">${icon('check', 'icon icon-sm')} Hilfreich ${(rx.helpful || []).length || ''}</button>
-        <button class="c-act" data-cemote="1">${icon('smile', 'icon icon-sm')}</button>
-        <button class="c-act" data-creply="${esc(c.user)}">Antworten</button>
-        ${canDelete ? `<button class="c-act" data-cdel="1">Löschen</button>` : ''}
-        ${emoteRx.map(k => `<button class="c-act emote-rx ${mine(k) ? 'on' : ''}" data-creact="${esc(k)}">${emoteHtml(k)} ${rx[k].length}</button>`).join('')}
+        <button class="c-act ${mine('like') ? 'on' : ''}" type="button" data-creact="like" aria-label="Gefällt mir">${icon('thumb-up', 'icon icon-sm')} ${(rx.like || []).length || ''}</button>
+        <button class="c-act ${mine('helpful') ? 'on' : ''}" type="button" data-creact="helpful">${icon('check', 'icon icon-sm')} Hilfreich ${(rx.helpful || []).length || ''}</button>
+        <button class="c-act" type="button" data-cemote="1" aria-label="Mit Emote reagieren">${icon('smile', 'icon icon-sm')}</button>
+        <button class="c-act" type="button" data-creply="${esc(c.user)}">Antworten</button>
+        ${canDelete ? `<button class="c-act c-weg" type="button" data-cdel="1" aria-label="Kommentar löschen" title="Löschen">${wIcon('muell', 'icon icon-sm')}</button>` : ''}
+        ${emoteRx.map(k => `<button class="c-act emote-rx ${mine(k) ? 'on' : ''}" type="button" data-creact="${esc(k)}">${emoteHtml(k)} ${rx[k].length}</button>`).join('')}
       </div>
       ${replies.map(r => commentHtml(r, [])).join('')}
     </div>`;
 }
 
-async function refreshComments() {
-  if (!state.currentDeal) return;
-  const list = await api('/api/comments?dealId=' + state.currentDeal.id).catch(() => []);
-  const box = $('#sheet-comments');
-  if (!box) return;
+// Kommentare laden und angleichen (gleiche bleiben stehen, neue blenden ein)
+async function refreshComments(seite) {
+  seite = seite || dealSeiten().pop();
+  if (!seite?.el.isConnected) return;
+  const lauf = seite.kLauf = (seite.kLauf || 0) + 1;
+  let list = null;
+  try { list = await api('/api/comments?dealId=' + encodeURIComponent(seite.id)); } catch { list = null; }
+  const box = seite.el.querySelector('.dl-kommentare');
+  if (!box || !seite.el.isConnected || lauf !== seite.kLauf) return;
+  if (!Array.isArray(list)) {
+    if (!box.querySelector('.comment')) box.innerHTML = '<p class="dl-leise">Kommentare gerade nicht erreichbar.</p>';
+    return;
+  }
   const tops = list.filter(c => !c.parent);
   const repliesOf = id => list.filter(c => c.parent === id);
-  box.innerHTML = tops.length
+  const zahl = list.filter(c => !c.deleted).length;
+  const z = seite.el.querySelector('.dl-k-zahl');
+  if (z) z.textContent = zahl ? String(zahl) : '';
+  box.querySelector('.comment-emote-pick')?.remove();
+  inhaltAngleichen(box, tops.length
     ? tops.map(c => commentHtml(c, repliesOf(c.id))).join('')
-    : '<div class="status">Noch keine Kommentare, sei der Erste.</div>';
-
-  const dealId = state.currentDeal.id;
-  const react = (cid, kind) => api('/api/comments/react', {
-    method: 'POST', body: JSON.stringify({ dealId, id: cid, kind }),
-  }).then(refreshComments).catch(e => island(e.message));
-  box.querySelectorAll('[data-creact]').forEach(b => b.onclick = () =>
-    react(b.closest('.comment').dataset.cid, b.dataset.creact));
-  box.querySelectorAll('[data-cemote]').forEach(b => b.onclick = () => {
-    // Kleine Emote-Auswahl direkt unterm Kommentar
-    const eg = emoteGruppen();
-    const names = [...eg.katzen.slice(0, 6), ...eg.peepo.slice(0, 6)];
-    const cid = b.closest('.comment').dataset.cid;
-    const pick = document.createElement('div');
-    pick.className = 'comment-emote-pick';
-    pick.innerHTML = names.map(n => `<button data-e="${esc(n)}">${emoteHtml(n)}</button>`).join('');
-    b.closest('.comment-actions').after(pick);
-    pick.querySelectorAll('[data-e]').forEach(x => x.onclick = () => { react(cid, x.dataset.e); pick.remove(); });
-    setTimeout(() => document.addEventListener('click', () => pick.remove(), { once: true }), 50);
-  });
-  box.querySelectorAll('[data-creply]').forEach(b => b.onclick = () => {
-    $('#comment-parent').value = b.closest('.comment').dataset.cid;
-    const hint = $('#comment-replyhint');
-    hint.classList.remove('hidden');
-    hint.textContent = `Antwort an @${b.dataset.creply} (tippen zum Abbrechen)`;
-    hint.onclick = () => { $('#comment-parent').value = ''; hint.classList.add('hidden'); };
-    $('#comment-text')?.focus();
-  });
-  box.querySelectorAll('[data-cdel]').forEach(b => b.onclick = async () => {
-    if (!await askConfirm('Diesen Kommentar löschen?', { okLabel: 'Löschen' })) return;
-    api('/api/comments/delete', {
-      method: 'POST', body: JSON.stringify({ dealId, id: b.closest('.comment').dataset.cid }),
-    }).then(refreshComments).catch(e => island(e.message));
-  });
+    : '<p class="dl-leise">Noch keine Kommentare. Schreib den ersten.</p>');
 }
 
-async function sendComment() {
-  const msg = $('#comment-msg');
-  msg.className = 'form-msg';
+// Klicks in einem Kommentar: Reaktion, Emote, Antworten, Loeschen.
+// Liefert true, wenn der Klick hier erledigt wurde.
+function dealKommentarKlick(seite, e, cm) {
+  // Innerster Kommentar zaehlt (Antworten liegen im Eltern-Kommentar)
+  const cid = cm.dataset.cid;
+  const dealId = seite.id;
+  const react = kind => api('/api/comments/react', {
+    method: 'POST', body: JSON.stringify({ dealId, id: cid, kind }),
+  }).then(() => refreshComments(seite)).catch(err => island(err.message));
+  const emote = e.target.closest('.comment-emote-pick [data-e]');
+  if (emote) { emote.closest('.comment-emote-pick').remove(); react(emote.dataset.e); return true; }
+  const b = e.target.closest('[data-creact], [data-cemote], [data-creply], [data-cdel]');
+  if (!b || b.closest('.comment') !== cm) return false;
+  if (b.dataset.creact) { buzz(6); react(b.dataset.creact); return true; }
+  if (b.dataset.cemote) {
+    // Kleine Emote-Auswahl direkt unterm Kommentar
+    const offen = cm.querySelector(':scope > .comment-emote-pick');
+    seite.el.querySelectorAll('.comment-emote-pick').forEach(p => p.remove());
+    if (offen) return true;
+    const eg = emoteGruppen();
+    const names = [...eg.katzen.slice(0, 6), ...eg.peepo.slice(0, 6)];
+    if (!names.length) return true;
+    const pick = document.createElement('div');
+    pick.className = 'comment-emote-pick';
+    pick.innerHTML = names.map(n => `<button type="button" data-e="${esc(n)}" aria-label="${esc(n)}">${emoteHtml(n)}</button>`).join('');
+    b.closest('.comment-actions').after(pick);
+    reinGleiten([pick], { versatz: 6 });
+    return true;
+  }
+  if (b.dataset.creply) {
+    if (!state.token) { island('Zum Antworten bitte anmelden'); return true; }
+    // Antworten haengen immer am obersten Kommentar — eine Antwort auf eine
+    // Antwort wuerde sonst nirgends angezeigt
+    seite.antwortAuf = cm.parentElement?.closest('.comment[data-cid]')?.dataset.cid || cid;
+    const hint = seite.el.querySelector('.dl-antwort');
+    if (hint) { hint.hidden = false; hint.querySelector('span').textContent = `Antwort an ${b.dataset.creply}`; }
+    const feld = seite.el.querySelector('.dl-feld');
+    feld?.focus({ preventScroll: true });
+    dealHinScrollen(seite, feld?.closest('.dl-schreiben'));
+    return true;
+  }
+  if (b.dataset.cdel) {
+    askConfirm('Diesen Kommentar löschen?', { okLabel: 'Löschen' }).then(ja => {
+      if (!ja) return;
+      api('/api/comments/delete', { method: 'POST', body: JSON.stringify({ dealId, id: cid }) })
+        .then(() => refreshComments(seite)).catch(err => island(err.message));
+    });
+    return true;
+  }
+  return false;
+}
+function dealAntwortWeg(seite) {
+  seite.antwortAuf = '';
+  const hint = seite.el.querySelector('.dl-antwort');
+  if (hint) hint.hidden = true;
+}
+
+async function sendComment(seite) {
+  seite = seite || dealSeiten().pop();
+  const el = seite?.el;
+  const feld = el?.querySelector('.dl-feld');
+  if (!feld) return;
+  const knopf = el.querySelector('.dl-senden');
+  const meldung = el.querySelector('.dl-meldung');
+  const text = feld.value.trim();
+  if (text.length < 2 || knopf.dataset.laeuft) return;
+  knopf.dataset.laeuft = '1';
+  knopf.disabled = true;
   try {
     await api('/api/comments', {
       method: 'POST',
-      body: JSON.stringify({ dealId: state.currentDeal.id, text: $('#comment-text').value, parent: $('#comment-parent').value }),
+      body: JSON.stringify({ dealId: seite.id, text, parent: seite.antwortAuf || '' }),
     });
-    $('#comment-text').value = '';
-    $('#comment-parent').value = '';
-    $('#comment-replyhint').classList.add('hidden');
-    msg.textContent = '';
-    await refreshComments();
-    const d = state.deals.find(x => x.id === state.currentDeal.id);
+    feld.value = '';
+    feld.style.height = '';
+    dealAntwortWeg(seite);
+    meldung.textContent = '';
+    const d = dealVonId(seite.id);
     if (d) d.comments = (d.comments || 0) + 1;
-    renderFeed();
+    buzz(10);
+    await refreshComments(seite);
   } catch (e) {
-    msg.className = 'form-msg error';
-    msg.textContent = e.message;
+    meldung.textContent = e.message;
+    knopf.disabled = false;
+  } finally {
+    delete knopf.dataset.laeuft;
+  }
+}
+
+// Nach dem Laden des Feeds (Start, Deal bearbeitet): offene Deal-Seiten auf
+// den neuen Stand bringen und ein per ?deal= angefragter Deal geht auf
+let dealNachLaden = '';
+function dealStand(d) {
+  return JSON.stringify([d.title, d.excerpt, d.price, d.origPrice, d.image, d.images, d.flags, d.endTs,
+    d.newCustomer, d.stale, d.dealUrl, d.sourceUrl, d.merchant, d.channel]);
+}
+function dealSeitenAbgleichen() {
+  for (const s of dealSeiten()) {
+    const frisch = state.deals.find(x => x.id === s.id);
+    if (!frisch || frisch === s.deal) continue;
+    const anders = dealStand(frisch) !== dealStand(s.deal);
+    s.deal = frisch;
+    if (anders) { zeichneDealSeite(s); refreshComments(s); }
+    else { dealSeitePreise(s); dealSeitenSterne(s.id); }
+  }
+  if (dealNachLaden) {
+    const id = dealNachLaden;
+    dealNachLaden = '';
+    const d = dealVonId(id);
+    if (d) oeffneDealSeite(d);
+    else island('Dieser Deal ist nicht mehr im Feed');
   }
 }
 
@@ -7692,7 +8057,8 @@ if ($('#sheet') && 'MutationObserver' in window) {
 function wseitenAbgleichen() {
   const s = wseiten();
   if (!s.length) return;
-  if (walletGesperrt() || !state.token) { wseitenZu(); return; }
+  // Deal-Seiten zeigen nichts aus der Wallet: sie bleiben bei Sperre und fuer Gaeste offen
+  if (walletGesperrt() || !state.token) { if (s.some(x => x.art !== 'deal')) wseitenZu(); return; }
   if (s.some(x => x.sendet)) return;          // Verschenken laeuft gerade
   for (let i = 0; i < s.length; i++) {
     const seite = s[i];
@@ -7987,7 +8353,7 @@ function gdLeisteMessen(seite) {
   }
   seite.el.style.setProperty('--gd-leiste-h', Math.max(0, leiste.offsetHeight - optH) + 'px');
 }
-addEventListener('resize', () => wseiten().forEach(s => { if (s.art === 'gutschein' || s.art === 'rabatt') gdLeisteMessen(s); }), { passive: true });
+addEventListener('resize', () => wseiten().forEach(s => { if (s.art === 'gutschein' || s.art === 'rabatt' || s.art === 'deal') gdLeisteMessen(s); }), { passive: true });
 
 function verdrahteGutscheinSeite(seite, v, karte) {
   const el = seite.el;
@@ -10981,6 +11347,14 @@ function handleOpenParams(qs) {
     const t = p.get('tab');
     if (['wallet', 'feed', 'profile', 'gifts', 'chat', 'settings'].includes(t) && $('#view-' + t) && state.activeView !== t) switchView(t);
   }
+  // ?deal=<id>: die Deal-Seite geht auf — beim Start erst, wenn der Feed da ist
+  const dealId = p.get('deal');
+  if (dealId && /^[a-z0-9]{4,40}$/i.test(dealId)) {
+    const d = state.deals.length ? dealVonId(dealId) : null;
+    if (d) openDealSheet(d);
+    else if (state.deals.length) island('Dieser Deal ist nicht mehr im Feed');
+    else dealNachLaden = dealId;
+  }
 }
 
 // ---------------- Chat: Fluestern mit Freunden ----------------
@@ -11920,8 +12294,9 @@ function sperreAuftritt(el) {
 function schliesseWalletAnsichten() {
   schliesseMarkenMenue();
   schliesseVkMenue();
-  // Gutschein-, Verschenken- und Analyse-Seiten: sofort weg, samt Inhalt
-  wseitenZu();
+  // Gutschein-, Verschenken- und Analyse-Seiten: sofort weg, samt Inhalt.
+  // Eine offene Deal-Seite allein zeigt nichts aus der Wallet und bleibt.
+  if (wseiten().some(x => x.art !== 'deal')) wseitenZu();
   if (state.sheetMode) closeSheet();
   // Das zugeklappte Blatt behaelt sonst Code, PIN und Knoepfe im Baum
   const inhalt = $('#sheet-content');
