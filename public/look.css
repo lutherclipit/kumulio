@@ -187,7 +187,11 @@ body.sparsam .tabbar { backdrop-filter: none; -webkit-backdrop-filter: none; }
 .tab-txt { transition: transform .45s cubic-bezier(.34, 1.45, .55, 1); }
 .tab-zahl { top: 7px; left: calc(50% + 6px); right: auto; box-shadow: 0 0 0 2px var(--leiste-bg); }
 @keyframes menueRein { from { transform: translate3d(0, 100%, 0); } }
-body.sparsam .tab-ico, body.sparsam .tab-txt { transition: none; }
+/* Eigene Wahl "Animationen aus" (Einstellungen): alles steht still */
+body.ohne-anim *, body.ohne-anim *::before, body.ohne-anim *::after {
+  animation-duration: .001ms !important; animation-iteration-count: 1 !important;
+  transition-duration: .001ms !important; scroll-behavior: auto !important;
+}
 @media (prefers-reduced-motion: reduce) {
   .tab-ico, .tab-txt, .tab-ico .icon { transition: none; }
 }

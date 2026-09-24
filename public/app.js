@@ -493,7 +493,7 @@ function setzeBuckel(sofort = false) {
   const ziel = `translate3d(${x}px, 0, 0)`;
   b.getAnimations?.().forEach(a => a.cancel());
   b.style.transform = ziel;
-  if (sofort || warWeg || war === null || war === x || reducedMotion() || document.body.classList.contains('sparsam') || !b.animate) return;
+  if (sofort || warWeg || war === null || war === x || reducedMotion() || !b.animate) return;
   const mitte = Math.round(war + (x - war) * .55);
   b.animate([
     { transform: `translate3d(${war}px, 0, 0) scale(1, 1)` },
@@ -3336,6 +3336,31 @@ if (swSound) {
     if (swSound.checked) { initSfx(); playSfx('plop'); }
   });
 }
+// Animationen: an (Standard) oder aus. Hat das Handy "Bewegung reduzieren"
+// an, bleiben sie ohnehin aus — das sagt die Zeile dann auch.
+const swAnim = $('#sw-anim');
+function zeigeAnimZeile() {
+  if (!swAnim) return;
+  const system = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  swAnim.checked = animWahl() !== 'aus' && !system;
+  swAnim.disabled = system;
+  const t = $('#anim-hinweis');
+  if (t) t.textContent = system
+    ? 'Dein Handy hat „Bewegung reduzieren“ an, deshalb bleiben sie aus.'
+    : 'Übergänge, Menüleiste und Effekte';
+}
+if (swAnim) {
+  zeigeAnimZeile();
+  swAnim.addEventListener('change', () => {
+    try {
+      localStorage.setItem(ANIM_WAHL, swAnim.checked ? 'an' : 'aus');
+      if (swAnim.checked) localStorage.removeItem(SPARSAM);
+    } catch { /* egal */ }
+    setzeAnimKlassen();
+    buzz(8);
+  });
+  matchMedia('(prefers-reduced-motion: reduce)').addEventListener?.('change', zeigeAnimZeile);
+}
 // Mitteilungs-Schalter: Banner/Sounds pro Kategorie an- und abschaltbar
 [['msgs', '#sw-n-msgs'], ['reminder', '#sw-n-reminder']].forEach(([key, sel]) => {
   const el = $(sel);
@@ -4589,7 +4614,7 @@ function playSfx(name, vol) {
 }
 function buzz(pattern) { try { navigator.vibrate && navigator.vibrate(pattern); } catch { } }
 
-const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches || document.body.classList.contains('ohne-anim');
 
 function moneyFlash(kind) {
   if (reducedMotion()) return;
@@ -6826,7 +6851,7 @@ function oeffneKartenLupe(key, kachel) {
 // =============================================================================
 function wseiten() { return wseiten.stapel || (wseiten.stapel = []); }
 function wseiteOben() { const s = wseiten(); return s[s.length - 1] || null; }
-function wseiteBewegt() { return !reducedMotion() && !document.body.classList.contains('sparsam'); }
+function wseiteBewegt() { return !reducedMotion(); }
 // Symbole, die es im Sprite nicht gibt — gleiche Strichstaerke wie dort
 function wIcon(name, cls = 'icon') {
   const pfade = {
@@ -8844,8 +8869,7 @@ function updateWalletTab(anim) {
   // Ein laufender Wechsel ist mit diesem erledigt: seine Blenden loesen
   for (const el of [wc, cc, geld]) el?.getAnimations?.().forEach(a => { if (a.id === 'wtab') a.cancel(); });
 
-  const bewegt = anim && altHost !== neuHost && !reducedMotion()
-    && !document.body.classList.contains('sparsam') && !!wc.animate;
+  const bewegt = anim && altHost !== neuHost && !reducedMotion() && !!wc.animate;
   if (!bewegt) {
     setzen();
     kopfUmschalten(coupons || gated, false, kopfZielUnten(coupons || gated));
@@ -9737,11 +9761,32 @@ addEventListener('orientationchange', () => setTimeout(setzeFarbfeldNeu, 300));
 // stehen still. Die Entscheidung faellt auf dem Geraet, nicht nach Gefuehl.
 //
 // Die Messung laesst sich ansehen: /?fps zeigt sie als kleine Anzeige.
-const SPARSAM = 'ra.sparsam';
-let fpsProben = 0;
+// Runde 118: Frueher reichte EINE Messung mit vier etwas laengeren Bildern —
+// auf vielen Handys fiel die Entscheidung so schon beim schweren Glas-Design
+// und galt fuer immer. Jetzt: neuer Schluessel (alte Entscheidungen verfallen),
+// die erste Messung nach dem Start zaehlt nicht, und es braucht zwei klar
+// schlechte Messungen. "sparsam" stellt ausserdem nur noch die Dauer-Effekte
+// ab (Strahlen, Funken, schwebende Logos) — Uebergaenge laufen weiter.
+// Wer selbst entscheidet (Einstellungen → Animationen), ueberstimmt die Messung.
+const SPARSAM = 'ra.sparsam2';
+const ANIM_WAHL = 'ra.animationen';      // 'an' | 'aus' | fehlt = automatisch
+let fpsProben = 0, fpsSchlecht = 0;
 let letzteFps = null;
-try { letzteFps = JSON.parse(localStorage.getItem('ra.fps') || 'null'); } catch { /* egal */ }
-if (localStorage.getItem(SPARSAM) === '1') document.body.classList.add('sparsam');
+try {
+  localStorage.removeItem('ra.sparsam'); localStorage.removeItem('ra.fps');
+  letzteFps = JSON.parse(localStorage.getItem('ra.fps2') || 'null');
+} catch { /* egal */ }
+// Liest den Schluessel direkt: wird schon beim Aufbau der Einstellungen gebraucht,
+// bevor ANIM_WAHL weiter unten steht
+function animWahl() { try { return localStorage.getItem('ra.animationen') || ''; } catch { return ''; } }
+function setzeAnimKlassen() {
+  const wahl = animWahl();
+  let sparsam = false;
+  try { sparsam = localStorage.getItem(SPARSAM) === '1'; } catch { /* egal */ }
+  document.body.classList.toggle('ohne-anim', wahl === 'aus');
+  document.body.classList.toggle('sparsam', wahl === 'aus' || (wahl !== 'an' && sparsam));
+}
+setzeAnimKlassen();
 
 function messeBildabstaende(dauer = 450) {
   return new Promise(fertig => {
@@ -9759,8 +9804,11 @@ function messeBildabstaende(dauer = 450) {
 }
 
 function pruefeBildrate() {
-  if (document.body.classList.contains('sparsam') || fpsProben >= 3) return;
+  if (animWahl() || document.body.classList.contains('sparsam') || fpsProben >= 4) return;
   fpsProben++;
+  // Der erste Wechsel nach dem Start baut Ansichten und dekodiert Bilder zum
+  // ersten Mal — der sagt nichts ueber das Geraet
+  if (fpsProben === 1) return;
   messeBildabstaende().then(t => {
     if (!t || t.length < 6) return;
     const sortiert = [...t].sort((a, b) => a - b);
@@ -9772,11 +9820,13 @@ function pruefeBildrate() {
     const lang = t.filter(x => x > Math.max(24, schnellstes * 2.2)).length;
     letzteFps = { median: +median.toFixed(1), schnellstes: +schnellstes.toFixed(1),
                   lang, bilder: t.length, zeit: Date.now() };
-    try { lsSetzen('ra.fps', JSON.stringify(letzteFps)); } catch { /* egal */ }
+    try { lsSetzen('ra.fps2', JSON.stringify(letzteFps)); } catch { /* egal */ }
     zeigeFpsAnzeige();
-    if (lang >= 4) {
+    // Schlecht heisst: gut ein Drittel der Bilder deutlich zu lang
+    if (lang >= Math.max(8, Math.ceil(t.length * .35))) fpsSchlecht++;
+    if (fpsSchlecht >= 2 && !animWahl()) {
       try { lsSetzen(SPARSAM, '1'); } catch { /* egal */ }
-      document.body.classList.add('sparsam');
+      setzeAnimKlassen();
     }
   });
 }
@@ -9791,9 +9841,9 @@ function zeigeFpsAnzeige() {
     el.id = 'fps-anzeige';
     document.body.appendChild(el);
     el.onclick = () => {
-      try { localStorage.removeItem(SPARSAM); localStorage.removeItem('ra.fps'); } catch { /* egal */ }
-      document.body.classList.remove('sparsam');
-      fpsProben = 0; letzteFps = null;
+      try { localStorage.removeItem(SPARSAM); localStorage.removeItem('ra.fps2'); } catch { /* egal */ }
+      setzeAnimKlassen();
+      fpsProben = 0; fpsSchlecht = 0; letzteFps = null;
       el.textContent = 'zurueckgesetzt — nochmal umschalten';
     };
   }
