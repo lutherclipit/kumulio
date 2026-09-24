@@ -8996,25 +8996,28 @@ function voucherCardHtml(v, { mehr = false } = {}) {
 //   sammler: '/brand/kumulio-maskottchen-sammler',
 //   (profi, champion, meister, legende, mythos)
 const WALLET_MASKOTTCHEN = {
-  standard: '/brand/kumulio-maskottchen-wallet',
-  // Modelle des Nutzers je Rang (Runde 119), an den Augen auf die Lage des
-  // universellen Modells ausgerichtet — Strahlen und Funken passen so zu allen
-  scout: '/brand/kumulio-maskottchen-scout',
-  sammler: '/brand/kumulio-maskottchen-sammler',
-  profi: '/brand/kumulio-maskottchen-profi',
-  champion: '/brand/kumulio-maskottchen-champion',
-  meister: '/brand/kumulio-maskottchen-meister',
-  legende: '/brand/kumulio-maskottchen-legende',
-  mythos: '/brand/kumulio-maskottchen-mythos',
+  standard: { basis: '/brand/kumulio-maskottchen-standard', licht: [.268, .369] },
+  // Modelle des Nutzers je Rang. Lage und Groesse stecken im Bild (1389 x 1404,
+  // siehe look.css .wk-sprite); licht = Mitte der Strahlen hinter dem Kopf
+  scout: { basis: '/brand/kumulio-maskottchen-scout', licht: [0.2915, 0.3775] },
+  sammler: { basis: '/brand/kumulio-maskottchen-sammler', licht: [0.2836, 0.3775] },
+  profi: { basis: '/brand/kumulio-maskottchen-profi', licht: [0.2959, 0.3775] },
+  champion: { basis: '/brand/kumulio-maskottchen-champion', licht: [0.353, 0.3775] },
+  meister: { basis: '/brand/kumulio-maskottchen-meister', licht: [0.2186, 0.3775] },
+  legende: { basis: '/brand/kumulio-maskottchen-legende', licht: [0.2248, 0.3775] },
+  mythos: { basis: '/brand/kumulio-maskottchen-mythos', licht: [0.3117, 0.3775] },
 };
 function setzeWalletMaskottchen(slug) {
   const img = $('.wk-sprite');
   if (!img) return;
-  const basis = WALLET_MASKOTTCHEN[slug] || WALLET_MASKOTTCHEN.standard;
-  if (img.dataset.basis === basis) return;
-  img.dataset.basis = basis;
-  img.srcset = `${basis}-480.webp 480w, ${basis}-960.webp 960w`;
-  img.src = `${basis}-480.webp`;
+  const e = WALLET_MASKOTTCHEN[slug] || WALLET_MASKOTTCHEN.standard;
+  const glas = img.closest('.wk-glas');
+  glas?.style.setProperty('--licht-x', e.licht[0]);
+  glas?.style.setProperty('--licht-y', e.licht[1]);
+  if (img.dataset.basis === e.basis) return;
+  img.dataset.basis = e.basis;
+  img.srcset = `${e.basis}-480.webp 480w, ${e.basis}-960.webp 960w`;
+  img.src = `${e.basis}-480.webp`;
 }
 
 // "…" an der Karte: Code/PIN kopieren, Abbuchen, Verschenken, Details — der
