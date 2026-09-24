@@ -6829,11 +6829,11 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
       }
       const zuViel = rc.rabattArt === 'pct' && rc.rabatt > 100;
       $('#wa-vendor-grid')?.classList.toggle('err', !rc.vendor);
-      $('#wa-rcode').classList.toggle('err', !rc.code);
+      $('#wa-rcode').classList.remove('err');
       $('#wa-rwert').classList.toggle('err', zuViel);
-      if (!rc.vendor || !rc.code || zuViel) {
+      if (!rc.vendor || zuViel) {
         msg.className = 'form-msg error';
-        msg.textContent = !rc.vendor ? 'Bitte einen Shop auswählen.' : !rc.code ? 'Bitte den Rabattcode eintragen.' : 'Mehr als 100 % Rabatt gibt es nicht.';
+        msg.textContent = !rc.vendor ? 'Bitte einen Shop auswählen.' : 'Mehr als 100 % Rabatt gibt es nicht.';
         return;
       }
       const dupe = findDupe(rc);
@@ -8359,10 +8359,10 @@ function rabattCardHtml(v) {
         ${wert ? `<span class="wallet-card-balance">−${wert}</span>` : ''}
       </div>
       <div class="wallet-card-sub">
-        <span class="rc-code">${esc(v.code)}</span>
+        ${v.code ? `<span class="rc-code">${esc(v.code)}</span>` : ''}
         <span class="pill">${rabattMbwText(v)}</span>
         ${status ? `<span class="pill">${status}</span>` : ''}
-        <button class="rc-kopieren" type="button" data-rc-copy="${esc(v.id)}" aria-label="Code ${esc(v.code)} kopieren">Kopieren</button>
+        ${v.code ? `<button class="rc-kopieren" type="button" data-rc-copy="${esc(v.id)}" aria-label="Code ${esc(v.code)} kopieren">Kopieren</button>` : ''}
       </div>
     </div>`;
 }
@@ -8444,12 +8444,13 @@ function openRabattSheet(id, richtung) {
       <div class="rc-gross-wert">${wert ? '−' + wert : 'Rabatt'}</div>
       <div class="rc-gross-mbw">${rabattZahl(v.mbw) ? `ab ${esc(euroFmt(rabattZahl(v.mbw)))} Bestellwert` : 'ohne Mindestbestellwert'}</div>
     </div>
-    <div class="rc-codefeld">
+    ${v.code ? `<div class="rc-codefeld">
       <span class="wallet-code rc-codetext">${esc(v.code)}</span>
       <button class="btn btn-small" data-copy-txt="${esc(v.code)}" type="button">Code kopieren</button>
-    </div>
+    </div>` : ''}
     <p class="rc-info">${icon('bulb', 'icon icon-sm')}
-      <span>Zählt nicht zum Wallet-Guthaben: den Code gibst du beim Bestellen ein.</span></p>
+      <span>${v.code ? 'Zählt nicht zum Wallet-Guthaben: den Code gibst du beim Bestellen ein.'
+        : 'Zählt nicht zum Wallet-Guthaben. Ohne Code gilt der Rabatt meist direkt im Shop oder in der App.'}</span></p>
     ${v.notiz ? `<p class="rc-info">${icon('list', 'icon icon-sm')}<span>${esc(v.notiz)}</span></p>` : ''}
     ${v.codeImg ? `<img class="wallet-code-img" id="wv-bild" src="${esc(v.codeImg)}" alt="Bild zum Rabattcode"
         role="button" tabindex="0" aria-label="Bild vergrößern">`
@@ -8468,7 +8469,7 @@ function openRabattSheet(id, richtung) {
     </div>
     ${shop ? `<a class="app-jump" href="${shop}" target="_blank" rel="noopener noreferrer" style="--bc:${brandColor(v.vendor)}">
       ${brandChipHtml(v.vendor)}
-      <span class="app-jump-txt"><b>Zu ${esc(v.vendor)}</b><small>Code kopieren, dort bestellen und einlösen</small></span>
+      <span class="app-jump-txt"><b>Zu ${esc(v.vendor)}</b><small>${v.code ? 'Code kopieren, dort bestellen und einlösen' : 'Dort bestellen und den Rabatt nutzen'}</small></span>
       ${icon('arrow-right', 'icon icon-sm')}
     </a>` : ''}
     <div class="form-row rc-aktionen">
@@ -8511,8 +8512,8 @@ function rabattFormHtml(v) {
       </button>
     </div>
     <input id="wa-vendor" class="input hidden" maxlength="30" placeholder="Shop-Name eintippen">
-    <label class="f-label" for="wa-rcode">Rabattcode <span class="req">*</span></label>
-    <input id="wa-rcode" class="input rc-eingabe" maxlength="40" placeholder="z. B. SPAR5"
+    <label class="f-label" for="wa-rcode">Rabattcode <span class="opt">(optional)</span></label>
+    <input id="wa-rcode" class="input rc-eingabe" maxlength="40" placeholder="z. B. SPAR5, falls es einen gibt"
       autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" value="${esc(v?.code || '')}">
     <label class="f-label" for="wa-rwert">Rabatt <span class="opt">(optional)</span></label>
     <div class="rc-wertzeile">
