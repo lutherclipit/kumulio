@@ -787,12 +787,22 @@ button.gd-block:active, label.gd-block:active { transform: scale(.985); }
 .ana-marke-balken i { display: block; height: 100%; border-radius: inherit; background: var(--bc); transform-origin: left center; }
 .ana-fussnote { margin: 12px 2px 0; font-size: .76rem; line-height: 1.45; color: var(--muted); }
 
-/* ---- Ruhige Bewegung */
-body.sparsam .gd-leiste, body.sparsam .gd-panel, body.sparsam .gd-dimm,
-body.sparsam .gw-flaeche, body.sparsam .ana-flaeche { transition: none; }
-body.sparsam .ana-paar i { animation: none; }
+/* ---- Weiche Wechsel (Runde 118) */
+/* Der Balken auf der Gutschein-Karte gleitet nach dem Buchen auf den neuen
+   Stand (die Seite wird angeglichen, nicht neu geschrieben — das Element bleibt) */
+.gd-balken i { transition: transform .6s cubic-bezier(.22, 1, .36, 1); }
+/* Listen, in denen Wegfallendes als Abbild ausblendet, sind dessen Rahmen */
+.gw-liste, .gp-freunde { position: relative; }
+.wl-geist { pointer-events: none; }
+/* Emotes klappen weich von oben auf (zeigeWeich) */
+.gp .gp-emotes { transform-origin: 50% 0; }
+
+/* ---- Ruhige Bewegung
+   "sparsam" (die Bildraten-Wache) stellt seit Runde 118 nur noch Dauer-Effekte
+   ab — Leiste, Felder, Schieber und Balken gleiten immer. Aus sind sie nur bei
+   "Bewegung reduzieren" und bei "Animationen aus" (body.ohne-anim, look.css). */
 @media (prefers-reduced-motion: reduce) {
-  .gd-leiste, .gd-panel, .gd-dimm, .gd-mehr-pfeil, .gw-flaeche, .ana-flaeche { transition: none; }
+  .gd-leiste, .gd-panel, .gd-dimm, .gd-mehr-pfeil, .gw-flaeche, .ana-flaeche, .gd-balken i { transition: none; }
   .ana-paar i { animation: none; }
 }
 
@@ -1108,10 +1118,8 @@ body.sparsam .ana-paar i { animation: none; }
 .wa-stapel-text b { font-size: .92rem; font-weight: 750; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wa-stapel-text small { font-size: .76rem; line-height: 1.35; color: var(--muted); }
 
-/* Ruhige Bewegung */
-body.sparsam .wa-schalter-flaeche, body.sparsam .wa-einheit-flaeche,
-body.sparsam .wa .scan-progress-fill { transition: none; }
-body.sparsam .wa-form-neu { animation: none; }
+/* Ruhige Bewegung: "sparsam" haelt nur die Dauer-Bewegung an (Laserlinie),
+   Schieber und Fortschritt gleiten weiter */
 body.sparsam .wa .scan-line { animation: none; transform: translate3d(0, 50%, 0); }
 @media (prefers-reduced-motion: reduce) {
   .wa-schalter-flaeche, .wa-einheit-flaeche, .wa .scan-progress-fill { transition: none; }
