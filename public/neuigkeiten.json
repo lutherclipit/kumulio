@@ -1,5 +1,17 @@
 [
   {
+    "v": "2026-09-24.3",
+    "datum": "24. September 2026",
+    "titel": "Eine PIN für alle Geräte",
+    "punkte": [
+      {
+        "icon": "lock",
+        "titel": "Die PIN gehört jetzt zum Konto",
+        "text": "Egal ob Handy, Tablet oder Rechner: überall entsperrt dieselbe PIN deine Wallet. Änderst du sie auf einem Gerät, gilt sie sofort auf allen. Face ID bleibt pro Gerät."
+      }
+    ]
+  },
+  {
     "v": "2026-09-24.2",
     "datum": "24. September 2026",
     "titel": "Deine Marke, deine Farben",

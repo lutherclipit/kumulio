@@ -4082,7 +4082,7 @@ function authOk(r, { welcome = false } = {}) {
   connectStream(); // Echtzeit-Stream mit dem frischen Token neu verbinden
   neuGeprueft = false; // anderes Konto: eigener Stand beim Update-Log
   setTimeout(verarbeiteGeteiltes, 400); // geteiltes Bild wartete auf die Anmeldung
-  api('/api/me').then(x => { kontoInfo = x; state.role = x.role || ''; refreshAdminUi(); renderWallet(); pruefeNeuigkeiten(); }).catch(() => { });
+  api('/api/me').then(x => { kontoInfo = x; state.role = x.role || ''; refreshAdminUi(); pinKontoUebernehmen(x); renderWallet(); pruefeNeuigkeiten(); }).catch(() => { });
   if (welcome) {
     // Willkommens-Moment: der Punkt quittiert das neue Konto
     $('#welcome-title').textContent = `Willkommen, ${r.user}!`;
@@ -10412,6 +10412,8 @@ function connectStream() {
   chatStream = es;
   es.onopen = () => { streamRetry = 0; };
   es.addEventListener('gift', () => pullWallet()); // Geschenk kommt sofort an
+  // PIN auf einem anderen Geraet festgelegt, geaendert oder entfernt: sofort mitziehen
+  es.addEventListener('pin', () => api('/api/me').then(r => { kontoInfo = r; pinKontoUebernehmen(r); }).catch(() => { }));
   es.addEventListener('dm', () => {
     dmBadgeLast = 0;
     refreshDmBadge();
@@ -10522,13 +10524,43 @@ async function pinHash(pin, saltB64, iter) {
   const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: unb64(saltB64), iterations: iter, hash: 'SHA-256' }, key, 256);
   return b64(bits);
 }
-async function pinSpeichern(pin) {
+// Die PIN gehoert zum Konto: erst dort ablegen (mit der bisherigen PIN als
+// Nachweis), dann hier. Wirft bei Fehlern (kein Netz, falsche bisherige PIN).
+async function pinSpeichern(pin, alt = '') {
   const salt = b64(crypto.getRandomValues(new Uint8Array(16)));
   const iter = 150000;
   const hash = await pinHash(pin, salt, iter);
-  if (!lsSetzen(pinSchluessel(), JSON.stringify({ salt, hash, iter, laenge: pin.length, v: 1 }))) return false;
+  const record = { salt, hash, iter, laenge: pin.length, v: 1 };
+  if (!state.token) throw new Error('Bitte zuerst anmelden');
+  const r = await api('/api/pin', { method: 'POST', body: JSON.stringify({ record, alt }) });
+  if (r && r.walletPin) record.ts = r.walletPin.ts;
+  if (!lsSetzen(pinSchluessel(), JSON.stringify(record))) throw new Error('Die PIN ließ sich auf diesem Gerät nicht speichern');
   lsSetzen(PIN_FEHL_KEY, JSON.stringify({ n: 0, bis: 0 }));
   return true;
+}
+// Stand des Kontos auf dieses Geraet holen: neue/geaenderte PIN uebernehmen,
+// im Konto entfernte hier auch entfernen. Hatte das Geraet schon eine PIN und
+// das Konto noch nie eine, wird sie zur PIN des Kontos (Umstellung).
+function pinKontoUebernehmen(me) {
+  if (!me || !state.token || me.user !== state.userName || !pinMoeglich()) return;
+  const server = me.walletPin || null;
+  const lokal = pinDaten();
+  if (server) {
+    if (lokal && lokal.hash === server.hash && lokal.salt === server.salt) return;
+    lsSetzen(pinSchluessel(), JSON.stringify({ salt: server.salt, hash: server.hash, iter: server.iter, laenge: server.laenge, v: 1, ts: server.ts }));
+    lsSetzen(PIN_FEHL_KEY, JSON.stringify({ n: 0, bis: 0 }));
+  } else if (lokal && me.pinStand) {
+    pinEntfernen();                 // auf einem anderen Geraet entfernt
+    walletEntsperrt = true;
+  } else if (lokal) {
+    api('/api/pin', { method: 'POST', body: JSON.stringify({ record: lokal }) })
+      .then(r => { if (r && r.walletPin) lsSetzen(pinSchluessel(), JSON.stringify({ ...r.walletPin, v: 1 })); })
+      .catch(() => { });
+    return;
+  } else return;
+  aktualisiereSperre();
+  zeigePinEmpfehlung();
+  if (state.activeView === 'settings') renderSicherheit();
 }
 async function pinPruefen(pin) {
   const p = pinDaten();
@@ -11180,15 +11212,18 @@ function passwortDialog(titel, text, { mitVergessen = true } = {}) {
 // ---- PIN einrichten, aendern, entfernen, vergessen
 async function pinEinrichten() {
   if (!pinMoeglich()) return island('Dieses Gerät kann keine PIN sicher speichern');
+  if (!state.token) return island('Die PIN gehört zu deinem Konto, bitte zuerst anmelden');
   const m = pinModal();
   const hatte = pinGesetzt();
+  let altPin = '';
   if (hatte) {
     const alt = await m.frage({ titel: 'Aktuelle PIN', text: 'Erst die bisherige PIN, dann die neue', fest: pinDaten().laenge || 4, pruefe: pinPruefeDialog });
     if (alt === null) return m.zu();
+    altPin = alt;
   }
   let neu = null;
   for (;;) {
-    neu = await m.frage({ titel: hatte ? 'Neue PIN' : 'PIN festlegen', text: 'Damit entsperrst du deine Wallet auf diesem Gerät.', schritt: 1, von: 2 });
+    neu = await m.frage({ titel: hatte ? 'Neue PIN' : 'PIN festlegen', text: 'Gilt für dein Konto, auf all deinen Geräten.', schritt: 1, von: 2 });
     if (neu === null || neu === 'zurueck') return m.zu();
     const wdh = await m.frage({ titel: 'PIN wiederholen', text: 'Zur Sicherheit noch einmal dieselbe PIN', schritt: 2, von: 2,
       fest: neu.length, zurueck: true, pruefe: w => w === neu || 'Stimmt nicht überein, nochmal' });
@@ -11196,11 +11231,12 @@ async function pinEinrichten() {
     if (wdh !== 'zurueck') break;
   }
   m.zu();
-  if (!await pinSpeichern(neu)) return island('Die PIN ließ sich auf diesem Gerät nicht speichern');
+  try { await pinSpeichern(neu, altPin); }
+  catch (e) { return island(/fetch|netz|network/i.test(String(e.message)) ? 'Zum Festlegen der PIN brauchst du Internet' : e.message); }
   walletEntsperrt = true;
   lsSetzen(PIN_HINWEIS_KEY, String(Date.now()));
   playSfx('coin'); buzz(20);
-  island('PIN gespeichert, deine Wallet ist gesichert');
+  island('PIN gespeichert, sie gilt auf all deinen Geräten');
   if (!bioAn() && await bioVerfuegbar()
     && await askConfirm('Auch mit Face ID oder Fingerabdruck entsperren?', { okLabel: 'Ja, einrichten' })) {
     await bioEinrichten();
@@ -11209,11 +11245,13 @@ async function pinEinrichten() {
   renderSicherheit();
 }
 async function pinAusschalten() {
-  const alt = await pinDialog({ titel: 'PIN eingeben', text: 'Zum Entfernen der Sperre', fest: pinDaten().laenge || 4, pruefe: pinPruefeDialog });
+  const alt = await pinDialog({ titel: 'PIN eingeben', text: 'Zum Entfernen der Sperre (auf all deinen Geräten)', fest: pinDaten().laenge || 4, pruefe: pinPruefeDialog });
   if (alt === null) return;
+  try { await api('/api/pin/entfernen', { method: 'POST', body: JSON.stringify({ alt }) }); }
+  catch (e) { return island(/fetch|netz|network/i.test(String(e.message)) ? 'Zum Entfernen der PIN brauchst du Internet' : e.message); }
   pinEntfernen();
   walletEntsperrt = true;
-  island('PIN entfernt');
+  island('PIN entfernt, auf all deinen Geräten');
   renderWallet();
   renderSicherheit();
 }
@@ -11225,10 +11263,10 @@ async function pinVergessen() {
     return;
   }
   const pass = await passwortDialog('PIN vergessen?',
-    'Gib dein kumulio-Passwort ein. Danach ist die PIN auf diesem Gerät gelöscht, und du kannst eine neue festlegen.');
+    'Gib dein kumulio-Passwort ein. Danach ist die PIN gelöscht, auf all deinen Geräten, und du kannst eine neue festlegen.');
   if (!pass) return;
   try {
-    await api('/api/konto/passwort-pruefen', { method: 'POST', body: JSON.stringify({ pass }) });
+    await api('/api/pin/entfernen', { method: 'POST', body: JSON.stringify({ pass }) });
   } catch (e) { island(e.message); return; }
   pinEntfernen();
   entsperreWallet();
@@ -11269,7 +11307,7 @@ async function renderSicherheit() {
     <h2 class="card-h">Sicherheit</h2>
     <div class="settings-row">
       <div class="settings-label"><b>Wallet-PIN</b>
-        <span>${pin ? 'Deine Wallet ist auf diesem Gerät mit einer PIN gesperrt.' : 'Sperrt deine Wallet auf diesem Gerät, damit niemand deine Codes sieht. Empfohlen.'}</span></div>
+        <span>${pin ? 'Deine Wallet ist mit einer PIN gesperrt, auf all deinen Geräten.' : 'Sperrt deine Wallet auf all deinen Geräten, damit niemand deine Codes sieht. Empfohlen.'}</span></div>
       <div class="sr-knoepfe">${pin
         ? '<button class="btn btn-small btn-ghost" id="si-pin-aendern" type="button">Ändern</button><button class="btn btn-small btn-ghost" id="si-pin-weg" type="button">Entfernen</button>'
         : `<button class="btn btn-small" id="si-pin-an" type="button" ${pinMoeglich() ? '' : 'disabled'}>Festlegen</button>`}</div>
@@ -12056,7 +12094,7 @@ window.addEventListener('online', () => { if ($('#conn-screen')) location.reload
   }).catch(() => { });
   if (state.token) {
     pullWallet(); // parallel statt hinter /api/me: Guthaben ist schneller aktuell
-    api('/api/me').then(r => { kontoInfo = r; state.userName = r.user; state.role = r.role || ''; refreshProfileTab(); refreshAdminUi(); renderWallet(); pruefeNeuigkeiten(); })
+    api('/api/me').then(r => { kontoInfo = r; state.userName = r.user; state.role = r.role || ''; refreshProfileTab(); refreshAdminUi(); pinKontoUebernehmen(r); renderWallet(); pruefeNeuigkeiten(); })
       .catch(e => {
         // Nur bei ECHTEM 401 abmelden; ist der Server kurz weg, bleibt der Login stehen
         if (/401|anmelden/i.test(String(e.message))) {

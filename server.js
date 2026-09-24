@@ -865,6 +865,32 @@ function ladeNeuVersionen() {
 }
 const NEU_VERSIONEN = ladeNeuVersionen();
 
+// Wallet-PIN des Kontos (gilt auf allen Geraeten). Gespeichert wird nur der
+// PBKDF2-Hash, den das Geraet berechnet — genau wie lokal. Entsperrt wird
+// weiter auf dem Geraet (auch offline); aendern und entfernen geht nur ueber
+// das Konto, mit der bisherigen PIN (bzw. dem Passwort bei "PIN vergessen").
+function pinRecordPruefen(r) {
+  if (!r || typeof r !== 'object') return null;
+  const salt = String(r.salt || ''), hash = String(r.hash || '');
+  const iter = Number(r.iter), laenge = Number(r.laenge);
+  if (!/^[A-Za-z0-9+/]{22}==$/.test(salt) || !/^[A-Za-z0-9+/]{43}=$/.test(hash)) return null;
+  if (!Number.isInteger(iter) || iter < 100000 || iter > 1000000) return null;
+  if (!Number.isInteger(laenge) || laenge < 4 || laenge > 6) return null;
+  return { salt, hash, iter, laenge };
+}
+const pbkdf2Async = require('util').promisify(crypto.pbkdf2);
+async function kontoPinStimmt(rec, pin) {
+  const p = String(pin || '');
+  if (!rec || !/^\d{4,6}$/.test(p) || p.length !== rec.laenge) return false;
+  // Im Thread-Pool rechnen: 150 000 Runden sollen den Server nicht anhalten
+  const ist = await pbkdf2Async(p, Buffer.from(rec.salt, 'base64'), rec.iter, 32, 'sha256');
+  const soll = Buffer.from(rec.hash, 'base64');
+  return soll.length === ist.length && crypto.timingSafeEqual(soll, ist);
+}
+function pinFuerGeraet(u) {
+  return u && u.walletPin ? { salt: u.walletPin.salt, hash: u.walletPin.hash, iter: u.walletPin.iter, laenge: u.walletPin.laenge, ts: u.walletPin.ts } : null;
+}
+
 // Laden-Erkennung: Laeden rund um einen gerundeten Punkt (~100 m Raster) aus
 // OpenStreetMap (Overpass). Die Position wird nicht gespeichert und nicht
 // protokolliert; nur die Laden-Liste pro Rasterzelle bleibt 24 h im Speicher
@@ -3496,7 +3522,55 @@ const server = http.createServer(async (req, res) => {
         mailBereit: mailBereit(),
         autoAufraeumen: profileOf(user).autoAufraeumen !== false,
         neuGesehen: profileOf(user).neuGesehen || '',
+        // PIN des Kontos: das Geraet uebernimmt sie; pinStand > 0 heisst "es gab
+        // schon eine" (ohne walletPin = im Konto entfernt)
+        walletPin: pinFuerGeraet(u),
+        pinStand: u.pinStand || 0,
       });
+    }
+    if (p === '/api/pin' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      if (!drossel('pin:' + user, 30, 3600e3)) return send(res, 429, { error: 'Zu viele Versuche. Bitte später nochmal.' });
+      const b = await readBody(req);
+      const u = users[user];
+      const rec = pinRecordPruefen(b.record);
+      if (!rec) return send(res, 400, { error: 'Ungültige PIN-Daten.' });
+      const hatte = !!u.walletPin;
+      if (hatte) {
+        if (zuVieleFehler('pin-fehl:' + user, 10, 3600e3)) return send(res, 429, { error: 'Zu viele falsche Versuche. Bitte in einer Stunde nochmal.' });
+        if (!await kontoPinStimmt(u.walletPin, b.alt)) {
+          fehlerMerken('pin-fehl:' + user);
+          return send(res, 403, { error: 'Die bisherige PIN stimmt nicht.' });
+        }
+      }
+      u.walletPin = { ...rec, ts: Date.now() };
+      u.pinStand = u.walletPin.ts;
+      saveJson('users.json', users);
+      ssePush('pin', user); // die anderen Geraete uebernehmen sie sofort
+      if (hatte) sicherheitsMail(user, 'Wallet-PIN geändert', 'Die PIN deiner kumulio-Wallet wurde geändert. Sie gilt jetzt auf allen deinen Geräten.');
+      return send(res, 200, { ok: true, walletPin: pinFuerGeraet(u), pinStand: u.pinStand });
+    }
+    if (p === '/api/pin/entfernen' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      const u = users[user];
+      if (!u.walletPin) return send(res, 200, { ok: true, pinStand: u.pinStand || 0 });
+      const perPasswort = typeof b.pass === 'string' && b.pass.length > 0;
+      if (perPasswort && !drossel('pw-pruefen:' + user, 5, 15 * 60e3)) return send(res, 429, { error: 'Zu viele Versuche. Bitte in 15 Minuten nochmal.' });
+      if (zuVieleFehler('pin-fehl:' + user, 10, 3600e3)) return send(res, 429, { error: 'Zu viele falsche Versuche. Bitte in einer Stunde nochmal.' });
+      const ok = perPasswort ? hashPass(b.pass, u.salt) === u.hash : await kontoPinStimmt(u.walletPin, b.alt);
+      if (!ok) {
+        fehlerMerken('pin-fehl:' + user);
+        return send(res, 403, { error: perPasswort ? 'Das Passwort stimmt nicht.' : 'Die PIN stimmt nicht.' });
+      }
+      delete u.walletPin;
+      u.pinStand = Date.now();
+      saveJson('users.json', users);
+      ssePush('pin', user);
+      sicherheitsMail(user, 'Wallet-PIN entfernt', 'Die PIN deiner kumulio-Wallet wurde entfernt, auf allen deinen Geräten. Warst du das nicht? Ändere dein Passwort und leg eine neue PIN fest.');
+      return send(res, 200, { ok: true, pinStand: u.pinStand });
     }
     // Update-Log gesehen: nur bekannte Fassungen, damit hier nichts Beliebiges landet
     if (p === '/api/neuigkeiten/gesehen' && req.method === 'POST') {
