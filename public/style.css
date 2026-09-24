@@ -1260,8 +1260,10 @@ body.no-select { user-select: none; -webkit-user-select: none; }
 
 /* ================= Handy-Stabilität & Wallet-Spielgefühl ================= */
 
-/* Kein Pinch-Zoom, kein Doppeltipp-Zoom, kein Gummiband-Verschieben */
-html, body { overscroll-behavior-y: none; }
+/* Kein Pinch-Zoom, kein Doppeltipp-Zoom. Am Rand federt die Seite nach
+   (Runde 119, Wunsch nach mehr "Physik" beim Scrollen) — "contain" statt
+   "none": Nachfedern bleibt, Neuladen per Herunterziehen (Android) nicht. */
+html, body { overscroll-behavior-y: contain; }
 body { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; }
 input, textarea, select, button { touch-action: manipulation; }
 
@@ -3550,8 +3552,8 @@ body.wallet-farbe .topbar .iconbtn {
 .wa-kreis .icon { width: 22px; height: 22px; color: #fff; }
 
 /* Rang-Stufen setzen alle drei Farben — Text und Chips ziehen automatisch mit.
-   Sechs Stufen nach dem Chamaeleon (Runde 117), von Gruen ueber Petrol, Blau,
-   Violett und Beere bis Gold. k1 dunkel (weisse Schrift darauf, Text auf
+   Sieben Stufen nach dem Chamaeleon (Runde 119), von Gruen ueber Petrol, Blau,
+   Violett, Beere und Kupfer bis Gold (ab 1000 €). k1 dunkel (weisse Schrift darauf, Text auf
    Weiss), k2 Hauptton (weisse Schrift noch lesbar), k3 hell (Lichtseite des
    Verlaufs, Akzent-Text im Dunkelmodus). Gaeste sehen die Farben der Stufe 1. */
 :root { --kopf-k1: #0A8452; --kopf-k2: #0FA86B; --kopf-k3: #2FE09C; }
@@ -3560,7 +3562,8 @@ body.wallet-farbe .topbar .iconbtn {
 .wallet-kopf.tier-3 { --k1: #1C4FB0; --k2: #2D6BDB; --k3: #79A9FF; }
 .wallet-kopf.tier-4 { --k1: #4B2FA6; --k2: #6B4CD9; --k3: #AE96FF; }
 .wallet-kopf.tier-5 { --k1: #8C1D5E; --k2: #BB2F7E; --k3: #F58CC4; }
-.wallet-kopf.tier-6 { --k1: #7A5406; --k2: #A87A0C; --k3: #F2CE5E; }
+.wallet-kopf.tier-6 { --k1: #9A3412; --k2: #C2410C; --k3: #FDA56B; }
+.wallet-kopf.tier-7 { --k1: #7A5406; --k2: #A87A0C; --k3: #F2CE5E; }
 
 /* Sobald der Kopf weggescrollt ist, wird die Kopfzeile wieder Glas —
    sonst stuende dort ein Farbblock ohne Anschluss */
@@ -3882,7 +3885,8 @@ body.gescrollt:not(.wallet-farbe) .topbar { border-bottom-color: transparent; }
 .rang-punkt.tier-3 { background: #2D6BDB; }
 .rang-punkt.tier-4 { background: #6B4CD9; }
 .rang-punkt.tier-5 { background: #BB2F7E; }
-.rang-punkt.tier-6 { background: #A87A0C; }
+.rang-punkt.tier-6 { background: #C2410C; }
+.rang-punkt.tier-7 { background: #A87A0C; }
 .rang-text { flex: 1; display: flex; flex-direction: column; }
 .rang-text b { font-size: .9rem; }
 .rang-text small { font-size: .74rem; color: var(--muted); }

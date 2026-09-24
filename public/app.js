@@ -4570,7 +4570,8 @@ function openGiftReveal(gift) {
     }
   });
 }
-function euroFmt(n) { return n == null ? '' : n.toFixed(2).replace('.', ',') + ' €'; }
+// Mit Tausenderpunkt: ab 1000 € (Rang Mythos) sonst "1215,00 €"
+function euroFmt(n) { return n == null ? '' : n.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ' €'; }
 
 // ---- Spielgefühl: Sounds, Vibration, Aufleuchten, Geldscheine, Zähl-Animation ----
 
@@ -4667,13 +4668,15 @@ function animateNumber(el, from, to, ms = 700) {
 // bis = Obergrenze in Euro (inklusive), min = erster Cent-Betrag der Stufe
 // ("über 10 €" heisst ab 10,01 €). slug ist der Schluessel fuer Farben
 // (.wallet-kopf.tier-N in style.css) und die Maskottchen-Modelle je Rang.
+// Runde 119: neue Namen vom Nutzer, dazu Stufe 7 ab 1000 € (Gold).
 const RANKS = [
-  { tier: 1, slug: 'anfaenger', name: 'Anfänger', min: 0, bis: 10 },
-  { tier: 2, slug: 'geringverdiener', name: 'Geringverdiener', min: 10.01, bis: 50 },
-  { tier: 3, slug: 'normalverdiener', name: 'Normalverdiener', min: 50.01, bis: 150 },
-  { tier: 4, slug: 'gutverdiener', name: 'Gutverdiener', min: 150.01, bis: 300 },
-  { tier: 5, slug: 'besserverdiener', name: 'Besserverdiener', min: 300.01, bis: 600 },
-  { tier: 6, slug: 'spitzenverdiener', name: 'Spitzenverdiener', min: 600.01, bis: Infinity },
+  { tier: 1, slug: 'scout', name: 'Scout', min: 0, bis: 10 },
+  { tier: 2, slug: 'sammler', name: 'Sammler', min: 10.01, bis: 50 },
+  { tier: 3, slug: 'profi', name: 'Profi', min: 50.01, bis: 150 },
+  { tier: 4, slug: 'champion', name: 'Champion', min: 150.01, bis: 300 },
+  { tier: 5, slug: 'meister', name: 'Meister', min: 300.01, bis: 600 },
+  { tier: 6, slug: 'legende', name: 'Legende', min: 600.01, bis: 1000 },
+  { tier: 7, slug: 'mythos', name: 'Mythos', min: 1000.01, bis: Infinity },
 ];
 function rankFor(total) {
   // In Cent vergleichen: 10,01 ist als Kommazahl nicht exakt
@@ -5964,7 +5967,9 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
           }
         }
       } else {
-        if (r.barcode && !$('#wa-cnumber').value) { $('#wa-cnumber').value = r.barcode.slice(0, 30); filled.push('Kartennummer (aus Barcode)'); }
+        if (r.barcode && kartennummerLesbar(r.barcode) && !$('#wa-cnumber').value) {
+          $('#wa-cnumber').value = kartennummerLesbar(r.barcode).replace(/\s+/g, '').slice(0, 30); filled.push('Kartennummer (aus Barcode)');
+        }
         else if (r.text && !$('#wa-cnumber').value) {
           const kn = r.text.match(/karten\s*-?\s*(?:nr\.?|nummer)\D{0,30}?(\d[\d ]{6,28}\d)/i);
           const num = kn ? kn[1] : (r.text.match(/\d[\d ]{8,24}\d/g) || []).sort((a, b) => b.length - a.length)[0];
@@ -6456,18 +6461,24 @@ function sparkarteArt(name) {
 function sparkarteCode(c) {
   const src = c.codeImg || c.img;
   if (src) return `<img class="dk-code" src="${esc(src)}" alt="Code für die Kasse">`;
-  const nummer = c.number ? String(c.number).replace(/\s+/g, '') : '';
+  const nummer = kartennummerLesbar(c.number).replace(/\s+/g, '');
   // Hoehere Balken fuellen das Code-Feld besser und sind leichter zu treffen
   return nummer ? ean13Svg(nummer, 140) : '';
 }
+// Kartennummer nur, wenn sie wie eine aussieht (Ziffern, 5 bis 30). Ein
+// gescannter QR-Code liefert oft Text ("DTP#privileges:loyalty-pro …") —
+// der ist fuer die Kasse im Bild da, aber keine Nummer zum Anzeigen.
+function kartennummerLesbar(n) {
+  const t = String(n || '').replace(/[\s-]+/g, '');
+  return /^\d{5,30}$/.test(t) ? t.replace(/(.{4})/g, '$1 ').trim() : '';
+}
+// Auf der Karte steht nur die Marke (Wunsch des Nutzers); Nummer und Code
+// zeigt die grosse Ansicht. Leere Karte: nur der Hinweis.
 function sparkarteHtml(c, klein, { leer = false, leerText = 'Keine Karte hinterlegt', zeile = '' } = {}) {
   const marke = brandColor(c.name);
-  // Eigene Leerzeichen raus, sonst zaehlen sie beim Vierer-Gruppieren mit
-  // ("3083 7123 4567" wurde zu "3083  712 3 45 67")
-  const nummer = c.number ? String(c.number).replace(/\s+/g, '') : '';
-  const gruppiert = nummer.replace(/(.{4})/g, '$1 ').trim();
+  const nummer = kartennummerLesbar(c.number);
   const code = leer ? '' : sparkarteCode(c);
-  const text = leer ? leerText : gruppiert || (code ? '' : 'Noch ohne Nummer');
+  const text = leer ? leerText : '';
   return `
     <div class="debitkarte${klein ? ' mini' : ''}${code ? ' mit-code' : ''}${leer ? ' leer' : ''}${!leer && !nummer ? ' ohne-nummer' : ''}"
       style="--bc:${marke}; --tc:${brandTextColor(c.name)}" data-karte="${esc(c.id || '')}">
@@ -6479,7 +6490,7 @@ function sparkarteHtml(c, klein, { leer = false, leerText = 'Keine Karte hinterl
           </div>
           <div class="dk-chip" aria-hidden="true"></div>
           ${text ? `<div class="dk-nummer">${esc(text)}</div>` : ''}
-          <div class="dk-unten"><span>${esc(zeile || sparkarteArt(c.name))}</span></div>
+          ${leer && zeile ? `<div class="dk-unten"><span>${esc(zeile)}</span></div>` : ''}
         </div>
         ${code ? `<div class="dk-code-feld">${code}</div>` : ''}
       </div>
@@ -6771,6 +6782,8 @@ function zeigeKarteGross({ karteObj, name, leerHtml, vonEl, aktionen = [], hinwe
     <div class="lupe-grund"></div>
     <div class="lupe-mitte">
       <div class="lupe-buehne">${karteObj ? sparkarteHtml(karteObj) : leerHtml}</div>
+      ${karteObj && kartennummerLesbar(karteObj.number) ? `<div class="lupe-nummer">${esc(kartennummerLesbar(karteObj.number))}</div>` : ''}
+      ${karteObj && sparkarteCode(karteObj) ? `<p class="lupe-zoomhinweis">${icon('search', 'icon icon-sm')} Code antippen zum Vergrößern</p>` : ''}
       <div class="lupe-knoepfe">
         ${aktionen.filter(a => !a.verwalten).map((a) => `<button class="btn btn-small ${a.leise ? 'btn-ghost' : ''}"
           data-lupe="${aktionen.indexOf(a)}">${a.icon ? icon(a.icon, 'icon icon-sm') : ''} ${esc(a.text)}</button>`).join('')}
@@ -6831,6 +6844,13 @@ function zeigeKarteGross({ karteObj, name, leerHtml, vonEl, aktionen = [], hinwe
   };
 
   lupe.querySelector('.lupe-grund').onclick = zu;
+  const codeFeld = karte.querySelector('.dk-code-feld');
+  if (codeFeld && karteObj) {
+    codeFeld.setAttribute('role', 'button');
+    codeFeld.setAttribute('aria-label', 'Code vergrößern');
+    codeFeld.tabIndex = 0;
+    codeFeld.onclick = e => { e.stopPropagation(); zeigeCodeGross(karteObj, codeFeld); };
+  }
   aktionen.forEach((a, i) => {
     lupe.querySelector(`[data-lupe="${i}"]`).onclick = () => {
       if (a.bleibt) return a.fn?.();
@@ -6856,9 +6876,46 @@ async function karteLoeschen(c) {
 }
 
 // Steht kein scanbarer Code auf der Karte, sagt die Lupe ehrlich, was geht
+// Code gross zum Scannen: weisser Grund, Code so breit wie moeglich, darunter
+// die Nummer. Waechst aus dem Code-Feld der Karte heraus; Tippen schliesst.
+function zeigeCodeGross(c, vonEl) {
+  const code = sparkarteCode(c);
+  if (!code || document.querySelector('.code-gross')) return;
+  buzz(10);
+  const nr = kartennummerLesbar(c.number);
+  const el = document.createElement('div');
+  el.className = 'code-gross';
+  el.setAttribute('role', 'dialog');
+  el.setAttribute('aria-label', `${c.name}-Code`);
+  el.innerHTML = `
+    <div class="cg-kopf">${brandChipHtml(c.name)}<b>${esc(c.name)}</b></div>
+    <div class="cg-code">${code}</div>
+    ${nr ? `<div class="cg-nummer">${esc(nr)}</div>` : ''}
+    <p class="cg-hinweis">Bildschirm heller stellen hilft beim Scannen · Tippen schließt</p>`;
+  document.body.appendChild(el);
+  const ziel = el.querySelector('.cg-code');
+  const von = vonEl?.getBoundingClientRect();
+  const nach = ziel.getBoundingClientRect();
+  requestAnimationFrame(() => el.classList.add('an'));
+  if (von && von.width && ziel.animate && !reducedMotion()) {
+    const s = Math.min(von.width / nach.width, von.height / nach.height);
+    const dx = (von.left + von.width / 2) - (nach.left + nach.width / 2);
+    const dy = (von.top + von.height / 2) - (nach.top + nach.height / 2);
+    ziel.animate([{ transform: `translate3d(${dx}px, ${dy}px, 0) scale(${s})` }, { transform: 'none' }],
+      { duration: 380, easing: 'cubic-bezier(.22, 1, .32, 1)' });
+  }
+  const zu = () => {
+    el.classList.remove('an');
+    removeEventListener('keydown', taste);
+    setTimeout(() => el.remove(), reducedMotion() ? 0 : 220);
+  };
+  const taste = e => { if (e.key === 'Escape') zu(); };
+  addEventListener('keydown', taste);
+  el.onclick = zu;
+}
 function sparkarteHinweis(c) {
   if (!c || sparkarteCode(c)) return '';
-  return c.number
+  return kartennummerLesbar(c.number)
     ? 'Kein Barcode gespeichert: an der Kasse die Nummer nennen oder unter „Ändern“ ein Foto vom Code anhängen.'
     : 'Häng unter „Ändern“ ein Foto vom Barcode an, dann kannst du ihn hier scannen lassen.';
 }
@@ -6875,7 +6932,7 @@ function oeffneKartenLupe(key, kachel) {
     aktionen: [
       { text: 'Coupons & App', icon: 'tag', fn: () => openBrandSheet(key) },
       b.card
-        ? (b.card.number ? { text: 'Nummer kopieren', icon: 'check', leise: true, bleibt: true, fn: () => copyText(b.card.number) } : null)
+        ? (kartennummerLesbar(b.card.number) ? { text: 'Nummer kopieren', icon: 'check', leise: true, bleibt: true, fn: () => copyText(kartennummerLesbar(b.card.number).replace(/\s+/g, '')) } : null)
         : { text: 'Sparkarte hinzufügen', icon: 'plus', leise: true, fn: () => openWalletAdd('card', b.name) },
       // Verwalten steht direkt unter der Karte, in einer leisen zweiten Zeile —
       // dort sucht man es, wenn die Karte gerade vor einem liegt.
@@ -7899,8 +7956,8 @@ function verdrahteGutscheinSeite(seite, v, karte) {
   if (kartenKnopf) kartenKnopf.onclick = () => zeigeKarteGross({
     karteObj: karte, name: v.vendor, vonEl: kartenKnopf.querySelector('.debitkarte') || kartenKnopf,
     aktionen: [
-      ...(karte.number
-        ? [{ text: 'Nummer kopieren', icon: 'check', leise: true, bleibt: true, fn: () => copyText(karte.number) }]
+      ...(kartennummerLesbar(karte.number)
+        ? [{ text: 'Nummer kopieren', icon: 'check', leise: true, bleibt: true, fn: () => copyText(kartennummerLesbar(karte.number).replace(/\s+/g, '')) }]
         : []),
       // Hinzufuegen und Aendern sind eigene Seiten: sie legen sich auf diese
       { text: 'Ändern', verwalten: true, fn: () => openWalletAdd('card', karte.name, karte.id) },
@@ -8933,9 +8990,9 @@ function voucherCardHtml(v, { mehr = false } = {}) {
 // Schluessel ist der Rang-Slug aus RANKS; bis eins da ist, traegt der Rang
 // das universelle (Daumen hoch). Eintrag = Dateiname ohne Breite, es gibt je
 // eine -480.webp und -960.webp. Neue Modelle einfach dazuschreiben, z. B.:
-//   anfaenger: '/brand/kumulio-maskottchen-anfaenger',
-//   geringverdiener: '/brand/kumulio-maskottchen-geringverdiener',
-//   (normalverdiener, gutverdiener, besserverdiener, spitzenverdiener)
+//   scout: '/brand/kumulio-maskottchen-scout',
+//   sammler: '/brand/kumulio-maskottchen-sammler',
+//   (profi, champion, meister, legende, mythos)
 const WALLET_MASKOTTCHEN = { standard: '/brand/kumulio-maskottchen-wallet' };
 function setzeWalletMaskottchen(slug) {
   const img = $('.wk-sprite');
@@ -11868,7 +11925,7 @@ async function sperrTaste(z) {
   if (sperrEingabe.length < laenge) return;
   sperrBeschaeftigt = true;
   const ok = await pinPruefen(sperrEingabe);
-  if (ok) { sperrBeschaeftigt = false; return entsperreWallet(); }
+  if (ok) { sperrBeschaeftigt = false; entsperreWallet(); bioAngebotNachPin(); return; }
   pinFehlversuch();
   sperrFalsch();
 }
@@ -11891,6 +11948,21 @@ function sperrZurueck() {
   if (sperrBeschaeftigt || !sperrEingabe) return;
   sperrEingabe = sperrEingabe.slice(0, -1);
   sperrPunkte();
+}
+// Nach dem Entsperren per PIN einmal anbieten, Face ID / Fingerabdruck
+// einzurichten — auch wenn die PIN auf einem anderen Geraet festgelegt wurde
+// und hier nie danach gefragt wurde. Je Geraet und Konto nur einmal.
+const bioAngebotSchluessel = () => 'ra.bioAngebot:' + (walletBesitzer || state.userName || 'gast');
+async function bioAngebotNachPin() {
+  try { if (bioAn() || localStorage.getItem(bioAngebotSchluessel())) return; } catch { return; }
+  if (!await bioVerfuegbar()) return;
+  setTimeout(async () => {
+    // Nicht ueber das Update-Log oder einen anderen Dialog legen
+    if (walletGesperrt() || bioAn() || document.querySelector('.overlay:not(.hidden)')) return;
+    lsSetzen(bioAngebotSchluessel(), String(Date.now()));
+    if (await askConfirm('Nächstes Mal mit Face ID oder Fingerabdruck entsperren?', { okLabel: 'Ja, einrichten' })
+      && await bioEinrichten()) island('Face ID / Fingerabdruck ist eingerichtet');
+  }, 1400);
 }
 function entsperreWallet() {
   walletEntsperrt = true;
@@ -12337,8 +12409,12 @@ async function renderSicherheit() {
   if (!card) return;
   card.classList.toggle('hidden', !state.token);
   if (!state.token) return;
-  const bioOk = pinGesetzt() && await bioVerfuegbar();
   const pin = pinGesetzt();
+  const bioOk = pin && await bioVerfuegbar();
+  // Warum es hier nicht geht, statt die Zeile still wegzulassen
+  const bioGrund = !window.PublicKeyCredential
+    ? 'Dieser Browser kann es nicht, etwa der eingebaute Browser von Instagram oder TikTok. Öffne kumulio in Safari oder Chrome.'
+    : 'Auf diesem Gerät ist keine Face ID und kein Fingerabdruck eingerichtet, oder der Browser gibt sie nicht frei. In den Handy-Einstellungen einrichten und kumulio neu öffnen.';
   const k = kontoInfo || {};
   card.innerHTML = `
     <h2 class="card-h">Sicherheit</h2>
@@ -12349,9 +12425,9 @@ async function renderSicherheit() {
         ? '<button class="btn btn-small btn-ghost" id="si-pin-aendern" type="button">Ändern</button><button class="btn btn-small btn-ghost" id="si-pin-weg" type="button">Entfernen</button>'
         : `<button class="btn btn-small" id="si-pin-an" type="button" ${pinMoeglich() ? '' : 'disabled'}>Festlegen</button>`}</div>
     </div>
-    ${bioOk ? `<div class="settings-row">
-      <div class="settings-label"><b>Face ID / Fingerabdruck</b><span>Wallet ohne PIN-Eingabe entsperren</span></div>
-      <label class="switch"><input type="checkbox" id="si-bio" ${bioAn() ? 'checked' : ''}><span class="switch-slider"></span></label>
+    ${pin ? `<div class="settings-row">
+      <div class="settings-label"><b>Face ID / Fingerabdruck</b><span>${bioOk ? 'Wallet ohne PIN-Eingabe entsperren, auf diesem Gerät' : bioGrund}</span></div>
+      <label class="switch"><input type="checkbox" id="si-bio" ${bioOk && bioAn() ? 'checked' : ''} ${bioOk ? '' : 'disabled'}><span class="switch-slider"></span></label>
     </div>` : ''}
     <div class="settings-row">
       <div class="settings-label"><b>Zwei-Faktor-Anmeldung</b>

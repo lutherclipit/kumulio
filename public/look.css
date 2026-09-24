@@ -882,3 +882,50 @@ body.marken-modus.wallet-farbe.kopf-weg .topbar .k-wordmark .k-dot { fill: var(-
 :root[data-theme="dark"] #sheet-content .badge-neu { color: #8DB8FF; }
 #sheet-content .pill-zeit { display: inline-flex; align-items: center; gap: 5px; }
 #sheet-content .pill-zeit .icon { width: 14px; height: 14px; flex: none; }
+
+/* ---- Guthaben beim Scrollen: oben in der Kopfzeile statt ueber der
+   Menueleiste (dort sass es auf der Woelbung). Das Logo blendet so lange aus. */
+#wallet-mini {
+  top: calc((var(--kopfzeile-h, 64px) + env(safe-area-inset-top, 0px) - 38px) / 2); bottom: auto;
+  z-index: 31; height: 38px; padding: 0 15px; gap: 7px;
+  transform: translate(-50%, -8px) scale(.94); opacity: 0; pointer-events: none;
+  background: #fff; border: 0; border-radius: 12px;
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .14);
+  transition: transform .32s cubic-bezier(.22, 1, .32, 1), opacity .2s ease;
+}
+#wallet-mini.show { transform: translate(-50%, 0) scale(1); opacity: 1; pointer-events: auto; }
+:root[data-theme="dark"] #wallet-mini { background: var(--karte); }
+.topbar .brand { transition: opacity .2s ease, transform .32s cubic-bezier(.22, 1, .32, 1); }
+body:has(#wallet-mini.show) .topbar .brand { opacity: 0; transform: translateY(6px) scale(.96); pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { #wallet-mini, .topbar .brand { transition: none; } }
+
+/* ---- Grosse Kartenansicht: Nummer darunter, Hinweis zum Vergroessern */
+.lupe-nummer {
+  margin-top: 12px; text-align: center; color: #fff;
+  font-size: 1.05rem; font-weight: 750; letter-spacing: .08em; font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, .3);
+}
+.lupe-zoomhinweis {
+  display: flex; align-items: center; justify-content: center; gap: 6px; margin: 8px 0 0;
+  color: rgba(255, 255, 255, .85); font-size: .78rem; font-weight: 600;
+}
+.lupe-zoomhinweis .icon { width: 14px; height: 14px; }
+.karten-lupe .dk-code-feld { cursor: zoom-in; }
+
+/* ---- Code gross zum Scannen */
+.code-gross {
+  position: fixed; inset: 0; z-index: 400; background: #fff; color: #14151A;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+  padding: calc(24px + env(safe-area-inset-top, 0px)) 18px calc(24px + env(safe-area-inset-bottom, 0px));
+  opacity: 0; transition: opacity .2s ease; cursor: zoom-out;
+}
+.code-gross.an { opacity: 1; }
+.cg-kopf { display: flex; align-items: center; gap: 10px; font-size: 1.1rem; }
+.cg-kopf .brand-chip { width: 36px; height: 36px; border-radius: 10px; }
+.cg-code { width: min(92vw, 560px); display: grid; place-items: center; }
+.cg-code > img, .cg-code > svg { display: block; width: 100%; height: auto; max-height: 62vh; object-fit: contain; }
+.cg-code > svg.ean { height: min(42vw, 260px); }
+.cg-nummer { font-size: 1.3rem; font-weight: 800; letter-spacing: .1em; font-variant-numeric: tabular-nums; }
+.cg-hinweis { margin: 0; color: #6B7280; font-size: .8rem; text-align: center; }
+@media (prefers-reduced-motion: reduce) { .code-gross { transition: none; } }
