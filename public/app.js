@@ -384,6 +384,8 @@ let sperrUhr = 0;
 let sperrBeschaeftigt = false;   // PIN wird gerade geprueft bzw. die Punkte wackeln
 let sperreGehtUhr = 0, sperreKommtUhr = 0;
 let startAuftrittOffen = true;   // bis der Start-Splash geht, wartet jeder Auftritt
+let bioLaeuft = false;           // Face ID fragt gerade (nie zwei Abfragen gleichzeitig)
+let bioBrauchtTippen = false;    // Browser liess Face ID nicht ohne Antippen starten
 // So viel passt in eine Wallet. Gerechnet: ein Gutschein mit Kassen-Code und
 // Originalfoto braucht komprimiert rund 50-130 KB. 500 Stueck sind dann auf
 // dem Handy rund 25-65 MB (dafuer reicht IndexedDB locker, und die App bleibt
@@ -10453,6 +10455,27 @@ async function bioEinrichten() {
     return true;
   } catch { island('Face ID / Fingerabdruck ließ sich nicht einrichten'); return false; }
 }
+// Face ID / Fingerabdruck: startet von selbst, sobald die Sperre erscheint —
+// kein extra Antippen. Manche Browser (v. a. Safari) lassen die Abfrage nur
+// nach einer Beruehrung zu; dann reicht ein Tippen irgendwo auf die Sperre.
+// Bricht man ab, fragt die App nicht erneut — dann gilt die PIN (oder die Taste).
+async function bioVersuch({ auto = false } = {}) {
+  if (bioLaeuft || !bioAn() || !walletGesperrt()) return;
+  bioLaeuft = true;
+  const t0 = Date.now();
+  let ok = false;
+  try { ok = await bioPruefen(); } finally { bioLaeuft = false; }
+  if (ok) { bioBrauchtTippen = false; if (walletGesperrt()) entsperreWallet(); return; }
+  // Sofort abgelehnt (ohne dass jemand etwas sehen konnte) = Browser verlangt ein Antippen
+  bioBrauchtTippen = auto && Date.now() - t0 < 700;
+  if (bioBrauchtTippen) setzeSperrText('Tippe auf den Bildschirm für Face ID oder gib deine PIN ein', false);
+}
+function bioAutomatisch() {
+  if (!bioAn() || document.visibilityState !== 'visible') return;
+  const el = $('#wallet-sperre');
+  if (!el || el.classList.contains('hidden') || el.classList.contains('geht')) return;
+  bioVersuch({ auto: true });
+}
 async function bioPruefen() {
   const bio = lsJson(bioSchluessel(), null);
   if (!bio) return false;
@@ -10578,6 +10601,8 @@ function aktualisiereSperre() {
       sperrBeschaeftigt = false;
       schliesseWalletAnsichten();
       sperreAuftritt(el);
+      bioBrauchtTippen = false;
+      if (!startAuftrittOffen) setTimeout(bioAutomatisch, sperrRuhig() ? 0 : 380);
     }
     baueSperre();
     setTimeout(() => $('#ws-tasten .ws-taste')?.focus({ preventScroll: true }), 0);
@@ -10788,9 +10813,15 @@ $('#ws-tasten')?.addEventListener('click', async e => {
   if (!b) return;
   if (b.dataset.z != null) sperrTaste(b.dataset.z);
   else if (b.dataset.weg) sperrZurueck();
-  else if (b.dataset.bio && !sperrBeschaeftigt && await bioPruefen()) entsperreWallet();
+  else if (b.dataset.bio && !sperrBeschaeftigt) bioVersuch();
 });
 $('#ws-vergessen')?.addEventListener('click', () => pinVergessen());
+$('#wallet-sperre')?.addEventListener('click', e => {
+  if (!bioBrauchtTippen || e.target.closest('button') || sperrBeschaeftigt) return;
+  bioBrauchtTippen = false;
+  setzeSperrText(sperrText(), false);
+  bioVersuch();
+});
 // Raus aus der Wallet, ohne sie zu entsperren (die Sperre deckt das Menue ab)
 $('#ws-weg')?.addEventListener('click', () => switchView('feed'));
 addEventListener('keydown', e => {
@@ -11083,7 +11114,7 @@ async function pinVergessen() {
 async function walletFreigeben() {
   if (!walletGesperrt()) return true;
   if (pinWarteBis() > Date.now()) { island('Zu viele falsche Versuche, bitte kurz warten'); return false; }
-  if (bioAn() && await bioPruefen()) { entsperreWallet(); return true; }
+  if (bioAn() && !bioLaeuft && await bioPruefen()) { entsperreWallet(); return true; }
   const pin = await pinDialog({ titel: 'Wallet entsperren', text: 'Gib deine PIN ein', fest: (pinDaten() || {}).laenge || 4, pruefe: pinPruefeDialog });
   if (pin === null) return false;
   entsperreWallet();
@@ -11536,7 +11567,7 @@ window.addEventListener('online', () => { if ($('#conn-screen')) location.reload
   nachStartSplash(() => {
     startAuftrittOffen = false;
     const sp = $('#wallet-sperre');
-    if (sp?.classList.contains('vorstart')) sperreAuftritt(sp);
+    if (sp?.classList.contains('vorstart')) { sperreAuftritt(sp); setTimeout(bioAutomatisch, sperrRuhig() ? 0 : 420); }
     else walletAuftritt();
   });
   pruefeKontoLinks();
