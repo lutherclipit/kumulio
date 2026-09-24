@@ -2659,13 +2659,47 @@ function rangGuthaben() {
   return Math.round(aktiv.reduce((s, v) => s + (v.balance || 0), 0) * 100) / 100;
 }
 const rangAnteil = (r, total) => r.next ? Math.max(0, Math.min(1, (total - r.min) / (r.next.min - r.min))) : 1;
-// Fortschrittsbalken: die Fuellung schiebt sich von links herein (runde Enden bleiben rund)
-const rangBalken = (r, total) => `<span class="pf-balken" aria-hidden="true"><span style="transform:translateX(${((rangAnteil(r, total) - 1) * 100).toFixed(1)}%)"></span></span>`;
 const rangAbstand = (r, total) => r.next ? `Noch ${euroFmt(r.next.min - total)} bis ${esc(r.next.name)}` : 'Höchste Stufe erreicht';
 
+// Rang-Fenster: Karte in der Rang-Farbe wie das Fenster "Deine Wallet". Rechts
+// ragt das Maskottchen des Rangs oben heraus — dasselbe Bild und dieselbe Lage
+// wie in der Wallet (WALLET_MASKOTTCHEN, Geometrie in look-profil.css .rf-*).
+// Steht im Profil (mehr: Pfeil, die ganze Karte ist der Knopf) und oben auf der
+// Rang-Seite. zu = gesperrte Wallet: die Figur ja, aber weder Rang noch Balken
+// noch Betrag — aus Stufe und "Noch X €" liesse sich das Guthaben sonst auf den
+// Cent zurueckrechnen. Dann steht das universelle Maskottchen da.
+const RF_FUNKEN = '<span class="rf-funken" aria-hidden="true">' + [1, 2, 3].map(n =>
+  `<svg class="wk-f wk-f${n}" viewBox="-1.2 -1.2 2.4 2.4"><path d="M0-1Q.13-.13 1 0Q.13 .13 0 1Q-.13 .13-1 0Q-.13-.13 0-1Z"/></svg>`).join('') + '</span>';
+function rangFensterHtml({ r = null, total = 0, zu = false, mehr = false } = {}) {
+  const m = (!zu && WALLET_MASKOTTCHEN[r.slug]) || WALLET_MASKOTTCHEN.standard;
+  const figur = `
+    <span class="rf-licht" aria-hidden="true"></span>
+    <span class="rf-rahmen" aria-hidden="true"><img class="rf-sprite" src="${m.basis}-480.webp"
+      srcset="${m.basis}-480.webp 480w, ${m.basis}-960.webp 960w" sizes="312px" width="295" height="298"
+      alt="" decoding="async" draggable="false">${RF_FUNKEN}</span>`;
+  const titel = `<span class="rf-titel">Dein Rang${mehr ? icon('chevron', 'icon') : ''}</span>`;
+  const stil = `--licht-x:${m.licht[0]}; --licht-y:${m.licht[1]}`;
+  if (zu) return `
+    <span class="rf zu" data-stufe="0" style="${stil}">${figur}
+      <span class="rf-text">${titel}
+        <b class="rf-name">Gesperrt</b>
+        <span class="rf-abstand">Zum Ansehen die Wallet entsperren</span>
+        <span class="rf-knopf">${icon('lock', 'icon')}Entsperren</span>
+      </span>
+    </span>`;
+  const anteil = rangAnteil(r, total);
+  return `
+    <span class="rf" data-stufe="${r.tier}" style="${stil}">${figur}
+      <span class="rf-text">${titel}
+        <b class="rf-name">${esc(r.name)}</b>
+        <span class="rf-stufe">Stufe ${r.tier} von ${RANKS.length}</span>
+        <span class="rf-balken" role="img" aria-label="${Math.round(anteil * 100)} Prozent bis zur nächsten Stufe"><span style="transform:translateX(${((anteil - 1) * 100).toFixed(1)}%)"></span></span>
+        <span class="rf-abstand">${rangAbstand(r, total)}</span>
+      </span>
+    </span>`;
+}
+
 // Rang-Karte im Profil: nur hier und in der Wallet, nie bei anderen
-// Gesperrte Wallet: kein Rang, kein Balken, kein Abstand — aus Stufe und
-// "Noch X €" liesse sich das Guthaben sonst auf den Cent zurueckrechnen
 function renderRangKarte() {
   const el = $('#pf-rang');
   if (!el) return;
@@ -2676,22 +2710,9 @@ function renderRangKarte() {
   const stand = zu ? 'zu' : `${r.tier}|${total}`;
   if (el.dataset.stand === stand) return;
   el.dataset.stand = stand;
-  const html = zu ? `
-    <span class="pf-rang-kopf">
-      <span class="pf-rang-marke">${icon('lock', 'icon')}</span>
-      <span class="pf-rang-text"><small>Dein Rang</small><b>Wallet gesperrt</b></span>
-    </span>
-    <span class="pf-rang-fuss"><span>Zum Ansehen die Wallet entsperren</span><span class="pf-rang-mehr">Entsperren ${icon('chevron', 'icon')}</span></span>` : `
-    <span class="pf-rang-kopf">
-      <span class="pf-rang-marke">${icon('chart', 'icon')}</span>
-      <span class="pf-rang-text"><small>Dein Rang</small><b>${esc(r.name)}</b></span>
-      <span class="pf-rang-stufe">Stufe ${r.tier} von ${RANKS.length}</span>
-    </span>
-    ${rangBalken(r, total)}
-    <span class="pf-rang-fuss"><span>${rangAbstand(r, total)}</span><span class="pf-rang-mehr">Alle Ränge ${icon('chevron', 'icon')}</span></span>`;
-  el.innerHTML = html;
+  el.innerHTML = rangFensterHtml({ r, total, zu, mehr: true });
   el.classList.toggle('gesperrt', zu);
-  el.setAttribute('aria-label', zu ? 'Dein Rang: Wallet gesperrt. Zum Entsperren tippen' : `Dein Rang: ${r.name}. Alle Ränge ansehen`);
+  el.setAttribute('aria-label', zu ? 'Dein Rang: Wallet gesperrt. Zum Entsperren tippen' : `Dein Rang: ${r.name}, Stufe ${r.tier} von ${RANKS.length}. Alle Ränge ansehen`);
 }
 $('#pf-rang').addEventListener('click', () => zeigeRang());
 
@@ -2977,7 +2998,7 @@ function oeffneTopMenu() {
         <span class="tm-friend-open" data-tm-user="${esc(f.name)}" style="display:flex; align-items:center; gap:8px; flex:1; cursor:pointer">
           ${f.avatar ? `<img class="avatar-mini avatar-img" src="${sichereBildUrl(f.avatar)}" alt="">`
         : `<span class="avatar-mini" style="background:${chatColor(f.name)}">${esc(f.name[0].toUpperCase())}</span>`}
-          <span style="font-weight:700">@${esc(f.name)}</span>
+          <span style="font-weight:700">${esc(f.name)}</span>
         </span>
         <button class="btn btn-small btn-ghost" data-tm-whisper="${esc(f.name)}">Schreiben</button>
       </div>`).join('')
@@ -4427,22 +4448,41 @@ function updateGiftBadges() {
     dot.textContent = pendingGifts.length;
   } else if (dot) dot.remove();
 }
+// Leer: mittig eine ganze Figur, grau und blass als Platzhalter (Sammler, mit
+// Gutscheinen in der Hand), darunter ein kurzer Satz. Sonst weisse Karten.
 function renderGiftsPage() {
   const host = $('#gifts-page');
   if (!host) return;
   if (!pendingGifts.length) {
-    host.innerHTML = `<div class="status">Gerade wartet hier kein Geschenk. Schau später wieder vorbei!</div>`;
+    if (host.querySelector('.gifts-leer')) return; // steht schon, nicht neu einblenden
+    host.innerHTML = `
+      <div class="gifts-leer">
+        <img class="gifts-leer-bild" src="/brand/kumulio-rang-sammler-480.webp" width="200" height="200" alt="" decoding="async" draggable="false">
+        <b>Gerade wartet hier kein Geschenk</b>
+        <p>Schenkt dir ein Freund einen Gutschein, liegt er hier, bis du ihn auspackst.</p>
+      </div>`;
     return;
   }
-  host.innerHTML = pendingGifts.map(g => `
-    <button class="gift-row" data-gift-open="${esc(g.id)}">
-      <img class="px-icon gift-row-img" src="/gamification/gift.svg" alt="">
+  const wann = ts => {
+    if (!ts) return '';
+    const d = new Date(ts), heute = new Date();
+    const gestern = new Date(heute.getFullYear(), heute.getMonth(), heute.getDate() - 1);
+    const uhr = d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+    if (d.toDateString() === heute.toDateString()) return `Heute, ${uhr}`;
+    if (d.toDateString() === gestern.toDateString()) return `Gestern, ${uhr}`;
+    return `${d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' })}, ${uhr}`;
+  };
+  host.innerHTML = `
+    <p class="gifts-intro">Hier warten Geschenke von Freunden, bis du sie auspackst.</p>
+    ${pendingGifts.map(g => `
+    <button class="gift-row" type="button" data-gift-open="${esc(g.id)}">
+      <span class="gift-row-bild" aria-hidden="true">${icon('gift', 'icon')}</span>
       <span class="gift-row-info">
         <b>Von @${esc(g.giftFrom)}</b>
-        <span class="muted">${g.giftTs ? new Date(g.giftTs).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' }) + ', ' + new Date(g.giftTs).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+        <span class="muted">${wann(g.giftTs)}</span>
       </span>
       <span class="btn btn-small">Auspacken</span>
-    </button>`).join('');
+    </button>`).join('')}`;
   host.querySelectorAll('[data-gift-open]').forEach(b => b.onclick = () => {
     const gift = pendingGifts.find(g => g.id === b.dataset.giftOpen);
     if (gift) openGiftReveal(gift);
@@ -10248,7 +10288,7 @@ function zeichneAnalyse(seite, { nurWennNeu = false, richtung = null } = {}) {
   else fuellen();
 }
 
-// Alle Stufen auf einen Blick — als Liste, wie man sie aus Banking-Apps kennt
+// Alle Stufen auf einen Blick — als eigene Seite (Pfeil oder Wisch zurueck)
 $('#wallet-rank')?.addEventListener('click', e => { e.stopPropagation(); zeigeRang(); });
 // Spanne einer Stufe in ganzen Euro, so wie man sie sagt: "über 10 bis 50 €"
 function rangSpanne(r) {
@@ -10257,31 +10297,41 @@ function rangSpanne(r) {
   return r.bis === Infinity ? `über ${davor.bis} €` : `über ${davor.bis} bis ${r.bis} €`;
 }
 function zeigeRang() {
-  // Gesperrt: der Rang verraet das Guthaben — erst zur Sperre der Wallet
-  if (walletGesperrt()) {
-    if (state.activeView !== 'wallet') switchView('wallet', 'enter-drop');
-    else aktualisiereSperre();
-    return;
-  }
+  if (!state.token) return;
+  // Gesperrt: der Rang verraet das Guthaben — erst entsperren (Face ID oder
+  // PIN), dann geht die Seite auf
+  if (walletGesperrt()) { walletFreigeben().then(ok => { if (ok) zeigeRang(); }); return; }
+  if (wseiteOben()?.art === 'rang') return;
+  buzz(8);
+  wseiteOeffnen({ art: 'rang', titel: 'Ränge', klasse: 'rs', baue: s => zeichneRangSeite(s) });
+}
+// Rang-Seite: oben das Rang-Fenster mit dem Maskottchen, darunter alle sieben
+// Stufen mit ihrer ganzen Figur in der Stufenfarbe. Erreichte stehen normal da,
+// die eigene ist hervorgehoben, die noch offenen sind blass und grau — mit dem
+// ehrlichen Abstand vom jetzigen Guthaben.
+function zeichneRangSeite(seite) {
+  if (walletGesperrt()) return;
   const total = rangGuthaben();
   const jetzt = rankFor(total);
-  state.sheetMode = 'rang';
-  $('#sheet-content').innerHTML = `
-    <div class="sheet-title">Dein Rang</div>
-    <div class="rang-karte">
-      <small>Stufe ${jetzt.tier} von ${RANKS.length}</small>
-      <b>${esc(jetzt.name)}</b>
-      ${rangBalken(jetzt, total)}
-      <span class="rang-karte-fuss">${rangAbstand(jetzt, total)}</span>
-    </div>
-    <div class="rang-liste">${RANKS.map(r => `
-      <div class="rang-stufe${r.tier < jetzt.tier ? ' erreicht' : ''}${r.tier === jetzt.tier ? ' aktuell' : ''}">
-        <span class="rang-punkt tier-${r.tier}"></span>
-        <span class="rang-text"><b>${esc(r.name)}</b><small>${rangSpanne(r)}</small></span>
-        ${r.tier === jetzt.tier ? '<span class="rang-jetzt">Du</span>' : r.tier < jetzt.tier ? icon('check', 'icon icon-sm') : ''}
-      </div>`).join('')}</div>
-    <p class="rang-hinweis">${icon('lock', 'icon icon-sm')}<span>Nur du siehst deinen Rang. Er richtet sich nach dem Guthaben in deiner Wallet und ändert nichts an Gutscheinen oder Coupons.</span></p>`;
-  openSheetShell();
+  const bild = r => `/brand/kumulio-rang-${r.slug}`;
+  const zeilen = RANKS.map(r => {
+    const art = r.tier < jetzt.tier ? 'erreicht' : r.tier === jetzt.tier ? 'aktuell' : 'offen';
+    const rechts = art === 'aktuell' ? '<span class="rs-du">Du</span>'
+      : art === 'erreicht' ? `<span class="rs-haken" role="img" aria-label="erreicht">${icon('check', 'icon')}</span>`
+      : `<span class="rs-noch">noch ${euroFmt(r.min - total)}</span>`;
+    return `
+      <li class="rs-stufe ${art}" data-stufe="${r.tier}"${art === 'aktuell' ? ' aria-current="true"' : ''}>
+        <span class="rs-bild"><img src="${bild(r)}-240.webp" srcset="${bild(r)}-240.webp 240w, ${bild(r)}-480.webp 480w"
+          sizes="72px" width="72" height="72" alt="" loading="lazy" decoding="async" draggable="false"></span>
+        <span class="rs-text"><b>${esc(r.name)}</b><small>${rangSpanne(r)}</small></span>
+        ${rechts}
+      </li>`;
+  }).join('');
+  seite.el.querySelector('.wseite-inhalt').innerHTML = `
+    <div class="rs-oben">${rangFensterHtml({ r: jetzt, total })}</div>
+    <h3 class="gd-h rs-h">Alle Ränge</h3>
+    <ol class="rs-liste" aria-label="Alle Ränge">${zeilen}</ol>
+    <p class="rang-hinweis rs-hinweis">${icon('lock', 'icon icon-sm')}<span>Nur du siehst deinen Rang. Er richtet sich nach dem Guthaben in deiner Wallet und ändert nichts an Gutscheinen oder Coupons.</span></p>`;
 }
 
 // Farbige Kopfzeile nur, solange der Kopf darunter noch steht. Sonst haengt

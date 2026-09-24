@@ -1234,3 +1234,62 @@ body.sparsam #sheet-content #btn-sheet-fav .icon, body.sparsam #sheet-content .a
 @media (prefers-reduced-motion: reduce) {
   #sheet-content #btn-sheet-fav .icon { transition: none; }
 }
+
+/* =============================================================================
+   Rang-Seite (zeigeRang in app.js): oben das Rang-Fenster (.rf, look-profil.css)
+   mit dem Maskottchen, darunter alle sieben Stufen als weisse Karten mit der
+   ganzen Figur in der Stufenfarbe. Erreichte normal, die eigene mit Ring und
+   "Du", noch offene blass und grau mit dem Abstand vom Guthaben.
+   ========================================================================== */
+/* Oben Luft fuer den Kopf, der aus dem Fenster ragt */
+.rs .rs-oben { padding-top: 34px; }
+.rs .rf-sprite { animation: spriteRein .7s var(--spring) .12s backwards; }
+.rs .rs-h { margin: 24px 2px 0; }
+.rs-liste { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 0; padding: 0; list-style: none; }
+.rs-stufe {
+  display: flex; align-items: center; gap: 14px; min-height: 74px; padding: 9px 14px 9px 10px;
+  border-radius: 16px; background: var(--karte); box-shadow: var(--schatten-1);
+}
+/* Kachel in der Stufenfarbe; die Figur steht darin und ragt oben etwas heraus */
+.rs-bild {
+  position: relative; flex: none; width: 58px; height: 54px; border-radius: 13px;
+  background:
+    radial-gradient(circle at 78% 10%, rgba(255, 255, 255, .22), transparent 55%),
+    linear-gradient(165deg, var(--r1), var(--r2) 60%, color-mix(in srgb, var(--r2) 50%, var(--r3)));
+  clip-path: inset(-24px 0 0 0 round 13px);
+}
+.rs-bild img {
+  position: absolute; left: 50%; bottom: -3px; width: 70px; height: 70px; max-width: none;
+  transform: translateX(-50%);
+  filter: drop-shadow(0 3px 4px rgba(0, 0, 0, .2));
+}
+.rs-text { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rs-text b { font-size: 1rem; font-weight: 800; letter-spacing: -.01em; line-height: 1.25; }
+.rs-text small { font-size: .8rem; line-height: 1.35; color: var(--muted); }
+/* Rechts: Haken (erreicht), "Du" (eigene Stufe) oder der Abstand (offen) */
+.rs-haken {
+  flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 9px;
+  background: color-mix(in srgb, var(--r2) 14%, var(--karte)); color: var(--r1);
+}
+.rs-haken .icon { width: 17px; height: 17px; stroke-width: 2.6; }
+:root[data-theme="dark"] .rs-haken { background: color-mix(in srgb, var(--r2) 24%, var(--karte)); color: var(--r3); }
+.rs-du {
+  flex: none; padding: 5px 11px; border-radius: 9px;
+  background: var(--r1); color: #fff; font-size: .8rem; font-weight: 800; line-height: 1.2;
+}
+:root[data-theme="dark"] .rs-du { background: var(--r2); }
+.rs-noch {
+  flex: none; font-size: .8rem; font-weight: 650; color: var(--muted);
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.rs-stufe.aktuell { box-shadow: 0 0 0 2px var(--r2), var(--schatten-1); }
+:root[data-theme="dark"] .rs-stufe.aktuell { box-shadow: 0 0 0 2px var(--r3), var(--schatten-1); }
+/* Noch nicht erreicht: Kachel neutral, Figur grau und blass */
+.rs-stufe.offen .rs-bild { background: var(--karte-2); }
+.rs-stufe.offen .rs-bild img { filter: grayscale(1); opacity: .42; }
+.rs-stufe.offen .rs-text b { color: color-mix(in srgb, var(--text) 62%, var(--karte)); }
+.rs .rs-hinweis { margin: 16px 4px 4px; }
+@media (max-width: 370px) {
+  .rs-stufe { gap: 12px; padding-right: 12px; }
+}
+@media (prefers-reduced-motion: reduce) { .rs .rf-sprite { animation: none; } }

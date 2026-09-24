@@ -76,48 +76,142 @@
   font-size: .9rem; justify-content: center;
 }
 
-/* Rang: ganze Karte ist der Knopf zur Rang-Liste */
+/* Rang: die ganze Karte ist der Knopf zur Rang-Seite. Die Karte selbst ist
+   das Rang-Fenster (.rf, unten); oben braucht es Luft fuer den Kopf des
+   Maskottchens, der aus der Karte herausragt. */
 #view-profile button.pf-rang {
-  display: block; width: 100%; padding: 16px 16px 14px;
-  border: 0; text-align: left; font: inherit; color: var(--text); cursor: pointer;
+  display: block; width: 100%; margin-top: 40px; padding: 0;
+  border: 0; border-radius: 18px; background: none; box-shadow: none;
+  text-align: left; font: inherit; color: #fff; cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   transition: transform .2s var(--spring);
 }
 button.pf-rang:active { transform: scale(.985); }
-button.pf-rang:focus-visible { outline: 2px solid var(--akzent-text); outline-offset: 2px; }
-.pf-rang-kopf, .pf-serie-kopf { display: flex; align-items: center; gap: 12px; }
-.pf-rang-marke, .pf-serie-flamme {
+button.pf-rang:focus-visible { outline: 2px solid var(--akzent-text); outline-offset: 3px; }
+.pf-serie-kopf { display: flex; align-items: center; gap: 12px; }
+.pf-serie-flamme {
   flex: none; display: grid; place-items: center; width: 42px; height: 42px;
   border-radius: 12px; background: var(--akzent-weich); color: var(--akzent-text);
 }
-.pf-rang-marke .icon { width: 22px; height: 22px; }
 .pf-serie-flamme .icon { width: 26px; height: 26px; }
-.pf-rang-text, .pf-serie-text { flex: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.pf-rang-text small { font-size: .78rem; font-weight: 650; color: var(--muted); }
-.pf-rang-text b { font-size: 1.12rem; font-weight: 850; letter-spacing: -.01em; line-height: 1.25; }
-.pf-rang-stufe {
-  flex: none; padding: 4px 8px; border-radius: 8px;
-  background: var(--akzent-weich); color: var(--akzent-text);
-  font-size: .74rem; font-weight: 750; white-space: nowrap;
+.pf-serie-text { flex: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+
+/* =============================================================================
+   Rang-Fenster (.rf): Profil und Rang-Seite. Karte in der Rang-Farbe wie das
+   Fenster "Deine Wallet"; rechts ragt das Maskottchen des Rangs oben heraus.
+   Bild, Lage und Strahlen sind dieselben wie in der Wallet (look.css .wk-*):
+   Leinwand 1389 x 1404, --sb ist die Bezugsbreite.
+   ========================================================================== */
+/* Stufenfarben: dieselben Werte wie .wallet-kopf.tier-N in style.css
+   (r1 dunkel, r2 Hauptton, r3 hell). 0 = gesperrt: die aktuelle Akzentfarbe */
+:is(.rf, .rs-stufe)[data-stufe="0"] { --r1: var(--kopf-k1, #0A8452); --r2: var(--kopf-k2, #0FA86B); --r3: var(--kopf-k3, #2FE09C); }
+:is(.rf, .rs-stufe)[data-stufe="1"] { --r1: #0A8452; --r2: #0FA86B; --r3: #2FE09C; }
+:is(.rf, .rs-stufe)[data-stufe="2"] { --r1: #0A6E78; --r2: #0E95A3; --r3: #3DD3DE; }
+:is(.rf, .rs-stufe)[data-stufe="3"] { --r1: #1C4FB0; --r2: #2D6BDB; --r3: #79A9FF; }
+:is(.rf, .rs-stufe)[data-stufe="4"] { --r1: #4B2FA6; --r2: #6B4CD9; --r3: #AE96FF; }
+:is(.rf, .rs-stufe)[data-stufe="5"] { --r1: #8C1D5E; --r2: #BB2F7E; --r3: #F58CC4; }
+:is(.rf, .rs-stufe)[data-stufe="6"] { --r1: #9A3412; --r2: #C2410C; --r3: #FDA56B; }
+:is(.rf, .rs-stufe)[data-stufe="7"] { --r1: #7A5406; --r2: #A87A0C; --r3: #F2CE5E; }
+
+.rf {
+  --sb: clamp(232px, 62.5vw, 256px);
+  --rf-radius: 18px;
+  position: relative; isolation: isolate; display: block;
+  min-height: 168px; padding: 15px 18px 16px;
+  border-radius: var(--rf-radius); color: #fff; text-align: left;
+  background:
+    radial-gradient(circle at 84% 6%, rgba(255, 255, 255, .17), transparent 46%),
+    linear-gradient(172deg, var(--r1) 0%, var(--r2) 62%, color-mix(in srgb, var(--r2) 55%, var(--r3)) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .22),
+    0 12px 28px -10px color-mix(in srgb, var(--r1) 70%, transparent);
 }
-/* Fortschritt: der Balken schiebt sich von links herein (nur transform) */
-.pf-balken {
-  display: block; position: relative; height: 8px; margin-top: 14px; overflow: hidden;
-  border-radius: 5px; background: color-mix(in srgb, var(--muted) 16%, transparent);
+:root[data-theme="dark"] .rf { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), 0 12px 28px -10px rgba(0, 0, 0, .6); }
+/* Strahlen hinter dem Kopf, nur im Fenster (eigene Ebene mit den runden Ecken) */
+.rf-licht {
+  position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  border-radius: inherit; overflow: hidden;
 }
-.pf-balken > span {
-  position: absolute; inset: 0; border-radius: 5px; background: var(--akzent);
+.rf-licht::before {
+  content: ""; position: absolute;
+  left: calc(100% - 6px - var(--sb) * var(--licht-x, .268)); top: calc(var(--sb) * var(--licht-y, .369) - 36px);
+  width: calc(var(--sb) * .98); aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  background: repeating-conic-gradient(from 4deg,
+    color-mix(in srgb, var(--r3) 55%, #fff) 0deg 5deg, transparent 5deg 18deg);
+  -webkit-mask-image: radial-gradient(closest-side, rgba(0, 0, 0, .55) 0%, rgba(0, 0, 0, .3) 38%, transparent 82%);
+          mask-image: radial-gradient(closest-side, rgba(0, 0, 0, .55) 0%, rgba(0, 0, 0, .3) 38%, transparent 82%);
+  opacity: .6;
+  animation: wkStrahlen 70s linear infinite;
+}
+/* Rahmen: nur oben offen (der Kopf schaut heraus), rechts darf etwas ueber
+   den Rand ragen (Pokal, Zepter), unten schneidet die Kartenkante weich */
+.rf-rahmen {
+  position: absolute; z-index: 1; pointer-events: none; isolation: isolate;
+  top: -80px; bottom: 0; left: 0; right: -14px;
+  overflow: hidden; border-radius: 0 0 0 var(--rf-radius);
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 30px), rgba(0, 0, 0, .35) calc(100% - 6px), rgba(0, 0, 0, .15) 100%);
+          mask-image: linear-gradient(to bottom, #000 calc(100% - 30px), rgba(0, 0, 0, .35) calc(100% - 6px), rgba(0, 0, 0, .15) 100%);
+}
+.rf-sprite {
+  position: absolute; top: calc(80px - 36px - var(--sb) * .1756);
+  left: calc(100% - 14px - 6px - var(--sb) * 1.0536);
+  width: calc(var(--sb) * 1.2195); max-width: none; height: auto;
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, .16));
+  transform-origin: 55% 100%;
+}
+.rf-funken {
+  position: absolute; top: 44px; left: calc(100% - 14px - 6px - var(--sb) * .8341);
+  width: var(--sb); aspect-ratio: 1139 / 1204; pointer-events: none;
+}
+/* Links der Text, halb so breit wie die Karte (rechts steht die Figur) */
+.rf-text {
+  position: relative; z-index: 2;
+  display: flex; flex-direction: column; align-items: flex-start;
+  max-width: 48%; min-width: 0;
+}
+.rf-titel {
+  display: inline-flex; align-items: center; gap: 1px;
+  font-size: .95rem; font-weight: 750; line-height: 1.2; color: rgba(255, 255, 255, .96);
+}
+.rf-titel .icon { width: 16px; height: 16px; stroke-width: 2.6; margin-top: 1px; }
+.rf-name {
+  margin-top: 4px; max-width: 100%;
+  font-size: clamp(1.55rem, 7.4vw, 1.9rem); font-weight: 850; letter-spacing: -.03em; line-height: 1.08;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, .16); overflow-wrap: anywhere;
+}
+/* Gesperrt: das universelle Maskottchen zeigt den Daumen weiter links */
+.rf.zu .rf-text { max-width: 46%; }
+.rf-stufe {
+  margin-top: 9px; padding: 3px 8px; border-radius: 8px;
+  background: rgba(255, 255, 255, .2); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3);
+  font-size: .74rem; font-weight: 750; line-height: 1.35; white-space: nowrap;
+}
+/* Fortschritt: die Fuellung schiebt sich von links herein (nur transform) */
+.rf-balken {
+  position: relative; display: block; align-self: stretch; height: 6px; margin-top: 14px;
+  overflow: hidden; border-radius: 4px; background: rgba(255, 255, 255, .26);
+}
+.rf-balken > span {
+  position: absolute; inset: 0; border-radius: 4px; background: #fff;
   transition: transform .6s cubic-bezier(.22, 1, .32, 1);
 }
-.pf-rang-fuss {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  margin-top: 10px; font-size: .84rem; line-height: 1.35; color: var(--muted);
+.rf-abstand { margin-top: 8px; font-size: .84rem; font-weight: 600; line-height: 1.35; color: rgba(255, 255, 255, .94); }
+.rf-knopf {
+  display: inline-flex; align-items: center; gap: 6px; height: 34px; margin-top: 12px; padding: 0 12px;
+  border-radius: 10px; background: rgba(255, 255, 255, .22); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .38);
+  font-size: .84rem; font-weight: 750; white-space: nowrap;
 }
-.pf-rang-mehr {
-  flex: none; display: inline-flex; align-items: center; gap: 2px;
-  font-weight: 750; color: var(--akzent-text); white-space: nowrap;
+.rf-knopf .icon { width: 16px; height: 16px; stroke-width: 2.2; }
+body.sparsam .rf-licht::before, body.sparsam .rf .wk-f { animation: none; }
+body.sparsam .rf .wk-f { opacity: .9; transform: none; }
+body.sparsam .rf-balken > span { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .rf-licht::before { animation: none; }
+  .rf .wk-f { animation: none; opacity: .9; }
+  .rf-balken > span { transition: none; }
 }
-.pf-rang-mehr .icon { width: 14px; height: 14px; }
+@media (max-width: 370px) { .rf { padding-inline: 15px; } .rf-text { max-width: 46%; } .rf.zu .rf-text { max-width: 44%; } }
 
 /* Login-Serie: Zahl oben, darunter die letzten sieben Tage */
 #view-profile .pf-serie { padding: 16px; }
@@ -177,31 +271,7 @@ button.pf-rang:focus-visible { outline: 2px solid var(--akzent-text); outline-of
 .pf-zeile:focus-visible { outline: 2px solid var(--akzent-text); outline-offset: -2px; }
 @media (hover: hover) { .pf-zeile:hover { background: var(--karte-2); } }
 
-/* =============================================================================
-   Rang-Liste (Blatt): der eigene Rang oben, darunter alle Stufen
-   ========================================================================== */
-.rang-karte {
-  display: flex; flex-direction: column; gap: 2px; margin: 12px 0 12px; padding: 16px;
-  border-radius: 16px; background: var(--karte); box-shadow: var(--schatten-1);
-}
-.rang-karte small { font-size: .78rem; font-weight: 700; color: var(--akzent-text); }
-.rang-karte b { font-size: 1.3rem; font-weight: 850; letter-spacing: -.02em; line-height: 1.25; }
-.rang-karte .pf-balken { margin-top: 12px; }
-.rang-karte-fuss { margin-top: 8px; font-size: .84rem; color: var(--muted); }
-#sheet-content .rang-liste {
-  padding: 0 14px; border-radius: 16px; background: var(--karte); box-shadow: var(--schatten-1);
-}
-#sheet-content .rang-stufe { gap: 12px; min-height: 56px; padding: 10px 0; border-bottom-color: var(--linie); opacity: 1; }
-#sheet-content .rang-stufe:not(.erreicht, .aktuell) .rang-text { opacity: .55; }
-#sheet-content .rang-punkt { width: 12px; height: 12px; }
-#sheet-content .rang-text { gap: 1px; }
-#sheet-content .rang-text b { font-size: .92rem; font-weight: 750; }
-#sheet-content .rang-text small { font-size: .78rem; }
-#sheet-content .rang-jetzt {
-  padding: 4px 9px; border: 0; border-radius: 8px;
-  background: var(--akzent-tief); color: #fff; font-size: .74rem; font-weight: 800;
-}
-#sheet-content .rang-stufe .icon { color: var(--akzent-text); }
+/* Hinweis unter der Rang-Liste (Rang-Seite, look-blaetter.css) */
 .rang-hinweis {
   display: flex; align-items: flex-start; gap: 8px; margin: 14px 2px 6px;
   font-size: .8rem; line-height: 1.45; color: var(--muted);
@@ -241,15 +311,36 @@ button.pf-rang:focus-visible { outline: 2px solid var(--akzent-text); outline-of
 }
 #friends-list .btn-small { flex: none; }
 
-/* ---- Geschenke */
+/* ---- Geschenke: wartende als weisse Karten, leer eine blasse Figur mittig */
+.gifts-intro { margin: 0 2px 12px; font-size: .86rem; line-height: 1.45; color: var(--muted); }
 #gifts-page .gift-row {
-  gap: 12px; padding: 12px 14px 12px 12px; border: 0; border-radius: 16px;
-  background: var(--karte); box-shadow: var(--schatten-1);
+  gap: 12px; margin: 0 0 10px; padding: 12px 12px 12px 12px; border: 0; border-radius: 16px;
+  background: var(--karte); box-shadow: var(--schatten-1); color: var(--text);
+  -webkit-tap-highlight-color: transparent;
   transition: transform .2s var(--spring);
 }
-#gifts-page .gift-row-img { width: 52px; height: 52px; padding: 6px; border-radius: 13px; background: var(--karte-2); }
-#gifts-page .gift-row-info b { font-size: .95rem; font-weight: 800; }
-#gifts-page .gift-row-info .muted { font-size: .78rem; }
+#gifts-page .gift-row:focus-visible { outline: 2px solid var(--akzent-text); outline-offset: 2px; }
+.gift-row-bild {
+  flex: none; display: grid; place-items: center; width: 46px; height: 46px;
+  border-radius: 13px; background: var(--akzent-weich); color: var(--akzent-text);
+}
+.gift-row-bild .icon { width: 24px; height: 24px; stroke-width: 1.9; }
+#gifts-page .gift-row-info b { font-size: .95rem; font-weight: 800; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#gifts-page .gift-row-info .muted { font-size: .8rem; color: var(--muted); opacity: 1; }
+#gifts-page .gift-row .btn-small { flex: none; }
+/* Leer: mittig im freien Platz zwischen Kopf und Menueleiste */
+.gifts-leer {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: calc(100svh - var(--leiste-gesamt) - 230px); padding: 0 20px 24px;
+  text-align: center;
+}
+.gifts-leer-bild {
+  display: block; width: 184px; height: 184px; margin-bottom: 10px;
+  filter: grayscale(1); opacity: .4;
+}
+:root[data-theme="dark"] .gifts-leer-bild { opacity: .42; }
+.gifts-leer b { font-size: 1.12rem; font-weight: 850; letter-spacing: -.015em; line-height: 1.3; }
+.gifts-leer p { max-width: 290px; margin: 6px 0 0; font-size: .88rem; line-height: 1.45; color: var(--muted); }
 
 /* ---- Freunde einladen: ehrliche Zahl, Hinweis "vorgemerkt", Link, Schritte */
 #invite-page .inv-kopf {
@@ -387,8 +478,6 @@ button.pf-rang:focus-visible { outline: 2px solid var(--akzent-text); outline-of
 /* ---- Antippen: nur transform */
 #view-profile .pf-bearbeiten:active, #gifts-page .gift-row:active { transform: scale(.97); }
 body.sparsam :is(#gifts-page .gift-row, button.pf-rang, .pe-farbe) { transition: none; }
-body.sparsam .pf-balken > span { transition: none; }
 @media (prefers-reduced-motion: reduce) {
   :is(#gifts-page .gift-row, button.pf-rang, .pe-farbe) { transition: none; }
-  .pf-balken > span { transition: none; }
 }
