@@ -127,6 +127,13 @@ body.wallet-farbe .topbar .iconbtn, body.wallet-farbe.kopf-weg .topbar .iconbtn 
 /* Logo: auf dem Rang-Verlauf weisse Buchstaben (Blau hat dort zu wenig Kontrast),
    sonst Markenblau; Muenzen und Funken bleiben gold */
 
+/* Suche oben rechts nur im Feed (und auf der Suchseite selbst). Unsichtbar
+   statt weg, damit das Logo in der Mitte bleibt. */
+body:not([data-ansicht="feed"]) #btn-search-top {
+  visibility: hidden; opacity: 0; pointer-events: none;
+}
+#btn-search-top { transition: opacity .2s ease, visibility 0s linear .2s; }
+body[data-ansicht="feed"] #btn-search-top { transition: opacity .2s ease, visibility 0s; }
 #btn-profile-top { padding: 0; overflow: visible; box-shadow: 0 0 0 2.5px #fff, 0 4px 14px rgba(0, 0, 0, .12); }
 :root[data-theme="dark"] #btn-profile-top { box-shadow: 0 0 0 2.5px rgba(255, 255, 255, .85), 0 4px 14px rgba(0, 0, 0, .3); }
 #btn-profile-top .avatar-mini { width: 100%; height: 100%; font-size: .95rem; }

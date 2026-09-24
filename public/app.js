@@ -532,6 +532,8 @@ function switchView(next, animClass) {
   const hauptreiter = HAUPT_TABS;
   const weich = hauptreiter.includes(next) && hauptreiter.includes(state.activeView);
   state.activeView = next;
+  // Die Suche oben rechts gehoert nur zum Feed (look.css blendet sie sonst aus)
+  document.body.dataset.ansicht = next;
 
   markiereTab(next);
 
