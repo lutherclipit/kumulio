@@ -1123,59 +1123,83 @@ let chat = loadJson('chat.json', { messages: [], mutes: {}, bans: {}, pinned: nu
 let dms = loadJson('dms.json', {});      // { "a|b": {msgs:[{id,from,text,ts}], reads:{user:ts}} }
 let reports = loadJson('reports.json', []);
 const dmKey = (a, b) => [a, b].sort().join('|');
-const chatLast = {}; // user -> {ts, text} für den Spam-Schutz (RAM reicht)
 const chatBurst = {}; // user -> [ts, ts, ts] — 3 schnelle Nachrichten frei, dann bremsen
 const BAD_WORDS = /hurensohn|hurentochter|fotze|wichser|missgeburt|schlampe|arschloch|spast(i|en)?|behindert(er|e)?|nutte|fick\s*dich|verpiss|fu+ck(er|\s*you)?|bitch|asshole|cunt|nigg\w*|fag(got)?|hitler|nazi/gi;
 function censor(text) {
   return text.replace(BAD_WORDS, m => m[0] + '*'.repeat(Math.max(2, m.length - 1)));
 }
 
-// Badges (aus Kisten, keine Echtgeld-Käufe), Icons kommen aus dem SVG-Sprite der App
-const BADGES = {
-  sternchen: { name: 'Sternchen', icon: 'star', rar: 'häufig' },
-  blitzdeal: { name: 'Blitzdeal', icon: 'bolt', rar: 'häufig' },
-  geschenkprofi: { name: 'Geschenkprofi', icon: 'gift', rar: 'häufig' },
-  flammenjaeger: { name: 'Flammenjäger', icon: 'flame', rar: 'selten' },
-  scheinsammler: { name: 'Scheinsammler', icon: 'banknote', rar: 'selten' },
-  spartippgenie: { name: 'Spartipp-Genie', icon: 'bulb', rar: 'selten' },
-  preischecker: { name: 'Preis-Checker', icon: 'check', rar: 'episch' },
-  kumuliolegende: { name: 'kumulio-Legende', icon: 'tag', rar: 'episch' },
-};
 function profileOf(user) {
   const u = users[user];
-  if (!u.profile) u.profile = { bio: '', coins: 0, badges: [], activeBadge: '', lastDailyDay: '', streak: 0, publicProfile: true };
-  const prof = u.profile;
-  prof.cases = prof.cases || [];
-  prof.paints = prof.paints || [];
-  prof.activePaint = prof.activePaint || '';
-  prof.dailyCount = prof.dailyCount || 0;
-  prof.goalsDone = prof.goalsDone || [];
-  prof.rankTier = prof.rankTier || 1;
-  prof.borders = prof.borders || [];
-  prof.activeBorder = prof.activeBorder || '';
-  return prof;
+  if (!u.profile) u.profile = { bio: '', publicProfile: true };
+  return u.profile;
 }
 
-// ---------------------------------------------------------------- Gamification 2.0 (Ränge, Kisten, Paints)
+// ---------------------------------------------------------------- Profil: Namensfarbe, Login-Serie, Einladungen
 //
-// KISTEN SIND AUSSCHLIESSLICH ERSPIELBAR.
-// Sie sind niemals kaufbar, niemals handelbar, niemals gegen Echtgeld oder
-// eine In-App-Währung (Funken; Feld heißt intern coins) erhältlich, und ihr Inhalt hat keinen Marktwert.
-// Diese Grenze trennt das Feature von einer Lootbox; in einer Finanz-App für
-// junge Erwachsene wäre alles andere glücksspiel- und verbraucherschutz-
-// rechtlich ein ernstes Problem. Deshalb: CaseSource enthält bewusst KEINEN
-// PURCHASE-Eintrag, und grantCase() wirft bei jeder unbekannten Quelle.
-// scripts/test-cases.js sichert genau das ab.
-// SHOP = Kauf mit ERSPIELTEN Funken. Funken selbst sind nirgends gegen Echtgeld
-// erhältlich (kein Payment-Endpoint, kein Store-Produkt), damit bleibt die
-// Echtgeld-Grenze aus dem Gamification-Brief intakt.
-const CaseSource = Object.freeze({
-  RANK_UP: 'RANK_UP',
-  GOAL_REACHED: 'GOAL_REACHED',
-  SAVINGS_STREAK: 'SAVINGS_STREAK',
-  SEASONAL: 'SEASONAL',
-  SHOP: 'SHOP',
-});
+// Kisten, Funken, Quests, Paints, Rahmen, Badges und der Punkte-Rang sind
+// raus (Wunsch des Nutzers, Runde 117). Die alten Felder bleiben in users.json
+// liegen (coins, cases, paints …), gelesen werden sie nicht mehr. Die
+// Endpunkte dazu antworten mit 410 (siehe GAMI_WEG).
+
+// Namensfarbe: frei waehlbar, gespeichert als #rrggbb. Wer keine gewaehlt
+// hat, bekommt im Client die feste Chat-Farbe seines Namens.
+const FARBE_OK = /^#[0-9a-f]{6}$/i;
+function namensfarbe(user) {
+  const f = users[user] && users[user].profile && users[user].profile.nameColor;
+  return typeof f === 'string' && FARBE_OK.test(f) ? f.toLowerCase() : null;
+}
+
+// Login-Serie: aufeinanderfolgende Kalendertage (Europe/Berlin), an denen man
+// angemeldet in der App war. Gezaehlt wird beim Abruf von /api/me und
+// /api/profile; es gibt dafuer nichts, sie steht nur im eigenen Profil.
+const BERLIN_TAG = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit', day: '2-digit' });
+const berlinTag = ts => BERLIN_TAG.format(new Date(ts)); // "2026-09-24"
+function tagDavor(tag) {
+  const d = new Date(tag + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+// true = heute neu gezaehlt (dann speichern)
+function zaehleLoginTag(prof, jetzt = Date.now()) {
+  const heute = berlinTag(jetzt);
+  const s = prof.loginStreak && typeof prof.loginStreak === 'object' ? prof.loginStreak : { tage: 0, rekord: 0, letzterTag: '' };
+  prof.loginStreak = s;
+  if (s.letzterTag === heute) return false;
+  s.tage = s.letzterTag === tagDavor(heute) ? (Number(s.tage) || 0) + 1 : 1;
+  s.rekord = Math.max(Number(s.rekord) || 0, s.tage);
+  s.letzterTag = heute;
+  return true;
+}
+// Was angezeigt wird: eine Serie, die vor gestern endete, ist vorbei
+function loginSerie(prof, jetzt = Date.now()) {
+  const s = prof.loginStreak || {};
+  const heute = berlinTag(jetzt);
+  const laeuft = s.letzterTag === heute || s.letzterTag === tagDavor(heute);
+  return { tage: laeuft ? Number(s.tage) || 0 : 0, rekord: Number(s.rekord) || 0 };
+}
+// Geworbene Freunde: vorgemerkt fuer spaetere Belohnungen, heute gibt es nichts.
+// refCount stammt aus der Zeit mit Funken-Bonus und zaehlt mit.
+const eingeladenZahl = prof => Math.max(Number(prof.refCount) || 0, (prof.geworben || []).length);
+// Das eigene Profil fuer den Client — nur, was er braucht (die Alt-Felder
+// von frueher, z. B. tausende gesehene Gutschein-IDs, gehen nicht mehr mit)
+function eigenesProfil(user) {
+  const prof = profileOf(user);
+  return {
+    user, bio: prof.bio || '', publicProfile: prof.publicProfile !== false,
+    avatar: prof.avatar || '', favs: prof.favs || {},
+    friends: prof.friends || [], friendRequests: prof.friendRequests || [],
+    nameColor: namensfarbe(user), loginStreak: loginSerie(prof),
+    eingeladen: eingeladenZahl(prof),
+  };
+}
+// Abgeschaltete Endpunkte (Kisten, Funken, Quests, Shop, Paints, Rahmen):
+// 410 statt 404, damit klar ist: das gab es, und es ist bewusst weg
+const GAMI_WEG = new Set([
+  '/api/daily', '/api/gami', '/api/quests/claim', '/api/case/open', '/api/item/sell',
+  '/api/item/sell-many', '/api/sticker/use', '/api/shop/buy', '/api/border', '/api/paint',
+]);
+
 // Freischaltbare Chat-Emotes (7TV, verifizierte IDs) als Kisten-Items
 // Ziehbarer Emote-Pool: 21 Emotes aus dem offiziellen 7TV-Global-Set (Stand
 // 08/2026), so gross wie eine CS-Sticker-Kapsel. Bekanntheit = Stufe: die
@@ -1219,15 +1243,16 @@ const LEGACY_EMOTES = {
 };
 const markLegacy = obj => Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, { ...v, legacy: true }]));
 const EMOTES_ALL = { ...markLegacy(LEGACY_EMOTES), ...UNLOCK_EMOTES };
-// Nachrichten werden beim AUSLIEFERN mit dem aktuellen Look ihres Autors
-// angereichert (Paint, Badge, Rang, Rahmen): ein Paint-Wechsel wirkt damit
-// sofort auf alle alten Nachrichten, gespeichert wird nichts um.
+// Nachrichten werden beim AUSLIEFERN mit der aktuellen Namensfarbe ihres
+// Autors angereichert (Feld "paint", #rrggbb oder null): ein Farbwechsel wirkt
+// damit sofort auf alle alten Nachrichten, gespeichert wird nichts um. Was
+// alte Nachrichten noch an Badge, Rang oder Rahmen tragen, geht nicht mit raus
+// — Raenge sind privat.
 function withLiveLook(msgs, field) {
   return msgs.map(m => {
+    const { badge, rank, border, paint, ...rest } = m;
     const name = m[field];
-    if (m.deleted || !name || !users[name]) return m;
-    const lp = profileOf(name);
-    return { ...m, paint: lp.activePaint || '', badge: lp.activeBadge || '', rank: lp.rankTier || 1, border: lp.activeBorder || '' };
+    return { ...rest, paint: !m.deleted && name && users[name] ? namensfarbe(name) : null };
   });
 }
 
@@ -1240,127 +1265,6 @@ function lockedEmoteIn(text, prof) {
   }
   return '';
 }
-// Float 0-999 wie bei CS: Schnapszahlen (111, 222 …) und Straßen (123, 456 …)
-// sind "shiny" und wertvoller
-function rollFloat() { return Math.floor(Math.random() * 1000); }
-function isShiny(f) {
-  const s = String(f).padStart(3, '0');
-  const rep = s[0] === s[1] && s[1] === s[2];
-  const straight = (+s[1] === +s[0] + 1 && +s[2] === +s[1] + 1);
-  return rep || straight;
-}
-const SELL_VALUES = { common: 20, uncommon: 40, rare: 90, epic: 200, legendary: 500 };
-// Mehrfachbesitz: die x-te Kopie eines Items hat ihren Float unter kind:id#x
-function floatKeyOf(kind, id, copy) { return copy > 0 ? `${kind}:${id}#${copy}` : `${kind}:${id}`; }
-function itemValue(rarity, float) { return (SELL_VALUES[rarity] || 20) * (isShiny(float) ? 5 : 1); }
-// Quests: Funken für echte Mitmach-Meilensteine (alles ohne Echtgeld)
-const QUESTS = [
-  { key: 'comment', name: 'Kommentare schreiben', milestones: [[1, 30], [5, 60], [20, 150]] },
-  { key: 'rate', name: 'Deals bewerten', milestones: [[1, 20], [10, 80], [50, 250]] },
-  { key: 'chat', name: 'Mit Freunden schreiben', milestones: [[10, 40], [100, 200]] },
-  { key: 'friend', name: 'Freunde finden', milestones: [[1, 40], [5, 120]] },
-  { key: 'voucher', name: 'Gutscheine gesammelt', milestones: [[1, 30], [5, 80], [20, 200]] },
-  { key: 'booking', name: 'Beträge abbuchen', milestones: [[5, 60], [25, 180]] },
-  { key: 'daily', name: 'Tage aktiv', milestones: [[7, 100], [30, 400]] },
-  { key: 'newsletter', name: 'Newsletter abonniert', milestones: [[1, 50]] },
-  { key: 'push', name: 'Preisfehler-Alarm aktiv', milestones: [[1, 50]] },
-];
-function bumpQuest(user, key, n = 1) {
-  const prof = profileOf(user);
-  prof.quests = prof.quests || {};
-  prof.quests[key] = (prof.quests[key] || 0) + n;
-}
-// Wann ist der naechste Tagesbonus faellig? 24h nach der letzten Oeffnung.
-// Bestandskonten ohne Zeitstempel: aus dem alten Kalendertag-Feld abgeleitet
-function dailyNextTs(prof) {
-  if (prof.lastDailyTs) return prof.lastDailyTs + 24 * 3600e3;
-  if (prof.lastDailyDay) {
-    const t = Date.parse(prof.lastDailyDay);
-    if (!isNaN(t)) return t + 24 * 3600e3;
-  }
-  return 0;
-}
-
-// Lebenszeit-Zähler: was einmal geleistet wurde, bleibt gezählt — Rang und
-// Quests sinken NIE, wenn der Nutzer alte Gutscheine aus der Wallet aufräumt.
-// Erkennung über gesehene IDs (Gutschein) bzw. id:ts-Schlüssel (Abbuchung).
-function updateLifetime(user) {
-  const prof = profileOf(user);
-  const w = wallets[user] || { vouchers: [] };
-  if (!prof.life) {
-    // Bestandskonten starten mit dem aktuellen Stand als Sockel
-    prof.life = { v: 0, tx: 0 };
-    prof.seenV = [];
-    prof.seenTx = [];
-  }
-  const seenV = new Set(prof.seenV);
-  const seenTx = new Set(prof.seenTx);
-  for (const v of (w.vouchers || [])) {
-    // Rabattcodes sind kein Guthaben — sie zaehlen nicht fuer Quests und Punkte
-    if (!v || !v.id || v.art === 'rabatt') continue;
-    if (!seenV.has(v.id)) { seenV.add(v.id); prof.seenV.push(v.id); prof.life.v++; }
-    for (const t of (v.tx || [])) {
-      const key = v.id + ':' + (t.ts || 0);
-      if (!seenTx.has(key)) { seenTx.add(key); prof.seenTx.push(key); prof.life.tx++; }
-    }
-  }
-  if (prof.seenV.length > 3000) prof.seenV = prof.seenV.slice(-3000);
-  if (prof.seenTx.length > 9000) prof.seenTx = prof.seenTx.slice(-9000);
-  return prof.life;
-}
-
-// Fortschritt lesen, fällige Meilensteine gutschreiben (eine zentrale Stelle)
-function questProgress(user) {
-  const prof = profileOf(user);
-  prof.quests = prof.quests || {};
-  prof.questsAwarded = prof.questsAwarded || [];
-  const life = updateLifetime(user);
-  const live = {
-    ...prof.quests,
-    friend: Math.max(prof.quests.friend || 0, (prof.friends || []).length),
-    voucher: life.v,
-    booking: life.tx,
-    daily: prof.dailyCount || 0,
-    newsletter: users[user] && users[user].newsletter ? 1 : 0,
-    push: prof.pushOn ? 1 : 0,
-  };
-  // Erreichte Meilensteine werden NICHT automatisch gutgeschrieben,
-  // die Funken holt man sich per /api/quests/claim ab
-  const claimable = [];
-  for (const q of QUESTS) {
-    for (const [n, coins] of q.milestones) {
-      const tag = `${q.key}:${n}`;
-      if ((live[q.key] || 0) >= n && !prof.questsAwarded.includes(tag)) {
-        claimable.push({ key: q.key, quest: q.name, n, coins, tag });
-      }
-    }
-  }
-  return { live, claimable };
-}
-// Nur noch Farbe + Label: die Zieh-Gewichte leben AUSSCHLIESSLICH in den
-// Container-Tabellen unten, sonst driftet die angezeigte Chance von der echten weg
-const RARITY = {
-  common: { color: '#8B96A5', label: 'Gewöhnlich' },
-  uncommon: { color: '#12C77E', label: 'Ungewöhnlich' },
-  rare: { color: '#3B82F6', label: 'Selten' },
-  epic: { color: '#8B5CF6', label: 'Episch' },
-  legendary: { color: '#F5B301', label: 'Legendär' },
-};
-// Droprates: die von Valve offengelegten CS-Werte (Prozentwerte sind nicht
-// schutzfähig; Stufennamen/Farben bleiben unsere eigenen). Summe je exakt 100.
-const ODDS_CASE = { common: 79.92, uncommon: 15.98, rare: 3.20, epic: 0.64, legendary: 0.26 };
-const ODDS_CAPSULE = { common: 80.0, uncommon: 16.0, rare: 3.2, epic: 0.8 };
-// Drei Container-Typen: EINE Tabelle für Inhalt, Chancen, Preis und Icon.
-// Nur mit erspielten Funken kaufbar, niemals gegen Echtgeld.
-const CONTAINERS = {
-  'emote-capsule': { name: 'Emote-Kapsel', odds: ODDS_CAPSULE, kinds: ['emote'], price: 150, img: 'container-emote-capsule' },
-  'sticker-capsule': { name: 'Sticker-Kapsel', odds: ODDS_CAPSULE, kinds: ['sticker'], price: 150, img: 'container-sticker-capsule' },
-  'paint-capsule': { name: 'Paint-Kapsel', odds: ODDS_CAPSULE, kinds: ['paint'], price: 200, img: 'container-paint-capsule' },
-  'border-capsule': { name: 'Rahmen-Kapsel', odds: ODDS_CAPSULE, kinds: ['border'], price: 200, img: 'container-border-capsule' },
-  'emote-case': { name: 'Emote-Case', odds: ODDS_CASE, kinds: ['emote', 'paint', 'badge'], price: 400, img: 'container-emote-case' },
-};
-// Alte Kisten der Bestandsnutzer bleiben öffenbar: Typ-Mapping statt Verfall
-const LEGACY_CONTAINER = { standard: 'emote-capsule', silber: 'emote-capsule', gold: 'emote-case', prisma: 'emote-case' };
 // Sticker: kuratierter, austauschbarer Pool (7TV-Global-Set, IDs verifiziert).
 // Sticker klebt man auf Gutscheine in der Wallet — Position frei, max 4 pro Karte.
 const STICKERS = {
@@ -1397,76 +1301,6 @@ const LEGACY_STICKERS = {
   WAYTOODANK: { id: '01G98W833R0000BRQD106P0ZNT', rarity: 'rare' },
 };
 const STICKERS_ALL = { ...markLegacy(LEGACY_STICKERS), ...STICKERS };
-// Profilbild-Rahmen (Border-Kapsel): reine CSS-Looks im Discord/Steam-Stil,
-// der Client kennt zu jeder ID eine .pfb-<id>-Klasse
-const BORDERS = {
-  bronzering: { name: 'Bronzering', rarity: 'common' },
-  stahlring: { name: 'Stahlring', rarity: 'common' },
-  kohle: { name: 'Kohle', rarity: 'common' },
-  jeans: { name: 'Jeans', rarity: 'common' },
-  smaragd: { name: 'Smaragd', rarity: 'uncommon' },
-  rose: { name: 'Rosé', rarity: 'uncommon' },
-  tiefsee: { name: 'Tiefsee', rarity: 'uncommon' },
-  goldring: { name: 'Goldring', rarity: 'rare' },
-  neonpink: { name: 'Neonpink', rarity: 'rare' },
-  eisring: { name: 'Eisring', rarity: 'rare' },
-  regenbogen: { name: 'Regenbogen', rarity: 'epic' },
-  plasma: { name: 'Plasma', rarity: 'epic' },
-};
-// Ziehung aus einer Odds-Tabelle — dieselbe Funktion füttert auch die Simulation
-function rollRarity(odds) {
-  let roll = Math.random() * 100;
-  for (const [k, w] of Object.entries(odds)) { roll -= w; if (roll <= 0) return k; }
-  return Object.keys(odds)[0];
-}
-// Zehn Ränge, Aufstieg über Spar-AKTIVITÄT (Buchungen, Gutscheine, aktive Tage,
-// aufgebrauchte Gutscheine = erreichte Ziele), nie über die Betragshöhe.
-const RANKS10 = [
-  { tier: 1, id: 'pfennig', name: 'Pfennig', points: 0, color: '#a05c1e' },
-  { tier: 2, id: 'groschen', name: 'Groschen', points: 10, color: '#8B96A5' },
-  { tier: 3, id: 'batzen', name: 'Batzen', points: 25, color: '#b0873a' },
-  { tier: 4, id: 'sparbuechse', name: 'Sparbüchse', points: 50, color: '#d4788c' },
-  { tier: 5, id: 'buendel', name: 'Bündel', points: 90, color: '#3f9c56' },
-  { tier: 6, id: 'dukat', name: 'Dukat', points: 150, color: '#c28f00' },
-  { tier: 7, id: 'geldsack', name: 'Geldsack', points: 240, color: '#8a6d3b' },
-  { tier: 8, id: 'goldbarren', name: 'Goldbarren', points: 360, color: '#F5B301' },
-  { tier: 9, id: 'tresor', name: 'Tresor', points: 520, color: '#5b6b7c' },
-  { tier: 10, id: 'schatzkammer', name: 'Schatzkammer', points: 750, color: '#8B5CF6' },
-];
-let PAINTS = { paints: [] };
-try { PAINTS = JSON.parse(fs.readFileSync(path.join(PUBLIC, 'gamification', 'paints.json'), 'utf8')); } catch { }
-
-// Aktivitätspunkte: 2 je Buchung, 5 je Gutschein, 1 je aktivem Tag, 8 je Ziel.
-// Bewusst über die Lebenszeit-Zähler: Aufräumen der Wallet kostet keine Punkte
-function activityPoints(user) {
-  const prof = profileOf(user);
-  const life = updateLifetime(user);
-  return life.tx * 2 + life.v * 5 + prof.dailyCount + prof.goalsDone.length * 8;
-}
-function rankOf(points) {
-  let cur = RANKS10[0];
-  for (const r of RANKS10) if (points >= r.points) cur = r;
-  return cur;
-}
-function grantCase(user, type, source) {
-  if (!Object.values(CaseSource).includes(source)) {
-    throw new Error('Kisten gibt es nur für Spar-Aktivität, Quelle unbekannt: ' + source);
-  }
-  const prof = profileOf(user);
-  prof.cases.push({ id: crypto.randomBytes(5).toString('hex'), type, source, ts: Date.now() });
-  if (prof.cases.length > 50) prof.cases = prof.cases.slice(-50);
-}
-// Rang-Aufstiege prüfen und belohnen (je neuer Stufe eine Kiste)
-function ensureProgress(user) {
-  const prof = profileOf(user);
-  // Alt-Kisten (standard/silber/gold/prisma) auf die neuen Container mappen
-  (prof.cases || []).forEach(c => { if (LEGACY_CONTAINER[c.type]) c.type = LEGACY_CONTAINER[c.type]; });
-  const rank = rankOf(activityPoints(user));
-  while (prof.rankTier < rank.tier) {
-    prof.rankTier++;
-    grantCase(user, prof.rankTier >= 7 ? 'emote-case' : 'emote-capsule', CaseSource.RANK_UP);
-  }
-}
 
 // ---------------------------------------------------------------- Sparkarten-Coupons
 // Coupons, die es NUR im Papier-Flyer oder in der Anbieter-App gibt, gepflegt
@@ -2298,28 +2132,22 @@ const server = http.createServer(async (req, res) => {
       if (NEU_VERSIONEN[0]) profileOf(user).neuGesehen = NEU_VERSIONEN[0];
       setTimeout(() => emailBestaetigungSchicken(user), 0);
       // Freunde werben Freunde: kam die Registrierung ueber einen Einladungslink,
-      // bekommt der Werber 1000 Funken (Mitmach-Belohnung, kein Echtgeld-Pfad;
-      // Deckel gegen Fake-Konten-Farmen)
+      // wird sie beim Werber vorgemerkt. Eine Belohnung gibt es (noch) nicht —
+      // sobald es Einloesemoeglichkeiten gibt, zaehlen die gemerkten mit.
       const ref = String(b.ref || '').trim();
       const refUser = ref && Object.keys(users).find(k => k.toLowerCase() === ref.toLowerCase());
-      let refBonus = 0;
       if (refUser && refUser !== user) {
-        // Beide profitieren: Werber 1.000, Neuling 500 Funken zum Start.
-        // Kein Limit — wer viele Leute mitbringt, verdient auch viel.
         const rp = profileOf(refUser);
         rp.refCount = (rp.refCount || 0) + 1;
-        rp.coins = (rp.coins || 0) + 1000;
-        const np = profileOf(user);
-        np.coins = (np.coins || 0) + 500;
-        np.invitedBy = refUser;
-        refBonus = 500;
-        pushToUser(refUser, { title: 'Freund geworben!', body: `@${user} ist über deinen Link dabei: 1.000 Funken für dich.`, url: '/?tab=profile', tag: 'ref-' + user, kind: 'info', from: user });
+        rp.geworben = [...(rp.geworben || []), { user, ts: Date.now() }].slice(-1000);
+        profileOf(user).invitedBy = refUser;
+        pushToUser(refUser, { title: 'Freund eingeladen', body: `@${user} ist über deinen Link dabei.`, url: '/?tab=profile', tag: 'ref-' + user, kind: 'info', from: user });
       }
       saveJson('users.json', users);
       const token = crypto.randomBytes(18).toString('hex');
       sessions[token] = user;
       saveJson('sessions.json', sessions);
-      return send(res, 201, { token, user, refBonus });
+      return send(res, 201, { token, user });
     }
 
     // ---- Passwort vergessen: Link per E-Mail (gilt 60 Minuten, einmal)
@@ -2581,12 +2409,12 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- Metadaten fuer Chats und Profile (der Global-Chat ist entfernt)
-    // Emotes, Abzeichen, Paints und Raenge. Frueher kamen die huckepack mit dem
+    // Emotes und Wallet-Grenzen. Frueher kamen die huckepack mit dem
     // Global-Chat — den gibt es nicht mehr, gebraucht werden sie aber weiter:
     // in den Fluesterchats, auf Profilen und beim Verschenken.
     if (p === '/api/meta' && req.method === 'GET') {
       const allEmotes = { ...emoteCache.map, ...Object.fromEntries(Object.entries(UNLOCK_EMOTES).map(([k, v]) => [k, v.id])) };
-      return send(res, 200, { emotes: allEmotes, badges: BADGES, paints: PAINTS.paints, ranks: RANKS10,
+      return send(res, 200, { emotes: allEmotes,
         walletLimit: { gutscheine: WALLET_LIMIT_GUTSCHEINE, karten: WALLET_LIMIT_KARTEN } });
     }
     // Den Global-Chat gibt es nicht mehr. Wer die App noch von vorher offen hat,
@@ -2596,7 +2424,7 @@ const server = http.createServer(async (req, res) => {
       const allEmotes = { ...emoteCache.map, ...Object.fromEntries(Object.entries(UNLOCK_EMOTES).map(([k, v]) => [k, v.id])) };
       return send(res, 200, {
         messages: [], updates: [], pinned: null,
-        emotes: allEmotes, badges: BADGES, paints: PAINTS.paints, ranks: RANKS10,
+        emotes: allEmotes,
       });
     }
     // Global-Chat entfernt: Schreiben, Moderieren und Loeschen dort gehen
@@ -2644,14 +2472,14 @@ const server = http.createServer(async (req, res) => {
       list.forEach(l => {
         const lp = users[l.partner] ? profileOf(l.partner) : null;
         l.avatar = lp ? lp.avatar || '' : '';
-        l.border = lp ? lp.activeBorder || '' : '';
+        l.paint = namensfarbe(l.partner);
       });
       // Freunde ohne bisherigen Chat mit anbieten
       const friends = (profileOf(me).friends || [])
         .filter(f => !list.some(l => l.partner === f))
         .map(f => {
           const fp = users[f] ? profileOf(f) : null;
-          return { name: f, avatar: fp ? fp.avatar || '' : '', border: fp ? fp.activeBorder || '' : '' };
+          return { name: f, avatar: fp ? fp.avatar || '' : '', paint: namensfarbe(f) };
         });
       return send(res, 200, { list, friends });
     }
@@ -2696,57 +2524,29 @@ const server = http.createServer(async (req, res) => {
       if (to === me) return send(res, 400, { error: 'Mit dir selbst flüstern? Sadge.' });
       const text = String(b.text || '').trim().slice(0, 220);
       if (!text) return send(res, 400, { error: 'Leere Nachricht.' });
-      // Admin-Befehl !funken NAME BETRAG — frueher im Global-Chat getippt, jetzt
-      // in jedem Fluesterchat. Er wird NICHT an das Gegenueber geschickt.
-      // Reines Betriebswerkzeug der Redaktion; Funken sind weiterhin nie kaufbar.
-      if (/^!funken\b/i.test(text)) {
-        if (roleOf(me) !== 'admin') return send(res, 403, { error: 'Nur für Admins.' });
-        const fk = text.match(/^!funken\s+@?([A-Za-z0-9_.-]{3,24})\s+(-?\d{1,6})$/i);
-        if (!fk) return send(res, 400, { error: 'Format: !funken NAME BETRAG' });
-        const target = fk[1];
-        if (!users[target]) return send(res, 404, { error: `Nutzer ${target} nicht gefunden.` });
-        const amount = Math.max(-100000, Math.min(100000, Number(fk[2]) || 0));
-        const tp = profileOf(target);
-        tp.coins = Math.max(0, (tp.coins || 0) + amount);
-        saveJson('users.json', users);
-        if (target !== me && amount > 0) {
-          pushToUser(target, { title: 'Funken-Gutschrift', body: `${amount.toLocaleString('de-DE')} Funken von der Redaktion sind da.`, url: '/?tab=profile', tag: 'coins-admin', kind: 'info', from: me });
-        }
-        return send(res, 200, { ok: true, admin: `@${target} hat jetzt ${tp.coins.toLocaleString('de-DE')} Funken (${amount >= 0 ? '+' : ''}${amount.toLocaleString('de-DE')}).` });
-      }
       // Auch beim Flüstern: 3 schnelle Nachrichten frei, erst dann bremsen
       chatBurst['dm:' + me] = (chatBurst['dm:' + me] || []).filter(t => Date.now() - t < 5000);
       if (chatBurst['dm:' + me].length >= 3) return send(res, 429, { error: 'Langsam, kurz warten.' });
       chatBurst['dm:' + me].push(Date.now());
-      const vorige = chatLast['dm:' + me];
-      const wiederholung = !!vorige && vorige.text === text && vorige.to === to;
-      chatLast['dm:' + me] = { ts: Date.now(), text, to };
       const key = dmKey(me, to);
       dms[key] = dms[key] || { msgs: [], reads: {} };
-      // Paint, Badge, Rang und Rahmen laufen auch im Privatchat mit
       const dmProf = profileOf(me);
       const lockedDm = lockedEmoteIn(text, dmProf);
       if (lockedDm) return send(res, 400, { error: `Du hast ${lockedDm} noch nicht gezogen.` });
+      // Gespeichert wird nur die Rolle; die Namensfarbe kommt beim Ausliefern
+      // frisch dazu (withLiveLook), Raenge gehen nie mit raus
       const msg = {
         id: crypto.randomBytes(5).toString('hex'), from: me, text: censor(text), ts: Date.now(),
-        badge: dmProf.activeBadge || '', role: roleOf(me),
-        rank: dmProf.rankTier || 1, paint: dmProf.activePaint || '',
-        border: dmProf.activeBorder || '',
+        role: roleOf(me),
       };
       dms[key].msgs.push(msg);
       if (dms[key].msgs.length > 200) dms[key].msgs = dms[key].msgs.slice(-200);
       dms[key].reads[me] = Date.now();
-      // Die Aufgabe "Mit Freunden schreiben" zaehlt hier — frueher im
-      // Global-Chat. Gleicher Schluessel, damit der Fortschritt erhalten bleibt.
-      // Nur an Freunde und keine wortgleiche Wiederholung, sonst liesse sie
-      // sich abgrasen (der Global-Chat hatte dafuer eine Doppel-Sperre).
-      if (!wiederholung && (profileOf(me).friends || []).includes(to)) bumpQuest(me, 'chat');
       saveJsonSoon('dms.json', dms);
-      saveJsonSoon('users.json', users);
       ssePush('dm', to); // Empfänger sieht die Nachricht sofort
       // Aufs Handy, auch wenn die App zu ist; der Client blendet es im offenen Chat selbst aus
       pushToUser(to, { title: `@${me}`, body: msg.text.slice(0, 120), url: '/?chat=dm&user=' + encodeURIComponent(me), tag: 'dm-' + me, kind: 'dm', from: me });
-      return send(res, 201, { ok: true, message: msg });
+      return send(res, 201, { ok: true, message: { ...msg, paint: namensfarbe(me) } });
     }
     // Freunde: Anfrage senden, annehmen, ablehnen, entfernen (beidseitig)
     if (p === '/api/friend' && req.method === 'POST') {
@@ -2767,7 +2567,6 @@ const server = http.createServer(async (req, res) => {
         my.friendRequests = my.friendRequests.filter(f => f !== target);
         if (!my.friends.includes(target)) my.friends.push(target);
         if (!their.friends.includes(me)) their.friends.push(me);
-        bumpQuest(me, 'friend'); bumpQuest(target, 'friend');
       } else if (b.action === 'decline') {
         my.friendRequests = my.friendRequests.filter(f => f !== target);
       } else { // Anfrage senden
@@ -2793,15 +2592,14 @@ const server = http.createServer(async (req, res) => {
         banned: !!chat.bans[name],
         mutedUntil: (chat.mutes[name] || 0) > Date.now() ? chat.mutes[name] : 0,
       } : {};
+      // Die Namensfarbe steht ohnehin an jeder Nachricht, sie ist nicht privat.
+      // Der Rang dagegen schon: er geht nie an andere.
       if (prof.publicProfile === false) {
-        return send(res, 200, { user: name, private: true, role: roleOf(name), ...modInfo });
+        return send(res, 200, { user: name, private: true, role: roleOf(name), activePaint: namensfarbe(name), ...modInfo });
       }
       return send(res, 200, {
         user: name, role: roleOf(name), bio: prof.bio || '', avatar: prof.avatar || '',
-        badges: prof.badges || [], activeBadge: prof.activeBadge || '', favs: prof.favs || {},
-        badgesAll: BADGES, showcase: prof.showcase || [], floats: prof.floats || {},
-        rankTier: prof.rankTier || 1, activePaint: prof.activePaint || '',
-        activeBorder: prof.activeBorder || '', ...modInfo,
+        favs: prof.favs || {}, activePaint: namensfarbe(name), ...modInfo,
       });
     }
 
@@ -2859,6 +2657,9 @@ const server = http.createServer(async (req, res) => {
         if (!pr) continue;
         if (pr.friends) pr.friends = pr.friends.map(f => f === me ? neu : f);
         if (pr.friendRequests) pr.friendRequests = pr.friendRequests.map(f => f === me ? neu : f);
+        // Vorgemerkte Einladungen ziehen mit
+        if (pr.invitedBy === me) pr.invitedBy = neu;
+        for (const g of pr.geworben || []) if (g && g.user === me) g.user = neu;
       }
       for (const list of Object.values(comments)) {
         list.forEach(c => {
@@ -2956,7 +2757,6 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req);
       if (!b.endpoint || !b.keys?.p256dh || !b.keys?.auth) return send(res, 400, { error: 'Ungültiges Abo.' });
       const subUser = authUser(req);
-      if (subUser) { profileOf(subUser).pushOn = true; saveJson('users.json', users); }
       const existing = pushSubs.find(s => s.endpoint === b.endpoint);
       if (existing) {
         // Abo an den (jetzt) angemeldeten Nutzer binden, damit DMs/Erwähnungen ankommen
@@ -2975,11 +2775,14 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true });
     }
 
-    // ---- Profil & Gamification: Funken, Container, Badges, alles OHNE Echtgeld
+    // ---- Profil: Bio, Bild, Lieblingsmarken, Namensfarbe, Login-Serie
+    // Kisten, Funken, Quests, Shop, Paints und Rahmen gibt es nicht mehr
+    if (GAMI_WEG.has(p)) return send(res, 410, { error: 'Diese Funktion gibt es nicht mehr.' });
     if (p === '/api/profile' && req.method === 'GET') {
       const user = authUser(req);
       if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
-      return send(res, 200, { user, ...profileOf(user), badgesAll: BADGES });
+      if (zaehleLoginTag(profileOf(user))) saveJsonSoon('users.json', users);
+      return send(res, 200, eigenesProfil(user));
     }
     if (p === '/api/profile' && req.method === 'POST') {
       const user = authUser(req);
@@ -2988,21 +2791,15 @@ const server = http.createServer(async (req, res) => {
       const prof = profileOf(user);
       if (typeof b.bio === 'string') prof.bio = censor(b.bio.trim().slice(0, 160));
       if (typeof b.publicProfile === 'boolean') prof.publicProfile = b.publicProfile;
-      if (typeof b.activeBadge === 'string')
-        prof.activeBadge = (b.activeBadge === '' || prof.badges.includes(b.activeBadge)) ? b.activeBadge : prof.activeBadge;
       // Profilbild: kleines dataURL-Bild (Client verkleinert auf 96px)
       // Ganz pruefen, nicht nur den Anfang: das Bild landet bei allen in src="…"
       if (typeof b.avatar === 'string' && (b.avatar === '' || (AVATAR_OK.test(b.avatar) && b.avatar.length < 60_000)))
         prof.avatar = b.avatar;
-      // Showcase: bis zu 3 eigene Items im Profil zeigen ("kind:id")
-      if (Array.isArray(b.showcase)) {
-        const owns = k => {
-          const [kind, id] = String(k).split(':');
-          return (kind === 'paint' && prof.paints.includes(id))
-            || (kind === 'badge' && prof.badges.includes(id))
-            || (kind === 'emote' && (prof.emotes || []).includes(id));
-        };
-        prof.showcase = b.showcase.filter(owns).slice(0, 3);
+      // Namensfarbe: #rrggbb oder leer (= automatisch, die feste Chat-Farbe)
+      if (b.nameColor === '' || b.nameColor === null) delete prof.nameColor;
+      else if (typeof b.nameColor === 'string') {
+        if (!FARBE_OK.test(b.nameColor)) return send(res, 400, { error: 'Bitte eine Farbe im Format #RRGGBB wählen.' });
+        prof.nameColor = b.nameColor.toLowerCase();
       }
       // Lieblings-Kleinigkeiten fürs Profil, alles durch den Filter
       if (b.favs && typeof b.favs === 'object') {
@@ -3012,177 +2809,7 @@ const server = http.createServer(async (req, res) => {
         }
       }
       saveJson('users.json', users);
-      return send(res, 200, { ok: true, ...prof });
-    }
-    if (p === '/api/daily' && req.method === 'POST') {
-      const user = authUser(req);
-      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
-      const prof = profileOf(user);
-      // 24 Stunden ab der letzten Oeffnung (nicht Kalendertag): der Client
-      // zeigt bis dahin einen Countdown und laesst den Knopf gar nicht erst zu
-      const nextTs = dailyNextTs(prof);
-      if (Date.now() < nextTs) return send(res, 409, { error: 'Noch nicht so weit.', nextTs });
-      // Serie haelt, solange man innerhalb von 48h nach der letzten Oeffnung kommt
-      const lastTs = prof.lastDailyTs || 0;
-      prof.streak = lastTs && Date.now() - lastTs < 48 * 3600e3 ? (prof.streak || 0) + 1 : 1;
-      const gained = 25 + Math.min(25, (prof.streak - 1) * 5);
-      prof.coins = (prof.coins || 0) + gained;
-      prof.lastDailyDay = new Date().toDateString();
-      prof.lastDailyTs = Date.now();
-      prof.dailyCount = (prof.dailyCount || 0) + 1;
-      // Jede volle 7er-Serie bringt eine erspielte Kiste (nie kaufbar, siehe oben)
-      let caseWon = null;
-      if (prof.streak % 7 === 0) { grantCase(user, 'emote-capsule', CaseSource.SAVINGS_STREAK); caseWon = 'emote-capsule'; }
-      ensureProgress(user);
-      saveJson('users.json', users);
-      return send(res, 200, { ok: true, gained, coins: prof.coins, streak: prof.streak, caseWon });
-    }
-    // Gamification-Überblick: Rang, Fortschritt, Kisten, Paints, offene Droprates
-    if (p === '/api/gami' && req.method === 'GET') {
-      const user = authUser(req);
-      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
-      ensureProgress(user);
-      const prof = profileOf(user);
-      const q = questProgress(user);
-      saveJson('users.json', users);
-      const points = activityPoints(user);
-      const rank = rankOf(points);
-      const next = RANKS10.find(r => r.tier === rank.tier + 1) || null;
-      return send(res, 200, {
-        points, rank, next, ranks: RANKS10, rarity: RARITY,
-        cases: prof.cases, paints: prof.paints, activePaint: prof.activePaint,
-        paintsAll: PAINTS.paints, emotes: prof.emotes || [], emotesAll: EMOTES_ALL,
-        floats: prof.floats || {}, showcase: prof.showcase || [],
-        coins: prof.coins || 0, streak: prof.streak || 0,
-        containers: CONTAINERS, badgesAll: BADGES, sellValues: SELL_VALUES,
-        stickers: prof.stickers || [], stickersAll: STICKERS_ALL,
-        borders: prof.borders || [], activeBorder: prof.activeBorder || '', bordersAll: BORDERS,
-        dailyNextTs: dailyNextTs(prof),
-        quests: QUESTS.map(x => ({ ...x, progress: q.live[x.key] || 0, awarded: (prof.questsAwarded || []).filter(t => t.startsWith(x.key + ':')) })),
-        claimable: q.claimable,
-      });
-    }
-    // Quest-Belohnung abholen
-    if (p === '/api/quests/claim' && req.method === 'POST') {
-      const user = authUser(req);
-      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
-      const b = await readBody(req);
-      const prof = profileOf(user);
-      const q = questProgress(user);
-      const item = q.claimable.find(c => c.tag === String(b.tag || ''));
-      if (!item) return send(res, 404, { error: 'Nichts abzuholen.' });
-      prof.questsAwarded.push(item.tag);
-      prof.coins = (prof.coins || 0) + item.coins;
-      saveJson('users.json', users);
-      return send(res, 200, { ok: true, coins: prof.coins, gained: item.coins, quest: item.quest });
-    }
-    // Kiste öffnen: das Ergebnis wird HIER bestimmt, die Walze im Client ist nur Show
-    if (p === '/api/case/open' && req.method === 'POST') {
-      const user = authUser(req);
-      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
-      const b = await readBody(req);
-      const prof = profileOf(user);
-      const idx = prof.cases.findIndex(c => c.id === String(b.id || ''));
-      if (idx < 0) return send(res, 404, { error: 'Diese Kiste hast du nicht.' });
-      const box = prof.cases[idx];
-      // Container-Tabelle ist die einzige Wahrheit: Odds + erlaubte Inhalte je Typ
-      const ctype = LEGACY_CONTAINER[box.type] || box.type;
-      const container = CONTAINERS[ctype] || CONTAINERS['emote-capsule'];
-      let rarity = rollRarity(container.odds);
-      // Pool nach Container-Inhalt; ist eine Stufe (noch) leer, eine Stufe runter
-      const badgeRar = { 'häufig': 'common', 'selten': 'rare', 'episch': 'epic' };
-      const poolFor = rar => [
-        ...(container.kinds.includes('paint') ? PAINTS.paints.filter(x => x.rarity === rar).map(x => ({ kind: 'paint', id: x.id, name: x.name })) : []),
-        ...(container.kinds.includes('badge') ? Object.entries(BADGES).filter(([, v]) => badgeRar[v.rar] === rar).map(([k, v]) => ({ kind: 'badge', id: k, name: v.name })) : []),
-        ...(container.kinds.includes('emote') ? Object.entries(UNLOCK_EMOTES).filter(([, v]) => v.rarity === rar).map(([k]) => ({ kind: 'emote', id: k, name: k })) : []),
-        ...(container.kinds.includes('sticker') ? Object.entries(STICKERS).filter(([, v]) => v.rarity === rar).map(([k]) => ({ kind: 'sticker', id: k, name: k })) : []),
-        ...(container.kinds.includes('border') ? Object.entries(BORDERS).filter(([, v]) => v.rarity === rar).map(([k, v]) => ({ kind: 'border', id: k, name: v.name })) : []),
-      ];
-      const ladder = Object.keys(container.odds);
-      let pool = poolFor(rarity);
-      while (!pool.length && ladder.indexOf(rarity) > 0) {
-        rarity = ladder[ladder.indexOf(rarity) - 1];
-        pool = poolFor(rarity);
-      }
-      const win = pool.length ? pool[Math.floor(Math.random() * pool.length)]
-        : { kind: 'emote', id: Object.keys(UNLOCK_EMOTES)[0], name: Object.keys(UNLOCK_EMOTES)[0] };
-      prof.cases.splice(idx, 1);
-      prof.emotes = prof.emotes || [];
-      prof.stickers = prof.stickers || [];
-      prof.floats = prof.floats || {};
-      prof.borders = prof.borders || [];
-      const list = win.kind === 'paint' ? prof.paints : win.kind === 'badge' ? prof.badges
-        : win.kind === 'sticker' ? prof.stickers : win.kind === 'border' ? prof.borders : prof.emotes;
-      // Mehrfachbesitz: jedes gezogene Item landet als eigene Kopie mit eigenem
-      // Float im Inventar (kein +40-Trostpreis mehr)
-      const dupe = false;
-      const float = rollFloat();
-      const copiesBefore = list.filter(x => x === win.id).length;
-      list.push(win.id);
-      prof.floats[floatKeyOf(win.kind, win.id, copiesBefore)] = float;
-      const shiny = isShiny(float);
-      const value = itemValue(rarity, float);
-      saveJson('users.json', users);
-      return send(res, 200, { ok: true, win: { ...win, rarity, float, shiny, value }, dupe, coins: prof.coins, cases: prof.cases });
-    }
-    // Item verkaufen: Wert nach Rarität, shiny x5; aktive Items werden abgelegt.
-    // sellOneItem ist die EINE Verkaufs-Wahrheit für Einzel- und Sammelverkauf.
-    function sellOneItem(prof, kind, id, copy) {
-      const lists = { paint: prof.paints, badge: prof.badges, emote: prof.emotes = prof.emotes || [], sticker: prof.stickers = prof.stickers || [], border: prof.borders = prof.borders || [] };
-      const list = lists[kind];
-      if (!list || !list.includes(id)) return { error: 'Item nicht gefunden.' };
-      const rarity = kind === 'paint' ? (PAINTS.paints.find(x => x.id === id) || {}).rarity
-        : kind === 'badge' ? ({ 'häufig': 'common', 'selten': 'rare', 'episch': 'epic' })[(BADGES[id] || {}).rar]
-        : kind === 'sticker' ? (STICKERS_ALL[id] || {}).rarity
-        : kind === 'border' ? (BORDERS[id] || {}).rarity
-        : (EMOTES_ALL[id] || {}).rarity;
-      const copies = list.filter(x => x === id).length;
-      const c = Math.min(Math.max(Number(copy) || 0, 0), copies - 1);
-      prof.floats = prof.floats || {};
-      const float = prof.floats[floatKeyOf(kind, id, c)] ?? 0;
-      const value = itemValue(rarity || 'common', float);
-      for (let k = c; k < copies - 1; k++) prof.floats[floatKeyOf(kind, id, k)] = prof.floats[floatKeyOf(kind, id, k + 1)] ?? 0;
-      delete prof.floats[floatKeyOf(kind, id, copies - 1)];
-      list.splice(list.indexOf(id), 1);
-      if (copies === 1) {
-        if (kind === 'badge' && prof.activeBadge === id) prof.activeBadge = '';
-        if (kind === 'paint' && prof.activePaint === id) prof.activePaint = '';
-        if (kind === 'border' && prof.activeBorder === id) prof.activeBorder = '';
-        prof.showcase = (prof.showcase || []).filter(s => s !== `${kind}:${id}`);
-      }
-      prof.coins = (prof.coins || 0) + value;
-      return { value };
-    }
-    if (p === '/api/item/sell' && req.method === 'POST') {
-      const user = authUser(req);
-      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
-      const b = await readBody(req);
-      const prof = profileOf(user);
-      const r = sellOneItem(prof, String(b.kind || ''), String(b.id || ''), b.copy);
-      if (r.error) return send(res, 404, { error: r.error });
-      saveJson('users.json', users);
-      return send(res, 200, { ok: true, value: r.value, coins: prof.coins });
-    }
-    // Sammelverkauf: mehrere markierte Items in einem Rutsch. Pro (kind,id)
-    // wird von der hoechsten Kopie abwaerts verkauft, damit die beim
-    // Einzelverkauf nachrueckenden Kopie-Nummern nicht verrutschen.
-    if (p === '/api/item/sell-many' && req.method === 'POST') {
-      const user = authUser(req);
-      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
-      const b = await readBody(req);
-      const items = (Array.isArray(b.items) ? b.items : []).slice(0, 100)
-        .map(x => ({ kind: String(x.kind || ''), id: String(x.id || ''), copy: Number(x.copy) || 0 }))
-        .sort((a, z) => z.copy - a.copy);
-      if (!items.length) return send(res, 400, { error: 'Nichts ausgewählt.' });
-      const prof = profileOf(user);
-      let total = 0, sold = 0;
-      for (const it of items) {
-        const r = sellOneItem(prof, it.kind, it.id, it.copy);
-        if (!r.error) { total += r.value; sold++; }
-      }
-      if (!sold) return send(res, 404, { error: 'Keins der Items gefunden.' });
-      saveJson('users.json', users);
-      return send(res, 200, { ok: true, sold, total, coins: prof.coins });
+      return send(res, 200, { ok: true, ...eigenesProfil(user) });
     }
     // Profil einmalig bewerten und kommentieren (ein Eintrag pro Besucher, Upsert)
     if (p === '/api/profile/comments' && req.method === 'GET') {
@@ -3191,7 +2818,7 @@ const server = http.createServer(async (req, res) => {
       const me = authUser(req);
       const list = (profComments[target] || []).map(c => {
         const cp = users[c.from] ? profileOf(c.from) : null;
-        return { ...c, avatar: cp ? cp.avatar || '' : '', paint: cp ? cp.activePaint || '' : '', border: cp ? cp.activeBorder || '' : '' };
+        return { ...c, avatar: cp ? cp.avatar || '' : '', paint: cp ? namensfarbe(c.from) : null };
       }).sort((a, z) => z.ts - a.ts);
       const stars = list.map(c => c.stars).filter(Boolean);
       const avg = stars.length ? Math.round(stars.reduce((a, x) => a + x, 0) / stars.length * 10) / 10 : 0;
@@ -3214,64 +2841,6 @@ const server = http.createServer(async (req, res) => {
       }
       saveJson('profile-comments.json', profComments);
       return send(res, 200, { ok: true });
-    }
-    // Sticker aufkleben: verbraucht das Inventar-Item (die Klebe-Position selbst
-    // lebt am Gutschein in der Wallet und wird vom Client gesynct)
-    if (p === '/api/sticker/use' && req.method === 'POST') {
-      const user = authUser(req);
-      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
-      const b = await readBody(req);
-      const id = String(b.id || '');
-      const prof = profileOf(user);
-      prof.stickers = prof.stickers || [];
-      const i = prof.stickers.indexOf(id);
-      if (i < 0) return send(res, 404, { error: 'Diesen Sticker hast du nicht.' });
-      const stCopies = prof.stickers.filter(x => x === id).length;
-      prof.stickers.splice(i, 1);
-      delete (prof.floats || {})[floatKeyOf('sticker', id, stCopies - 1)];
-      if (stCopies === 1) prof.showcase = (prof.showcase || []).filter(x => x !== `sticker:${id}`);
-      saveJson('users.json', users);
-      return send(res, 200, { ok: true, stickers: prof.stickers });
-    }
-    // Container-Shop: Kauf NUR mit erspielten Funken (Funken sind nie gegen Echtgeld erhältlich)
-    if (p === '/api/shop/buy' && req.method === 'POST') {
-      const user = authUser(req);
-      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
-      const b = await readBody(req);
-      const type = String(b.type || '');
-      const price = (CONTAINERS[type] || {}).price;
-      if (!price) return send(res, 400, { error: 'Diesen Container gibt es nicht.' });
-      // Mehrere auf einmal: Gesamtpreis atomar pruefen und abbuchen
-      const count = Math.max(1, Math.min(25, Math.floor(Number(b.count) || 1)));
-      const total = price * count;
-      const prof = profileOf(user);
-      if ((prof.coins || 0) < total) return send(res, 402, { error: `Dafür brauchst du ${total.toLocaleString('de-DE')} Funken, du hast ${(prof.coins || 0).toLocaleString('de-DE')}.` });
-      prof.coins -= total;
-      for (let i = 0; i < count; i++) grantCase(user, type, CaseSource.SHOP);
-      saveJson('users.json', users);
-      return send(res, 200, { ok: true, coins: prof.coins, cases: prof.cases, count });
-    }
-    // Profilbild-Rahmen anlegen/ablegen
-    if (p === '/api/border' && req.method === 'POST') {
-      const user = authUser(req);
-      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
-      const b = await readBody(req);
-      const prof = profileOf(user);
-      const id = String(b.id || '');
-      prof.activeBorder = (id === '' || (prof.borders || []).includes(id)) ? id : prof.activeBorder;
-      saveJson('users.json', users);
-      return send(res, 200, { ok: true, activeBorder: prof.activeBorder });
-    }
-    // Paint anlegen/ablegen
-    if (p === '/api/paint' && req.method === 'POST') {
-      const user = authUser(req);
-      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
-      const b = await readBody(req);
-      const prof = profileOf(user);
-      const id = String(b.id || '');
-      prof.activePaint = (id === '' || prof.paints.includes(id)) ? id : prof.activePaint;
-      saveJson('users.json', users);
-      return send(res, 200, { ok: true, activePaint: prof.activePaint });
     }
 
     // ---- Originalfoto eines Gutscheins: hochladen, abholen, loeschen
@@ -3454,7 +3023,7 @@ const server = http.createServer(async (req, res) => {
       gifts[me] = (gifts[me] || []).filter(g => !claimed.includes(g.id));
       // Erst die Wallet, dann der Vorrat: stuerzt der Server dazwischen ab,
       // liegt das Geschenk eher doppelt als gar nicht
-      if (eingebucht.length) { updateLifetime(me); saveJson('wallets.json', wallets); }
+      if (eingebucht.length) saveJson('wallets.json', wallets);
       saveJson('gifts.json', gifts);
       return send(res, 200, { ok: true, claimed, vouchers: mitBildern(eingebucht) });
     }
@@ -3491,17 +3060,6 @@ const server = http.createServer(async (req, res) => {
         || cards.length !== incoming.cards.length
         || vouchers.some((v, i) => v !== incoming.vouchers[i])
         || cards.some((c, i) => c !== incoming.cards[i]);
-      updateLifetime(user);
-      // Aufgebrauchter Gutschein = Sparziel erreicht: einmalig eine Kiste
-      const prof = profileOf(user);
-      for (const v of wallets[user].vouchers) {
-        if (v.amount > 0 && v.balance != null && v.balance <= 0 && !prof.goalsDone.includes(v.id)) {
-          prof.goalsDone.push(v.id);
-          grantCase(user, 'emote-capsule', CaseSource.GOAL_REACHED);
-        }
-      }
-      ensureProgress(user);
-      saveJsonSoon('users.json', users);
       // Erst schreiben, dann bestaetigen: die Datei ist ohne Bilder klein, und
       // ein Absturz direkt nach dem "ok" verliert so nichts mehr
       // Nicht geschrieben (z. B. Datentraeger voll): KEIN "ok" — das Geraet
@@ -3526,8 +3084,11 @@ const server = http.createServer(async (req, res) => {
       const user = authUser(req);
       if (!user) return send(res, 401, { error: 'Nicht angemeldet.' });
       const u = users[user] || {};
+      // Login-Serie: der angemeldete Start der App zaehlt den heutigen Tag
+      if (zaehleLoginTag(profileOf(user))) saveJsonSoon('users.json', users);
       return send(res, 200, {
         user, role: roleOf(user),
+        loginStreak: loginSerie(profileOf(user)),
         zweiFaktor: zweiFaktorAn(user),
         ersatzcodes: zweiFaktorAn(user) ? (u.totp.reserve || []).length : 0,
         hatEmail: !!u.email,
@@ -3914,7 +3475,6 @@ const server = http.createServer(async (req, res) => {
       if (rater) r.by[rater] = stars;
       if (prevEff && r.count > 0) { r.sum -= prevEff; r.count -= 1; }
       r.sum += stars; r.count += 1;
-      if (rater && !prevEff) { bumpQuest(rater, 'rate'); saveJson('users.json', users); }
       saveJson('ratings.json', ratings);
       return send(res, 200, { rating: r.sum / r.count, ratingCount: r.count });
     }
@@ -3989,19 +3549,15 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/comments' && req.method === 'GET') {
       const dealId = url.searchParams.get('dealId') || '';
-      // Jeder Kommentar traegt den AKTUELLEN Look seines Autors (Avatar, Paint,
-      // Rahmen, Badge, Rang): so gestaltet jeder selbst, wie seine Kommentare
-      // aussehen, und Aenderungen wirken rueckwirkend
+      // Jeder Kommentar traegt den AKTUELLEN Look seines Autors (Avatar und
+      // Namensfarbe): Aenderungen wirken rueckwirkend. Alte Abzeichen am
+      // Kommentar gehen nicht mehr mit raus.
       // Alt-Platzhalter ohne lebende Antworten fliegen gleich mit raus
       const all = comments[dealId] || [];
       const list = all.filter(c => !c.deleted || all.some(x => x.parent === c.id && !x.deleted)).map(c => {
-        if (c.deleted || !users[c.user]) return c;
-        const cp = profileOf(c.user);
-        return {
-          ...c, avatar: cp.avatar || '', paint: cp.activePaint || '',
-          border: cp.activeBorder || '', badge: cp.activeBadge || '',
-          rank: cp.rankTier || 1,
-        };
+        const { badge, ...rest } = c;
+        if (c.deleted || !users[c.user]) return rest;
+        return { ...rest, avatar: profileOf(c.user).avatar || '', paint: namensfarbe(c.user) };
       });
       return send(res, 200, list);
     }
@@ -4018,15 +3574,13 @@ const server = http.createServer(async (req, res) => {
       if (mod.blocked) return send(res, 400, { error: mod.reason });
       const c = {
         id: crypto.randomBytes(5).toString('hex'), user, text: censor(text), ts: Date.now(), flags: mod.flags,
-        badge: profileOf(user).activeBadge || '', role: roleOf(user),
+        role: roleOf(user),
         parent: String(b.parent || '') || null, // Antwort auf einen anderen Kommentar
         reactions: {}, // { art: [nutzer] }, Arten: like, helpful oder Emote-Namen
       };
       (comments[dealId] = comments[dealId] || []).push(c);
-      bumpQuest(user, 'comment');
-      saveJson('users.json', users);
       saveJson('comments.json', comments);
-      return send(res, 201, c);
+      return send(res, 201, { ...c, avatar: profileOf(user).avatar || '', paint: namensfarbe(user) });
     }
 
     // Kommentar-Reaktionen: like, helpful oder ein 7TV-Emote-Name (Toggle)
@@ -4192,10 +3746,10 @@ function flushPendingSaves() {
 process.on('SIGTERM', () => { flushPendingSaves(); process.exit(0); });
 process.on('SIGINT', () => { flushPendingSaves(); process.exit(0); });
 
-// RA_TEST: für scripts/test-cases.js, damit der Test importieren kann ohne den Server zu starten
+// RA_TEST: für scripts/test-*.js, damit die Tests importieren können ohne den Server zu starten
 if (process.env.RA_TEST) {
   module.exports = {
-  updateLifetime, CaseSource, grantCase, profileOf, users, rollRarity, ODDS_CASE, ODDS_CAPSULE, CONTAINERS, RARITY, STICKERS,
+  profileOf, users, STICKERS, GAMI_WEG, zaehleLoginTag, loginSerie, berlinTag, namensfarbe, eingeladenZahl, eigenesProfil,
     // fuer scripts/test-wallet.js
     bilderAufraeumen, bildDateien, bildAblegen, vereinigeWallet, archiviere, archivFlush, wallets, gifts, walletIndex, waehleFassung,
     totpCode, totpPruefen, base32, base32Lesen, ersatzcodeEinloesen, neueErsatzcodes, aufgebrauchtWeg, raeumeAufgebrauchteAuf, drossel,

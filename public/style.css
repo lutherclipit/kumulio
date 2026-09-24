@@ -1302,13 +1302,7 @@ input, textarea, select, button { touch-action: manipulation; }
 @keyframes balBump { 40% { transform: scale(1.07); } }
 
 /* ---- Spar-Ränge: je mehr Guthaben, desto edler die Karte ---- */
-.rank-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
-.rank-chip {
-  font-size: .72rem; font-weight: 800; letter-spacing: .02em;
-  padding: 4px 10px; border-radius: 999px; white-space: nowrap;
-  background: rgba(18,199,126,.14); color: var(--k-accent, #12C77E);
-  border: 1px solid rgba(18,199,126,.35);
-}
+
 .rank-progress {
   flex: 1; height: 6px; border-radius: 999px; overflow: hidden;
   background: rgba(127,127,127,.18);
@@ -1331,9 +1325,6 @@ input, textarea, select, button { touch-action: manipulation; }
 .balance-card.tier-5 {
   box-shadow: 0 12px 36px rgba(255,196,0,.28); border-color: rgba(255,196,0,.55);
   background-image: linear-gradient(135deg, rgba(255,196,0,.14), rgba(18,199,126,.10) 60%);
-}
-.balance-card.tier-5 .rank-chip {
-  background: rgba(255,196,0,.16); color: #d9a400; border-color: rgba(255,196,0,.45);
 }
 
 /* Ausgeschnittener Kassen-Code: weiß hinterlegt, damit Scanner ihn sauber lesen */
@@ -1379,26 +1370,10 @@ input, textarea, select, button { touch-action: manipulation; }
 .emote-pick .emote { height: 28px; display: block; }
 
 /* ================= Gamification: Badges & Kisten ================= */
-.badge-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-.badge-chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 6px 12px; border-radius: 999px; font-size: .8rem; font-weight: 700;
-  background: var(--surface); border: 1px solid var(--stroke-light); color: var(--text);
-  cursor: pointer; transition: transform .18s ease, box-shadow .25s ease;
-}
-.badge-chip:active { transform: scale(.95); }
-.badge-chip.rar-common { border-color: rgba(127,127,127,.35); }
-.badge-chip.rar-rare { border-color: rgba(18,199,126,.55); color: var(--k-accent, #12C77E); }
-.badge-chip.rar-epic { border-color: rgba(255,196,0,.6); color: #d9a400; }
-.badge-chip.on { box-shadow: 0 0 0 2px rgba(18,199,126,.45); }
+
 .chat-badge { margin-right: 4px; vertical-align: -2px; opacity: .85; }
-.chest-reveal {
-  display: flex; align-items: center; gap: 10px; margin-top: 10px;
-  animation: chestPop .5s cubic-bezier(.3,1.4,.5,1);
-  font-size: .84rem;
-}
+
 @keyframes chestPop { from { opacity: 0; transform: scale(.7); } }
-@media (prefers-reduced-motion: reduce) { .chest-reveal { animation: none; } }
 
 /* ================= Suche mit Feder-Bounce, neues Add-Formular, DMs, Profile ================= */
 
@@ -1593,11 +1568,6 @@ input, textarea, select, button { touch-action: manipulation; }
 /* Profil: Luft zwischen den Karten, hell wie dunkel */
 #view-profile .card { margin-bottom: 16px; padding: 20px; }
 #view-profile .card-h { margin-bottom: 10px; }
-.me-head { display: flex; align-items: center; gap: 14px; }
-.me-head-text { display: flex; flex-direction: column; gap: 8px; }
-.me-bio { margin: 14px 0 4px; font-size: .92rem; line-height: 1.55; opacity: .85; }
-.profile-card .favs-view { margin-top: 10px; }
-.profile-card .badge-grid { margin-top: 12px; }
 
 .settings-row {
   display: flex; align-items: center; justify-content: space-between; gap: 14px;
@@ -1713,39 +1683,6 @@ input[type="date"].input {
 .rank-badge { margin-right: 4px; }
 
 .gm-h { margin-top: 18px; font-size: .95rem; }
-.gm-rank-row { display: flex; align-items: center; gap: 12px; margin: 8px 0 10px; }
-.gm-rank-text { display: flex; flex-direction: column; gap: 2px; }
-.gm-rank-text b { font-size: 1.05rem; }
-.gm-rank-text span { font-size: .76rem; opacity: .65; }
-.gm-ladder {
-  display: flex; gap: 10px; overflow-x: auto; padding: 10px 2px; scrollbar-width: none;
-  mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent);
-  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent);
-}
-.gm-ladder::-webkit-scrollbar { display: none; }
-.gm-step {
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
-  font-size: .62rem; font-weight: 700; opacity: .9; flex-shrink: 0; width: 58px; text-align: center;
-}
-.gm-step:not(.done) img { filter: grayscale(1) opacity(.35); }
-.gm-step:not(.done) { opacity: .55; }
-.gm-step img { width: 40px; height: 40px; image-rendering: pixelated; }
-
-.gm-cases { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
-.gm-case {
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
-  background: var(--surface); border: 1px solid var(--stroke-light); border-radius: 14px;
-  padding: 10px 14px; cursor: pointer; font-size: .7rem; font-weight: 800; color: var(--text);
-  transition: transform .18s ease;
-}
-.gm-case:active { transform: scale(.94); }
-
-.gm-paints { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-.gm-paint {
-  background: var(--surface); border: 1px solid var(--stroke-light); border-radius: 999px;
-  padding: 6px 14px; cursor: pointer; font-weight: 800; font-size: .84rem;
-}
-.gm-paint.on { box-shadow: 0 0 0 2px rgba(18,199,126,.45); }
 
 /* Namens-Paints: Verlauf im Text, mit sicherem Fallback */
 .paint {
@@ -1760,42 +1697,9 @@ input[type="date"].input {
 
 /* Kisten-Modal + Walze */
 .case-modal { text-align: center; }
-.case-modal .case-idle { animation: caseIdle 2.6s ease-in-out infinite; image-rendering: pixelated; }
-@keyframes caseIdle { 0%, 100% { transform: rotate(-1.5deg); } 50% { transform: rotate(1.5deg); } }
-.case-modal .case-pop { animation: casePop .34s ease forwards; }
-@keyframes casePop { 40% { transform: scale(.94); } 100% { transform: scale(1.04); } }
-.case-title { font-weight: 800; margin-top: 8px; }
-.reel-wrap {
-  position: relative; overflow: hidden; height: 92px; margin-top: 14px;
-  mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
-}
-.reel { display: flex; gap: 4px; height: 100%; }
-.reel-item {
-  width: 70px; flex: 0 0 70px; border-radius: 10px;
-  display: flex; align-items: center; justify-content: center;
-  background: radial-gradient(60% 60% at 50% 45%, color-mix(in srgb, var(--rc) 26%, transparent), transparent), var(--surface);
-  border-bottom: 3px solid var(--rc);
-}
-.reel-item .icon { width: 30px; height: 30px; }
-.reel-paint { width: 34px; height: 18px; border-radius: 6px; display: inline-block; background-size: cover; }
-.reel-paint.big { width: 64px; height: 30px; border-radius: 8px; }
-.reel-item.reel-win { animation: reelWin .26s cubic-bezier(.3,1.4,.5,1); box-shadow: 0 0 18px var(--rc); }
-@keyframes reelWin { 50% { transform: scale(1.14); } }
-.reel-marker {
-  position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; z-index: 2;
-  background: #F5F7FA; box-shadow: 0 0 8px rgba(245,247,250,.8);
-}
-.case-win {
-  display: flex; flex-direction: column; align-items: center; gap: 6px;
-  margin-top: 14px; animation: chestPop .5s cubic-bezier(.3,1.4,.5,1);
-}
-.case-win b { font-size: 1.1rem; }
-.odds-row { display: flex; justify-content: space-between; font-size: .8rem; padding: 3px 0; }
-#case-odds-panel { margin-top: 8px; border-top: 1px solid var(--stroke-light); padding-top: 8px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .case-modal .case-idle, .case-modal .case-pop, .reel-item.reel-win, .case-win { animation: none; }
+
   .paint { background-position: 0 0 !important; }
 }
 
@@ -1835,89 +1739,13 @@ input[type="date"].input {
 
 /* Profil: Handle + Showcase-Slots */
 .me-handle { font-size: .78rem; opacity: .55; font-weight: 700; }
-.me-showcase { display: flex; gap: 10px; margin-top: 14px; }
-.sc-slot {
-  display: flex; flex-direction: column; align-items: center; gap: 3px;
-  background: radial-gradient(70% 60% at 50% 40%, color-mix(in srgb, var(--rc) 22%, transparent), transparent), var(--surface);
-  border: 1px solid var(--rc); border-radius: 14px; padding: 12px 16px;
-}
-
-/* Quests */
-.quest-row { padding: 8px 0; border-bottom: 1px solid var(--stroke-light); }
-.quest-row:last-child { border-bottom: none; }
-.quest-row.done { opacity: .55; }
-.quest-main { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px; }
-.quest-main b { font-size: .86rem; }
-.quest-main span { font-size: .72rem; opacity: .65; }
-
-/* Inventar + Sammlung */
-.inv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin-top: 8px; }
-.inv-item {
-  display: flex; flex-direction: column; align-items: center; gap: 3px;
-  background: radial-gradient(70% 55% at 50% 32%, color-mix(in srgb, var(--rc) 20%, transparent), transparent), var(--surface);
-  border: 1px solid var(--stroke-light); border-bottom: 3px solid var(--rc);
-  border-radius: 14px; padding: 12px 8px; text-align: center; position: relative; overflow: hidden;
-}
-.inv-item b { font-size: .78rem; }
-.inv-item.locked { filter: grayscale(1) opacity(.45); }
-.inv-visual .icon { width: 30px; height: 30px; }
-.inv-float { font-family: ui-monospace, monospace; font-size: .68rem; opacity: .7; }
-.inv-actions { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; margin-top: 6px; }
-.shop-price { color: var(--k-accent, #12C77E); font-size: .72rem; }
 
 /* Shiny: Glitzer-Schimmer für Schnapszahlen und Straßen */
-.inv-item.shiny::after, .sc-slot.shiny::after, .case-win.shiny .case-win-visual::after {
-  content: ""; position: absolute; inset: 0; pointer-events: none;
-  background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,.55) 48%, transparent 62%);
-  background-size: 260% 100%;
-  animation: shinySweep 2.4s linear infinite;
-}
-.inv-item.shiny, .sc-slot.shiny { border-color: #F5B301; }
-@keyframes shinySweep { to { background-position: -160% 0; } }
 
 /* Kisten-Öffnung V2: fallen, schütteln, aufplatzen */
 .case-modal { position: relative; overflow: hidden; }
-.case-drop { animation: caseDrop .65s cubic-bezier(.3,1.35,.45,1) forwards; }
-@keyframes caseDrop { from { transform: translateY(-180px); opacity: 0; } 70% { transform: translateY(8px); opacity: 1; } to { transform: none; } }
-.case-shake { animation: caseShake .7s ease-in-out; }
-@keyframes caseShake {
-  15%, 45%, 75% { transform: rotate(-7deg) scale(1.02); }
-  30%, 60%, 90% { transform: rotate(7deg) scale(1.04); }
-}
-@keyframes caseBurst { to { transform: scale(1.9); opacity: 0; filter: brightness(2.4); } }
-.case-flash {
-  position: absolute; left: 50%; width: 10px; height: 10px;
-  margin: -5px 0 0 -5px;                 /* Mitte auf den gesetzten Punkt legen */
-  border-radius: 999px; pointer-events: none; z-index: 2;
-  background: radial-gradient(circle, var(--rc), transparent 70%);
-  animation: caseFlash .75s cubic-bezier(.2, .7, .3, 1) forwards;
-}
-@keyframes caseFlash {
-  0%   { transform: scale(1); opacity: .95; }
-  55%  { opacity: .8; }
-  100% { transform: scale(42); opacity: 0; }
-}
-/* Der Rahmen traegt den langsamen Zoom, das Bild darin schuettelt */
-#case-img-wrap { display: inline-block; transform-origin: center center; will-change: transform; }
+
 /* Bersten etwas weicher und laenger, damit es zum Zoom passt */
-.case-burst { animation: caseBurst .6s cubic-bezier(.3, .8, .4, 1) forwards; }
-.case-win.v2 { position: relative; }
-.case-win-visual {
-  position: relative; overflow: hidden; border-radius: 18px;
-  padding: 20px 26px; margin-bottom: 6px;
-  background: radial-gradient(70% 60% at 50% 40%, color-mix(in srgb, var(--rc) 30%, transparent), transparent), var(--surface);
-  border: 1px solid var(--rc);
-  animation: chestPop .55s cubic-bezier(.3,1.4,.5,1);
-}
-.case-win-visual .icon { width: 52px; height: 52px; }
-.case-win-visual .reel-paint { width: 84px; height: 38px; }
-.case-win.epic-glow .case-win-visual { box-shadow: 0 0 34px var(--rc); }
-.case-spark {
-  position: absolute; left: 50%; top: 45%; width: 7px; height: 7px;
-  border-radius: 999px; pointer-events: none;
-  animation: sparkFly 1.2s cubic-bezier(.2,.7,.4,1) forwards;
-}
-@keyframes sparkFly { to { transform: translate(var(--dx), var(--dy)); opacity: 0; } }
 
 /* Fav-Picker im Profil */
 .fav-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -1926,8 +1754,7 @@ input[type="date"].input {
 .info-btn { width: 28px; height: 28px; vertical-align: middle; margin-left: 6px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .case-drop, .case-shake, .case-burst, .case-flash, .case-spark,
-  .inv-item.shiny::after, .sc-slot.shiny::after, .case-win.shiny .case-win-visual::after { animation: none; }
+
   #req-toast { transition: none; }
 }
 
@@ -1935,20 +1762,11 @@ input[type="date"].input {
 
 /* Popups liegen IMMER vor Sheets und Tabs */
 .overlay { z-index: 200 !important; }
-#case-backdrop { z-index: 220 !important; }
-
 
 /* Nirgends zoomen oder markieren, außer bei den Gutschein-Codes */
 body { -webkit-user-select: none; user-select: none; }
 .wallet-code, .wallet-code-img, input, textarea { -webkit-user-select: text; user-select: text; }
 @media (max-width: 640px) { .input, input, textarea, select { font-size: 16px; } }
-
-/* Coin-Chip */
-.coin-chip {
-  display: inline-flex; align-items: center; gap: 5px;
-  font-weight: 800; font-size: .9rem; color: #d9a400;
-}
-.coin-chip .icon { color: #d9a400; }
 
 /* Boden-Blur: der untere Rand verschwimmt sanft unter dem Menü */
 #bottom-fade {
@@ -1964,25 +1782,6 @@ body { -webkit-user-select: none; user-select: none; }
     color-mix(in srgb, var(--seitengrund) 18%, transparent) 62%,
     color-mix(in srgb, var(--seitengrund) 46%, transparent) 100%);
 }
-
-/* Achievements: dezent unten rechts überm Menü, mit Blur */
-#achv-stack {
-  position: fixed; right: 12px; bottom: calc(100px + env(safe-area-inset-bottom, 0px));
-  z-index: 80; display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
-}
-.achv {
-  display: flex; align-items: center; gap: 10px;
-  background: var(--glass-strong);
-  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
-  border: 1px solid var(--stroke-light); border-radius: 14px;
-  padding: 10px 14px; max-width: 290px; font-size: .8rem;
-  box-shadow: var(--glass-edge), var(--shadow);
-  transform: translateX(120%); transition: transform .45s cubic-bezier(.3,1.35,.45,1);
-}
-.achv.show { transform: none; }
-.achv .icon { color: #d9a400; flex-shrink: 0; }
-.achv span { display: flex; flex-direction: column; }
-.achv small { opacity: .65; }
 
 /* Nachrichten-Banner über dem Header */
 #note-banner {
@@ -2015,7 +1814,7 @@ body { -webkit-user-select: none; user-select: none; }
 #view-settings .settings-row { padding: 14px 0; }
 
 @media (prefers-reduced-motion: reduce) {
-  .achv, #note-banner { transition: none; }
+  #note-banner { transition: none; }
 }
 
 /* ================= Runde 35: Karussell-Chips, Seiten, Rank-Up, Feinschliff ================= */
@@ -2076,13 +1875,6 @@ body.chat-locked { overflow: hidden; height: 100dvh; }
 
 /* Rang-Kopf */
 .rank-progress.big { height: 9px; margin-top: 10px; }
-.gm-step.current { outline: 2px solid rgba(18,199,126,.5); outline-offset: 3px; border-radius: 10px; }
-.gm-step small { font-size: .58rem; opacity: .55; }
-
-/* Quests kompakt in Gruppen */
-.quest-group { margin-bottom: 10px; }
-.quest-group > b { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; opacity: .55; }
-.quest-row .quest-main span small { opacity: .55; margin-left: 4px; }
 
 /* Fav-Logos im Profil */
 .fav-logo { display: inline-flex; flex-direction: column; align-items: center; gap: 3px; margin-right: 4px; }
@@ -2090,52 +1882,20 @@ body.chat-locked { overflow: hidden; height: 100dvh; }
 .fav-logo small { font-size: .62rem; opacity: .65; }
 
 /* Rank-Up: Vollbild-Feier */
-.rankup {
-  position: fixed; inset: 0; z-index: 300;
-  display: flex; align-items: center; justify-content: center;
-  background: rgba(8, 12, 16, .55);
-  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-  animation: rankupIn .4s ease backwards;
-}
-.rankup.out { animation: rankupOut .45s ease forwards; }
-@keyframes rankupIn { from { opacity: 0; } }
-@keyframes rankupOut { to { opacity: 0; } }
-.rankup-inner {
-  display: flex; flex-direction: column; align-items: center; gap: 10px;
-  padding: 34px 44px; border-radius: 24px; text-align: center;
-  background: radial-gradient(80% 70% at 50% 30%, color-mix(in srgb, var(--rc) 30%, transparent), transparent), var(--glass-strong);
-  border: 1px solid var(--rc); box-shadow: 0 0 44px color-mix(in srgb, var(--rc) 55%, transparent);
-  animation: chestPop .6s cubic-bezier(.3,1.4,.5,1);
-}
-.rankup-inner img { width: 80px; height: 80px; image-rendering: pixelated; animation: caseIdle 2.4s ease-in-out infinite; }
-.rankup-inner b { font-size: 1.05rem; letter-spacing: .06em; }
-.rankup-inner span { font-size: 1.4rem; font-weight: 800; }
 
 /* Aufklapp-Animationen (aufgebrauchte Gutscheine, Quests) */
 .rules-fold[open] > *:not(summary) { animation: enterDrop .35s cubic-bezier(.3,1.25,.45,1) backwards; }
 
 @media (prefers-reduced-motion: reduce) {
   .carousel-chip { transition: none; }
-  .rankup, .rankup-inner, .rankup-inner img { animation: none; }
+
   .rules-fold[open] > *:not(summary) { animation: none; }
 }
 
 /* ================= Runde 36: Inspect, Fav-Logos, Feinschliff ================= */
-.inspect { text-align: center; }
-.inspect-visual { padding: 34px 44px; cursor: zoom-out; }
-.inspect-visual .icon { width: 84px; height: 84px; }
-.inspect-visual .reel-paint { width: 140px; height: 62px; border-radius: 12px; }
-.inspect-visual .emote { height: 84px !important; }
-.inspect.shiny .inspect-visual { position: relative; overflow: hidden; }
-.inspect.shiny .inspect-visual::after {
-  content: ""; position: absolute; inset: 0; pointer-events: none;
-  background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,.5) 48%, transparent 62%);
-  background-size: 260% 100%;
-  animation: shinySweep 2.2s linear infinite;
-}
+
 .fav-opt { display: inline-flex; align-items: center; gap: 6px; }
 .fav-opt .brand-chip { width: 22px; height: 22px; font-size: .5rem; }
-.case-win-visual { cursor: zoom-in; }
 
 /* ================= Runde 37: Wallet-Umbau, Scan 2.0, Chat-Politur, Ladescreen ================= */
 
@@ -2483,18 +2243,6 @@ body:has(.sheet.open) {
 }
 
 /* ================= Runde 45: Funken, Container, Sticker, Geschenk-Zeremonie ================= */
-.px-16 { width: 16px; height: 16px; }
-.coin-chip .px-icon { vertical-align: -4px; }
-
-/* Aufgeklebte Sticker auf Gutschein-Karten (Position in % der Kartenfläche) */
-.wallet-card.has-fill > .v-sticker, .v-sticker {
-  position: absolute; width: 36px; height: 36px; object-fit: contain;
-  pointer-events: none; z-index: 2;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .35));
-}
-.sa-card { cursor: crosshair; margin-top: 6px; overflow: hidden; }
-.sa-card .v-sticker { pointer-events: none; }
-.sticker-apply .sa-targets { display: flex; flex-wrap: wrap; gap: 6px; }
 
 /* Geschenk-Zeremonie: Box wackelt (620ms-Salve alle 3s, Start nach 260ms),
    Antippen packt aus (Blitz + Ergebnis mit Sprechblase) */
@@ -2603,38 +2351,9 @@ body:has(.sheet.open) {
 
 /* Profilbild-Rahmen (Border-Kapsel): Discord/Steam-artig, reine CSS-Looks.
    Einfach die Klasse pfb-<id> auf ein Avatar-Element legen. */
-.pfb-bronzering { box-shadow: 0 0 0 2px #B87333; }
-.pfb-stahlring { box-shadow: 0 0 0 2px #A8B3BF; }
-.pfb-kohle { box-shadow: 0 0 0 2px #2F3B47; }
-.pfb-jeans { box-shadow: 0 0 0 2px #3B82F6; }
-.pfb-smaragd { box-shadow: 0 0 0 2px #12C77E, 0 0 8px #12C77E66; }
-.pfb-rose { box-shadow: 0 0 0 2px #FB7185, 0 0 8px #FB718566; }
-.pfb-tiefsee { box-shadow: 0 0 0 2px #0EA5E9, 0 0 8px #0EA5E966; }
-.pfb-goldring { box-shadow: 0 0 0 2px #F5B301, 0 0 10px #F5B30188; }
-.pfb-neonpink { box-shadow: 0 0 0 2px #EC4899, 0 0 12px #EC4899AA; animation: pfbPulse 2.2s ease-in-out infinite; }
-.pfb-eisring { box-shadow: 0 0 0 2px #67E8F9, 0 0 12px #67E8F9AA; animation: pfbPulse 2.2s ease-in-out infinite; }
-@keyframes pfbPulse { 50% { box-shadow: 0 0 0 2px currentColor, 0 0 4px transparent; } }
-.pfb-neonpink { color: #EC4899; }
-.pfb-eisring { color: #67E8F9; }
+
 /* Die zwei Epischen: Farbrotation ueber box-shadow — Pseudo-Elemente sind auf
    <img>-Avataren unsichtbar (replaced elements), box-shadow funktioniert immer */
-.pfb-regenbogen { box-shadow: 0 0 0 2.5px #12C77E, 0 0 10px #12C77E88; animation: pfbRainbow 4s linear infinite; }
-@keyframes pfbRainbow {
-  0%, 100% { box-shadow: 0 0 0 2.5px #12C77E, 0 0 10px #12C77E88; }
-  20% { box-shadow: 0 0 0 2.5px #3B82F6, 0 0 10px #3B82F688; }
-  40% { box-shadow: 0 0 0 2.5px #8B5CF6, 0 0 10px #8B5CF688; }
-  60% { box-shadow: 0 0 0 2.5px #EC4899, 0 0 10px #EC489988; }
-  80% { box-shadow: 0 0 0 2.5px #F5B301, 0 0 10px #F5B30188; }
-}
-.pfb-plasma { box-shadow: 0 0 0 2.5px #EC4899, 0 0 12px #EC4899AA; animation: pfbPlasma 2.6s ease-in-out infinite; }
-@keyframes pfbPlasma {
-  0%, 100% { box-shadow: 0 0 0 2.5px #EC4899, 0 0 12px #EC4899AA; }
-  50% { box-shadow: 0 0 0 2.5px #8B5CF6, 0 0 14px #8B5CF6AA; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .pfb-neonpink, .pfb-eisring, .pfb-regenbogen, .pfb-plasma { animation: none; }
-}
-.border-demo { width: 34px; height: 34px; font-size: .95rem; border-radius: 999px; }
 
 /* Kommentare: Karten-Look mit Avatar und Autoren-Style */
 .comment { background: var(--surface); border: 1px solid var(--stroke-light); border-radius: 16px; padding: 12px 14px; margin-bottom: 10px; }
@@ -2674,12 +2393,6 @@ body:has(.sheet.open) {
 .ob-toggle input { position: absolute; opacity: 0; }
 .ob-toggle .switch-slider { flex: none; }
 
-/* Daily-Countdown: gesperrter Knopf mit Monospace-Timer */
-#g-daily.daily-wait {
-  opacity: .6; cursor: default;
-  font-variant-numeric: tabular-nums; letter-spacing: .04em;
-}
-
 /* Dropdown: Freunde-Zeile mit kleinem "alle ansehen" */
 .tm-section-row { display: flex; align-items: baseline; justify-content: space-between; }
 .tm-mini-link {
@@ -2687,71 +2400,11 @@ body:has(.sheet.open) {
   font: inherit; font-size: .72rem; font-weight: 700; color: var(--accent-strong, #12C77E);
 }
 
-/* Case-Vorschau (CS-Style): Inhalt nach Stufe mit Chance, vor dem Oeffnen */
-.case-preview { margin-top: 12px; max-height: 260px; overflow-y: auto; text-align: left; }
-.cp-group { margin-bottom: 10px; }
-.cp-head {
-  display: flex; justify-content: space-between; align-items: baseline;
-  font-size: .78rem; font-weight: 800; margin-bottom: 5px;
-}
-.cp-items { display: flex; flex-wrap: wrap; gap: 6px; }
-.cp-item {
-  display: flex; align-items: center; justify-content: center;
-  width: 44px; height: 40px; border-radius: 10px;
-  background: var(--surface-2); border-bottom: 3px solid var(--rc, #888);
-}
-.cp-item .emote { height: 24px !important; }
-.cp-item .reel-paint { width: 30px; height: 15px; }
-.cp-item .avatar-mini.border-demo { width: 26px; height: 26px; font-size: .7rem; }
-.cp-item .icon { width: 20px; height: 20px; }
-
-
 /* ================= Runde 49 ================= */
 
-/* Beim Oeffnen eines Containers dunkelt die Buehne weich ab */
-#case-backdrop { transition: background .9s ease; }
-#case-backdrop.case-dark { background: rgba(8, 11, 15, .78); }
-#case-backdrop.case-darker { background: rgba(4, 6, 9, .93); }
-
-/* Rang-Info sitzt oben rechts in der Karte */
-#gami-card { position: relative; }
-.gm-info-corner { position: absolute; top: 10px; right: 10px; z-index: 2; }
-
-/* Container-Shop: Hero + geordnete Karten-Sektionen */
-.shop-hero {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  background: linear-gradient(120deg, #141A22 0%, #1E2833 60%, #232F3E 100%);
-  color: #EDF2F7; border-radius: 18px; padding: 16px 18px; margin-bottom: 14px;
-}
-.shop-hero-text { display: flex; flex-direction: column; gap: 3px; }
-.shop-hero-text b { font-size: 1.05rem; }
-.shop-hero-text span { font-size: .78rem; opacity: .75; }
-.shop-hero-coins { background: rgba(255,255,255,.1); color: #F5B301; border-radius: 999px; padding: 6px 12px; white-space: nowrap; }
-.shop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
-.shop-card {
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
-  background: var(--surface); border: 1px solid var(--stroke-light);
-  border-radius: 16px; padding: 14px 10px 12px; cursor: pointer;
-  font: inherit; color: inherit; text-align: center;
-}
-.shop-card:active { transform: scale(.97); }
-.shop-card .px-icon.big { width: 44px; height: 44px; }
-.shop-card-name { font-weight: 800; font-size: .9rem; }
-.shop-card-desc { font-size: .7rem; color: var(--muted); line-height: 1.35; min-height: 2.7em; }
-.shop-card-meta { font-size: .66rem; color: var(--muted); opacity: .8; }
-.shop-card .shop-price { font-weight: 800; color: var(--accent-strong, #12C77E); margin-top: 2px; }
-
 /* Mengenwahl im Shop-Fenster: - 1 + mit live mitlaufendem Preis */
-.case-qty { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 12px; }
-.qty-btn {
-  width: 38px; height: 38px; border-radius: 999px; border: 1px solid var(--stroke-light);
-  background: var(--surface); font-size: 1.3rem; font-weight: 800; line-height: 1;
-  cursor: pointer; color: inherit;
-}
-.qty-btn:active { transform: scale(.9); }
-.qty-n { min-width: 34px; text-align: center; font-weight: 900; font-size: 1.15rem; font-variant-numeric: tabular-nums; }
-#case-buy-price { font-variant-numeric: tabular-nums; }
 
+#case-buy-price { font-variant-numeric: tabular-nums; }
 
 /* ================= Runde 52: Case-Fenster ================= */
 
@@ -2763,45 +2416,11 @@ body:has(.sheet.open) {
   display: flex; flex-direction: column;
   overflow: hidden;
 }
-.case-modal #case-img-wrap { align-self: center; }
-.case-modal #case-img { display: block; }
-/* Waehrend die Walze laeuft, sitzt sie mittig statt oben unterm Titel */
-.case-modal #reel-wrap:not(.hidden) { margin-top: auto; }
-.case-modal #reel-wrap:not(.hidden) ~ .form-row { margin-bottom: auto; }
-.case-modal .case-preview { flex: 1; min-height: 0; max-height: none; }
-.case-modal #case-result { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; overflow-y: auto; }
-.case-modal #case-result.hidden { display: none; }
-.case-modal .reel-wrap { flex: none; }
-#reel-wrap:not(.hidden) ~ * { flex: none; }
+
 /* Waehrend Walze/Leerlauf haelt ein Spacer die Hoehe stabil */
 .case-modal::after { content: ""; flex: 0 1 auto; }
 
-/* Schliessen: rote Ecklasche, buendig mit der Modal-Ecke, Kreuz weiss/glasig */
-#case-close {
-  position: absolute; top: 0; left: 0; z-index: 5;
-  width: 46px; height: 40px;
-  border: none; padding: 0 8px 6px 0;
-  border-radius: 22px 0 22px 0;
-  background: linear-gradient(135deg, #FF6A5E 0%, #E8473F 100%);
-  display: flex; align-items: center; justify-content: center;
-  color: rgba(255, 255, 255, .92); cursor: pointer;
-  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, .12);
-}
-#case-close .icon { width: 13px; height: 13px; stroke-width: 2.6; }
-#case-close:active { filter: brightness(.9); }
-
 /* ================= Runde 53 ================= */
-
-/* Das goldene Fragezeichen: die beste Stufe bleibt geheim (CS: Rare Special Item) */
-.reel-mystery, .cp-mystery {
-  display: flex; align-items: center; justify-content: center;
-  font-size: 1.5rem; font-weight: 900;
-  color: #F5B301;
-  background: linear-gradient(150deg, #2A2008 0%, #4A3A10 55%, #2A2008 100%);
-  border-bottom-color: #F5B301 !important;
-  text-shadow: 0 0 12px #F5B30188;
-}
-.cp-mystery { width: 62px; }
 
 /* Reveal im Einsatz: Chat-Zeile, grosser Name, Avatar oder Mini-Karte */
 .win-ctx { display: flex; align-items: center; justify-content: center; padding: 8px 0; }
@@ -2811,10 +2430,8 @@ body:has(.sheet.open) {
   border-radius: 14px; padding: 10px 16px; max-width: 100%;
 }
 .win-ctx.chat-demo .emote { height: 32px; }
-.win-big-name { font-size: 1.7rem; font-weight: 900; letter-spacing: -.02em; }
+
 .win-ctx .avatar-big { width: 64px; height: 64px; font-size: 1.5rem; }
-.win-card-demo { width: 240px; position: relative; text-align: left; }
-.win-ctx-wrap { cursor: zoom-in; }
 
 /* Dropdown-Kopf: der Paint-Name erbt die Chat-Optik */
 .tm-name .paint { font-weight: 900; }
@@ -2829,7 +2446,7 @@ body:has(.sheet.open) {
 .up-name { font-size: 1.3rem; font-weight: 900; }
 .up-bio { font-size: .86rem; color: var(--muted); max-width: 320px; }
 .up-center { justify-content: center; }
-#user-page .me-showcase, #user-page .badge-grid { justify-content: center; }
+
 .up-center-h { text-align: center; margin-top: 18px; }
 
 /* Profil-Bewertungen */
@@ -2848,25 +2465,6 @@ body:has(.sheet.open) {
 .up-rate-body { flex: 1; min-width: 0; }
 .up-rate-text { font-size: .9rem; line-height: 1.45; margin-top: 2px; }
 .up-rate-text .emote { height: 20px; vertical-align: -4px; }
-
-/* Inventar: Mehrfachauswahl + Sammelverkauf */
-.inv-sellbar {
-  position: sticky; top: calc(env(safe-area-inset-top, 0px) + 60px); z-index: 8;
-  display: flex; align-items: center; gap: 10px; justify-content: space-between;
-  background: var(--surface); border: 1px solid var(--stroke-light);
-  border-radius: 14px; padding: 10px 14px; margin: 8px 0;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, .12);
-}
-.inv-item.sel-mode { cursor: pointer; position: relative; user-select: none; }
-.inv-item.sel-mode .sel-check {
-  position: absolute; top: 8px; right: 8px; width: 22px; height: 22px;
-  border-radius: 999px; border: 2px solid var(--stroke-light);
-  display: flex; align-items: center; justify-content: center;
-  color: transparent; background: var(--surface-2);
-}
-.inv-item.sel-mode.selected { outline: 2px solid var(--accent-strong, #12C77E); }
-.inv-item.sel-mode.selected .sel-check { background: var(--accent-strong, #12C77E); border-color: var(--accent-strong, #12C77E); color: #fff; }
-#inv-sort.active { outline: 2px solid var(--accent-strong, #12C77E); }
 
 /* ================= Runde 55 ================= */
 
@@ -2980,7 +2578,6 @@ body:has(.sheet.open) {
 .tour-skip-inline { margin-top: 8px; opacity: .6; }
 .tour-btns .btn-big { width: 100%; }
 
-
 /* ================= Runde 57: Tour-Prototypen + Feder ================= */
 
 /* Ein Stueck echte App in der Bubble: dunkler App-Ausschnitt mit Radius */
@@ -3002,7 +2599,6 @@ body:has(.sheet.open) {
 }
 .tour-bubble.pop { animation: tourZoom .55s cubic-bezier(.3, 1.35, .45, 1); }
 #tour { animation: fadeIn .35s ease; }
-
 
 /* ================= Runde 59: Tastatur-Spacing + Mobile-Tempo ================= */
 
@@ -3098,33 +2694,6 @@ body:has(.sheet.open) {
 
 /* ================= Runde 62: Freunde-einladen-Seite ================= */
 
-.inv-hero {
-  display: flex; flex-direction: column; align-items: center; gap: 8px;
-  text-align: center; padding: 22px 18px;
-  background: linear-gradient(140deg, #12C77E 0%, #0E9C64 55%, #0B7C50 100%);
-  color: #fff; border-radius: 20px; margin-bottom: 14px;
-}
-.inv-hero b { font-size: 1.15rem; }
-.inv-hero span { font-size: .86rem; line-height: 1.5; opacity: .92; max-width: 330px; }
-.inv-hero-icons { display: flex; align-items: center; gap: 10px; margin-bottom: 2px; }
-.inv-chip {
-  width: 46px; height: 46px; border-radius: 999px;
-  background: rgba(255, 255, 255, .18);
-  display: flex; align-items: center; justify-content: center;
-}
-.inv-chip .icon { width: 24px; height: 24px; color: #fff; }
-.inv-chip .px-icon { width: 24px; height: 24px; }
-.inv-plus { font-size: 1.3rem; font-weight: 900; opacity: .8; }
-
-.inv-stats { display: flex; gap: 10px; margin-bottom: 4px; }
-.inv-stat {
-  flex: 1; text-align: center; padding: 14px 10px;
-  background: var(--surface); border: 1px solid var(--stroke-light); border-radius: 16px;
-}
-.inv-stat b { display: block; font-size: 1.45rem; font-weight: 900; letter-spacing: -.02em; }
-.inv-stat b .px-icon { width: 18px; height: 18px; vertical-align: -2px; }
-.inv-stat span { font-size: .74rem; color: var(--muted); }
-
 .inv-link {
   display: flex; align-items: center; gap: 10px; cursor: pointer;
   background: var(--surface-2); border: 1px dashed var(--stroke-light);
@@ -3150,14 +2719,6 @@ body:has(.sheet.open) {
   font-size: .8rem; font-weight: 900;
 }
 .inv-step span { font-size: .87rem; line-height: 1.45; }
-
-.inv-note {
-  display: flex; gap: 10px; align-items: flex-start;
-  margin: 16px 0 24px; padding: 12px 14px;
-  background: var(--surface-2); border-radius: 14px;
-  font-size: .78rem; line-height: 1.5; color: var(--muted);
-}
-.inv-note .icon { flex: none; margin-top: 1px; }
 
 /* Hinweis im Registrieren-Dialog, wenn man über einen Einladungslink kommt */
 .reg-ref-note {
@@ -3945,11 +3506,7 @@ body.wallet-farbe .topbar .iconbtn {
 .wallet-kopf-sub { font-size: .84rem; opacity: .88; margin-top: 6px; }
 
 /* Rang-Leiste */
-.wallet-kopf .rank-row { display: flex; align-items: center; gap: 9px; margin: 16px 0 0; }
-.wallet-kopf .rank-chip {
-  background: rgba(255, 255, 255, .24); color: #fff; border: none;
-  font-size: .7rem; font-weight: 800; border-radius: 999px; padding: 4px 10px;
-}
+
 .wallet-kopf .rank-progress {
   flex: 1; height: 5px; border-radius: 999px;
   background: rgba(255, 255, 255, .26); overflow: hidden;
@@ -3992,11 +3549,18 @@ body.wallet-farbe .topbar .iconbtn {
 }
 .wa-kreis .icon { width: 22px; height: 22px; color: #fff; }
 
-/* Rang-Stufen setzen alle drei Farben — Text und Chips ziehen automatisch mit */
-.wallet-kopf.tier-2 { --k1: #0B7F52; --k2: #12C77E; --k3: #2FE09C; }
-.wallet-kopf.tier-3 { --k1: #0A6B78; --k2: #12A8C7; --k3: #36D6E0; }
-.wallet-kopf.tier-4 { --k1: #3B2C8F; --k2: #6C4BD8; --k3: #9B7BFF; }
-.wallet-kopf.tier-5 { --k1: #8A6510; --k2: #C79B12; --k3: #F0CE5A; }
+/* Rang-Stufen setzen alle drei Farben — Text und Chips ziehen automatisch mit.
+   Sechs Stufen nach dem Chamaeleon (Runde 117), von Gruen ueber Petrol, Blau,
+   Violett und Beere bis Gold. k1 dunkel (weisse Schrift darauf, Text auf
+   Weiss), k2 Hauptton (weisse Schrift noch lesbar), k3 hell (Lichtseite des
+   Verlaufs, Akzent-Text im Dunkelmodus). Gaeste sehen die Farben der Stufe 1. */
+:root { --kopf-k1: #0A8452; --kopf-k2: #0FA86B; --kopf-k3: #2FE09C; }
+.wallet-kopf.tier-1 { --k1: #0A8452; --k2: #0FA86B; --k3: #2FE09C; }
+.wallet-kopf.tier-2 { --k1: #0A6E78; --k2: #0E95A3; --k3: #3DD3DE; }
+.wallet-kopf.tier-3 { --k1: #1C4FB0; --k2: #2D6BDB; --k3: #79A9FF; }
+.wallet-kopf.tier-4 { --k1: #4B2FA6; --k2: #6B4CD9; --k3: #AE96FF; }
+.wallet-kopf.tier-5 { --k1: #8C1D5E; --k2: #BB2F7E; --k3: #F58CC4; }
+.wallet-kopf.tier-6 { --k1: #7A5406; --k2: #A87A0C; --k3: #F2CE5E; }
 
 /* Sobald der Kopf weggescrollt ist, wird die Kopfzeile wieder Glas —
    sonst stuende dort ein Farbblock ohne Anschluss */
@@ -4066,7 +3630,6 @@ body.wallet-farbe.kopf-weg .topbar .iconbtn {
 .wallet-kopf.nur-tabs .wallet-kopf-inner { padding-bottom: 4px; }
 .wallet-kopf.nur-tabs #wallet-modes { margin-top: 0; }
 
-
 @media (max-width: 560px) {
   .wallet-kopf {
     margin: calc(-1 * (var(--kopfzeile-h, 64px) + var(--seitenpolster, 16px))) -12px 12px;
@@ -4081,13 +3644,12 @@ body.wallet-farbe.kopf-weg .topbar .iconbtn {
 
 /* ================= Runde 84: Bankkarte, Verlauf, stiller Sync ================ */
 
-
 /* --- Rang: schlichte Zeile statt Chip (C24 zeigt Status als Text) --- */
 .rank-name {
   font-size: .74rem; font-weight: 700; letter-spacing: .01em;
   opacity: .95; white-space: nowrap;
 }
-.wallet-kopf .rank-row { gap: 10px; margin-top: 18px; }
+
 .wallet-kopf .rank-progress { height: 3px; background: rgba(255, 255, 255, .3); }
 
 /* --- Sichern laeuft still: kleiner Punkt neben der Gutschein-Zahl --- */
@@ -4291,11 +3853,12 @@ body.gescrollt:not(.wallet-farbe) .topbar { border-bottom-color: transparent; }
 .rang-stufe.erreicht { opacity: 1; }
 .rang-stufe.aktuell { opacity: 1; }
 .rang-punkt { width: 11px; height: 11px; border-radius: 50%; flex: none; background: var(--muted); }
-.rang-punkt.tier-1 { background: #12C77E; }
-.rang-punkt.tier-2 { background: #12C77E; }
-.rang-punkt.tier-3 { background: #12A8C7; }
-.rang-punkt.tier-4 { background: #6C4BD8; }
-.rang-punkt.tier-5 { background: #C79B12; }
+.rang-punkt.tier-1 { background: #0FA86B; }
+.rang-punkt.tier-2 { background: #0E95A3; }
+.rang-punkt.tier-3 { background: #2D6BDB; }
+.rang-punkt.tier-4 { background: #6B4CD9; }
+.rang-punkt.tier-5 { background: #BB2F7E; }
+.rang-punkt.tier-6 { background: #A87A0C; }
 .rang-text { flex: 1; display: flex; flex-direction: column; }
 .rang-text b { font-size: .9rem; }
 .rang-text small { font-size: .74rem; color: var(--muted); }
@@ -4782,7 +4345,6 @@ body.wallet-farbe .topbar::after { content: none; }
 /* Solange kein Freund gewaehlt ist, soll der Knopf auch aussehen wie gesperrt */
 .gp-senden:disabled { opacity: .45; cursor: not-allowed; filter: saturate(.4); }
 
-
 /* ============ Runde 98: Chat ohne Zahlenraterei =============================
    Vorher bekam #chat-box seine Hoehe aus fuenf Medienabfragen mit fest
    eingetragenen Abzuegen (415, 285, 320, 300 ...). Jede war fuer ein Geraet
@@ -4841,7 +4403,6 @@ body.wallet-farbe main { padding-bottom: calc(var(--menue-luft) + 34px + env(saf
   font-family: inherit; font-size: .84rem; font-weight: 700;
   letter-spacing: .01em; opacity: .92;
 }
-
 
 /* ============ Runde 99: Filterwechsel gleitet ============================== */
 /* Der aktive Filter wird nicht mehr eingefaerbt — dahinter gleitet eine Pille
@@ -4940,7 +4501,6 @@ body.wallet-farbe main { padding-bottom: calc(var(--menue-luft) + 34px + env(saf
 
 @media (prefers-reduced-motion: reduce) { .pack-buehne { display: none; } }
 
-
 /* ============ Runde 100: Hinzufuegen in der Mitte ========================== */
 /* Verschenken links, Hinzufuegen mittig, Analyse rechts. Der mittlere Griff
    ist der, den man am oeftesten braucht — er bekommt etwas mehr Gewicht. */
@@ -4976,7 +4536,6 @@ body.wallet-farbe main { padding-bottom: calc(var(--menue-luft) + 34px + env(saf
    Weichzeichner (siehe #bottom-fade weiter oben): ein Verlauf tut dasselbe
    fuers Auge und kostet nichts. */
 
-
 /* ============ Runde 100: weniger Neuzeichnen beim Umschalten =============== */
 /* Der Kopf schrumpft, alles darunter rueckt nach. Ohne eigene Ebene zeichnet
    der Browser diese Flaeche (351x730 mit Verlaeufen und Schatten) in jedem
@@ -4992,20 +4551,8 @@ body.wallet-farbe main { padding-bottom: calc(var(--menue-luft) + 34px + env(saf
    Hoehe sich ohnehin nur einmal aendert. */
 body.wallet-wechsel #wallet-kopf-geld { transition: none; }
 
-/* Die vier belebten Profilrahmen fahren eine Endlos-Animation auf box-shadow —
-   und box-shadow ist eine Zeichen-Eigenschaft, laeuft also nicht auf der
-   Grafikkarte, sondern malt jedes Bild neu. Einzeln ist die Flaeche klein, im
-   Chat stehen aber schnell zwanzig davon untereinander. Waehrend der
-   Umschaltung stehen sie still; da zaehlt jedes Bild. */
-body.wallet-wechsel .pfb-neonpink,
-body.wallet-wechsel .pfb-eisring,
-body.wallet-wechsel .pfb-regenbogen,
-body.wallet-wechsel .pfb-plasma { animation-play-state: paused; }
 /* Und wenn die Seite gar nicht zu sehen ist, braucht dort nichts zu laufen. */
-body.versteckt .pfb-neonpink, body.versteckt .pfb-eisring,
-body.versteckt .pfb-regenbogen, body.versteckt .pfb-plasma,
 body.versteckt .pn-anim { animation-play-state: paused; }
-
 
 /* ============ Runde 100: Analyse im eigenen Blatt ========================== */
 .stat-uebertitel {
@@ -5039,7 +4586,6 @@ body.versteckt .pn-anim { animation-play-state: paused; }
   background: var(--chip-active-bg, #1a1e24) !important;
   color: var(--chip-active-fg, #fff) !important;
 }
-
 
 /* ============ Runde 100: auf dem Handy schaltet die Wallet hart um ==========
    Die Bewegung beim Wechsel Gutscheine <-> Karten & Coupons bewegt zwei grosse
@@ -5079,8 +4625,6 @@ body.sparsam #wallet-farbfeld::after { transition: none; }
 body.sparsam #coupons-content.tab-in,
 body.sparsam #wallet-content.tab-in { animation: none; }
 body.sparsam .tabbar { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--glass-strong); }
-body.sparsam .pfb-neonpink, body.sparsam .pfb-eisring,
-body.sparsam .pfb-regenbogen, body.sparsam .pfb-plasma,
 body.sparsam .pn-anim { animation: none; }
 body.sparsam .wm-flaeche, body.sparsam .filter-pille {
   transition: transform .2s ease;
@@ -5119,7 +4663,6 @@ body.sparsam .wm-flaeche, body.sparsam .filter-pille {
 
 @media (prefers-reduced-motion: reduce) { .lupe-verwalten { transition: none; } }
 
-
 /* ============ Runde 103: Global-Chat entfernt ============================== */
 /* Ungelesene Fluesternachrichten stehen jetzt am Chat-Tab unten statt im
    Umschalter im Chat — so sieht man sie auch, wenn man gerade woanders ist. */
@@ -5142,7 +4685,6 @@ body.sparsam .wm-flaeche, body.sparsam .filter-pille {
 }
 .chat-leer p { margin: 0; font-weight: 700; }
 .chat-leer p.muted { font-weight: 500; font-size: .86rem; margin-bottom: 10px; }
-
 
 /* ============ Runde 104: Bildbetrachter fuer Gutscheinbilder ============== */
 /* Im Blatt: das Bild ist antippbar, dazu ein kleiner Lupen-Knopf neben
@@ -5226,7 +4768,6 @@ body.sparsam .wm-flaeche, body.sparsam .filter-pille {
   .bl-zu, .bl-wahl, .bl-wahl-flaeche, .bl-rahmen, #wv-bild { transition: none; }
 }
 
-
 /* ============ Runde 108: Platz in der Wallet ============================== */
 /* Leise, solange genug frei ist; orange ab 90 %, rot wenn voll */
 .wallet-platz {
@@ -5240,7 +4781,6 @@ body.sparsam .wm-flaeche, body.sparsam .filter-pille {
 .wa-platz { margin: 2px 0 10px; font-size: .78rem; font-weight: 600; color: var(--muted); }
 .wa-platz.fast { color: #B86A00; }
 .wa-platz.voll { color: #C0392B; font-weight: 700; }
-
 
 /* ============ Runde 112/114: Wallet-Sperre, Sicherheit, Aufraeumen ========== */
 /* Die Sperre deckt die ganze App ab — Kopfzeile und Menue unten eingeschlossen.

@@ -83,14 +83,6 @@ function setzeLeistenfarbe() {
 applyTheme(localStorage.getItem('ra.theme')
   || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
 
-// Weichwährung: Funken. Bewusst KEINE Euro-Optik — eigenes Icon, deutsche
-// Tausenderpunkte, nie Nachkommastellen. Sie dürfen nie wie Guthaben aussehen.
-// (Serverfeld heißt intern weiter "coins", damit users.json nicht migriert werden muss.)
-const CUR = { name: 'Funken', one: 'Funke', icon: '/gamification/currency-funke.svg' };
-const fmtFunken = n => (Math.round(Number(n)) || 0).toLocaleString('de-DE');
-const funkeIcon = (small = false) =>
-  `<img class="px-icon${small ? ' px-16' : ''}" src="${small ? '/gamification/currency-funke-16.svg' : CUR.icon}" alt="${CUR.name}">`;
-
 const VIEW_ORDER = ['feed', 'wallet', 'chat', 'profile', 'search', 'settings', 'friends', 'user', 'inventory', 'shop', 'gifts', 'invite', 'editprofile'];
 const FEED_LIMIT = 40;
 
@@ -547,7 +539,13 @@ function switchView(next, animClass) {
   newView.classList.add(animClass || (weich ? 'enter-fade' : dir === 1 ? 'enter-right' : 'enter-left'));
   // Login-Captcha erst rendern, wenn die Profil-Seite sichtbar ist
   if (next === 'profile' && !state.token) renderTurnstile('login');
-  if (next === 'profile' && state.token) { refreshGami(); refreshGamiSystem(); }
+  if (next === 'profile' && state.token) ladeProfil();
+  // Profil und Unterseiten haben keinen Reiter: "Zurueck" fuehrt dorthin,
+  // woher man kam. Der Rueckweg aus einer Unterseite aendert das nicht.
+  if (PROFIL_BEREICH.includes(next)) {
+    const vorher = oldView.id.slice(5);
+    if (!PROFIL_BEREICH.includes(vorher) || (vorher === 'profile' && next !== 'profile')) state.zurueck[next] = vorher;
+  }
   if (next === 'chat') {
     // Der Chat besteht nur noch aus den Gespraechen mit Freunden. Er oeffnet
     // die Liste — wer gezielt in einen Einzelchat will (Benachrichtigung,
@@ -567,8 +565,6 @@ function switchView(next, animClass) {
   setzeLeistenfarbe();
   requestAnimationFrame(() => { messeKopfzeile(); pruefeKopfzeile(); });
   if (next === 'friends') renderFriendsView();
-  if (next === 'inventory') renderInventoryPage();
-  if (next === 'shop') renderShopPage();
   if (next === 'gifts') renderGiftsPage();
   if (next === 'invite') renderInvitePage();
   if (next !== 'wallet') $('#wallet-mini')?.classList.remove('show');
@@ -587,13 +583,17 @@ $('#btn-search-top').addEventListener('click', () => {
   setTimeout(() => $('#search').focus(), 420);
 });
 $('#btn-search-back').addEventListener('click', () => switchView(searchReturnView, 'enter-drop'));
-$('#btn-settings-back').addEventListener('click', () => switchView('profile', 'enter-drop'));
-$('#btn-friends-back').addEventListener('click', () => switchView('profile', 'enter-drop'));
+// Seiten, die ueber das Profil oder die Seitenleiste aufgehen; ihr Rueckweg
+// steht in state.zurueck (siehe switchView)
+const PROFIL_BEREICH = ['profile', 'settings', 'friends', 'gifts', 'invite', 'editprofile'];
+state.zurueck = {};
+const zurueckVon = v => switchView(state.zurueck[v] || (v === 'profile' ? 'feed' : 'profile'), 'enter-drop');
+$('#btn-profile-back').addEventListener('click', () => zurueckVon('profile'));
+$('#btn-settings-back').addEventListener('click', () => zurueckVon('settings'));
+$('#btn-friends-back').addEventListener('click', () => zurueckVon('friends'));
 $('#btn-user-back').addEventListener('click', () => switchView(userPageReturn, 'enter-drop'));
-$('#btn-inv-back').addEventListener('click', () => switchView('profile', 'enter-drop'));
-$('#btn-shop-back').addEventListener('click', () => switchView('profile', 'enter-drop'));
-$('#btn-gifts-back').addEventListener('click', () => switchView('profile', 'enter-drop'));
-$('#btn-invite-back')?.addEventListener('click', () => switchView('profile', 'enter-drop'));
+$('#btn-gifts-back').addEventListener('click', () => zurueckVon('gifts'));
+$('#btn-invite-back')?.addEventListener('click', () => zurueckVon('invite'));
 $('#btn-edit-back').addEventListener('click', () => switchView('profile', 'enter-drop'));
 
 // ---- Freunde-Bereich: Liste mit Profilbild, Profil ansehen oder schreiben
@@ -604,15 +604,15 @@ async function renderFriendsView() {
     const r = await api('/api/dm/list');
     const friends = myProfile?.friends || [];
     const meta = {};
-    r.list.forEach(l => { meta[l.partner] = { avatar: l.avatar, border: l.border, ts: l.lastTs }; });
-    (r.friends || []).forEach(f => { meta[f.name] = meta[f.name] || { avatar: f.avatar, border: f.border, ts: 0 }; });
+    r.list.forEach(l => { meta[l.partner] = { avatar: l.avatar, ts: l.lastTs }; });
+    (r.friends || []).forEach(f => { meta[f.name] = meta[f.name] || { avatar: f.avatar, ts: 0 }; });
     const sorted = [...friends].sort((a, b) => (meta[b]?.ts || 0) - (meta[a]?.ts || 0));
     host.innerHTML = sorted.length ? sorted.map(f => `
       <div class="friend-row">
-        ${meta[f]?.avatar ? `<img class="avatar-big${meta[f]?.border ? ' pfb-' + esc(meta[f].border) : ''}" src="${sichereBildUrl(meta[f].avatar)}" alt="">`
-        : `<span class="avatar-big${meta[f]?.border ? ' pfb-' + esc(meta[f].border) : ''}" style="background:${chatColor(f)}">${esc(f[0].toUpperCase())}</span>`}
-        <span class="friend-name">@${esc(f)}</span>
-        <button class="btn btn-small btn-ghost" data-fr-profile="${esc(f)}">Profil</button>
+        <button class="friend-open" type="button" data-fr-profile="${esc(f)}" aria-label="Profil von @${esc(f)}">
+          ${avatarHtml(f, meta[f]?.avatar, 'avatar-big')}
+          <span class="friend-name">@${esc(f)}</span>
+        </button>
         <button class="btn btn-small" data-fr-write="${esc(f)}">Schreiben</button>
       </div>`).join('')
       : '<div class="status">Noch keine Freunde. Schick oben eine Anfrage!</div>';
@@ -2426,31 +2426,29 @@ function openDealSheet(deal) {
   refreshComments();
 }
 
-// Ein Kommentar mit Badge, Reaktionen (Like/Hilfreich/Emote), Antworten und Löschen
+// Ein Kommentar mit Reaktionen (Like/Hilfreich/Emote), Antworten und Löschen
 function commentHtml(c, replies) {
   if (c.deleted) {
     return `<div class="comment comment-tomb"><div class="comment-text chat-deleted">${icon('x', 'icon icon-sm')} Kommentar entfernt</div>
       ${replies.map(r => commentHtml(r, [])).join('')}</div>`;
   }
-  const badge = c.badge && chatBadges[c.badge]
-    ? `<svg class="icon icon-sm chat-badge"><use href="#i-${chatBadges[c.badge].icon}"/></svg>` : '';
   const role = c.role === 'admin' ? `<svg class="icon icon-sm chat-badge role-admin"><use href="#i-crown"/></svg>` : '';
   const rx = c.reactions || {};
   const mine = k => (rx[k] || []).includes(state.userName);
   const emoteRx = Object.keys(rx).filter(k => k !== 'like' && k !== 'helpful');
   const canDelete = state.userName === c.user || ['admin', 'mod'].includes(state.role);
-  // Jeder Kommentar traegt den Look seines Autors: Avatar mit Rahmen, Paint-Name,
-  // Badge — der Server liefert den jeweils AKTUELLEN Stand mit
+  // Jeder Kommentar traegt Profilbild und Namensfarbe seines Autors — der
+  // Server liefert den jeweils AKTUELLEN Stand mit
   const ns = nameStyleOf(c.user, c.paint);
   const ava = c.avatar
-    ? `<img class="avatar-mini avatar-img c-ava pfb-${esc(c.border || 'none')}" src="${sichereBildUrl(c.avatar)}" alt="">`
-    : `<span class="avatar-mini c-ava pfb-${esc(c.border || 'none')}" style="background:${chatColor(c.user)}">${esc(c.user[0].toUpperCase())}</span>`;
+    ? `<img class="avatar-mini avatar-img c-ava" src="${sichereBildUrl(c.avatar)}" alt="">`
+    : `<span class="avatar-mini c-ava" style="background:${chatColor(c.user)}">${esc(c.user[0].toUpperCase())}</span>`;
   return `
     <div class="comment" data-cid="${esc(c.id)}">
       <div class="comment-head">
         ${ava}
         <span class="comment-user${ns.cls}" style="${ns.style}">@${esc(c.user)}</span>
-        ${badge || role}
+        ${role}
         <span class="comment-time">${esc(timeAgo(c.ts))}</span>
         ${(c.flags || []).map(f => `<span class="pill pill-warn">${icon('warning', 'icon icon-sm')} ${esc(f)}</span>`).join('')}
       </div>
@@ -2533,7 +2531,21 @@ async function sendComment() {
   }
 }
 
-// ---------------- Profil: Registrieren / Anmelden ----------------
+// ---------------- Profil: Anmelden, eigenes Profil, Seitenleiste ----------------
+// Kisten, Inventar, Shop, Funken, Quests, Paints und Rahmen sind raus
+// (Runde 117). Geblieben: Profilbild, Bio, Namensfarbe, Lieblingsmarken,
+// Freunde, Einladungen; dazu privat der Rang (nach Wallet-Guthaben) und die
+// Login-Serie.
+
+let myProfile = null;
+let profSeq = 0;
+let peFarbe = '';        // Namensfarbe, wie sie auf "Profil bearbeiten" gerade gewaehlt ist
+// Rest aus der Kisten-Zeit: der Chat liest hier noch den Emote-Besitz
+// (gami?.emotes …). Der Wert bleibt leer — es hat jeder alle Emotes.
+let gami = null;
+// Sticker auf Gutscheinen gibt es nicht mehr; alte Karten behalten ihre
+// Daten, gezeigt wird nichts (die Wallet ruft das noch je Karte auf)
+function voucherStickerHtml() { return ''; }
 
 function refreshProfileTab() {
   // Oben links: "Anmelden"-Button (Gast) bzw. Avatar mit Initiale (angemeldet)
@@ -2550,1119 +2562,149 @@ function refreshProfileTab() {
     btn.setAttribute('aria-label', 'Anmelden / Registrieren');
   }
   $('#auth-card').classList.toggle('hidden', !!state.token);
-  $('#me-card').classList.toggle('hidden', !state.token);
-  $('#gami-card').classList.toggle('hidden', !state.token);
+  $('#pf-seite').classList.toggle('hidden', !state.token);
   $('#btn-logout').classList.toggle('hidden', !state.token);
   $('#danger-card').classList.toggle('hidden', !state.token);
-  if (!state.token) $('#bio-card').classList.add('hidden'); // öffnet nur über "Profil bearbeiten"
   if (state.token) {
     renderMyName();
-    refreshGami();
+    ladeProfil();
   }
   renderWallet(); // Wallet-Sperre folgt dem Login-Status
   updateChatGate();
 }
 
-// ---------------- Gamification: Funken, Container, Badges ----------------
-
-let myProfile = null;
-function badgeChip(id, def, active) {
-  return `<button class="badge-chip rar-${def.rar === 'häufig' ? 'common' : def.rar === 'selten' ? 'rare' : 'epic'} ${active ? 'on' : ''}" data-badge="${esc(id)}" title="${esc(def.rar)}">
-    <svg class="icon icon-sm"><use href="#i-${def.icon}"/></svg><span>${esc(def.name)}</span>
-  </button>`;
+// Profilbild oder Anfangsbuchstabe auf der festen Farbe des Namens
+function avatarHtml(name, bild, cls, id = '') {
+  const n = name || '?';
+  const idAttr = id ? ` id="${id}"` : '';
+  return bild
+    ? `<img class="${cls}"${idAttr} src="${sichereBildUrl(bild)}" alt="">`
+    : `<span class="${cls}"${idAttr} style="background:${chatColor(n)}">${esc(n[0].toUpperCase())}</span>`;
 }
-let profSeq = 0;
-async function refreshGami() {
+
+// Eigenes Profil vom Server holen und alles zeichnen, was daran haengt
+async function ladeProfil() {
   if (!state.token) return;
   const pseq = ++profSeq;
-  let freshProf;
-  try { freshProf = await api('/api/profile'); } catch { return; }
+  let frisch;
+  try { frisch = await api('/api/profile'); } catch { return; }
   if (pseq !== profSeq) return; // veraltet: eine lokale Änderung kam dazwischen
-  myProfile = freshProf;
-  const oldCoins = Number($('#g-coins').textContent.replace(/\./g, '')) || 0;
-  animateInt($('#g-coins'), oldCoins, myProfile.coins || 0);
-  $('#g-bio').value = myProfile.bio || '';
-  $('#g-public').checked = myProfile.publicProfile !== false;
-  // Profilbild + Lieblings-Kleinigkeiten
-  const av = $('#g-avatar-preview');
-  if (myProfile.avatar) av.outerHTML = `<img class="avatar-big" id="g-avatar-preview" src="${sichereBildUrl(myProfile.avatar)}" alt="">`;
-  else av.outerHTML = `<span class="avatar-big" id="g-avatar-preview" style="background:${chatColor(state.userName || '?')}">${esc((state.userName || '?')[0].toUpperCase())}</span>`;
+  myProfile = frisch;
+  // Profil bearbeiten: Vorschau des Bildes
+  $('#g-avatar-preview').outerHTML = avatarHtml(state.userName, myProfile.avatar, 'avatar-big', 'g-avatar-preview');
   $('#g-avatar-del').classList.toggle('hidden', !myProfile.avatar);
-  // Profil so zeigen, wie Besucher es sehen
-  const rank = rankFor(renderWallet.lastTotal || 0);
-  $('#g-rank-row').innerHTML = `<span class="rank-chip">${esc(rank.name)}</span>`;
-  const myBorder = gami?.activeBorder ? ` pfb-${gami.activeBorder}` : '';
-  $('#me-avatar').innerHTML = myProfile.avatar
-    ? `<img class="avatar-big${myBorder}" src="${sichereBildUrl(myProfile.avatar)}" alt="">`
-    : `<span class="avatar-big${myBorder}" style="background:${chatColor(state.userName || '?')}">${esc((state.userName || '?')[0].toUpperCase())}</span>`;
-  $('#me-bio').textContent = myProfile.bio || 'Noch keine Bio. Erzähl kurz, wer du bist!';
-  // Lieblings-Sachen als Marken-Logos, wo wir das Logo kennen
-  const mf = myProfile.favs || {};
-  const favChip = v => BRAND_DOMAINS[String(v || '').toLowerCase()]
-    ? `<span class="fav-logo">${brandChipHtml(v)}<small>${esc(v)}</small></span>`
-    : `<span class="pill">${esc(v)}</span>`;
-  $('#me-favs').innerHTML = ['discounter', 'supermarkt', 'essen', 'onlineshop', 'mode']
-    .map(k => mf[k] ? favChip(mf[k]) : '').join('');
-  // Nur EIN Badge im Profil: das getragene (auswählen geht im Inventar)
-  const ab = myProfile.activeBadge;
-  $('#me-badges').innerHTML = ab && myProfile.badgesAll[ab]
-    ? badgeChip(ab, myProfile.badgesAll[ab], true)
-    : '<span class="stars-count">Kein Badge angelegt. Wähl eins im Inventar.</span>';
-  $('#me-handle').textContent = '@' + (state.userName || '');
-  // Showcase: bis zu 3 Items zum Flexen
-  const sc = gami?.showcase || [];
-  $('#me-showcase').innerHTML = sc.length ? sc.map(key => {
-    const [kind, id] = key.split(':');
-    const rar = itemRarity(kind, id);
-    const col = (gami?.rarity || {})[rar]?.color || '#888';
-    const fl = (gami?.floats || {})[key] ?? 0;
-    return `<div class="sc-slot ${isShinyF(fl) ? 'shiny' : ''}" style="--rc:${col}" title="${esc(itemName(kind, id))}">
-      ${itemVisual(kind, id)}<span class="inv-float">#${String(fl).padStart(3, '0')}</span>
-    </div>`;
-  }).join('') : '';
-  renderFavPickers();
-  // Topbar-Avatar: Profilbild statt Initiale + roter Punkt bei Anfragen
+  renderProfil();
+  // Kopfzeilen-Knopf: Profilbild statt Initiale
   if (myProfile.avatar && state.token) {
     $('#btn-profile-top').innerHTML = `<img class="avatar-mini avatar-img" src="${sichereBildUrl(myProfile.avatar)}" alt="">`;
     updateGiftBadges(); // der Avatar-Tausch wirft den Geschenk-Punkt sonst raus
   }
   updateReqDot();
-  refreshGamiSystem();
-}
-// Ganze Zahlen animiert zählen (Funken)
-function animateInt(el, from, to, ms = 600) {
-  if (!el) return;
-  if (reducedMotion() || from === to) { el.textContent = fmtFunken(to); return; }
-  const t0 = performance.now();
-  const safety = setTimeout(() => { el.textContent = fmtFunken(to); }, ms + 100);
-  const tick = now => {
-    const p = Math.min(1, (now - t0) / ms);
-    el.textContent = fmtFunken(Math.round(from + (to - from) * (1 - Math.pow(1 - p, 3))));
-    if (p < 1) requestAnimationFrame(tick); else clearTimeout(safety);
-  };
-  requestAnimationFrame(tick);
-}
-$('#g-daily').addEventListener('click', async () => {
-  if ($('#g-daily').disabled) return;
-  const m = $('#g-msg');
-  setBtnLoading($('#g-daily'), true);
-  try {
-    const r = await api('/api/daily', { method: 'POST', body: '{}' });
-    playSfx('coin'); buzz(30); moneyFlash('green');
-    animateInt($('#g-coins'), r.coins - r.gained, r.coins);
-    m.className = 'form-msg ok';
-    m.textContent = `+${fmtFunken(r.gained)} Funken! Serie: ${r.streak} Tag${r.streak > 1 ? 'e' : ''}.${r.caseWon ? ' Und ein Container!' : ''}`;
-    myProfile && (myProfile.coins = r.coins);
-    if (gami) gami.dailyNextTs = Date.now() + 24 * 3600e3;
-    refreshGamiSystem();
-  } catch (e) { m.className = 'form-msg error'; m.textContent = e.message; }
-  finally { setBtnLoading($('#g-daily'), false); renderDailyTimer(); }
-});
-// Solange der naechste Tagesbonus in der Zukunft liegt, ist der Knopf gar nicht
-// erst antippbar und zeigt einen laufenden Countdown statt einer Fehlermeldung
-let dailyTimerInt = null;
-function renderDailyTimer() {
-  const btn = $('#g-daily');
-  if (!btn) return;
-  const next = gami?.dailyNextTs || 0;
-  const left = next - Date.now();
-  if (left <= 0) {
-    btn.disabled = false;
-    btn.classList.remove('daily-wait');
-    btn.textContent = 'Daily abholen';
-    clearInterval(dailyTimerInt); dailyTimerInt = null;
-    return;
-  }
-  btn.disabled = true;
-  btn.classList.add('daily-wait');
-  const h = Math.floor(left / 3600e3);
-  const mn = Math.floor(left % 3600e3 / 60e3);
-  const sc = Math.floor(left % 60e3 / 1e3);
-  btn.textContent = `${String(h).padStart(2, '0')}:${String(mn).padStart(2, '0')}:${String(sc).padStart(2, '0')}`;
-  if (!dailyTimerInt) dailyTimerInt = setInterval(renderDailyTimer, 1000);
-}
-// ---------------- Ränge, Kisten (nur erspielbar) und Paints ----------------
-
-let gami = null;
-const CONTAINER_IMGS = {
-  'emote-capsule': 'container-emote-capsule',
-  'sticker-capsule': 'container-sticker-capsule',
-  'paint-capsule': 'container-paint-capsule',
-  'border-capsule': 'container-border-capsule',
-  'emote-case': 'container-emote-case',
-  // Alt-Typen (falls ein alter Stand sie noch nennt): weich auf die neuen Icons
-  standard: 'container-emote-capsule', silber: 'container-emote-capsule',
-  gold: 'container-emote-case', prisma: 'container-emote-case',
-};
-const containerName = type => gami?.containers?.[type]?.name || type;
-const rankFile = r => `/gamification/rank-${String(r.tier).padStart(2, '0')}-${r.id}.svg`;
-const paintById = id => (gami?.paintsAll || chatPaints || []).find(x => x.id === id);
-// Animierte Paints (shimmer/holo/sweep) + Glow: die Felder stehen seit jeher in
-// paints.json, wurden aber nie gerendert — diese zwei Helfer sind die einzige
-// Wahrheit dafuer und haengen an JEDER Paint-Darstellung
-function paintDecor(pnt) {
-  if (!pnt) return { cls: '', style: '' };
-  return {
-    cls: (pnt.anim ? ' pn-anim' : '') + (pnt.glow ? ' pn-glow' : ''),
-    style: (pnt.glow ? `--glow:${pnt.glow};` : ''),
-  };
 }
 
-// Item-Helfer: Anzeige, Float, Shiny, Wert
-const isShinyF = f => {
-  const s = String(f ?? 0).padStart(3, '0');
-  return (s[0] === s[1] && s[1] === s[2]) || (+s[1] === +s[0] + 1 && +s[2] === +s[1] + 1);
-};
-function itemVisual(kind, id) {
-  if (kind === 'paint') {
-    const pnt = paintById(id);
-    const dec = paintDecor(pnt);
-    return `<span class="reel-paint${dec.cls}" style="background-image:${pnt?.css || 'none'};${dec.style}"></span>`;
-  }
-  if (kind === 'badge') return `<svg class="icon"><use href="#i-${(gami?.badgesAll || {})[id]?.icon || 'star'}"/></svg>`;
-  if (kind === 'sticker') return `<img class="emote" style="height:26px" src="https://cdn.7tv.app/emote/${(gami?.stickersAll || {})[id]?.id}/2x.webp" alt="">`;
-  if (kind === 'border') return `<span class="avatar-mini border-demo pfb-${esc(id)}">${esc((state.userName || 'du')[0].toUpperCase())}</span>`;
-  return `<img class="emote" style="height:26px" src="https://cdn.7tv.app/emote/${(gami?.emotesAll || {})[id]?.id}/2x.webp" alt="">`;
-}
-function itemRarity(kind, id) {
-  if (kind === 'paint') return paintById(id)?.rarity || 'common';
-  if (kind === 'badge') return ({ 'häufig': 'common', 'selten': 'rare', 'episch': 'epic' })[(gami?.badgesAll || {})[id]?.rar] || 'common';
-  if (kind === 'sticker') return (gami?.stickersAll || {})[id]?.rarity || 'common';
-  if (kind === 'border') return (gami?.bordersAll || {})[id]?.rarity || 'common';
-  return (gami?.emotesAll || {})[id]?.rarity || 'common';
-}
-function itemName(kind, id) {
-  if (kind === 'paint') return paintById(id)?.name || id;
-  if (kind === 'border') return (gami?.bordersAll || {})[id]?.name || id;
-  if (kind === 'badge') return (gami?.badgesAll || {})[id]?.name || id;
-  return id;
-}
-// Item inspecten: groß anschauen, mit Float, Rarität und Shiny-Glitzer
-function openInspect(kind, id, float, rarity) {
-  const col = (gami?.rarity || {})[rarity]?.color || '#888';
-  const shiny = isShinyF(float);
-  const wrap = document.createElement('div');
-  wrap.className = 'overlay';
-  wrap.innerHTML = `
-    <div class="modal case-modal inspect ${shiny ? 'shiny' : ''}" style="--rc:${col}">
-      <div class="case-win-visual inspect-visual">${itemVisual(kind, id)}</div>
-      <b style="font-size:1.15rem">${esc(itemName(kind, id))}</b>
-      <span class="inv-float">#${String(float ?? 0).padStart(3, '0')}${shiny ? ' ✦ SHINY' : ''}</span>
-      <span style="color:${col}; font-weight:800">${esc((gami?.rarity || {})[rarity]?.label || rarity)}</span>
-    </div>`;
-  document.body.appendChild(wrap);
-  wrap.addEventListener('click', () => { wrap.classList.add('closing'); setTimeout(() => wrap.remove(), 280); });
+// Der eigene Name in der eigenen Namensfarbe (Profil-Kopf)
+function renderMyName() {
+  const me = $('#me-name');
+  if (!me || !state.userName) return;
+  me.textContent = state.userName;
+  const ns = nameStyleOf(state.userName, myProfile?.nameColor);
+  me.className = 'pf-name' + ns.cls;
+  me.setAttribute('style', ns.style);
 }
 
-function myItems() {
-  if (!gami) return [];
-  // Mehrfachbesitz: die x-te Kopie eines Items traegt ihren Float unter kind:id#x
-  const counts = {};
-  return [
-    ...gami.paints.map(id => ({ kind: 'paint', id })),
-    ...(gami.badgesOwned || myProfile?.badges || []).map(id => ({ kind: 'badge', id })),
-    ...(gami.emotes || []).map(id => ({ kind: 'emote', id })),
-    ...(gami.stickers || []).map(id => ({ kind: 'sticker', id })),
-    ...(gami.borders || []).map(id => ({ kind: 'border', id })),
-  ].map(it => {
-    const key = `${it.kind}:${it.id}`;
-    const copy = counts[key] = (counts[key] ?? -1) + 1;
-    const fkey = copy > 0 ? `${key}#${copy}` : key;
-    return { ...it, copy, float: (gami.floats || {})[fkey] ?? 0, rarity: itemRarity(it.kind, it.id) };
-  });
+// Lieblingsmarke als kleine Kachel: Logo, wo wir es kennen, sonst nur der Name
+function favChipHtml(v) {
+  return BRAND_DOMAINS[String(v || '').toLowerCase()]
+    ? `<span class="pf-marke">${brandChipHtml(v)}<span>${esc(v)}</span></span>`
+    : `<span class="pf-marke ohne-logo"><span>${esc(v)}</span></span>`;
 }
 
-let gamiSeq = 0;
-async function refreshGamiSystem() {
-  if (!state.token) return;
-  const seq = ++gamiSeq;
-  const firstLoad = !gami;
-  let freshGami;
-  try { freshGami = await api('/api/gami'); } catch { return; }
-  if (seq !== gamiSeq) return; // veraltet: eine lokale Änderung kam dazwischen
-  gami = freshGami;
-  if (firstLoad) renderWallet(); // Sticker auf den Karten brauchen den Sticker-Katalog
-  animateInt($('#g-coins'), Number($('#g-coins').textContent.replace(/\./g, '')) || 0, gami.coins || 0);
-  renderDailyTimer();
-  applyMyBorder(); // der eigene Rahmen sitzt auf Profil-Avatar + Kopfzeilen-Knopf
+// Profil-Seite: Kopf, Rang, Login-Serie, Lieblingsmarken, Freunde
+function renderProfil() {
+  if (!state.token || !myProfile) return;
+  $('#me-avatar').innerHTML = avatarHtml(state.userName, myProfile.avatar, 'avatar-big');
   renderMyName();
-  // Rank-Up feiern: einmalige Vollbild-Celebration
-  const lastTier = Number(localStorage.getItem('ra.tier') || 0);
-  if (lastTier && gami.rank.tier > lastTier) rankUpFx(gami.rank);
-  lsSetzen('ra.tier', gami.rank.tier);
-  // Quests: gebündelt, kompakt, Funken per "Abholen"
-  const GROUPS = [
-    ['Community', ['comment', 'rate', 'chat', 'friend']],
-    ['Wallet', ['voucher', 'booking']],
-    ['Täglich', ['daily', 'newsletter', 'push']],
-  ];
-  const claimables = gami.claimable || [];
-  $('#quests-claim-count').textContent = claimables.length ? `(${claimables.length} abholbar)` : '';
-  $('#gm-quests').innerHTML = GROUPS.map(([label, keys]) => `
-    <div class="quest-group"><b>${label}</b>
-    ${keys.map(k => {
-      const q = gami.quests.find(x => x.key === k);
-      if (!q) return '';
-      const claim = claimables.find(c => c.key === k);
-      const nextMs = q.milestones.find(([n]) => !q.awarded.includes(`${q.key}:${n}`));
-      const target = nextMs ? nextMs[0] : q.milestones[q.milestones.length - 1][0];
-      const done = !nextMs && !claim;
-      return `
-      <div class="quest-row ${done ? 'done' : ''}">
-        <div class="quest-main">
-          <span>${esc(q.name)} <small>${Math.min(q.progress, target)}/${target}</small></span>
-          ${claim ? `<button class="btn btn-small" data-qclaim="${esc(claim.tag)}">Abholen +${fmtFunken(claim.coins)} ${funkeIcon(true)}</button>`
-            : `<small>${done ? 'komplett' : `+${fmtFunken(nextMs[1])} ${funkeIcon(true)} Funken`}</small>`}
-        </div>
-        <div class="rank-progress"><div class="rank-progress-fill" style="width:${Math.min(100, Math.round(q.progress / target * 100))}%"></div></div>
-      </div>`;
-    }).join('')}</div>`).join('');
-  $('#gm-quests').querySelectorAll('[data-qclaim]').forEach(b => b.onclick = async () => {
-    try {
-      const r = await api('/api/quests/claim', { method: 'POST', body: JSON.stringify({ tag: b.dataset.qclaim }) });
-      achvToast(`Quest geschafft: ${r.quest}`, `+${fmtFunken(r.gained)} Funken`);
-      playSfx('coin'); buzz(25);
-      refreshGamiSystem();
-    } catch (e) { island(e.message); }
-  });
-  const rank = gami.rank;
-  // RANG: Name, Fortschritt ab dem AKTUELLEN Rang, klare Punkteanzeige
-  $('#gm-rank-head').innerHTML = `
-    <div class="gm-rank-row">
-      <img class="px-icon big" src="${rankFile(rank)}" alt="">
-      <div class="gm-rank-text">
-        <b>RANG: <span style="color:${rank.color}">${esc(rank.name)}</span></b>
-        ${gami.next
-          ? `<span>${gami.points - rank.points} / ${gami.next.points - rank.points} Punkte bis ${esc(gami.next.name)} (${gami.next.points} nötig)</span>`
-          : '<span>Höchste Stufe erreicht!</span>'}
-      </div>
-    </div>
-    ${gami.next ? `<div class="rank-progress big"><div class="rank-progress-fill" style="width:${Math.round((gami.points - rank.points) / (gami.next.points - rank.points) * 100)}%"></div></div>` : ''}`;
-  // Leiter: Punkte-Anforderung sichtbar, scrollt automatisch zum aktuellen Rang
-  $('#gm-ladder').innerHTML = gami.ranks.map(r => `
-    <div class="gm-step ${r.tier <= rank.tier ? 'done' : ''} ${r.tier === rank.tier ? 'current' : ''}" title="${esc(r.name)}">
-      <img class="px-icon" src="${rankFile(r)}" alt="${esc(r.name)}">
-      <span>${esc(r.name)}</span>
-      <small>${r.points} P.</small>
-    </div>`).join('');
-  setTimeout(() => $('#gm-ladder .gm-step.current')?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' }), 200);
-  $('#gm-paints').innerHTML = (gami.paints || []).length
-    ? gami.paints.map(id => {
-      const pnt = paintById(id);
-      if (!pnt) return '';
-      return `<button class="gm-paint ${gami.activePaint === id ? 'on' : ''}" data-paint="${esc(id)}">
-        <span class="paint${paintDecor(pnt).cls}" style="--paint:${pnt.css}; color:${pnt.fallbackColor}; ${paintDecor(pnt).style}">${esc(pnt.name)}</span>
-      </button>`;
-    }).join('')
-    : '<span class="form-msg">Paints kommen aus Containern und färben deinen Namen im Chat.</span>';
-  if (state.activeView === 'inventory') renderInventoryPage(); // Ziehung/Verkauf sofort sichtbar
-  $('#gm-paints').querySelectorAll('[data-paint]').forEach(b => b.onclick = () => {
-    const next = gami.activePaint === b.dataset.paint ? '' : b.dataset.paint;
-    // Optimistisch: sofort markieren und melden, der Server folgt im Hintergrund
-    gami.activePaint = next;
-    gamiSeq++; profSeq++; // laufende Ladevorgänge dürfen das nicht zurückrollen
-    if (myProfile) myProfile.activePaint = next;
-    renderMyName();
-    $('#gm-paints').querySelectorAll('[data-paint]').forEach(x => x.classList.toggle('on', x.dataset.paint === next));
-    island(next ? 'Paint angelegt' : 'Paint abgelegt');
-    api('/api/paint', { method: 'POST', body: JSON.stringify({ id: next }) })
-      .then(() => refreshGamiSystem())
-      .catch(e => { island(e.message); refreshGamiSystem(); });
-  });
-}
-
-// Info: Wie sammelt man Aktivitätspunkte?
-$('#gm-rank-info').addEventListener('click', () => askConfirm(
-  'So sammelst du Aktivitätspunkte: 2 je Abbuchung, 5 je gesammeltem Gutschein, 1 je aktivem Tag (Tagesbonus) und 8 je aufgebrauchtem Gutschein. Einmal Verdientes bleibt: Gutscheine löschen kostet keine Punkte. Es zählt dein Sparverhalten, nie die Betragshöhe.',
-  { alertOnly: true }));
-
-// Inventar: alle Items mit Float, Shiny-Glitzer, Anlegen/Showcase/Verkaufen
-function openInventory() {
-  state.sheetMode = 'gami-inv';
-  const items = myItems();
-  $('#sheet-content').innerHTML = `
-    <div class="sheet-title">Inventar</div>
-    <p class="muted" style="font-size:.8rem">Float bis 999: Schnapszahlen und Straßen glitzern und sind beim Verkauf das Fünffache wert. Bis zu 3 Items kannst du in dein Profil stellen.</p>
-    ${items.length ? `<div class="inv-grid">${items.map(it => {
-      const col = (gami.rarity || {})[it.rarity]?.color || '#888';
-      const shiny = isShinyF(it.float);
-      const val = (gami.sellValues || {})[it.rarity] * (shiny ? 5 : 1);
-      const inShowcase = (gami.showcase || []).includes(`${it.kind}:${it.id}`);
-      const equipped = (it.kind === 'paint' && gami.activePaint === it.id) || (it.kind === 'badge' && myProfile?.activeBadge === it.id) || (it.kind === 'border' && gami.activeBorder === it.id);
-      const selKey = `${it.kind}:${it.id}:${it.copy}`;
-      return `
-      <div class="inv-item ${shiny ? 'shiny' : ''} ${invSelect ? 'sel-mode' : ''} ${invSelected.has(selKey) ? 'selected' : ''}" style="--rc:${col}" ${invSelect ? `data-sel="${esc(selKey)}" data-sel-val="${val}"` : ''}>
-        ${invSelect ? `<span class="sel-check">${icon('check', 'icon icon-sm')}</span>` : ''}
-        <div class="inv-visual">${itemVisual(it.kind, it.id)}</div>
-        <b>${esc(itemName(it.kind, it.id))}</b>
-        <span class="inv-float">#${String(it.float).padStart(3, '0')}${shiny ? ' ✦' : ''}</span>
-        <span style="color:${col}; font-size:.68rem">${esc((gami.rarity || {})[it.rarity]?.label || it.rarity)}</span>
-        <div class="inv-actions" ${invSelect ? 'style="display:none"' : ''}>
-          ${it.kind === 'sticker' ? `<button class="c-act" data-inv-stick="${esc(it.id)}">Aufkleben</button>`
-          : it.kind !== 'emote' ? `<button class="c-act ${equipped ? 'on' : ''}" data-inv-equip="${it.kind}:${esc(it.id)}">${equipped ? 'Angelegt' : 'Anlegen'}</button>` : ''}
-          <button class="c-act ${inShowcase ? 'on' : ''}" data-inv-show="${it.kind}:${esc(it.id)}">Profil</button>
-          <button class="c-act" data-inv-sell="${it.kind}:${esc(it.id)}:${it.copy}">Verkaufen (${val})</button>
-        </div>
-      </div>`;
-    }).join('')}</div>` : '<div class="status">Noch keine Items. Öffne Container!</div>'}`;
-  $('#sheet-content').querySelectorAll('[data-inv-equip]').forEach(b => b.onclick = async () => {
-    const [kind, id] = b.dataset.invEquip.split(':');
-    if (kind === 'paint') {
-      const next = gami.activePaint === id ? '' : id;
-      await api('/api/paint', { method: 'POST', body: JSON.stringify({ id: next }) }).catch(() => { });
-      gami.activePaint = next;
-    } else {
-      const next = myProfile.activeBadge === id ? '' : id;
-      await api('/api/profile', { method: 'POST', body: JSON.stringify({ activeBadge: next }) }).catch(() => { });
-      myProfile.activeBadge = next;
-    }
-    openInventory(); refreshGami();
-  });
-  $('#sheet-content').querySelectorAll('[data-inv-show]').forEach(b => b.onclick = async () => {
-    const key = b.dataset.invShow;
-    let sc = gami.showcase || [];
-    if (sc.includes(key)) sc = sc.filter(x => x !== key);
-    else if (sc.length >= 3) { island('Maximal 3 Items im Profil'); return; }
-    else sc = [...sc, key];
-    await api('/api/profile', { method: 'POST', body: JSON.stringify({ showcase: sc }) }).catch(() => { });
-    gami.showcase = sc;
-    openInventory(); refreshGami();
-  });
-  $('#sheet-content').querySelectorAll('[data-inv-sell]').forEach(b => b.onclick = async () => {
-    const [kind, id, copy] = b.dataset.invSell.split(':');
-    if (!await askConfirm(`${esc(itemName(kind, id))} wirklich verkaufen?`, { okLabel: 'Verkaufen' })) return;
-    try {
-      const r = await api('/api/item/sell', { method: 'POST', body: JSON.stringify({ kind, id, copy: Number(copy) || 0 }) });
-      playSfx('coin'); island(`Verkauft für ${fmtFunken(r.value)} Funken`);
-      await refreshGamiSystem(); await refreshGami();
-      openInventory();
-    } catch (e) { island(e.message); }
-  });
-  openSheetShell();
-}
-$('#gm-inv-btn')?.addEventListener('click', () => switchView('inventory', 'enter-drop'));
-
-// ---- Inventar als eigene Seite: Items UND Kisten, filterbar
-let invFilter = 'alle';
-let invSortRar = false;
-let invSelect = false;
-const invSelected = new Set(); // "kind:id:copy"
-const RAR_RANK = { legendary: 5, epic: 4, rare: 3, uncommon: 2, common: 1 };
-async function renderInventoryPage() {
-  if (!gami) await refreshGamiSystem();
-  const host = $('#inv-page');
-  if (!gami) { host.innerHTML = '<div class="status">Bitte anmelden.</div>'; return; }
-  const items = myItems();
-  const showCases = !invSelect && (invFilter === 'alle' || invFilter === 'case');
-  let list = invFilter === 'alle' ? items : items.filter(it => it.kind === invFilter);
-  if (invSortRar) list = [...list].sort((a, z) => (RAR_RANK[z.rarity] || 0) - (RAR_RANK[a.rarity] || 0) || z.float - a.float);
-  $('#inv-sort')?.classList.toggle('active', invSortRar);
-  $('#inv-select') && ($('#inv-select').textContent = invSelect ? 'Fertig' : 'Auswählen');
-  renderInvSellbar();
-  host.innerHTML = `
-    ${showCases && gami.cases.length ? `<h3 class="gm-h" style="margin-top:0">Container</h3>
-    <div class="gm-cases">${gami.cases.map(c => `
-      <button class="gm-case" data-case-open="${esc(c.id)}">
-        <img class="px-icon big" src="/gamification/${CONTAINER_IMGS[c.type] || CONTAINER_IMGS['emote-capsule']}.svg" alt="">
-        <span>${esc(containerName(c.type))}</span>
-      </button>`).join('')}</div>` : ''}
-    ${invFilter !== 'case' ? `${showCases && gami.cases.length ? '<h3 class="gm-h">Items</h3>' : ''}
-    <div class="inv-grid">${list.map(it => {
-      const col = (gami.rarity || {})[it.rarity]?.color || '#888';
-      const shiny = isShinyF(it.float);
-      const val = ((gami.sellValues || {})[it.rarity] || 20) * (shiny ? 5 : 1);
-      const inShowcase = (gami.showcase || []).includes(`${it.kind}:${it.id}`);
-      const equipped = (it.kind === 'paint' && gami.activePaint === it.id) || (it.kind === 'badge' && myProfile?.activeBadge === it.id) || (it.kind === 'border' && gami.activeBorder === it.id);
-      const selKey = `${it.kind}:${it.id}:${it.copy}`;
-      return `
-      <div class="inv-item ${shiny ? 'shiny' : ''} ${invSelect ? 'sel-mode' : ''} ${invSelected.has(selKey) ? 'selected' : ''}" style="--rc:${col}" ${invSelect ? `data-sel="${esc(selKey)}" data-sel-val="${val}"` : ''}>
-        ${invSelect ? `<span class="sel-check">${icon('check', 'icon icon-sm')}</span>` : ''}
-        <div class="inv-visual">${itemVisual(it.kind, it.id)}</div>
-        <b>${esc(itemName(it.kind, it.id))}</b>
-        <span class="inv-float">#${String(it.float).padStart(3, '0')}${shiny ? ' ✦' : ''}</span>
-        <span style="color:${col}; font-size:.68rem">${esc((gami.rarity || {})[it.rarity]?.label || it.rarity)}</span>
-        <div class="inv-actions" ${invSelect ? 'style="display:none"' : ''}>
-          ${it.kind === 'sticker' ? `<button class="c-act" data-inv-stick="${esc(it.id)}">Aufkleben</button>`
-          : it.kind !== 'emote' ? `<button class="c-act ${equipped ? 'on' : ''}" data-inv-equip="${it.kind}:${esc(it.id)}">${equipped ? 'Angelegt' : 'Anlegen'}</button>` : ''}
-          <button class="c-act ${inShowcase ? 'on' : ''}" data-inv-show="${it.kind}:${esc(it.id)}">Profil</button>
-          <button class="c-act" data-inv-sell="${it.kind}:${esc(it.id)}:${it.copy}">Verkaufen (${val})</button>
-        </div>
-      </div>`;
-    }).join('') || '<div class="status">Nichts in dieser Kategorie. Öffne Container!</div>'}</div>` : ''}`;
-  host.querySelectorAll('[data-case-open]').forEach(b => b.onclick = () =>
-    openCaseModal(gami.cases.find(c => c.id === b.dataset.caseOpen)));
-  host.querySelectorAll('[data-inv-stick]').forEach(b => b.onclick = () => openStickerApply(b.dataset.invStick));
-  host.querySelectorAll('[data-sel]').forEach(el => el.onclick = () => {
-    const k = el.dataset.sel;
-    if (invSelected.has(k)) invSelected.delete(k); else invSelected.add(k);
-    el.classList.toggle('selected', invSelected.has(k));
-    buzz(10);
-    renderInvSellbar();
-  });
-  // Antippen des Item-Bilds = groß inspecten
-  host.querySelectorAll('.inv-item').forEach(el => {
-    const vis = el.querySelector('.inv-visual');
-    if (!vis) return;
-    const sellBtn = el.querySelector('[data-inv-sell]');
-    if (!sellBtn) return;
-    const [kind, id] = sellBtn.dataset.invSell.split(':');
-    if (invSelect) { vis.style.cursor = ''; vis.onclick = null; return; }
-    vis.style.cursor = 'zoom-in';
-    vis.onclick = () => openInspect(kind, id, (gami.floats || {})[`${kind}:${id}`] ?? 0, itemRarity(kind, id));
-  });
-  host.querySelectorAll('[data-inv-equip]').forEach(b => b.onclick = () => {
-    const [kind, id] = b.dataset.invEquip.split(':');
-    // Optimistisch: lokal sofort umschalten und rendern, Server im Hintergrund
-    let call;
-    gamiSeq++; profSeq++; // laufende Ladevorgänge dürfen das nicht zurückrollen
-    if (kind === 'border') {
-      const next = gami.activeBorder === id ? '' : id;
-      gami.activeBorder = next;
-      call = api('/api/border', { method: 'POST', body: JSON.stringify({ id: next }) });
-    } else if (kind === 'paint') {
-      const next = gami.activePaint === id ? '' : id;
-      gami.activePaint = next;
-      if (myProfile) myProfile.activePaint = next;
-      call = api('/api/paint', { method: 'POST', body: JSON.stringify({ id: next }) });
-    } else {
-      const next = myProfile.activeBadge === id ? '' : id;
-      myProfile.activeBadge = next;
-      call = api('/api/profile', { method: 'POST', body: JSON.stringify({ activeBadge: next }) });
-    }
-    renderInventoryPage();
-    applyMyBorder();
-    renderMyName();
-    call.then(() => { refreshGami(); refreshGamiSystem(); })
-      .catch(e => { island(e.message); refreshGami(); refreshGamiSystem(); });
-  });
-  host.querySelectorAll('[data-inv-show]').forEach(b => b.onclick = async () => {
-    const key = b.dataset.invShow;
-    let sc = gami.showcase || [];
-    if (sc.includes(key)) sc = sc.filter(x => x !== key);
-    else if (sc.length >= 3) { island('Maximal 3 Items im Profil'); return; }
-    else sc = [...sc, key];
-    await api('/api/profile', { method: 'POST', body: JSON.stringify({ showcase: sc }) }).catch(() => { });
-    gami.showcase = sc;
-    renderInventoryPage(); refreshGami();
-  });
-  host.querySelectorAll('[data-inv-sell]').forEach(b => b.onclick = async () => {
-    const [kind, id, copy] = b.dataset.invSell.split(':');
-    if (!await askConfirm(`${esc(itemName(kind, id))} wirklich verkaufen?`, { okLabel: 'Verkaufen' })) return;
-    try {
-      const r = await api('/api/item/sell', { method: 'POST', body: JSON.stringify({ kind, id, copy: Number(copy) || 0 }) });
-      playSfx('coin'); island(`Verkauft für ${fmtFunken(r.value)} Funken`);
-      await refreshGamiSystem();
-      renderInventoryPage(); refreshGami();
-    } catch (e) { island(e.message); }
-  });
-}
-document.querySelectorAll('[data-invf]').forEach(b => b.addEventListener('click', () => {
-  invFilter = b.dataset.invf;
-  document.querySelectorAll('[data-invf]').forEach(x => x.classList.toggle('active', x === b));
-  renderInventoryPage();
-}));
-// Sammelverkauf: Leiste zeigt Anzahl und Gesamtwert der markierten Items
-function renderInvSellbar() {
-  const bar = $('#inv-sellbar');
-  if (!bar) return;
-  bar.classList.toggle('hidden', !invSelect);
-  if (!invSelect) return;
-  let total = 0;
-  document.querySelectorAll('#inv-page [data-sel]').forEach(el => {
-    if (invSelected.has(el.dataset.sel)) total += Number(el.dataset.selVal) || 0;
-  });
-  $('#inv-selcount').textContent = `${invSelected.size} ausgewählt`;
-  const btn = $('#inv-sell-selected');
-  btn.disabled = !invSelected.size;
-  btn.innerHTML = `Verkaufen ${invSelected.size ? `(${fmtFunken(total)} ${funkeIcon(true)})` : ''}`;
-}
-$('#inv-sort')?.addEventListener('click', () => { invSortRar = !invSortRar; renderInventoryPage(); });
-$('#inv-select')?.addEventListener('click', () => {
-  invSelect = !invSelect;
-  invSelected.clear();
-  renderInventoryPage();
-});
-$('#inv-sel-cancel')?.addEventListener('click', () => { invSelect = false; invSelected.clear(); renderInventoryPage(); });
-$('#inv-sell-selected')?.addEventListener('click', async () => {
-  if (!invSelected.size) return;
-  const items = [...invSelected].map(k => { const [kind, id, copy] = k.split(':'); return { kind, id, copy: Number(copy) || 0 }; });
-  if (!await askConfirm(`${items.length} Item${items.length > 1 ? 's' : ''} wirklich verkaufen?`, { okLabel: 'Verkaufen' })) return;
-  try {
-    const r = await api('/api/item/sell-many', { method: 'POST', body: JSON.stringify({ items }) });
-    playSfx('coin'); buzz([30, 30]);
-    island(`${r.sold} verkauft für ${fmtFunken(r.total)} Funken`);
-    invSelect = false; invSelected.clear();
-    await refreshGamiSystem(); refreshGami();
-    renderInventoryPage();
-  } catch (e) { island(e.message); }
-});
-
-// ---- Sticker auf Gutscheine kleben (wie CS-Sticker auf der Waffe) ----
-// Position in Prozent der Kartenfläche, damit sie auf jedem Display sitzt
-function voucherStickerHtml(st) {
-  const sid = (gami?.stickersAll || {})[st.id]?.id;
-  if (!sid) return '';
-  return `<img class="v-sticker" src="https://cdn.7tv.app/emote/${sid}/2x.webp" alt="${esc(st.id)}"
-    style="left:${Number(st.x) || 0}%; top:${Number(st.y) || 0}%; transform:translate(-50%,-50%) rotate(${Number(st.rot) || 0}deg)">`;
-}
-function openStickerApply(id) {
-  const targets = state.wallet.vouchers.filter(v => !istRabatt(v) && (v.stickers || []).length < 4);
-  if (!targets.length) { island('Kein Gutschein mit freiem Platz (maximal 4 Sticker pro Karte)'); return; }
-  const wrap = document.createElement('div');
-  wrap.className = 'overlay';
-  let target = null;
-  let pos = null;
-  const render = () => {
-    wrap.innerHTML = `
-      <div class="modal modal-left sticker-apply">
-        <button class="fav-remove" id="sa-close" aria-label="Schließen">${icon('x', 'icon icon-sm')}</button>
-        <h2 class="card-h">${esc(id)} aufkleben</h2>
-        ${!target ? `
-        <p class="muted" style="font-size:.84rem">Auf welchen Gutschein soll der Sticker?</p>
-        <div class="sa-targets">${targets.map(v => `
-          <button class="btn btn-small btn-ghost" data-sa-t="${esc(v.id)}">${esc(v.vendor)}${v.balance != null ? ` · ${euroFmt(v.balance)}` : ''}</button>`).join('')}
-        </div>` : `
-        <p class="muted" style="font-size:.84rem">Tippe auf die Karte, wo der Sticker sitzen soll. Nochmal tippen versetzt ihn.</p>
-        <div class="wallet-card sa-card" id="sa-card" style="--bc:${brandColor(target.vendor)}">
-          <div class="wallet-card-head">
-            ${brandChipHtml(target.vendor)}
-            <span class="wallet-card-name">${esc(target.vendor)}</span>
-            ${target.balance != null ? `<span class="wallet-card-balance">${euroFmt(target.balance)}</span>` : ''}
-          </div>
-          ${(target.stickers || []).map(voucherStickerHtml).join('')}
-          ${pos ? voucherStickerHtml({ id, ...pos }) : ''}
-        </div>
-        <div class="form-row" style="margin-top:12px">
-          <button class="btn" id="sa-apply" ${pos ? '' : 'disabled'}>Festkleben</button>
-          <button class="btn btn-small btn-ghost" id="sa-back">Anderer Gutschein</button>
-        </div>`}
-      </div>`;
-    wrap.querySelector('#sa-close').onclick = () => wrap.remove();
-    wrap.querySelectorAll('[data-sa-t]').forEach(b => b.onclick = () => {
-      target = targets.find(v => v.id === b.dataset.saT);
-      pos = null;
-      render();
-    });
-    const card = wrap.querySelector('#sa-card');
-    if (card) card.onclick = e => {
-      const r = card.getBoundingClientRect();
-      pos = {
-        x: Math.min(96, Math.max(4, Math.round((e.clientX - r.left) / r.width * 100))),
-        y: Math.min(92, Math.max(8, Math.round((e.clientY - r.top) / r.height * 100))),
-        rot: Math.round(Math.random() * 24 - 12),
-      };
-      render();
-    };
-    wrap.querySelector('#sa-back')?.addEventListener('click', () => { target = null; pos = null; render(); });
-    wrap.querySelector('#sa-apply')?.addEventListener('click', async () => {
-      if (!pos || !target) return;
-      if (!await askConfirm(`${esc(id)} auf den ${esc(target.vendor)}-Gutschein kleben? Der Sticker wird dabei verbraucht und kann nicht wieder abgelöst werden.`, { okLabel: 'Festkleben' })) return;
-      try {
-        // Erst verbraucht der Server das Inventar-Item, dann klebt der Client
-        await api('/api/sticker/use', { method: 'POST', body: JSON.stringify({ id }) });
-        target.stickers = target.stickers || [];
-        target.stickers.push({ id, ...pos });
-        saveWallet();
-        const i = (gami.stickers || []).indexOf(id);
-        if (i >= 0) gami.stickers.splice(i, 1);
-        wrap.remove();
-        playSfx('kaching'); buzz(30);
-        island('Sticker aufgeklebt');
-        renderInventoryPage();
-      } catch (e) { island(e.message); }
-    });
-  };
-  render();
-  document.body.appendChild(wrap);
-}
-
-// ---- Container-Shop als eigene Seite: erst ansehen (Inhalt + Chancen), dann kaufen
-const SHOP_DESC = {
-  'emote-capsule': 'Chat-Emotes aus dem 7TV-Global-Set',
-  'sticker-capsule': 'Sticker zum Aufkleben auf deine Gutscheine',
-  'paint-capsule': 'Namens-Paints für den Chat, auch animierte',
-  'border-capsule': 'Rahmen für dein Profilbild',
-  'emote-case': 'Emotes, Paints und Badges, mit Legendary-Chance',
-};
-async function renderShopPage() {
-  if (!gami) await refreshGamiSystem();
-  $('#shop-coins').textContent = fmtFunken(gami?.coins ?? 0);
-  const entries = Object.entries(gami?.containers || {});
-  const capsules = entries.filter(([, c]) => Object.keys(c.odds).length === 4);
-  const cases = entries.filter(([, c]) => Object.keys(c.odds).length > 4);
-  const card = ([type, c]) => `
-    <button class="shop-card" data-shop-view="${esc(type)}">
-      <img class="px-icon big" src="/gamification/${c.img}.svg" alt="">
-      <span class="shop-card-name">${esc(c.name)}</span>
-      <span class="shop-card-desc">${esc(SHOP_DESC[type] || '')}</span>
-      <span class="shop-card-meta">${casePool(type).length} Items</span>
-      <span class="shop-price">${funkeIcon(true)} ${fmtFunken(c.price)}</span>
+  $('#me-handle').textContent = '@' + (state.userName || '');
+  const bio = $('#me-bio');
+  bio.textContent = myProfile.bio || 'Noch keine Bio. Erzähl kurz, wer du bist.';
+  bio.classList.toggle('leer', !myProfile.bio);
+  renderRangKarte();
+  renderSerie();
+  const mf = myProfile.favs || {};
+  const marken = Object.keys(FAV_OPTIONS).map(k => mf[k]).filter(Boolean);
+  $('#me-favs').innerHTML = marken.length
+    ? marken.map(favChipHtml).join('')
+    : `<p class="pf-leer">Noch keine gewählt. <button class="link-knopf" type="button" data-pf-bearbeiten>Jetzt auswählen</button></p>`;
+  $('#me-favs').querySelector('[data-pf-bearbeiten]')?.addEventListener('click', oeffneProfilBearbeiten);
+  const freunde = (myProfile.friends || []).length;
+  const eingeladen = myProfile.eingeladen || 0;
+  $('#pf-gruppe').innerHTML = `
+    <button class="pf-zeile" type="button" data-pf-ziel="friends">
+      ${icon('user', 'icon')}
+      <span class="pf-zeile-text"><b>Freunde</b><small>${freunde ? `${freunde} ${freunde === 1 ? 'Freund' : 'Freunde'}` : 'Noch keine'}</small></span>
+    </button>
+    <button class="pf-zeile" type="button" data-pf-ziel="invite">
+      ${icon('share', 'icon')}
+      <span class="pf-zeile-text"><b>Freunde einladen</b><small>${eingeladen ? `${eingeladen} eingeladen` : 'Link teilen'}</small></span>
     </button>`;
-  $('#shop-page').innerHTML = `
-    <div class="shop-hero">
-      <div class="shop-hero-text">
-        <b>Funken einlösen</b>
-        <span>Antippen zeigt den Inhalt mit allen Chancen, gekauft wird erst danach.</span>
-      </div>
-      <span class="coin-chip shop-hero-coins">${funkeIcon()} <b>${fmtFunken(gami?.coins ?? 0)}</b>&nbsp;Funken</span>
-    </div>
-    <h3 class="gm-h">Kapseln</h3>
-    <div class="shop-grid">${capsules.map(card).join('')}</div>
-    ${cases.length ? `<h3 class="gm-h">Cases</h3>
-    <div class="shop-grid">${cases.map(card).join('')}</div>` : ''}
-    <p class="muted" style="font-size:.78rem">Funken gibt es nur fürs Mitmachen, niemals für Echtgeld.</p>`;
-  $('#shop-page').querySelectorAll('[data-shop-view]').forEach(b => b.onclick = () =>
-    openCaseModal({ type: b.dataset.shopView, shop: true }));
+  $('#pf-gruppe').querySelectorAll('[data-pf-ziel]').forEach(b =>
+    b.onclick = () => switchView(b.dataset.pfZiel, 'enter-drop'));
 }
 
-// ---- Rank-Up: Vollbild-Feier
-function rankUpFx(rank) {
-  const el = document.createElement('div');
-  el.className = 'rankup';
+// Guthaben, nach dem sich der Rang richtet: alle Restguthaben (wie der
+// Wallet-Kopf), Rabattcodes zaehlen nicht
+function rangGuthaben() {
+  const aktiv = state.wallet.vouchers.filter(v => !istRabatt(v) && (v.balance == null || v.balance > 0));
+  return Math.round(aktiv.reduce((s, v) => s + (v.balance || 0), 0) * 100) / 100;
+}
+const rangAnteil = (r, total) => r.next ? Math.max(0, Math.min(1, (total - r.min) / (r.next.min - r.min))) : 1;
+// Fortschrittsbalken: die Fuellung schiebt sich von links herein (runde Enden bleiben rund)
+const rangBalken = (r, total) => `<span class="pf-balken" aria-hidden="true"><span style="transform:translateX(${((rangAnteil(r, total) - 1) * 100).toFixed(1)}%)"></span></span>`;
+const rangAbstand = (r, total) => r.next ? `Noch ${euroFmt(r.next.min - total)} bis ${esc(r.next.name)}` : 'Höchste Stufe erreicht';
+
+// Rang-Karte im Profil: nur hier und in der Wallet, nie bei anderen
+function renderRangKarte() {
+  const el = $('#pf-rang');
+  if (!el) return;
+  const total = rangGuthaben();
+  const r = rankFor(total);
   el.innerHTML = `
-    <div class="rankup-inner" style="--rc:${rank.color}">
-      <img class="px-icon" src="${rankFile(rank)}" alt="">
-      <b>RANG-AUFSTIEG!</b>
-      <span style="color:${rank.color}">${esc(rank.name)}</span>
-    </div>`;
-  document.body.appendChild(el);
-  playSfx('kaching'); buzz([40, 40, 80]);
-  if (!reducedMotion()) {
-    for (let i = 0; i < 18; i++) {
-      const s = document.createElement('span');
-      s.className = 'case-spark';
-      s.style.background = rank.color;
-      s.style.left = '50%'; s.style.top = '45%';
-      s.style.setProperty('--dx', (Math.random() * 300 - 150) + 'px');
-      s.style.setProperty('--dy', (Math.random() * -240 - 20) + 'px');
-      s.style.animationDelay = (i * 30) + 'ms';
-      el.appendChild(s);
-    }
-  }
-  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 500); }, 3200);
-  el.addEventListener('click', () => el.remove());
+    <span class="pf-rang-kopf">
+      <span class="pf-rang-marke">${icon('chart', 'icon')}</span>
+      <span class="pf-rang-text"><small>Dein Rang</small><b>${esc(r.name)}</b></span>
+      <span class="pf-rang-stufe">Stufe ${r.tier} von ${RANKS.length}</span>
+    </span>
+    ${rangBalken(r, total)}
+    <span class="pf-rang-fuss"><span>${rangAbstand(r, total)}</span><span class="pf-rang-mehr">Alle Ränge ${icon('chevron', 'icon')}</span></span>`;
+  el.setAttribute('aria-label', `Dein Rang: ${r.name}. Alle Ränge ansehen`);
 }
+$('#pf-rang').addEventListener('click', () => zeigeRang());
 
-// Sammlung: alles was es gibt, nach Seltenheit, plus Kisten-Übersicht
-async function openCatalogSheet() {
-  if (!gami) await refreshGamiSystem();
-  state.sheetMode = 'gami-catalog';
-  const all = [
-    ...(gami?.paintsAll || []).map(x => ({ kind: 'paint', id: x.id, rarity: x.rarity })),
-    ...Object.keys(gami?.badgesAll || {}).map(id => ({ kind: 'badge', id, rarity: itemRarity('badge', id) })),
-    ...Object.entries(gami?.emotesAll || {}).map(([id, v]) => ({ kind: 'emote', id, rarity: v.rarity })),
-    ...Object.entries(gami?.stickersAll || {}).map(([id, v]) => ({ kind: 'sticker', id, rarity: v.rarity })),
-    ...Object.entries(gami?.bordersAll || {}).map(([id, v]) => ({ kind: 'border', id, rarity: v.rarity })),
-  ];
-  const owned = new Set(myItems().map(it => `${it.kind}:${it.id}`));
-  const order = ['legendary', 'epic', 'rare', 'uncommon', 'common'];
-  $('#sheet-content').innerHTML = `
-    <div class="sheet-title">Sammlung</div>
-    ${order.map(rar => {
-      const list = all.filter(x => x.rarity === rar);
-      if (!list.length) return '';
-      const col = (gami.rarity || {})[rar]?.color || '#888';
-      return `<h3 class="gm-h" style="color:${col}">${esc((gami.rarity || {})[rar]?.label || rar)}</h3>
-      <div class="inv-grid">${list.map(it => `
-        <div class="inv-item ${owned.has(`${it.kind}:${it.id}`) ? '' : 'locked'}" style="--rc:${col}">
-          <div class="inv-visual">${itemVisual(it.kind, it.id)}</div>
-          <b>${esc(itemName(it.kind, it.id))}</b>
-          <span style="font-size:.66rem; opacity:.6">${owned.has(`${it.kind}:${it.id}`) ? 'im Besitz' : 'noch nicht gefunden'}</span>
-        </div>`).join('')}</div>`;
-    }).join('')}
-    <h3 class="gm-h">Die Container</h3>
-    <div class="gm-cases">${Object.entries(gami?.containers || {}).map(([type, c]) => `
-      <div class="gm-case" style="cursor:default">
-        <img class="px-icon big" src="/gamification/${c.img}.svg" alt="">
-        <span>${esc(c.name)}</span>
-      </div>`).join('')}</div>
-    <p class="muted" style="font-size:.78rem">Kapseln enthalten nur Emotes bzw. Sticker, das Case zusätzlich Paints und Badges. Die genauen Prozente stehen beim Öffnen unter „Chancen anzeigen".</p>`;
-  openSheetShell();
-}
-
-// Container-Shop: Kauf ausschließlich mit erspielten Funken
-$('#gm-shop-btn')?.addEventListener('click', () => switchView('shop', 'enter-drop'));
-
-// ---- Kisten-Öffnung: Ergebnis kommt VOR der Animation vom Server, die Walze ist Show
-let caseCtx = null;
-function openCaseModal(box) {
-  if (!box) return;
-  caseCtx = { box, phase: 0, result: null, timers: [] };
-  $('#case-img').src = `/gamification/${CONTAINER_IMGS[box.type] || CONTAINER_IMGS['emote-capsule']}.svg`;
-  $('#case-img').classList.remove('hidden', 'case-shake', 'case-burst');
-  $('#case-img').removeAttribute('style');
-  $('#case-img').classList.add('case-idle');
-  $('#case-title').textContent = containerName(box.type);
-  $('#reel-wrap').classList.add('hidden');
-  $('#case-result').classList.add('hidden');
-  $('#case-open-btn').classList.remove('hidden');
-  caseCtx.qty = 1;
-  const unitPrice = gami?.containers?.[box.type]?.price || 0;
-  if (box.shop) {
-    $('#case-open-btn').innerHTML = `Kaufen für <b id="case-buy-price">${fmtFunken(unitPrice)}</b>&nbsp;Funken`;
-    $('#case-qty').classList.remove('hidden');
-    $('#qty-n').textContent = '1';
-    const setQty = d => {
-      const alt = caseCtx.qty * unitPrice;
-      caseCtx.qty = Math.max(1, Math.min(25, caseCtx.qty + d));
-      $('#qty-n').textContent = caseCtx.qty;
-      animateInt($('#case-buy-price'), alt, caseCtx.qty * unitPrice);
-      buzz(12);
-    };
-    $('#qty-minus').onclick = () => setQty(-1);
-    $('#qty-plus').onclick = () => setQty(1);
-  } else {
-    $('#case-open-btn').textContent = 'Öffnen';
-    $('#case-qty').classList.add('hidden');
-  }
-  $('#case-skip').classList.add('hidden');
-  $('#case-backdrop').classList.remove('case-dark', 'case-darker');
-  const wrapReset = $('#case-img-wrap');
-  if (wrapReset) { wrapReset.style.transform = ''; wrapReset.style.top = ''; wrapReset.style.transition = ''; }
-  // Chancen kommen 1:1 aus der Server-Tabelle des Container-Typs — die Anzeige
-  // kann von der echten Ziehung nicht mehr abweichen
-  const odds = gami?.containers?.[box.type]?.odds || {};
-  $('#case-odds-panel').innerHTML = Object.entries(odds).map(([k, x]) =>
-    `<div class="odds-row"><span style="color:${(gami?.rarity || {})[k]?.color || '#888'}">${esc((gami?.rarity || {})[k]?.label || k)}</span><b>${String(x).replace('.', ',')} %</b></div>`).join('');
-  // Vorschau wie bei CS: was ist drin, gruppiert nach Stufe, mit Prozent
-  const pool = casePool(box.type);
-  const order = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
-  const previewStufen = order.filter(rar => odds[rar]);
-  const previewTop = previewStufen[previewStufen.length - 1];
-  $('#case-preview').innerHTML = previewStufen.map(rar => {
-    const items = pool.filter(x => x.rarity === rar);
-    if (!items.length) return '';
-    const col = (gami?.rarity || {})[rar]?.color || '#888';
-    // Die beste Stufe bleibt ein Geheimnis: ein goldenes ? wie bei CS
-    const tiles = rar === previewTop
-      ? `<span class="cp-item cp-mystery" title="Bleibt geheim, bis du es ziehst">?</span>`
-      : items.map(it => `
-        <span class="cp-item" style="--rc:${col}" title="${esc(itemName(it.kind, it.id))}">${itemVisual(it.kind, it.id)}</span>`).join('');
-    return `
-    <div class="cp-group">
-      <div class="cp-head"><span style="color:${col}">${esc((gami?.rarity || {})[rar]?.label || rar)}</span><b>${String(odds[rar]).replace('.', ',')} %</b></div>
-      <div class="cp-items">${tiles}</div>
-    </div>`;
+// Login-Serie: Tage in Folge, dazu die letzten sieben Tage als Balken
+const WOCHENTAGE = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+function renderSerie() {
+  const el = $('#pf-serie');
+  const s = myProfile?.loginStreak;
+  // Der Abruf des Profils zaehlt heute schon mit, 0 heisst: noch nichts zu zeigen
+  const tage = s?.tage || 0;
+  if (!el) return;
+  el.classList.toggle('hidden', !tage);
+  if (!tage) return;
+  const heute = new Date();
+  const zellen = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(heute.getFullYear(), heute.getMonth(), heute.getDate() - (6 - i));
+    return `<span class="pf-tag${6 - i < tage ? ' an' : ''}${i === 6 ? ' heute' : ''}"><i></i><small>${WOCHENTAGE[d.getDay()]}</small></span>`;
   }).join('');
-  $('#case-preview').classList.remove('hidden');
-  $('#case-backdrop').classList.remove('hidden');
+  const unter = (s.rekord || 0) > tage ? `Dein Rekord: ${s.rekord} Tage`
+    : tage > 1 ? 'Deine längste Serie bisher' : 'Schau morgen wieder rein';
+  el.innerHTML = `
+    <div class="pf-serie-kopf">
+      <span class="pf-serie-flamme">${icon('flame', 'icon')}</span>
+      <span class="pf-serie-text"><b>${tage} ${tage === 1 ? 'Tag' : 'Tage'} in Folge</b><small>${unter}</small></span>
+    </div>
+    <div class="pf-woche" aria-hidden="true">${zellen}</div>`;
 }
-// Was kann DIESER Container ziehen? Kinds vom Server, Legacy-Eintraege und
-// Stufen ausserhalb der Odds fliegen raus — Walze und Vorschau luegen nie
-function casePool(type) {
-  const c = gami?.containers?.[type] || { kinds: ['emote'], odds: {} };
-  const stufen = new Set(Object.keys(c.odds));
-  const kinds = c.kinds || [];
-  const badgeRar = { 'häufig': 'common', 'selten': 'rare', 'episch': 'epic' };
-  return [
-    ...(kinds.includes('paint') ? (gami?.paintsAll || []).map(x => ({ kind: 'paint', id: x.id, rarity: x.rarity })) : []),
-    ...(kinds.includes('badge') ? Object.entries(gami?.badgesAll || {}).map(([k, v]) => ({ kind: 'badge', id: k, rarity: badgeRar[v.rar] || 'common' })) : []),
-    ...(kinds.includes('emote') ? Object.entries(gami?.emotesAll || {}).filter(([, v]) => !v.legacy).map(([k, v]) => ({ kind: 'emote', id: k, rarity: v.rarity })) : []),
-    ...(kinds.includes('sticker') ? Object.entries(gami?.stickersAll || {}).filter(([, v]) => !v.legacy).map(([k, v]) => ({ kind: 'sticker', id: k, rarity: v.rarity })) : []),
-    ...(kinds.includes('border') ? Object.entries(gami?.bordersAll || {}).map(([k, v]) => ({ kind: 'border', id: k, rarity: v.rarity })) : []),
-  ].filter(x => stufen.has(x.rarity));
-}
-// Der Gewinn zeigt sich direkt im Einsatz: Emote als eigene Chat-Nachricht,
-// Paint am eigenen Namen, Rahmen am eigenen Profilbild, Sticker auf einer
-// Mini-Gutscheinkarte, Badge neben dem Namen
-function winPreviewHtml(kind, id) {
-  const name = state.userName || 'du';
-  if (kind === 'emote') {
-    return `<div class="win-ctx chat-demo"><span class="chat-user" style="color:${chatColor(name)}">${esc(name)}</span><span class="chat-text">${emoteHtml(id)}</span></div>`;
-  }
-  if (kind === 'sticker') {
-    const sid = (gami?.stickersAll || {})[id]?.id;
-    return `<div class="win-ctx"><div class="wallet-card ob-mini win-card-demo" style="--bc:#295BB0">
-      <div class="wallet-card-head"><span class="brand-chip" style="--bc:rgba(255,255,255,.22)">GS</span><span class="wallet-card-name">Gutschein</span><span class="wallet-card-balance">25,00 €</span></div>
-      <img class="v-sticker" style="left:72%; top:56%; transform:translate(-50%,-50%) rotate(-6deg)" src="https://cdn.7tv.app/emote/${sid}/2x.webp" alt="">
-    </div></div>`;
-  }
-  if (kind === 'paint') {
-    const ns = nameStyleOf(name, id);
-    return `<div class="win-ctx"><span class="win-big-name${ns.cls}" style="${ns.style}">${esc(name)}</span></div>`;
-  }
-  if (kind === 'border') {
-    return `<div class="win-ctx">${myProfile?.avatar
-      ? `<img class="avatar-big pfb-${esc(id)}" src="${sichereBildUrl(myProfile.avatar)}" alt="">`
-      : `<span class="avatar-big pfb-${esc(id)}" style="background:${chatColor(name)}">${esc(name[0].toUpperCase())}</span>`}</div>`;
-  }
-  if (kind === 'badge') {
-    const bd = (gami?.badgesAll || {})[id];
-    return `<div class="win-ctx chat-demo"><svg class="icon icon-sm chat-badge"><use href="#i-${bd?.icon || 'star'}"/></svg><span class="chat-user" style="color:${chatColor(name)}">${esc(name)}</span><span class="chat-text">Moin!</span></div>`;
-  }
-  return itemVisual(kind, id);
-}
-function caseItemHtml(it) {
-  const col = (gami?.rarity || {})[it.rarity]?.color || '#888';
-  return `<div class="reel-item" style="--rc:${col}">
-    ${it.kind === 'badge'
-      ? `<svg class="icon"><use href="#i-${(myProfile?.badgesAll || {})[it.id]?.icon || 'star'}"/></svg>`
-      : `<span class="reel-paint${paintDecor(paintById(it.id)).cls}" style="background-image:${paintById(it.id)?.css || 'none'};${paintDecor(paintById(it.id)).style}"></span>`}
-  </div>`;
-}
-async function startCaseOpen() {
-  const { box } = caseCtx;
-  if (box.shop) {
-    // Shop-Modus: dieses Fenster ist die Detail-Ansicht, der Knopf kauft
-    try {
-      const n = caseCtx.qty || 1;
-      const rb = await api('/api/shop/buy', { method: 'POST', body: JSON.stringify({ type: box.type, count: n }) });
-      playSfx('kaching'); buzz(30);
-      gami.coins = rb.coins; gami.cases = rb.cases;
-      $('#case-open-btn').classList.add('hidden');
-      $('#case-qty').classList.add('hidden');
-      $('#case-preview').classList.add('hidden');
-      $('#case-odds-panel').classList.add('hidden');
-      $('#case-result').classList.remove('hidden');
-      $('#case-result').innerHTML = `
-        <div class="case-win" style="--rc:#12C77E">
-          <b>Gekauft!</b>
-          <span>${n === 1 ? `Die ${esc(containerName(box.type))} liegt` : `${n}× ${esc(containerName(box.type))} liegen`} in deinem Inventar.</span>
-          <div class="form-row" style="justify-content:center; margin-top:12px">
-            <button class="btn btn-small" id="cbuy-inv">Zum Inventar</button>
-            <button class="btn btn-small btn-ghost" id="cbuy-more">Weiter stöbern</button>
-          </div>
-        </div>`;
-      $('#cbuy-inv').onclick = () => { hideOverlay($('#case-backdrop')); switchView('inventory', 'enter-drop'); };
-      $('#cbuy-more').onclick = () => { hideOverlay($('#case-backdrop')); renderShopPage(); };
-      renderShopPage();
-      refreshGamiSystem();
-    } catch (e) { island(e.message); }
-    return;
-  }
-  let r;
-  try { r = await api('/api/case/open', { method: 'POST', body: JSON.stringify({ id: box.id }) }); }
-  catch (e) { island(e.message); return; }
-  caseCtx.result = r;
-  $('#case-open-btn').classList.add('hidden');
-  $('#case-preview').classList.add('hidden');
-  $('#case-odds-panel').classList.add('hidden');
-  $('#case-backdrop').classList.add('case-dark'); // Buehne frei: weich abdunkeln
-  $('#case-qty').classList.add('hidden');
-  const col = (gami?.rarity || {})[r.win.rarity]?.color || '#888';
-  const label = (gami?.rarity || {})[r.win.rarity]?.label || r.win.rarity;
-  const bigReveal = () => {
-    caseCtx.timers.forEach(clearTimeout);
-    if (caseCtx.revealed) return;
-    caseCtx.revealed = true;
-    $('#reel-wrap').classList.add('hidden');
-    $('#case-img').classList.add('hidden');
-    $('#case-skip').classList.add('hidden');
-    $('#case-result').classList.remove('hidden');
-    const epicPlus = ['epic', 'legendary'].includes(r.win.rarity);
-    $('#case-result').innerHTML = `
-      <div class="case-win v2 ${r.win.shiny ? 'shiny' : ''} ${epicPlus ? 'epic-glow' : ''}" style="--rc:${col}">
-        <div class="case-win-visual win-ctx-wrap">${winPreviewHtml(r.win.kind, r.win.id)}</div>
-        <b>${esc(r.win.name)}</b>
-        <span class="inv-float">#${String(r.win.float).padStart(3, '0')}${r.win.shiny ? ' ✦ SHINY' : ''}</span>
-        <span style="color:${col}; font-weight:800">${esc(label)} · Wert: ${funkeIcon(true)} ${fmtFunken(r.win.value)} Funken</span>
-        ${r.dupe ? '<span class="stars-count">Schon vorhanden: +40 Funken gutgeschrieben</span>' : `
-        <div class="form-row" style="justify-content:center; margin-top:10px">
-          <button class="btn btn-small" id="cw-keep">Behalten</button>
-          <button class="btn btn-small btn-ghost" id="cw-sell">Verkaufen für ${fmtFunken(r.win.value)} Funken</button>
-        </div>`}
-      </div>`;
-    if (epicPlus && !reducedMotion()) {
-      // Partikel-Burst in der Rarity-Farbe, einmalig
-      for (let i = 0; i < 14; i++) {
-        const s = document.createElement('span');
-        s.className = 'case-spark';
-        s.style.background = col;
-        s.style.setProperty('--dx', (Math.random() * 220 - 110) + 'px');
-        s.style.setProperty('--dy', (Math.random() * -180 - 30) + 'px');
-        s.style.animationDelay = (i * 25) + 'ms';
-        $('#case-result').appendChild(s);
-        setTimeout(() => s.remove(), 1400);
-      }
-    }
-    buzz(r.win.shiny ? [30, 40, 60] : 18);
-    playSfx(r.dupe ? 'coin' : (r.win.rarity === 'epic' || r.win.rarity === 'legendary') ? 'wow' : 'kaching');
-    $('#cw-keep')?.addEventListener('click', () => { hideOverlay($('#case-backdrop')); island('Ab ins Inventar!'); });
-    // Item groß anschauen (inspecten)
-    $('#case-result').querySelector('.case-win-visual')?.addEventListener('click', () =>
-      openInspect(r.win.kind, r.win.id, r.win.float, r.win.rarity));
-    $('#cw-sell')?.addEventListener('click', async () => {
-      try {
-        const copies = myItems().filter(x => x.kind === r.win.kind && x.id === r.win.id).length;
-        const sold = await api('/api/item/sell', { method: 'POST', body: JSON.stringify({ kind: r.win.kind, id: r.win.id, copy: Math.max(0, copies - 1) }) });
-        playSfx('coin');
-        hideOverlay($('#case-backdrop'));
-        island(`Verkauft für ${fmtFunken(sold.value)} Funken`);
-        refreshGamiSystem();
-      } catch (e) { island(e.message); }
-    });
-    refreshGamiSystem();
-    refreshGami();
-  };
-  caseCtx.bigReveal = bigReveal;
-  if (reducedMotion()) { bigReveal(); return; }
-  // Sound startet sofort, die Animation richtet sich nach seiner Länge:
-  // Intro (fallen + schütteln + aufplatzen) ~1.8s, dann läuft die CS-Walze,
-  // das Einrasten landet kurz vor dem Ende des Sounds.
-  const soundDur = sfxDuration('case') || 8;
-  const reelMs = Math.max(2600, Math.min(9500, (soundDur - 2.6) * 1000));
-  const img = $('#case-img');
-  img.classList.remove('case-idle');
-  // Die Kiste gleitet weich in die Buehnenmitte; Schuetteln, Aufplatzen und
-  // Walze passieren dann dort
-  const stage = document.querySelector('#case-backdrop .case-modal').getBoundingClientRect();
-  const rahmen = $('#case-img-wrap') || img;
-  const ib = img.getBoundingClientRect();
-  const dy = (stage.top + stage.height / 2) - (ib.top + ib.height / 2);
-  // Der Rahmen traegt Weg und Zoom, das Bild darin schuettelt und platzt —
-  // sonst wuerden sich beide um dieselbe transform-Eigenschaft streiten
-  rahmen.style.position = 'relative';
-  rahmen.style.transition = 'top .8s cubic-bezier(.3, 1, .4, 1), transform 1.9s cubic-bezier(.4, 0, .3, 1)';
-  rahmen.style.top = dy + 'px';
-  requestAnimationFrame(() => { rahmen.style.transform = 'scale(1.35)'; });
-  $('#case-skip').classList.remove('hidden');
-  caseCtx.timers.push(setTimeout(() => {
-    img.classList.add('case-shake');
-    // Sound startet mit dem Schütteln, so sitzt das Finale auf dem Reveal
-    caseCtx.snd = playSfx('case');
-    caseCtx.timers.push(setTimeout(() => {
-      img.classList.remove('case-shake');
-      img.classList.add('case-burst');
-      // Das Licht bricht dort auf, wo die Kiste steht — vorher klebte es oben
-      const flash = document.createElement('div');
-      flash.className = 'case-flash';
-      flash.style.setProperty('--rc', col);
-      const eltern = rahmen.parentElement;
-      const kb = img.getBoundingClientRect();
-      const eb = eltern.getBoundingClientRect();
-      flash.style.top = (kb.top + kb.height / 2 - eb.top) + 'px';
-      eltern.insertBefore(flash, rahmen);
-      // Im Moment des Aufplatzens wird der Raum noch dunkler
-      $('#case-backdrop').classList.add('case-darker');
-      setTimeout(() => flash.remove(), 800);
-      // Jetzt die Walze: Gewinn liegt fest auf Index 60, alles andere ist Show
-      caseCtx.timers.push(setTimeout(() => {
-        img.classList.add('hidden');
-        rahmen.style.transform = '';
-        const stufen = Object.keys(gami?.containers?.[box.type]?.odds || {});
-        const topRar = stufen[stufen.length - 1];
-        // Fueller enthalten die Top-Stufe NIE: das goldene ? taucht nur auf,
-        // wenn es wirklich gewonnen wurde — oder ganz selten als Bait (2 %),
-        // der dann knapp vor dem Marker vorbeizieht
-        const pool = casePool(box.type).filter(x => x.rarity !== topRar);
-        const baitIdx = Math.random() < 0.02 ? 55 + Math.floor(Math.random() * 4) : -1;
-        const items = Array.from({ length: 64 }, (_, i) =>
-          i === 60 ? { kind: r.win.kind, id: r.win.id, rarity: r.win.rarity }
-            : i === baitIdx ? { mystery: true, rarity: topRar }
-            : pool[Math.floor(Math.random() * pool.length)]);
-        $('#reel').innerHTML = items.map(it => {
-          if (it.mystery || it.rarity === topRar) return `<div class="reel-item reel-mystery">?</div>`;
-          const c2 = (gami?.rarity || {})[it.rarity]?.color || '#888';
-          return `<div class="reel-item" style="--rc:${c2}">${itemVisual(it.kind, it.id)}</div>`;
-        }).join('');
-        $('#reel-wrap').classList.remove('hidden');
-        const ITEM_W = 74;
-        const wrapW = $('#reel-wrap').clientWidth;
-        const jitter = (Math.random() * 0.76 - 0.38) * ITEM_W;
-        const target = 60 * ITEM_W + ITEM_W / 2 - wrapW / 2 + jitter;
-        const reel = $('#reel');
-        reel.style.willChange = 'transform';
-        reel.style.transition = 'none';
-        reel.style.transform = 'translate3d(0,0,0)';
-        requestAnimationFrame(() => requestAnimationFrame(() => {
-          reel.style.transition = `transform ${reelMs}ms cubic-bezier(0.08, 0.82, 0.12, 1)`;
-          reel.style.transform = `translate3d(${-target}px,0,0)`;
-        }));
-        caseCtx.timers.push(setTimeout(() => {
-          reel.style.willChange = '';
-          reel.children[60]?.classList.add('reel-win');
-          caseCtx.timers.push(setTimeout(bigReveal, 620));
-        }, reelMs + 120));
-      }, 200));
-    }, 700));
-  }, 650));
-}
-async function startCaseOpenLegacy() {
-  const r = caseCtx.result;
-  const reveal = () => {
-    caseCtx.timers.forEach(clearTimeout);
-    $('#reel-wrap').classList.add('hidden');
-    $('#case-skip').classList.add('hidden');
-    const col = (gami?.rarity || {})[r.win.rarity]?.color || '#888';
-    const label = (gami?.rarity || {})[r.win.rarity]?.label || r.win.rarity;
-    $('#case-result').classList.remove('hidden');
-    $('#case-result').innerHTML = `
-      <div class="case-win" style="--rc:${col}">
-        ${r.win.kind === 'badge'
-        ? `<svg class="icon" style="width:44px;height:44px"><use href="#i-${(myProfile?.badgesAll || {})[r.win.id]?.icon || 'star'}"/></svg>`
-        : `<span class="reel-paint big${paintDecor(paintById(r.win.id)).cls}" style="background-image:${paintById(r.win.id)?.css || 'none'};${paintDecor(paintById(r.win.id)).style}"></span>`}
-        <b>${esc(r.win.name)}</b>
-        <span style="color:${col}">${esc(label)}${r.dupe ? ' · schon vorhanden, +40 Funken' : ''}</span>
-      </div>`;
-    buzz(18);
-    playSfx((r.win.rarity === 'epic' || r.win.rarity === 'legendary') ? 'wow' : 'kaching');
-    refreshGamiSystem();
-    refreshGami();
-  };
-  if (reducedMotion()) { $('#case-img').classList.add('hidden'); reveal(); return; }
-  // Phase 1: Antizipation
-  $('#case-img').classList.remove('case-idle');
-  $('#case-img').classList.add('case-pop');
-  caseCtx.timers.push(setTimeout(() => {
-    $('#case-img').classList.add('hidden');
-    // Phase 2: Walze, Gewinn liegt fest auf Index 60
-    const pool = [
-      ...(gami?.paintsAll || []).map(x => ({ kind: 'paint', id: x.id, rarity: x.rarity })),
-      ...Object.entries(myProfile?.badgesAll || {}).map(([k, v]) => ({ kind: 'badge', id: k, rarity: v.rar === 'häufig' ? 'common' : v.rar === 'selten' ? 'rare' : 'epic' })),
-    ];
-    const items = Array.from({ length: 64 }, (_, i) => i === 60 ? { ...r.win } : pool[Math.floor(Math.random() * pool.length)]);
-    $('#reel').innerHTML = items.map(caseItemHtml).join('');
-    $('#reel-wrap').classList.remove('hidden');
-    $('#case-skip').classList.remove('hidden');
-    const ITEM_W = 74;
-    const wrapW = $('#reel-wrap').clientWidth;
-    const jitter = (Math.random() * 0.76 - 0.38) * ITEM_W;
-    const target = 60 * ITEM_W + ITEM_W / 2 - wrapW / 2 + jitter;
-    const reel = $('#reel');
-    reel.style.willChange = 'transform';
-    reel.style.transition = 'none';
-    reel.style.transform = 'translate3d(0,0,0)';
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      reel.style.transition = 'transform 4200ms cubic-bezier(0.08, 0.82, 0.12, 1)';
-      reel.style.transform = `translate3d(${-target}px,0,0)`;
-    }));
-    // Phase 3+4: Einrasten und Reveal
-    caseCtx.timers.push(setTimeout(() => {
-      reel.style.willChange = '';
-      const winEl = reel.children[60];
-      winEl?.classList.add('reel-win');
-      caseCtx.timers.push(setTimeout(reveal, 560));
-    }, 4300));
-  }, 340));
-}
-$('#case-open-btn').addEventListener('click', startCaseOpen);
-$('#case-skip').addEventListener('click', () => {
-  caseCtx?.snd?.stop();
-  if (caseCtx?.bigReveal) caseCtx.bigReveal();
-});
-// Überspringen springt direkt zum Ergebnis
-function startCaseOpenReveal() {
-  const r = caseCtx.result;
-  if (!r) return;
-  $('#reel-wrap').classList.add('hidden');
-  $('#case-skip').classList.add('hidden');
-  const col = (gami?.rarity || {})[r.win.rarity]?.color || '#888';
-  const label = (gami?.rarity || {})[r.win.rarity]?.label || r.win.rarity;
-  $('#case-result').classList.remove('hidden');
-  $('#case-result').innerHTML = `
-    <div class="case-win" style="--rc:${col}">
-      <b>${esc(r.win.name)}</b>
-      <span style="color:${col}">${esc(label)}${r.dupe ? ' · schon vorhanden, +40 Funken' : ''}</span>
-    </div>`;
-  refreshGamiSystem();
-  refreshGami();
-}
-$('#case-close').addEventListener('click', () => {
-  caseCtx?.timers.forEach(clearTimeout);
-  caseCtx?.snd?.stop();
-  hideOverlay($('#case-backdrop'));
-});
-$('#case-odds').addEventListener('click', () => $('#case-odds-panel').classList.toggle('hidden'));
+
 // Lieblings-Kategorien: Auswahl-Chips wie bei den Gutscheinen + eigenes Feld
 const FAV_OPTIONS = {
   discounter: { label: 'Lieblings-Discounter', opts: ['Lidl', 'Aldi', 'Netto', 'Penny', 'Norma'] },
@@ -3712,6 +2754,81 @@ function renderFavPickers() {
   });
 }
 
+// Namensfarbe: zehn Vorschlaege, eine eigene Farbe (Farbwaehler) oder
+// automatisch (die feste Chat-Farbe des Namens). Die Vorschau zeigt, wie der
+// Name wirklich aussieht — auch mit der Lesbarkeits-Anpassung.
+const NAMENSFARBEN = ['#e5484d', '#f76b15', '#d6a100', '#30a46c', '#0e95a3', '#2d6bdb', '#6b4cd9', '#d6409f', '#8d6e63', '#5b6b7c'];
+function renderFarbwahl() {
+  const host = $('#pe-farben');
+  if (!host) return;
+  const f = (peFarbe || '').toLowerCase();
+  const eigen = !!f && !NAMENSFARBEN.includes(f);
+  const auto = chatColor(state.userName || '?');
+  host.innerHTML = `
+    <button type="button" class="pe-farbe pe-auto${f ? '' : ' an'}" role="radio" aria-checked="${!f}" data-farbe="" style="--f:${auto}" aria-label="Automatisch">A</button>
+    ${NAMENSFARBEN.map(c => `<button type="button" class="pe-farbe${f === c ? ' an' : ''}" role="radio" aria-checked="${f === c}" data-farbe="${c}" style="--f:${c}" aria-label="Farbe ${c}">${f === c ? icon('check', 'icon') : ''}</button>`).join('')}
+    <label class="pe-farbe pe-eigen${eigen ? ' an' : ''}" style="--f:${eigen ? f : 'transparent'}" title="Eigene Farbe">
+      <input type="color" id="pe-farbe-eigen" value="${eigen ? f : '#2d6bdb'}" aria-label="Eigene Farbe wählen">
+      ${icon(eigen ? 'check' : 'plus', 'icon')}
+    </label>`;
+  // Unter den Farben steht in Worten, was gewaehlt ist
+  $('#pe-farbe-text').textContent = !f ? 'Automatisch: die feste Farbe deines Namens.'
+    : eigen ? `Eigene Farbe ${f.toUpperCase()}. Zu helle oder zu dunkle Farben gleichen wir an, damit dein Name lesbar bleibt.`
+    : 'Zu helle oder zu dunkle Farben gleichen wir an, damit dein Name lesbar bleibt.';
+  host.querySelectorAll('[data-farbe]').forEach(b => b.onclick = () => { peFarbe = b.dataset.farbe; renderFarbwahl(); buzz(6); });
+  const eingabe = $('#pe-farbe-eigen');
+  // "input" feuert beim Ziehen im Farbwaehler: nur die Vorschau mitziehen,
+  // neu gezeichnet wird erst bei "change" (sonst schliesst der Waehler)
+  eingabe.addEventListener('input', () => { peFarbe = eingabe.value.toLowerCase(); zeigeFarbVorschau(); });
+  eingabe.addEventListener('change', () => { peFarbe = eingabe.value.toLowerCase(); renderFarbwahl(); });
+  zeigeFarbVorschau();
+}
+function zeigeFarbVorschau() {
+  const el = $('#pe-farbe-name');
+  if (!el) return;
+  el.textContent = state.userName || 'Dein Name';
+  const ns = nameStyleOf(state.userName, peFarbe);
+  el.className = ns.cls.trim();
+  el.setAttribute('style', ns.style);
+}
+
+// "Profil bearbeiten": eigene Seite. Beim Oeffnen stehen alle Felder auf dem
+// gespeicherten Stand, nach dem Speichern geht es automatisch zurueck.
+function oeffneProfilBearbeiten() {
+  if (!state.token) return;
+  $('#g-bio').value = myProfile?.bio || '';
+  $('#g-public').checked = myProfile?.publicProfile !== false;
+  $('#g-bio-msg').textContent = '';
+  for (const k of Object.keys(favPick)) delete favPick[k];
+  peFarbe = myProfile?.nameColor || '';
+  renderFavPickers();
+  renderFarbwahl();
+  switchView('editprofile', 'enter-drop');
+}
+$('#btn-edit-profile').addEventListener('click', oeffneProfilBearbeiten);
+
+$('#g-bio-save').addEventListener('click', async () => {
+  const m = $('#g-bio-msg');
+  m.className = 'form-msg'; m.textContent = '';
+  setBtnLoading($('#g-bio-save'), true);
+  try {
+    const r = await api('/api/profile', {
+      method: 'POST',
+      body: JSON.stringify({
+        bio: $('#g-bio').value, publicProfile: $('#g-public').checked,
+        favs: { ...favPick }, nameColor: peFarbe || '',
+      }),
+    });
+    profSeq++; // ein laufender Ladevorgang darf den neuen Stand nicht zurueckrollen
+    myProfile = { ...myProfile, ...r };
+    $('#g-bio').value = r.bio; // Server-Fassung (ggf. zensiert) zurückspiegeln
+    island('Profil gespeichert');
+    renderProfil();
+    switchView('profile', 'enter-drop'); // direkt zurück
+  } catch (e) { m.className = 'form-msg error'; m.textContent = e.message; }
+  finally { setBtnLoading($('#g-bio-save'), false); }
+});
+
 // @Handle ändern (einmal pro Monat, Server zieht überall mit um)
 $('#g-handle-save').addEventListener('click', async () => {
   const neu = $('#g-handle').value.trim();
@@ -3726,33 +2843,8 @@ $('#g-handle-save').addEventListener('click', async () => {
     $('#g-handle').value = '';
     island(`Du heißt jetzt @${r.user}`);
     refreshProfileTab();
+    zeigeFarbVorschau();
   } catch (e) { island(e.message); }
-});
-
-// Overlays raus aus den Views auf Body-Ebene, sonst versteckt .view.hidden sie mit
-// (Kisten-Popup erschien z. B. erst nach dem Zurückgehen ins Profil)
-document.body.appendChild($('#case-backdrop'));
-
-// "Profil bearbeiten": eigene Seite, nach dem Speichern geht es automatisch zurück
-$('#editprofile-host').appendChild($('#bio-card'));
-$('#bio-card').classList.remove('hidden', 'modal-left');
-$('#btn-edit-profile').addEventListener('click', () => switchView('editprofile', 'enter-drop'));
-
-$('#g-bio-save').addEventListener('click', async () => {
-  const m = $('#g-bio-msg');
-  try {
-    const r = await api('/api/profile', {
-      method: 'POST',
-      body: JSON.stringify({
-        bio: $('#g-bio').value, publicProfile: $('#g-public').checked,
-        favs: { ...favPick },
-      }),
-    });
-    $('#g-bio').value = r.bio; // Server-Fassung (ggf. zensiert) zurückspiegeln
-    island('Profil gespeichert');
-    refreshGami();
-    switchView('profile', 'enter-drop'); // direkt zurück
-  } catch (e) { m.className = 'form-msg error'; m.textContent = e.message; }
 });
 
 // Profilbild: quadratisch auf 96px verkleinert, als kleines JPEG gespeichert
@@ -3773,13 +2865,12 @@ $('#g-avatar').addEventListener('change', async e => {
     const avatar = c.toDataURL('image/jpeg', 0.82);
     await api('/api/profile', { method: 'POST', body: JSON.stringify({ avatar }) });
     island('Profilbild gespeichert');
-    refreshGami();
     refreshProfileTab();
   } catch { island('Bild konnte nicht verarbeitet werden'); }
+  e.target.value = ''; // dasselbe Bild laesst sich so nochmal waehlen
 });
 $('#g-avatar-del').addEventListener('click', async () => {
   await api('/api/profile', { method: 'POST', body: JSON.stringify({ avatar: '' }) }).catch(() => { });
-  refreshGami();
   refreshProfileTab();
 });
 
@@ -3789,11 +2880,6 @@ $('#btn-profile-top').addEventListener('click', () => {
   if (!state.token) { if (state.activeView !== 'profile') switchView('profile'); return; }
   toggleTopMenu();
 });
-// Profil-Seite: Inventar und Shop (hingen frueher am Menue und gingen erst,
-// nachdem es einmal offen war)
-$('#gm-inv-open') && ($('#gm-inv-open').onclick = () => switchView('inventory', 'enter-drop'));
-$('#gm-shop-open') && ($('#gm-shop-open').onclick = () => switchView('shop', 'enter-drop'));
-
 let tmZuUhr = 0;
 function topMenuOffen() { return !!$('#top-menu')?.classList.contains('open'); }
 function toggleTopMenu() { if (topMenuOffen()) schliesseTopMenu(); else oeffneTopMenu(); }
@@ -3818,23 +2904,15 @@ function oeffneTopMenu() {
   clearTimeout(tmZuUhr);
   bd.classList.remove('hidden');
   const reqs = myProfile?.friendRequests || [];
-  const rank = rankFor(renderWallet.lastTotal || 0);
+  const ns = nameStyleOf(state.userName || '?', myProfile?.nameColor);
+  // Oben das Profil als klarer erster Eintrag, darunter Anfragen, Freunde,
+  // Einladen/Geschenke/Favoriten und die Einstellungen
   host.innerHTML = `
-    <button class="tm-head" type="button" aria-label="Zum Profil">
-      ${(() => {
-        const tb = gami?.activeBorder ? ' pfb-' + gami.activeBorder : '';
-        return myProfile?.avatar ? `<img class="avatar-big${tb}" src="${sichereBildUrl(myProfile.avatar)}" alt="">`
-          : `<span class="avatar-big${tb}" style="background:${chatColor(state.userName || '?')}">${esc((state.userName || '?')[0].toUpperCase())}</span>`;
-      })()}
+    <button class="tm-head" type="button" aria-label="Profil ansehen">
+      ${avatarHtml(state.userName, myProfile?.avatar, 'avatar-big')}
       <div style="flex:1">
-        <div class="tm-name">${(() => {
-          const ns = nameStyleOf(state.userName || '?', gami?.activePaint || '');
-          return `<span class="${ns.cls.trim()}" style="${ns.style}">${esc(state.userName)}</span>`;
-        })()} ${state.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : ''}</div>
-        <div class="tm-sub">
-          ${gami?.rank ? `<img class="px-icon" src="${rankFile(gami.rank)}" alt="" style="vertical-align:-4px"> ${esc(gami.rank.name)}` : esc(rank.name)}
-          · ${funkeIcon(true)} ${fmtFunken(gami?.coins ?? myProfile?.coins ?? 0)} Funken
-        </div>
+        <div class="tm-name"><span class="${ns.cls.trim()}" style="${ns.style}">${esc(state.userName)}</span> ${state.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : ''}</div>
+        <div class="tm-sub tm-profil">Profil ansehen</div>
       </div>
       <svg class="icon icon-sm" style="opacity:.5"><use href="#i-chevron"/></svg>
     </button>
@@ -3847,11 +2925,7 @@ function oeffneTopMenu() {
     </div>`).join('')}` : ''}
     <div class="tm-section tm-section-row">Freunde <button class="tm-mini-link" id="tm-all-friends">alle ansehen</button></div>
     <div id="tm-friends"><div class="tm-sub" style="padding:4px 0">Lade …</div></div>
-    <button class="tm-item" id="tm-inv">${icon('gift', 'icon icon-sm')} Inventar</button>
-    <button class="tm-item" id="tm-shop">${icon('banknote', 'icon icon-sm')} Container-Shop</button>
-    <button class="tm-item" id="tm-catalog">${icon('list', 'icon icon-sm')} Sammlung</button>
-    <button class="tm-item" id="tm-quests">${icon('trophy', 'icon icon-sm')} Quests ${(gami?.claimable || []).length ? `<span class="dm-unread-pill">${gami.claimable.length}</span>` : ''}</button>
-    <button class="tm-item" id="tm-invite">${icon('share', 'icon icon-sm')} Freunde einladen <span class="tm-sub-hint">+1.000 ${funkeIcon(true)}</span></button>
+    <button class="tm-item" id="tm-invite">${icon('share', 'icon icon-sm')} Freunde einladen</button>
     <button class="tm-item" id="tm-gifts">${icon('gift', 'icon icon-sm')} Geschenke ${pendingGifts.length ? `<span class="dm-unread-pill">${pendingGifts.length}</span>` : ''}</button>
     <button class="tm-item" id="tm-favs">${icon('star', 'icon icon-sm')} Favoriten</button>
     <button class="tm-item" id="tm-settings">${icon('sliders', 'icon icon-sm')} Einstellungen</button>`;
@@ -3865,19 +2939,8 @@ function oeffneTopMenu() {
   host.scrollTop = 0;
   setTimeout(() => menu.focus({ preventScroll: true }), 80); // die Leiste, kein Eintrag (sonst Fokus-Ring)
   const done = () => schliesseTopMenu({ fokus: false });
-  // Der Profil-Banner selbst führt zum Profil
+  // Der Profil-Eintrag oben führt zum Profil
   menu.querySelector('.tm-head').onclick = () => { done(); switchView('profile'); };
-  $('#tm-inv').onclick = () => { done(); switchView('inventory', 'enter-drop'); };
-  $('#tm-shop').onclick = () => { done(); switchView('shop', 'enter-drop'); };
-  $('#tm-catalog').onclick = () => { done(); openCatalogSheet(); };
-  $('#tm-quests').onclick = () => {
-    done(); switchView('profile');
-    setTimeout(() => {
-      const f = $('#quests-fold');
-      f.open = true;
-      f.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, 400);
-  };
   $('#tm-invite').onclick = () => { done(); switchView('invite', 'enter-drop'); };
   $('#tm-gifts').onclick = () => { done(); switchView('gifts', 'enter-drop'); };
   $('#tm-favs').onclick = () => {
@@ -3897,7 +2960,7 @@ function oeffneTopMenu() {
     $('#tm-friends').innerHTML = rows.length ? rows.map(f => `
       <div class="tm-req">
         <span class="tm-friend-open" data-tm-user="${esc(f.name)}" style="display:flex; align-items:center; gap:8px; flex:1; cursor:pointer">
-          ${f.avatar ? `<img class="avatar-mini avatar-img${f.border ? ' pfb-' + esc(f.border) : ''}" src="${sichereBildUrl(f.avatar)}" alt="">`
+          ${f.avatar ? `<img class="avatar-mini avatar-img" src="${sichereBildUrl(f.avatar)}" alt="">`
         : `<span class="avatar-mini" style="background:${chatColor(f.name)}">${esc(f.name[0].toUpperCase())}</span>`}
           <span style="font-weight:700">@${esc(f.name)}</span>
         </span>
@@ -3915,7 +2978,7 @@ function oeffneTopMenu() {
     const r = await api('/api/friend', { method: 'POST', body: JSON.stringify({ user: b.dataset.freqOk, action: 'accept' }) }).catch(e => { island(e.message); });
     if (r && myProfile) { myProfile.friends = r.friends; myProfile.friendRequests = r.friendRequests; }
     island('Ihr seid jetzt Freunde!');
-    done(); updateReqDot();
+    done(); updateReqDot(); renderProfil();
   });
   menu.querySelectorAll('[data-freq-no]').forEach(b => b.onclick = async () => {
     const r = await api('/api/friend', { method: 'POST', body: JSON.stringify({ user: b.dataset.freqNo, action: 'decline' }) }).catch(() => { });
@@ -3972,17 +3035,7 @@ $('#tm-zu').addEventListener('click', () => schliesseTopMenu());
   menu.addEventListener('click', e => { if (Date.now() < klickSperreBis) { e.stopPropagation(); e.preventDefault(); } }, true);
 })();
 
-// ---- Benachrichtigungen: Achievements unten rechts, Nachrichten-Banner oben
-
-// Quest-/Achievement-Toast wie in Games: dezent unten rechts überm Menü
-function achvToast(title, sub) {
-  const el = document.createElement('div');
-  el.className = 'achv';
-  el.innerHTML = `${icon('trophy', 'icon icon-sm')}<span><b>${esc(title)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</span>`;
-  $('#achv-stack').appendChild(el);
-  requestAnimationFrame(() => el.classList.add('show'));
-  setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 400); }, 5200);
-}
+// ---- Benachrichtigungen: Nachrichten-Banner oben
 
 // Banner über dem Header: antippen springt zur Nachricht
 let bannerTimer = null;
@@ -4203,7 +3256,7 @@ $('#btn-register-open').addEventListener('click', () => {
   const note = $('#reg-ref-note');
   if (note) {
     note.classList.toggle('hidden', !ref);
-    if (ref) note.innerHTML = `${icon('gift', 'icon icon-sm')} <span><b>@${esc(ref)}</b> hat dich eingeladen: <b>500 Funken</b> Startguthaben, sobald dein Konto steht.</span>`;
+    if (ref) note.innerHTML = `${icon('user', 'icon icon-sm')} <span><b>@${esc(ref)}</b> hat dich zu kumulio eingeladen.</span>`;
   }
   $('#register-backdrop').classList.remove('hidden');
   renderTurnstile('reg');
@@ -4225,11 +3278,7 @@ $('#btn-register').addEventListener('click', async () => {
       }),
     });
     hideOverlay($('#register-backdrop'));
-    const hatteRef = localStorage.getItem('ra.ref');
     localStorage.removeItem('ra.ref');
-    if (hatteRef && r.refBonus) {
-      setTimeout(() => achvToast(`Willkommensgeschenk von @${hatteRef}`, `+${fmtFunken(r.refBonus)} Funken sind auf deinem Konto`), 900);
-    }
     $('#reg-pass').value = '';
     authOk(r, { welcome: true });
     if (state.activeView !== 'profile') switchView('profile');
@@ -4743,32 +3792,6 @@ const LOESCHMARKER_MAX = 20000;
 function tombstone(id) {
   state.wallet.deleted = [...(state.wallet.deleted || []), { id, ts: Date.now() }].slice(-LOESCHMARKER_MAX);
   origIdb('del', id); // Originalfoto auf dem Geraet; am Konto raeumt der Server auf
-}
-// Der eigene Name mit Paint im Profil-Kopf: gami (bei Equips sofort aktuell)
-// schlägt myProfile — dadurch wirkt Anlegen/Ablegen ohne Reload
-function renderMyName() {
-  const me = $('#me-name');
-  if (!me || !state.userName) return;
-  me.textContent = state.userName;
-  const paintId = gami ? (gami.activePaint || '') : (myProfile?.activePaint || '');
-  if (paintId) {
-    const ns = nameStyleOf(state.userName, paintId);
-    me.className = ns.cls.trim();
-    me.setAttribute('style', ns.style);
-  } else {
-    me.className = '';
-    me.removeAttribute('style');
-  }
-}
-// Der eigene Profilbild-Rahmen: eine Stelle, die ihn überall nachträgt —
-// die Avatar-Renderer laufen teils, bevor gami geladen ist
-function applyMyBorder() {
-  const id = gami?.activeBorder || '';
-  for (const el of [document.querySelector('#me-avatar .avatar-big'), document.querySelector('#btn-profile-top .avatar-mini')]) {
-    if (!el) continue;
-    el.className = el.className.replace(/\s*pfb-[\w-]+/g, '');
-    if (id) el.classList.add('pfb-' + id);
-  }
 }
 // Änderungs-Zeitstempel je Eintrag: bei Konflikten zwischen zwei Geräten gewinnt,
 // wer zuletzt WIRKLICH etwas geändert hat — nicht, wer zufällig zuletzt syncte.
@@ -5583,11 +4606,10 @@ function euroFmt(n) { return n == null ? '' : n.toFixed(2).replace('.', ',') + '
 
 // ---- Spielgefühl: Sounds, Vibration, Aufleuchten, Geldscheine, Zähl-Animation ----
 
-const SFX = { kaching: '/sounds/kaching.mp3', pay: '/sounds/pay.mp3', case: '/sounds/case.mp3', plop: '/sounds/plop.mp3', coin: '/sounds/coin.mp3', error: '/sounds/error.mp3', wow: '/sounds/wow.mp3', wowShort: '/sounds/wow-short.mp3' };
+const SFX = { kaching: '/sounds/kaching.mp3', pay: '/sounds/pay.mp3', plop: '/sounds/plop.mp3', coin: '/sounds/coin.mp3', error: '/sounds/error.mp3', wow: '/sounds/wow.mp3', wowShort: '/sounds/wow-short.mp3' };
 // Ton ist Opt-in: alle Effekte bleiben stumm, bis der Schalter in den Einstellungen an ist
 // (function statt const: wird auch weiter oben im Skript schon beim Laden gebraucht)
 function soundOn() { return localStorage.getItem('ra.sound') === '1'; }
-function sfxDuration(name) { return sfxBuffers[name]?.audio?.duration || 0; }
 // WebAudio: Sounds vorgeladen und ohne Anlauf-Stille, spielen sofort beim Tipp
 let sfxCtx = null;
 const sfxBuffers = {};
@@ -5672,18 +4694,24 @@ function animateNumber(el, from, to, ms = 700) {
   requestAnimationFrame(tick);
 }
 
-// ---- Spar-Ränge: motivieren, Guthaben zu sammeln ----
+// ---- Ränge nach dem Guthaben in der Wallet, wie beim Chamäleon ----
+// Privat: der Rang steht nur in der eigenen Wallet und im eigenen Profil.
+// bis = Obergrenze in Euro (inklusive), min = erster Cent-Betrag der Stufe
+// ("über 10 €" heisst ab 10,01 €). slug ist der Schluessel fuer Farben
+// (.wallet-kopf.tier-N in style.css) und die Maskottchen-Modelle je Rang.
 const RANKS = [
-  { min: 0, name: 'Spar-Neuling', tier: 1 },
-  { min: 25, name: 'Sparfuchs', tier: 2 },
-  { min: 75, name: 'Schnäppchenjäger', tier: 3 },
-  { min: 150, name: 'Spar-Meister', tier: 4 },
-  { min: 300, name: 'Gutschein-Guru', tier: 4 },
-  { min: 500, name: 'Wallet-Legende', tier: 5 },
+  { tier: 1, slug: 'anfaenger', name: 'Anfänger', min: 0, bis: 10 },
+  { tier: 2, slug: 'geringverdiener', name: 'Geringverdiener', min: 10.01, bis: 50 },
+  { tier: 3, slug: 'normalverdiener', name: 'Normalverdiener', min: 50.01, bis: 150 },
+  { tier: 4, slug: 'gutverdiener', name: 'Gutverdiener', min: 150.01, bis: 300 },
+  { tier: 5, slug: 'besserverdiener', name: 'Besserverdiener', min: 300.01, bis: 600 },
+  { tier: 6, slug: 'spitzenverdiener', name: 'Spitzenverdiener', min: 600.01, bis: Infinity },
 ];
 function rankFor(total) {
+  // In Cent vergleichen: 10,01 ist als Kommazahl nicht exakt
+  const cent = Math.round((Number(total) || 0) * 100);
   let cur = RANKS[0];
-  for (const r of RANKS) if (total >= r.min) cur = r;
+  for (const r of RANKS) if (cent >= Math.round(r.min * 100)) cur = r;
   const next = RANKS[RANKS.indexOf(cur) + 1] || null;
   return { ...cur, next };
 }
@@ -8435,14 +7463,18 @@ function voucherCardHtml(v, { mehr = false } = {}) {
       ${v.giftFrom ? `<span class="gift-corner${v.giftSeen ? '' : ' unopened'}" role="img" aria-label="Geschenk von @${esc(v.giftFrom)}"><img src="/gamification/gift-tag.svg" alt=""></span>` : ''}
     </div>`;
 }
-// Maskottchen in der Wallet-Karte. Je Rang kommt spaeter ein eigenes Modell;
-// bis dahin traegt jeder Rang das universelle (Daumen hoch). Eintrag = Dateiname
-// ohne Breite, es gibt je eine -480.webp und -960.webp.
+// Maskottchen in der Wallet-Karte. Je Rang kommt ein eigenes Modell,
+// Schluessel ist der Rang-Slug aus RANKS; bis eins da ist, traegt der Rang
+// das universelle (Daumen hoch). Eintrag = Dateiname ohne Breite, es gibt je
+// eine -480.webp und -960.webp. Neue Modelle einfach dazuschreiben, z. B.:
+//   anfaenger: '/brand/kumulio-maskottchen-anfaenger',
+//   geringverdiener: '/brand/kumulio-maskottchen-geringverdiener',
+//   (normalverdiener, gutverdiener, besserverdiener, spitzenverdiener)
 const WALLET_MASKOTTCHEN = { standard: '/brand/kumulio-maskottchen-wallet' };
-function setzeWalletMaskottchen(tier) {
+function setzeWalletMaskottchen(slug) {
   const img = $('.wk-sprite');
   if (!img) return;
-  const basis = WALLET_MASKOTTCHEN['rang-' + tier] || WALLET_MASKOTTCHEN.standard;
+  const basis = WALLET_MASKOTTCHEN[slug] || WALLET_MASKOTTCHEN.standard;
   if (img.dataset.basis === basis) return;
   img.dataset.basis = basis;
   img.srcset = `${basis}-480.webp 480w, ${basis}-960.webp 960w`;
@@ -8976,7 +8008,7 @@ function renderWallet() {
       if (wert) document.documentElement.style.setProperty('--kopf-' + n, wert);
     });
     setzeLeistenfarbe();   // Statusleiste traegt die Stufenfarbe mit
-    setzeWalletMaskottchen(rank.tier);
+    setzeWalletMaskottchen(rank.slug);
     messeKopfzeile();
     // Der Rang steht klein neben der Gutschein-Zahl, mehr braucht es nicht
     const rangEl = $('#wallet-rank');
@@ -9381,26 +8413,31 @@ function renderWalletStats(range) {
 
 // Alle Stufen auf einen Blick — als Liste, wie man sie aus Banking-Apps kennt
 $('#wallet-rank')?.addEventListener('click', e => { e.stopPropagation(); zeigeRang(); });
+// Spanne einer Stufe in ganzen Euro, so wie man sie sagt: "über 10 bis 50 €"
+function rangSpanne(r) {
+  const davor = RANKS[r.tier - 2];
+  if (!davor) return `0 bis ${r.bis} €`;
+  return r.bis === Infinity ? `über ${davor.bis} €` : `über ${davor.bis} bis ${r.bis} €`;
+}
 function zeigeRang() {
-  const total = renderWallet.lastTotal || 0;
+  const total = rangGuthaben();
   const jetzt = rankFor(total);
   state.sheetMode = 'rang';
   $('#sheet-content').innerHTML = `
-    <div class="sheet-title">Spar-Rang</div>
-    <p class="muted" style="font-size:.84rem; margin-bottom:14px">
-      Dein Rang richtet sich nach dem Guthaben, das in deiner Wallet liegt.
-      Er ist reine Spielerei — auf Gutscheine und Coupons hat er keinen Einfluss.</p>
-    <div class="rang-liste">${RANKS.map(r => {
-      const erreicht = total >= r.min;
-      const aktuell = r.name === jetzt.name;
-      return `
-      <div class="rang-stufe ${erreicht ? 'erreicht' : ''} ${aktuell ? 'aktuell' : ''}">
+    <div class="sheet-title">Dein Rang</div>
+    <div class="rang-karte">
+      <small>Stufe ${jetzt.tier} von ${RANKS.length}</small>
+      <b>${esc(jetzt.name)}</b>
+      ${rangBalken(jetzt, total)}
+      <span class="rang-karte-fuss">${rangAbstand(jetzt, total)}</span>
+    </div>
+    <div class="rang-liste">${RANKS.map(r => `
+      <div class="rang-stufe${r.tier < jetzt.tier ? ' erreicht' : ''}${r.tier === jetzt.tier ? ' aktuell' : ''}">
         <span class="rang-punkt tier-${r.tier}"></span>
-        <span class="rang-text"><b>${esc(r.name)}</b><small>ab ${euroFmt(r.min) || '0 €'}</small></span>
-        ${aktuell ? '<span class="rang-jetzt">jetzt</span>'
-          : erreicht ? icon('check', 'icon icon-sm') : ''}
-      </div>`;
-    }).join('')}</div>`;
+        <span class="rang-text"><b>${esc(r.name)}</b><small>${rangSpanne(r)}</small></span>
+        ${r.tier === jetzt.tier ? '<span class="rang-jetzt">Du</span>' : r.tier < jetzt.tier ? icon('check', 'icon icon-sm') : ''}
+      </div>`).join('')}</div>
+    <p class="rang-hinweis">${icon('lock', 'icon icon-sm')}<span>Nur du siehst deinen Rang. Er richtet sich nach dem Guthaben in deiner Wallet und ändert nichts an Gutscheinen oder Coupons.</span></p>`;
   openSheetShell();
 }
 
@@ -10103,13 +9140,34 @@ function chatColor(name) {
   for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return CHAT_COLORS[h % CHAT_COLORS.length];
 }
-// Namens-Paint überall gleich: liefert Klasse+Style für einen gemalten Namen,
-// Fallback ist die stabile Chat-Farbe
-function nameStyleOf(name, paintId) {
-  const pnt = paintId ? (paintById(paintId) || chatPaints.find(x => x.id === paintId)) : null;
-  if (!pnt) return { cls: '', style: `color:${chatColor(name)}` };
-  const dec = paintDecor(pnt);
-  return { cls: ' paint' + dec.cls, style: `--paint:${pnt.css}; color:${pnt.fallbackColor}; ${dec.style}` };
+// Namensfarbe überall gleich: liefert Klasse+Style für einen Namen. Der zweite
+// Wert ist die gewählte Farbe (#rrggbb vom Server, Feld "paint"/"activePaint")
+// oder leer, dann gilt die stabile Chat-Farbe des Namens. Lesbar bleibt sie
+// immer: color gilt auf hellem Grund, --nf-d im Dunkelmodus (Klasse .nf).
+function nameStyleOf(name, farbe) {
+  const basis = /^#[0-9a-f]{6}$/i.test(farbe || '') ? farbe : chatColor(name || '?');
+  return { cls: ' nf', style: `color:${lesbareFarbe(basis, false)}; --nf-d:${lesbareFarbe(basis, true)}` };
+}
+// Zu helle Farben auf Weiss dunkeln wir nach, zu dunkle auf der dunklen Karte
+// (#171C22) hellen wir auf — bis der Kontrast mindestens 4 : 1 ist
+function lesbareFarbe(hex, dunkel) {
+  const cache = lesbareFarbe.cache || (lesbareFarbe.cache = new Map());
+  const key = hex.toLowerCase() + (dunkel ? 'd' : 'h');
+  if (cache.has(key)) return cache.get(key);
+  const rgb = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+  const hell = c => {
+    const [r, g, b] = c.map(x => x / 255).map(x => x <= .04045 ? x / 12.92 : ((x + .055) / 1.055) ** 2.4);
+    return .2126 * r + .7152 * g + .0722 * b;
+  };
+  const grund = dunkel ? .0113 : 1;
+  const reicht = c => { const l = hell(c); return (Math.max(l, grund) + .05) / (Math.min(l, grund) + .05) >= 4; };
+  let c = rgb;
+  for (let t = .06; !reicht(c) && t <= 1; t += .06) {
+    c = rgb.map(x => Math.round(dunkel ? x + (255 - x) * t : x * (1 - t)));
+  }
+  const out = '#' + c.map(x => x.toString(16).padStart(2, '0')).join('');
+  cache.set(key, out);
+  return out;
 }
 // Alle bekannten Emote-Quellen in einer Map: Chat-Basisset + ziehbare Emotes
 // + Sticker (Sticker SIND Emotes und im Chat nutzbar, wenn gezogen)
@@ -10387,8 +9445,6 @@ async function sendChat() {
   try {
     const r = await api('/api/dm/send', { method: 'POST', body: JSON.stringify({ to: dmPartner, text }) });
     inp.value = '';
-    // Admin-Befehl (!funken): wird nicht verschickt, nur bestaetigt
-    if (r.admin) { island(r.admin); refreshGami(); refreshGamiSystem(); return; }
     if (!$('#chat-list').querySelector(`[data-mid="${r.message.id}"]`)) {
       $('#chat-list').insertAdjacentHTML('beforeend', dmMsgHtml(r.message));
       $('#chat-list').lastElementChild?.classList.add('msg-sent');
@@ -10410,37 +9466,23 @@ async function openUserPop(user, msgId) {
   let u = { user };
   try { u = await api('/api/user?name=' + encodeURIComponent(user)); } catch { }
   const isFriend = (myProfile?.friends || []).includes(user);
-  const favLogo = v => BRAND_DOMAINS[String(v || '').toLowerCase()]
-    ? `<span class="fav-logo">${brandChipHtml(v)}<small>${esc(v)}</small></span>`
-    : `<span class="pill">${esc(v)}</span>`;
   const ns = nameStyleOf(user, u.activePaint);
+  // Wie das eigene Profil, nur ohne Privates: kein Rang, keine Serie
+  const marken = !u.private && u.favs ? Object.keys(FAV_OPTIONS).map(k => u.favs[k]).filter(Boolean) : [];
   pop.innerHTML = `
     <div class="up-hero">
-      ${u.avatar ? `<img class="avatar-big up-ava${u.activeBorder ? ' pfb-' + esc(u.activeBorder) : ''}" src="${sichereBildUrl(u.avatar)}" alt="">`
-        : `<span class="avatar-big up-ava${u.activeBorder ? ' pfb-' + esc(u.activeBorder) : ''}" style="background:${chatColor(user)}">${esc(user[0].toUpperCase())}</span>`}
+      ${avatarHtml(user, u.avatar, 'avatar-big up-ava')}
       <div class="up-name"><span class="${ns.cls.trim()}" style="${ns.style}">${esc(user)}</span> ${u.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : u.role === 'mod' ? icon('check', 'icon icon-sm role-mod') : ''}</div>
-      <div class="up-bio">${u.private ? 'Profil ist privat' : esc(u.bio || 'Keine Bio')}</div>
+      <div class="up-handle">@${esc(user)}</div>
+      <div class="up-bio${u.private || !u.bio ? ' leer' : ''}">${u.private ? 'Dieses Profil ist privat.' : esc(u.bio || 'Noch keine Bio.')}</div>
     </div>
-    ${!u.private && u.favs && Object.values(u.favs).some(Boolean) ? `
-    <div class="favs-view up-center">
-      ${['discounter', 'supermarkt', 'essen', 'onlineshop', 'mode'].map(k => u.favs[k] ? favLogo(u.favs[k]) : '').join('')}
-    </div>` : ''}
-    ${!u.private && (u.showcase || []).length ? `<div class="me-showcase">
-      ${u.showcase.map(key => {
-        const [kind, id] = key.split(':');
-        const fl = (u.floats || {})[key] ?? 0;
-        return `<div class="sc-slot ${isShinyF(fl) ? 'shiny' : ''}" style="--rc:#8B96A5">${itemVisual(kind, id)}<span class="inv-float">#${String(fl).padStart(3, '0')}</span></div>`;
-      }).join('')}
-    </div>` : ''}
-    ${!u.private && (u.badges || []).length ? `<div class="badge-grid" style="margin-top:10px">
-      ${u.badges.map(id => u.badgesAll?.[id] ? badgeChip(id, u.badgesAll[id], id === u.activeBadge) : '').join('')}
-    </div>` : ''}
-    <div class="form-row up-actions" style="margin-top:14px; flex-wrap:wrap; justify-content:center">
-      <button class="btn btn-small" id="up-whisper">Flüstern</button>
-      <button class="btn btn-small btn-ghost" id="up-friend">${isFriend ? 'Freund entfernen' : 'Freundschaftsanfrage'}</button>
-      <button class="btn btn-small btn-ghost" id="up-report">Melden</button>
+    ${marken.length ? `<div class="up-marken">${marken.map(favChipHtml).join('')}</div>` : ''}
+    <div class="up-actions">
+      <button class="btn" id="up-whisper" type="button">${icon('message', 'icon icon-sm')} Schreiben</button>
+      <button class="btn btn-ghost" id="up-friend" type="button">${isFriend ? 'Freund entfernen' : 'Als Freund anfragen'}</button>
     </div>
-    <div id="up-ratings"></div>`;
+    <div id="up-ratings"></div>
+    <button class="link-knopf up-melden" id="up-report" type="button">Profil melden</button>`;
   renderProfileRatings(user);
   // Bewusst KEINE Mod-Buttons hier: die Profilseite zeigt das Profil, wie es der
   // Nutzer gestaltet hat. Wer etwas sieht, meldet es ueber "Melden".
@@ -10497,8 +9539,8 @@ async function renderProfileRatings(user) {
     const cns = nameStyleOf(c.from, c.paint);
     return `
     <div class="up-rate-row">
-      ${c.avatar ? `<img class="avatar-mini avatar-img${c.border ? ' pfb-' + esc(c.border) : ''}" src="${sichereBildUrl(c.avatar)}" alt="">`
-      : `<span class="avatar-mini${c.border ? ' pfb-' + esc(c.border) : ''}" style="background:${chatColor(c.from)}">${esc(c.from[0].toUpperCase())}</span>`}
+      ${c.avatar ? `<img class="avatar-mini avatar-img" src="${sichereBildUrl(c.avatar)}" alt="">`
+      : `<span class="avatar-mini" style="background:${chatColor(c.from)}">${esc(c.from[0].toUpperCase())}</span>`}
       <div class="up-rate-body">
         <div><span class="chat-user${cns.cls}" style="${cns.style}">${esc(c.from)}</span> ${starRow(c.stars, false)} <span class="comment-time">${esc(timeAgo(c.ts))}</span></div>
         ${c.text ? `<div class="up-rate-text">${withEmotes(esc(c.text))}</div>` : ''}
@@ -10649,7 +9691,7 @@ function inviteUrl() { return 'https://kumulio.de/?ref=' + encodeURIComponent(st
 function shareInvite() {
   if (!state.userName) { island('Zum Einladen bitte anmelden'); return; }
   const url = inviteUrl();
-  const text = 'Komm zu kumulio: Deals, Preisfehler-Alarm und deine Gutschein-Wallet in einer App. Über meinen Link bekommst du 500 Funken zum Start.';
+  const text = 'Komm zu kumulio: Deals, Preisfehler-Alarm und deine Gutschein-Wallet in einer App.';
   if (navigator.share) { navigator.share({ title: 'kumulio', text, url }).catch(() => { }); return; }
   copyInvite();
 }
@@ -10658,7 +9700,8 @@ function copyInvite() {
     .then(() => { island('Einladungslink kopiert'); playSfx('plop'); })
     .catch(() => island(inviteUrl()));
 }
-// Eigene Seite: erklaert das Programm, zeigt den Link und die eigene Bilanz
+// Eigene Seite: der Link, wie viele schon dabei sind, und ehrlich: eine
+// Belohnung gibt es noch nicht, die Einladungen werden aber vorgemerkt
 async function renderInvitePage() {
   const host = $('#invite-page');
   if (!host) return;
@@ -10666,53 +9709,32 @@ async function renderInvitePage() {
     host.innerHTML = '<div class="status">Zum Einladen bitte anmelden.</div>';
     return;
   }
-  await refreshGami(); // frischer Werbe-Zaehler
-  const n = myProfile?.refCount || 0;
-  const verdient = n * 1000;
+  await ladeProfil(); // frischer Zaehler
+  const n = myProfile?.eingeladen || 0;
   host.innerHTML = `
-    <div class="inv-hero">
-      <div class="inv-hero-icons">
-        <span class="inv-chip">${funkeIcon()}</span>
-        <span class="inv-plus">+</span>
-        <span class="inv-chip">${icon('user', 'icon')}</span>
-      </div>
-      <b>Bring deine Leute mit</b>
-      <span>Für jeden Freund, der sich über deinen Link anmeldet, bekommst du 1.000 Funken.
-        Dein Freund startet mit 500 Funken. So oft du magst, ohne Limit.</span>
+    <div class="card inv-kopf">
+      <span class="inv-kopf-ico">${icon('user', 'icon')}</span>
+      <span class="inv-kopf-text">
+        <b>${n ? `${n} ${n === 1 ? 'Freund' : 'Freunde'} eingeladen` : 'Noch niemand eingeladen'}</b>
+        <small>Wer sich über deinen Link anmeldet, zählt hier.</small>
+      </span>
     </div>
+    <p class="inv-vorgemerkt">${icon('gift', 'icon icon-sm')}<span>Belohnungen folgen. Deine Einladungen sind vorgemerkt.</span></p>
 
-    <div class="inv-stats">
-      <div class="inv-stat">
-        <b>${n}</b>
-        <span>${n === 1 ? 'Freund geworben' : 'Freunde geworben'}</span>
-      </div>
-      <div class="inv-stat">
-        <b>${funkeIcon(true)} ${fmtFunken(verdient)}</b>
-        <span>dadurch verdient</span>
-      </div>
-    </div>
-
-    <h3 class="gm-h">Dein Einladungslink</h3>
-    <div class="inv-link" id="inv-link-box" role="button" aria-label="Link kopieren">
+    <h3 class="inv-h">Dein Einladungslink</h3>
+    <button class="inv-link" id="inv-link-box" type="button" aria-label="Link kopieren">
       <span class="inv-link-text">${esc(inviteUrl())}</span>
-      ${icon('list', 'icon icon-sm')}
-    </div>
-    <div class="form-row" style="margin-top:10px">
-      <button class="btn btn-big" id="inv-share">${icon('share', 'icon icon-sm')} Link teilen</button>
-      <button class="btn btn-small btn-ghost" id="inv-copy">Kopieren</button>
+    </button>
+    <div class="form-row inv-knoepfe">
+      <button class="btn" id="inv-share" type="button">${icon('share', 'icon icon-sm')} Link teilen</button>
+      <button class="btn btn-ghost" id="inv-copy" type="button">Kopieren</button>
     </div>
 
-    <h3 class="gm-h">So läuft es</h3>
+    <h3 class="inv-h">So läuft es</h3>
     <div class="inv-steps">
       <div class="inv-step"><b>1</b><span>Link teilen, per WhatsApp, Story oder wie du magst.</span></div>
       <div class="inv-step"><b>2</b><span>Dein Freund öffnet ihn und legt ein kostenloses Konto an.</span></div>
-      <div class="inv-step"><b>3</b><span>Sofort danach: 1.000 Funken für dich, 500 für deinen Freund.</span></div>
-    </div>
-
-    <div class="inv-note">
-      ${icon('bulb', 'icon icon-sm')}
-      <span>Funken gibt es nur fürs Mitmachen, nie für Echtgeld. Mit ihnen holst du dir Container
-        mit Emotes, Paints, Stickern und Profilrahmen. Mehrfach-Konten zählen nicht.</span>
+      <div class="inv-step"><b>3</b><span>Die Einladung wird bei dir vorgemerkt.</span></div>
     </div>`;
   $('#inv-share').onclick = shareInvite;
   $('#inv-copy').onclick = copyInvite;
