@@ -616,9 +616,12 @@
         <button class="iconbtn back-btn" id="dm-back" aria-label="Zurück">
           <svg class="icon"><use href="#i-arrow-back"/></svg>
         </button>
-        <button id="dm-partner-open" aria-label="Profil ansehen">
+        <button id="dm-partner-open">
           <span id="dm-partner-ava"></span>
-          <span id="dm-partner-name"></span>
+          <span class="dm-partner-text">
+            <span class="dm-partner-zeile"><span id="dm-partner-name"></span><span id="dm-partner-rolle"></span></span>
+            <span class="dm-partner-hinweis">Profil ansehen</span>
+          </span>
         </button>
       </div>
       <div id="chat-box-wrap">
@@ -626,18 +629,22 @@
           <div id="chat-list"></div>
         </div>
         <div id="chat-gate" class="hidden">
+          <span class="chat-leer-bild"><svg class="icon"><use href="#i-message"/></svg></span>
           <p>Melde dich an, um mit deinen Freunden zu schreiben.</p>
           <button class="btn btn-big" id="chat-gate-login">Anmelden</button>
         </div>
       </div>
-      <div id="chat-emotes" class="hidden"></div>
+      <div id="chat-emotes" class="hidden" role="group" aria-label="Emotes"></div>
       <!-- Startet versteckt: der Chat oeffnet mit der Liste der Gespraeche,
            die Eingabe braucht es erst in einem einzelnen Chat -->
       <div id="chat-input-row" style="display:none">
-        <button id="chat-emote-btn" class="iconbtn" aria-label="Emotes">
-          <svg class="icon"><use href="#i-smile"/></svg>
-        </button>
-        <input id="chat-input" class="input" maxlength="220" placeholder="Nachricht …" autocomplete="off">
+        <!-- Emote-Knopf und Eingabe teilen sich ein Feld, Senden steht daneben -->
+        <div class="chat-feld">
+          <button id="chat-emote-btn" class="iconbtn" aria-label="Emotes" aria-expanded="false" aria-controls="chat-emotes">
+            <svg class="icon"><use href="#i-smile"/></svg>
+          </button>
+          <input id="chat-input" class="input" maxlength="220" placeholder="Nachricht …" autocomplete="off" enterkeyhint="send">
+        </div>
         <button id="chat-send" class="send-btn" aria-label="Senden">
           <svg class="icon"><use href="#i-send"/></svg>
         </button>

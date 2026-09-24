@@ -1092,23 +1092,38 @@ function ssePush(event, targetUser) {
   }
 }
 
-// ---------------------------------------------------------------- Global-Chat
-// Twitch-artig: nur Angemeldete schreiben. Beleidigungen werden ZENSIERT (nicht
-// gesperrt), sperren/timeouten kann nur die Moderation. Emotes: 7TV (verifizierte IDs).
-// Es gelten NUR die offiziellen 7TV-Global-Emotes, täglich aktualisiert, gecacht
-let emoteCache = loadJson('emotes.json', { ts: 0, map: {} });
-async function refreshEmotes() {
-  if (Date.now() - emoteCache.ts < 12 * 3600e3 && Object.keys(emoteCache.map).length) return;
-  try {
-    const r = await fetch('https://7tv.io/v3/emote-sets/global');
-    const j = await r.json();
-    const map = {};
-    for (const e of j.emotes || []) if (/^[A-Za-z0-9]+$/.test(e.name)) map[e.name] = e.id;
-    if (Object.keys(map).length) { emoteCache = { ts: Date.now(), map }; saveJson('emotes.json', emoteCache); }
-  } catch { /* offline → alter Cache bleibt */ }
-}
-refreshEmotes();
-setInterval(refreshEmotes, 3600e3);
+// ---------------------------------------------------------------- Chat
+// Nur Angemeldete schreiben. Beleidigungen werden ZENSIERT (nicht gesperrt).
+//
+// Emotes (Runde 117): nur noch Katzen und Peepo, und JEDER hat alle — kein
+// Ziehen, kein Besitz, keine Sperre. Das fruehere 7TV-Global-Set (taeglich
+// nachgeladen) ist raus; was damals ein Emote war, bleibt jetzt einfach Text.
+// IDs per 7TV-Suche geprueft (exakter Name, meistgenutzte Fassung; peepoHappy
+// und peepoSad wie bisher aus dem 7TV-Global-Set). Die Reihenfolge ist die der
+// Auswahl im Chat; alle Peepo-Namen beginnen mit "peepo", daran trennt der
+// Client die beiden Gruppen.
+const CHAT_EMOTES = {
+  katzen: {
+    catJAM: '01F6MQ33FG000FFJ97ZB8MWV52', catKISS: '01F5VW2TKR0003RCV2Z6JBHCST',
+    catNod: '01FNMBRDN8000EJT2EVEY3EM1H', catHug: '01FE41JXAR0005TJYSHSM7H0M0',
+    catLove: '01FF96FQX0000BX5VYPPT3DJBN', catSmile: '01GEW2VN9R000CVCCAKC8CXYVZ',
+    catLaugh: '01J18BVVJR0006YAS4XFND8Y6J', catWave: '01FZG4KHXG000063WVYFWX9R94',
+    PopCat: '01F6NPEJT0000B70V1XA8MNBC9', catStare: '01H68Y2FC80009YCVDSFDE7DMD',
+    catSip: '01GNCJDPY8000AWA0BMNWRBG2P', CatSad: '01F9Y0VE80000FYYWK8DDFTGRY',
+    catBlush: '01F6ZMGM2G000A63TGZWCPNF0V', meow: '01F6NCKMP000052X5637DW2XDY',
+  },
+  peepo: {
+    peepoHappy: '01GAZ199Z8000FEWHS6AT5QZV0', peepoSad: '01GAZ4SBX80007YCE2RXBT44B2',
+    peepoLove: '01F6NPP6YG00013ACMMJP3W06V', peepoHey: '01F6NMMEER00015NVG2J8ZH77N',
+    peepoBye: '01F6Q09DJR00015Y8FNQBDEPQK', peepoShy: '01GK4EW2AG0004SH49XX2J74KJ',
+    peepoGiggles: '01F6NTA4X80007X1R6PNS21T6E', peepoClap: '01F6NET6G00009JYTB75QDKV1S',
+    peepoWow: '01F6NCGF40000E0GG0PF8N52TV', peepoThink: '01F84YS0W80006DA4ATKNFKPV0',
+    peepoRich: '01F8N4K8XR0005WVNRT1191P1R', peepoGift: '01GHR5AGZR00058M1GCX0RKE23',
+    peepoCry: '01FC93557G000865A5YMK9D4S2', peepoComfy: '01FAJRZBRR0002R979W3KES4A1',
+  },
+};
+// Name → 7TV-ID in Auswahl-Reihenfolge (Katzen, dann Peepo)
+const EMOTE_IDS = { ...CHAT_EMOTES.katzen, ...CHAT_EMOTES.peepo };
 
 // Rollen: LUTHER ist fest Admin, weitere Rollen liegen am Nutzer (users[x].role)
 const DEFAULT_ADMINS = ['luther'];
@@ -1231,13 +1246,9 @@ function withLiveLook(msgs, field) {
   });
 }
 
-// Steht im Text ein ziehbares Emote, das der Nutzer nicht besitzt?
-// Sticker zaehlen mit: sie sind ebenfalls Emotes und im Chat nutzbar.
+// Frueher: stand im Text ein ziehbares Emote, das der Nutzer nicht besass?
+// Seit Runde 117 hat jeder alle Emotes (CHAT_EMOTES) — gesperrt wird nichts.
 function lockedEmoteIn(text, prof) {
-  const ownedE = new Set([...(prof.emotes || []), ...(prof.stickers || [])]);
-  for (const name of new Set([...Object.keys(EMOTES_ALL), ...Object.keys(STICKERS_ALL)])) {
-    if (!ownedE.has(name) && new RegExp(`(^|\\s)${name}($|\\s)`).test(text)) return name;
-  }
   return '';
 }
 // Float 0-999 wie bei CS: Schnapszahlen (111, 222 …) und Straßen (123, 456 …)
@@ -2585,7 +2596,7 @@ const server = http.createServer(async (req, res) => {
     // Global-Chat — den gibt es nicht mehr, gebraucht werden sie aber weiter:
     // in den Fluesterchats, auf Profilen und beim Verschenken.
     if (p === '/api/meta' && req.method === 'GET') {
-      const allEmotes = { ...emoteCache.map, ...Object.fromEntries(Object.entries(UNLOCK_EMOTES).map(([k, v]) => [k, v.id])) };
+      const allEmotes = EMOTE_IDS; // nur Katzen und Peepo, fuer alle frei
       return send(res, 200, { emotes: allEmotes, badges: BADGES, paints: PAINTS.paints, ranks: RANKS10,
         walletLimit: { gutscheine: WALLET_LIMIT_GUTSCHEINE, karten: WALLET_LIMIT_KARTEN } });
     }
@@ -2593,7 +2604,7 @@ const server = http.createServer(async (req, res) => {
     // bekommt hier weiter die Metadaten, aber keine Nachrichten mehr. Die alten
     // Nachrichten bleiben in chat.json liegen und werden nicht ausgeliefert.
     if (p === '/api/chat' && req.method === 'GET') {
-      const allEmotes = { ...emoteCache.map, ...Object.fromEntries(Object.entries(UNLOCK_EMOTES).map(([k, v]) => [k, v.id])) };
+      const allEmotes = EMOTE_IDS; // nur Katzen und Peepo, fuer alle frei
       return send(res, 200, {
         messages: [], updates: [], pinned: null,
         emotes: allEmotes, badges: BADGES, paints: PAINTS.paints, ranks: RANKS10,
@@ -2637,6 +2648,7 @@ const server = http.createServer(async (req, res) => {
         const readTs = (convo.reads || {})[me] || 0;
         list.push({
           partner, lastText: lastMsg.text.slice(0, 60), lastTs: lastMsg.ts,
+          lastMine: lastMsg.from === me, // fuer das "Du:" in der Vorschau
           unread: convo.msgs.filter(m => m.from !== me && m.ts > readTs).length,
         });
       }
@@ -4029,7 +4041,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 201, c);
     }
 
-    // Kommentar-Reaktionen: like, helpful oder ein 7TV-Emote-Name (Toggle)
+    // Kommentar-Reaktionen: like, helpful oder ein Emote-Name (Toggle)
     if (p === '/api/comments/react' && req.method === 'POST') {
       const user = authUser(req);
       if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
@@ -4038,9 +4050,13 @@ const server = http.createServer(async (req, res) => {
       const c = list.find(x => x.id === String(b.id || ''));
       if (!c) return send(res, 404, { error: 'Kommentar nicht gefunden.' });
       const kindR = String(b.kind || '');
-      if (kindR !== 'like' && kindR !== 'helpful' && !emoteCache.map[kindR])
-        return send(res, 400, { error: 'Unbekannte Reaktion.' });
       c.reactions = c.reactions || {};
+      // Eine alte Reaktion mit einem Emote, das es nicht mehr gibt, darf man
+      // noch zuruecknehmen, aber nicht neu setzen. Object.hasOwn statt
+      // Nachschlagen: sonst gaelten auch "constructor" & Co. als Emote.
+      const hatSchon = Object.hasOwn(c.reactions, kindR) && Array.isArray(c.reactions[kindR]) && c.reactions[kindR].includes(user);
+      if (kindR !== 'like' && kindR !== 'helpful' && !Object.hasOwn(EMOTE_IDS, kindR) && !hatSchon)
+        return send(res, 400, { error: 'Unbekannte Reaktion.' });
       const arr = c.reactions[kindR] = c.reactions[kindR] || [];
       const i = arr.indexOf(user);
       if (i >= 0) arr.splice(i, 1); else arr.push(user);
