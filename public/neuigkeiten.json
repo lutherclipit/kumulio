@@ -1,5 +1,27 @@
 [
   {
+    "v": "2026-09-24.6",
+    "datum": "24. September 2026",
+    "titel": "Kumulio wächst mit",
+    "punkte": [
+      {
+        "icon": "sparkle",
+        "titel": "Sieben Ränge, sieben Kumulios",
+        "text": "Vom Scout über Sammler, Profi, Champion, Meister und Legende bis zum Mythos ab 1.000 €: Zu jedem Rang zeigt deine Wallet einen eigenen Kumulio."
+      },
+      {
+        "icon": "lock",
+        "titel": "Face ID nachträglich",
+        "text": "Nach dem Entsperren mit PIN bietet kumulio einmal an, Face ID oder Fingerabdruck einzurichten. In den Einstellungen steht, falls es auf deinem Gerät nicht geht, auch warum."
+      },
+      {
+        "icon": "search",
+        "titel": "Code groß zum Scannen",
+        "text": "In der großen Kartenansicht den Barcode antippen: Er füllt den ganzen Bildschirm, auf weißem Grund."
+      }
+    ]
+  },
+  {
     "v": "2026-09-24.5",
     "datum": "24. September 2026",
     "titel": "Aufgeräumt und klarer",

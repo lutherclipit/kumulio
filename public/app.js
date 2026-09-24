@@ -8993,7 +8993,18 @@ function voucherCardHtml(v, { mehr = false } = {}) {
 //   scout: '/brand/kumulio-maskottchen-scout',
 //   sammler: '/brand/kumulio-maskottchen-sammler',
 //   (profi, champion, meister, legende, mythos)
-const WALLET_MASKOTTCHEN = { standard: '/brand/kumulio-maskottchen-wallet' };
+const WALLET_MASKOTTCHEN = {
+  standard: '/brand/kumulio-maskottchen-wallet',
+  // Modelle des Nutzers je Rang (Runde 119), an den Augen auf die Lage des
+  // universellen Modells ausgerichtet — Strahlen und Funken passen so zu allen
+  scout: '/brand/kumulio-maskottchen-scout',
+  sammler: '/brand/kumulio-maskottchen-sammler',
+  profi: '/brand/kumulio-maskottchen-profi',
+  champion: '/brand/kumulio-maskottchen-champion',
+  meister: '/brand/kumulio-maskottchen-meister',
+  legende: '/brand/kumulio-maskottchen-legende',
+  mythos: '/brand/kumulio-maskottchen-mythos',
+};
 function setzeWalletMaskottchen(slug) {
   const img = $('.wk-sprite');
   if (!img) return;
