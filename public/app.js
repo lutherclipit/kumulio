@@ -4371,12 +4371,16 @@ async function pullWallet() {
     const remote = await api('/api/wallet?nur=index');
     if (state.token !== konto) return; // Kontowechsel unterwegs
     if (remote.statistik) state.wallet.statistik = remote.statistik;
+    // Der Abgleich per Inhaltsverzeichnis speichert und zeichnet selbst — hier
+    // nicht noch einmal (vorher lief renderWallet dafuer zweimal direkt hintereinander)
     if (remote.index) await gleicheMitIndexAb(remote.index, remote.deleted, konto);
     else mischeWallet(remote, true); // alter Server: volle Wallet
     if (state.token !== konto) return;
-    ensureWalletDates(); // auch vom Konto gezogene Alt-Gutscheine kriegen ein Datum
-    save('wallet', state.wallet, true);
-    renderWallet();
+    if (!remote.index) {
+      ensureWalletDates(); // auch vom Konto gezogene Alt-Gutscheine kriegen ein Datum
+      save('wallet', state.wallet, true);
+      renderWallet();
+    }
     // Nur hochladen, wenn dieses Geraet etwas beisteuert
     if (walletBrauchtUpload()) syncWalletNow();
     // Jetzt ist der Stand frisch: einmal pro Sitzung alte Bilder nachkomprimieren
@@ -5398,6 +5402,7 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
   // Liegt die Seite schon oben (Umschalter, Duplikat, naechstes Bild), wird sie
   // nur neu gefuellt — sonst gleitet eine neue herein
   let seite = waSeiteOben();
+  const neuGefuellt = !!seite && !opts.richtung && !opts.von;
   if (seite) {
     seite.el.querySelector('.wseite-titel').textContent = titel;
     seite.el.setAttribute('aria-label', titel);
@@ -5439,6 +5444,7 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
   const mehrInhalt = `<span class="wa-shop-mehr-bild">${icon('search', 'icon')}</span><span class="wa-shop-name">Weitere</span>`;
   const wer = isCard ? 'Karte' : 'Shop';
 
+  const alterSchalter = opts.richtung ? q('#wa-modus') : null;
   inhalt.innerHTML = `
     ${!isCard && !addEditId ? `
     <div class="wa-schalter" id="wa-modus" role="tablist" aria-label="Was fügst du hinzu?" style="--i:${modusVon === 'rabatt' ? 1 : 0}">
@@ -5448,7 +5454,7 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
     </div>` : ''}
     ${!addEditId && (platz.voll || platz.fast) ? `
     <div class="wa-hinweis ${platz.voll ? 'voll' : 'fast'}">${icon('warning', 'icon')}<span>${esc(platzText)}</span></div>` : ''}
-    <div class="wa-form${opts.von ? ' wa-form-neu' : ''}">
+    <div class="wa-form${opts.von && !opts.richtung ? ' wa-form-neu' : ''}">
       <div class="wa-vorschau" id="wa-vorschau" aria-hidden="true"></div>
 
       <section class="gd-block wa-scan" id="wa-drop" aria-label="Foto oder Screenshot">
@@ -5568,7 +5574,7 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
   };
   const currentVendor = () => gewaehlt;
   const currentCard = () => gewaehlt;
-  const sucheOffen = () => !q('#wa-suche')?.classList.contains('hidden');
+  const sucheOffen = () => offenWeich(q('#wa-suche'));
   const sucheZeichnen = () => {
     const liste = q('#wa-suche-liste'), feld = q('#wa-vendor');
     if (!liste || !feld) return;
@@ -5592,7 +5598,8 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
   const sucheAuf = auf => {
     const box = q('#wa-suche');
     if (!box) return;
-    box.classList.toggle('hidden', !auf);
+    // Klappt weich auf und zu; was darunter steht, gleitet mit
+    zeigeWeich(box, auf);
     q('#wa-vendor-showmore')?.setAttribute('aria-expanded', String(auf));
     if (auf) {
       sucheZeichnen();
@@ -5615,18 +5622,54 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
   });
 
   // ---- Gutschein oder Rabattcode: der Schieber oben wechselt das Formular
+  // Der alte Schalter bleibt stehen: seine Flaeche gleitet gerade und soll
+  // nicht mitten im Weg neu anfangen
+  if (alterSchalter && q('#wa-modus')) q('#wa-modus').replaceWith(alterSchalter);
   const modus = q('#wa-modus');
   if (modus) {
-    if (opts.von && opts.von !== addType) requestAnimationFrame(() => {
-      void modus.offsetWidth;
-      modus.style.setProperty('--i', isRabatt ? 1 : 0);
-      modus.querySelectorAll('[data-wa-modus]').forEach(k => k.classList.toggle('an', k.dataset.waModus === addType));
-    });
-    modus.querySelectorAll('[data-wa-modus]').forEach(k => k.addEventListener('click', () => {
-      if (k.dataset.waModus === addType || waSaving) return;
+    const setzeModus = typ => {
+      modus.style.setProperty('--i', typ === 'rabatt' ? 1 : 0);
+      modus.querySelectorAll('[data-wa-modus]').forEach(k => {
+        k.classList.toggle('an', k.dataset.waModus === typ);
+        k.setAttribute('aria-selected', String(k.dataset.waModus === typ));
+      });
+    };
+    if (opts.von && opts.von !== addType) requestAnimationFrame(() => { void modus.offsetWidth; setzeModus(addType); });
+    // onclick statt addEventListener: der Schalter bleibt ueber den Wechsel
+    // hinweg stehen und darf den Handler nicht doppelt tragen
+    modus.querySelectorAll('[data-wa-modus]').forEach(k => k.onclick = () => {
+      if (k.dataset.waModus === addType || waSaving || modus._wechselt) return;
       buzz(8);
-      openWalletAdd(k.dataset.waModus, '', '', { von: addType });
-    }));
+      const ziel = k.dataset.waModus;
+      const richtung = ziel === 'rabatt' ? 1 : -1;
+      setzeModus(ziel);
+      const form = q('.wa-form');
+      const weiter = () => {
+        modus._wechselt = false;
+        // Inzwischen geschlossen oder gesperrt: dann keine neue Seite aufmachen
+        if (wseiteOben() !== seite || walletGesperrt()) return;
+        openWalletAdd(ziel, '', '', { von: addType, richtung });
+      };
+      if (!weich() || !form?.animate) return weiter();
+      modus._wechselt = true;
+      const raus = form.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: `translate3d(${-richtung * 24}px, 0, 0)` }],
+        { duration: 120, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' });
+      let getan = false;
+      const einmal = () => { if (!getan) { getan = true; weiter(); } };
+      raus.onfinish = einmal;
+      setTimeout(einmal, 260);
+    });
+  }
+  // Neu gefuellt (naechstes Bild, Duplikat): das neue Formular blendet sanft
+  // ein, statt hart an die Stelle des alten zu springen
+  if (neuGefuellt && weich()) {
+    q('.wa-form')?.animate?.([{ opacity: 0, transform: 'translate3d(0, 10px, 0)' }, { opacity: 1, transform: 'none' }],
+      { duration: 280, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+  }
+  if (opts.richtung && weich()) {
+    const form = q('.wa-form');
+    form?.animate?.([{ opacity: 0, transform: `translate3d(${opts.richtung * 28}px, 0, 0)` }, { opacity: 1, transform: 'none' }],
+      { duration: 300, easing: 'cubic-bezier(.22, 1, .36, 1)' });
   }
 
   // ---- Rabatt in Euro oder Prozent, Mindestbestellwert per Schalter
@@ -5652,7 +5695,7 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
     t.textContent = q('#wa-mbw-an').checked ? (n > 0 ? 'ab ' + euroFmt(n) : 'Betrag eintragen') : 'ohne MBW';
   };
   q('#wa-mbw-an')?.addEventListener('change', e => {
-    q('#wa-mbw-feld').classList.toggle('hidden', !e.target.checked);
+    zeigeWeich(q('#wa-mbw-feld'), e.target.checked);
     mbwText();
     aktualisieren();
     if (e.target.checked) setTimeout(() => q('#wa-mbw')?.focus(), 60);
@@ -5773,7 +5816,7 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
     const img = q('#wa-preview');
     if (!img) return;
     if (src) img.src = src;
-    q('#wa-scan-frame')?.classList.toggle('hidden', !src);
+    zeigeWeich(q('#wa-scan-frame'), !!src);
     // Mit Bild: die Knoepfe heissen "Neues Foto" / "Anderes Bild", daneben Zuschneiden
     const drop = q('#wa-drop');
     if (!drop || drop.classList.contains('hat-bild') === !!src) return;
@@ -5845,10 +5888,11 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
       if (veraltet()) return;
       addOrig = ganz;
       bildZeigen(addImg);
-      $('#wa-result')?.classList.add('hidden');
+      zeigeWeich($('#wa-result'), false);
       // Scan-Optik: Laserlinie über dem Bild + ruhiger Prozent-Balken
       $('#wa-scanline')?.classList.remove('hidden');
-      $('#wa-progress')?.classList.remove('hidden', 'done');
+      $('#wa-progress')?.classList.remove('done');
+      zeigeWeich($('#wa-progress'), true);
       scanProgress(4);
       scanMeldung('Scanne das Bild …');
       // Analyse auf hochauflösender Fassung: kleine Schrift bleibt für die OCR lesbar
@@ -5935,7 +5979,7 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
       scanProgress(100);
       $('#wa-progress')?.classList.add('done');
       $('#wa-scanline')?.classList.add('hidden');
-      setTimeout(() => $('#wa-progress')?.classList.add('hidden'), 1400);
+      setTimeout(() => zeigeWeich($('#wa-progress'), false), 1400);
       const resRow = (label, val) => val
         ? `<div class="scan-row"><span>${label}</span><b>${esc(val)}</b></div>` : '';
       const resCode = addType === 'voucher' ? $('#wa-code').value : addType === 'rabatt' ? $('#wa-rcode').value : $('#wa-cnumber').value;
@@ -5949,8 +5993,8 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
             + resRow('Mindestbestellwert', $('#wa-mbw-an').checked && $('#wa-mbw').value ? 'ab ' + $('#wa-mbw').value + ' €' : '')
           : resRow('Kartennummer', resCode);
       if (resRows) {
-        $('#wa-result').classList.remove('hidden');
         $('#wa-result').innerHTML = resRows;
+        zeigeWeich($('#wa-result'), true);
       }
       aktualisieren();
       // Lieber ehrlich als geraten: sagen, was fehlt und selbst geprüft werden muss
@@ -5989,8 +6033,9 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
   const handleImageBatch = async files => {
     waScanLauf++; // ein laufender Einzel-Scan traegt nichts mehr ein
     seite.stapelLaeuft = true;                  // Zurueck fragt solange nach (siehe zurueckFrage)
-    $('#wa-result')?.classList.add('hidden');
-    $('#wa-progress')?.classList.remove('hidden', 'done');
+    zeigeWeich($('#wa-result'), false);
+    $('#wa-progress')?.classList.remove('done');
+    zeigeWeich($('#wa-progress'), true);
     $('#wa-scanline')?.classList.remove('hidden');
     const results = [];
     const fresh = [];
@@ -6507,7 +6552,8 @@ function zeigeSchenkSchritt(v) {
   });
   verdrahteFreunde();
   const suchfeld = host.querySelector('.gp-suche');
-  if (suchfeld) suchfeld.oninput = e => { suche = e.target.value; liste.innerHTML = freundeHtml(); verdrahteFreunde(); };
+  // Filtern gleicht die Liste an: bleibende Freunde gleiten nach oben, neue blenden ein
+  if (suchfeld) suchfeld.oninput = e => { suche = e.target.value; inhaltAngleichen(liste, freundeHtml()); verdrahteFreunde(); };
   const text = host.querySelector('.gp-text');
   if (text) text.oninput = e => { nachricht = e.target.value; };
 
@@ -6515,7 +6561,7 @@ function zeigeSchenkSchritt(v) {
   const emoteBtn = host.querySelector('.gp-emote-btn');
   const emoteBox = host.querySelector('.gp-emotes');
   if (emoteBtn && emoteBox) emoteBtn.onclick = () => {
-    const auf = emoteBox.classList.contains('hidden');
+    const auf = !offenWeich(emoteBox);
     if (auf && !emoteBox.dataset.gebaut) {
       const namen = Object.keys(allEmoteIds()).filter(emoteOwned);
       emoteBox.innerHTML = namen.length
@@ -6529,8 +6575,10 @@ function zeigeSchenkSchritt(v) {
         text.focus();
       });
     }
-    emoteBox.classList.toggle('hidden', !auf);
+    // Klappt weich auf und zu, der Hinweis darunter gleitet mit
+    zeigeWeich(emoteBox, auf);
     emoteBtn.setAttribute('aria-expanded', String(auf));
+    buzz(6);
   };
 
   const pfeil = host.querySelector('.wseite-zurueck');
@@ -6849,6 +6897,348 @@ function oeffneKartenLupe(key, kachel) {
 // Der Zustand haengt an der Funktion statt an einem let hier oben: renderWallet
 // laeuft schon beim Start, lange bevor diese Zeilen erreicht sind (TDZ).
 // =============================================================================
+
+// -----------------------------------------------------------------------------
+// Weiche Wechsel (Runde 118): was sich auf den Seiten und in der Wallet-Liste
+// aendert, gleitet und blendet, statt hart ausgetauscht zu werden. Bleibende
+// Elemente gleiten an ihren neuen Platz (FLIP), neue blenden ein, wegfallende
+// blenden als Abbild aus. Bewegt wird nur transform und opacity; ohne Bewegung
+// (System oder Einstellung "Animationen aus") passiert alles sofort.
+// Keine let/const hier oben (siehe TDZ-Hinweis darueber) — nur Funktionen.
+// -----------------------------------------------------------------------------
+// (reducedMotion ist ein const weiter oben — laeuft renderWallet schon beim
+// Einlesen des Skripts, gibt es ihn noch nicht: dann eben ohne Bewegung)
+function weich() { try { return !reducedMotion(); } catch { return false; } }
+function imBild(r, rand = 60) { return !!(r && (r.width || r.height) && r.bottom > -rand && r.top < innerHeight + rand); }
+// Sichtbare Lage merken (samt laufender Bewegung — von dort geht es weiter)
+function lagenMerken(els) {
+  const m = new Map();
+  for (const el of els) if (el && el.isConnected) m.set(el, el.getBoundingClientRect());
+  return m;
+}
+// ... und nach dem Umbau von dort an den neuen Platz gleiten. Liegt auch das
+// Elternteil in der Liste, zaehlt nur der eigene Anteil der Verschiebung.
+function lagenGleiten(lagen, { dauer = 340, kurve = 'cubic-bezier(.22, 1, .36, 1)', max = 48 } = {}) {
+  if (!lagen || !lagen.size || !weich()) return;
+  const els = [...lagen.keys()].filter(el => el.isConnected);
+  els.forEach(el => el.getAnimations?.().forEach(a => { if (a.id === 'gleiten') a.cancel(); }));
+  const delta = new Map();
+  for (const el of els) {
+    const alt = lagen.get(el), neu = el.getBoundingClientRect();
+    if (!neu.width && !neu.height) continue;
+    delta.set(el, [alt.left - neu.left, alt.top - neu.top, imBild(alt) || imBild(neu)]);
+  }
+  let n = 0;
+  for (const [el, [dx0, dy0, sichtbar]] of delta) {
+    const eltern = delta.get(el.parentElement);
+    const dx = dx0 - (eltern ? eltern[0] : 0), dy = dy0 - (eltern ? eltern[1] : 0);
+    if (!sichtbar || (Math.abs(dx) < 1 && Math.abs(dy) < 1) || !el.animate) continue;
+    if (++n > max) break;
+    const a = el.animate([{ transform: `translate3d(${dx}px, ${dy}px, 0)` }, { transform: 'translate3d(0, 0, 0)' }],
+      { duration: dauer, easing: kurve });
+    a.id = 'gleiten';
+  }
+}
+// Alles, was im Fluss hinter el steht (auch hinter seinen Eltern) — bis zum Rahmen
+function folgeElemente(el, bis) {
+  const out = [];
+  for (let x = el; x && x !== bis && x.parentElement && out.length < 40; x = x.parentElement) {
+    for (let s = x.nextElementSibling; s && out.length < 40; s = s.nextElementSibling) {
+      if (!s.classList.contains('hidden') && !s.classList.contains('wl-geist')) out.push(s);
+    }
+    if (x.parentElement === bis) break;
+  }
+  return out;
+}
+// Ein- und Ausklappen (Suche, Emotes, Scan-Ergebnis ...): das Element blendet
+// ein bzw. aus, was darunter steht, gleitet mit statt zu springen
+function zeigeWeich(el, an, { bis = null, dauer = 260 } = {}) {
+  if (!el) return;
+  const lauf = (el._zwLauf || 0) + 1;
+  el._zwLauf = lauf;
+  const offen = !el.classList.contains('hidden') && !el._zwWeg;
+  el.getAnimations?.().forEach(a => { if (a.id === 'zeigen') a.cancel(); });
+  if (!weich() || !el.isConnected || !el.animate) { el._zwWeg = false; el.classList.toggle('hidden', !an); return; }
+  if (an === offen) { if (!an) el.classList.add('hidden'); return; }
+  const rahmen = bis || el.closest('.wseite-inhalt') || el.closest('.wseite') || document.body;
+  const folgende = folgeElemente(el, rahmen);
+  if (an) {
+    el._zwWeg = false;
+    const lagen = lagenMerken(folgende);
+    el.classList.remove('hidden');
+    const a = el.animate([{ opacity: 0, transform: 'translate3d(0, -6px, 0) scale(.985)' }, { opacity: 1, transform: 'none' }],
+      { duration: dauer, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+    a.id = 'zeigen';
+    lagenGleiten(lagen, { dauer: dauer + 60 });
+    return;
+  }
+  el._zwWeg = true;
+  const a = el.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translate3d(0, -6px, 0) scale(.985)' }],
+    { duration: 150, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' });
+  a.id = 'zeigen';
+  let getan = false;
+  const fertig = () => {
+    if (getan || el._zwLauf !== lauf) return;
+    getan = true;
+    el._zwWeg = false;
+    const lagen = lagenMerken(folgende);
+    el.classList.add('hidden');
+    a.cancel();
+    lagenGleiten(lagen);
+  };
+  a.onfinish = fertig;
+  setTimeout(fertig, 400);   // falls onfinish ausbleibt (Tab im Hintergrund)
+}
+// Ist el sichtbar (und nicht gerade beim Ausblenden)?
+function offenWeich(el) { return !!el && !el.classList.contains('hidden') && !el._zwWeg; }
+// Ganzen Inhalt tauschen (Zeitraum, Filter, Formular): der alte blendet kurz
+// aus, der neue gleitet aus der Richtung herein (-1 links, 1 rechts, 0 unten)
+function tauscheWeich(host, fuellen, { richtung = 0, bis = null } = {}) {
+  if (!host) return;
+  const lauf = (host._twLauf || 0) + 1;
+  host._twLauf = lauf;
+  host.getAnimations?.().forEach(a => { if (a.id === 'tauschen') a.cancel(); });
+  const rahmen = bis || host.closest('.wseite-inhalt') || host.parentElement;
+  const umbauen = () => {
+    const lagen = lagenMerken(folgeElemente(host, rahmen));
+    fuellen();
+    lagenGleiten(lagen);
+  };
+  if (!weich() || !host.isConnected || !host.getClientRects().length || !host.animate) { fuellen(); return; }
+  const dx = richtung * 22, dy = richtung ? 0 : 10;
+  const raus = host.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: `translate3d(${-dx}px, 0, 0)` }],
+    { duration: 110, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' });
+  raus.id = 'tauschen';
+  let getan = false;
+  const weiter = () => {
+    if (getan || host._twLauf !== lauf) return;
+    getan = true;
+    umbauen();
+    raus.cancel();
+    const rein = host.animate([{ opacity: 0, transform: `translate3d(${dx}px, ${dy}px, 0)` }, { opacity: 1, transform: 'none' }],
+      { duration: 280, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+    rein.id = 'tauschen';
+  };
+  raus.onfinish = weiter;
+  setTimeout(weiter, 260);
+}
+// Neue Elemente gleiten gestaffelt herein (nur die, die man sieht)
+function reinGleiten(els, { versatz = 12, dauer = 320, stufe = 34, bisStufe = 8, id = 'rein', von = null } = {}) {
+  if (!weich()) return;
+  let i = 0;
+  for (const el of els) {
+    if (!el || !el.isConnected || !el.animate) continue;
+    const r = el.getBoundingClientRect();
+    if (!imBild(r, 0)) continue;
+    // von: Ort, aus dem das Element kommt (aufgefaecherter Stapel)
+    const start = von
+      ? `translate3d(${von.left - r.left}px, ${von.top - r.top}px, 0) scale(.96)`
+      : `translate3d(0, ${versatz}px, 0) scale(.985)`;
+    el.getAnimations().forEach(a => { if (a.id === id) a.cancel(); });
+    const a = el.animate([{ opacity: 0, transform: start }, { opacity: 1, transform: 'none' }],
+      { duration: dauer, delay: Math.min(i, bisStufe) * stufe, easing: 'cubic-bezier(.22, 1, .36, 1)', fill: 'backwards' });
+    a.id = id;
+    i++;
+  }
+}
+// Abbild eines wegfallenden Elements: liegt kurz an der alten Stelle und blendet
+// aus (optional in Richtung ziel, etwa in den Stapel zurueck)
+function geistAusblenden(el, rect, host, ziel = null, stehend = false) {
+  if (!weich() || !host || !rect || !imBild(rect, 0)) return;
+  if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
+  const g = el.cloneNode(true);
+  g.classList.add('wl-geist');
+  g.removeAttribute('id');
+  g.querySelectorAll('[id]').forEach(x => x.removeAttribute('id'));
+  for (const x of [g, ...g.querySelectorAll('*')]) {
+    for (const a of [...x.attributes]) if (a.name.startsWith('data-') || a.name === 'role' || a.name === 'tabindex') x.removeAttribute(a.name);
+  }
+  g.setAttribute('aria-hidden', 'true');
+  g.inert = true;
+  const h = host.getBoundingClientRect();
+  Object.assign(g.style, {
+    position: 'absolute', left: (rect.left - h.left) + 'px', top: (rect.top - h.top) + 'px',
+    width: rect.width + 'px', height: rect.height + 'px', margin: '0', pointerEvents: 'none',
+  });
+  // Ein ueberblendetes Abbild liegt ueber der neuen Fassung; ein wegfahrendes
+  // unter allem, was gerade an seinen Platz gleitet
+  if (stehend) host.appendChild(g);
+  else host.insertBefore(g, host.firstChild);
+  // stehend: an derselben Stelle steht schon die neue Fassung — nur ueberblenden
+  const nach = ziel
+    ? `translate3d(${ziel.left - rect.left}px, ${ziel.top - rect.top}px, 0) scale(.96)`
+    : stehend ? 'none' : 'translate3d(0, -4px, 0) scale(.97)';
+  const a = g.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: nach }],
+    { duration: ziel ? 300 : stehend ? 260 : 190, easing: stehend ? 'ease-out' : 'cubic-bezier(.4, 0, .6, 1)', fill: 'forwards' });
+  const weg = () => g.remove();
+  a.onfinish = weg;
+  setTimeout(weg, 600);
+}
+
+// Liste abgleichen statt neu zu schreiben: Kinder mit gleichem Schluessel und
+// gleichem Quelltext bleiben stehen (keine Auftritts-Animation, kein Flackern),
+// geaenderte werden an Ort und Stelle ersetzt, neue blenden ein, wegfallende
+// als Abbild aus. Was bleibt oder denselben Schluessel wieder hat, gleitet an
+// seinen neuen Platz (auch ueber Ebenen: Karte im Stapel -> Karte in der Liste).
+//   schluessel(el): Schluessel eines Elements ('' = keiner)
+//   bewegt: false = nur abgleichen, nichts animieren (unsichtbar, erster Aufbau)
+//   herkunft(el): Ort, aus dem ein neues Element kommt (Stapel auffaechern)
+//   ziel(el): Ort, in den ein wegfallendes Element faehrt (Stapel schliessen)
+function listeSchluessel(el) {
+  if (!el || el.nodeType !== 1) return '';
+  const d = el.dataset;
+  return d.key || (d.wv && 'v:' + d.wv) || (d.deckTop && 'v:' + d.deckTop) || (d.deck && 'deck:' + d.deck)
+    || (d.deckMore && 'mehr:' + d.deckMore) || '';
+}
+function listeAngleichen(host, html, { bewegt = true, herkunft = null, ziel = null, bis = null } = {}) {
+  if (!host) return { neu: [] };
+  const tpl = document.createElement('template');
+  tpl.innerHTML = html;
+  const neuKinder = [...tpl.content.children];
+  bewegt = bewegt && weich() && host.isConnected && host.getClientRects().length > 0;
+  // Vorher: Lage aller Elemente mit Schluessel (auch verschachtelt) und dessen, was folgt
+  const altLage = new Map();
+  if (bewegt) {
+    host.querySelectorAll('*').forEach(e => {
+      if (e.classList.contains('wl-geist') || e.closest('.wl-geist')) return;
+      const s = listeSchluessel(e);
+      if (s && !altLage.has(s)) altLage.set(s, e.getBoundingClientRect());
+    });
+  }
+  const folgende = bewegt ? lagenMerken(folgeElemente(host, bis || host.parentElement)) : null;
+  // Oberste Ebene: ohne Schluessel zaehlt Art + Reihenfolge
+  const topSchluessel = (e, z) => {
+    const s = listeSchluessel(e) || (e.tagName + '.' + ((e.getAttribute('class') || '').split(' ')[0]));
+    z[s] = (z[s] || 0) + 1;
+    return s + '#' + z[s];
+  };
+  const altTop = new Map();
+  const za = {};
+  [...host.children].forEach(e => { if (!e.classList.contains('wl-geist')) altTop.set(topSchluessel(e, za), e); });
+  const zn = {};
+  const reihe = [], frisch = [], ersetzt = new Set();
+  for (const n of neuKinder) {
+    const k = topSchluessel(n, zn);
+    const quelle = n.outerHTML;
+    const a = altTop.get(k);
+    if (a && a._quelle === quelle) { reihe.push(a); altTop.delete(k); continue; }
+    n._quelle = quelle;
+    // Geaendert (etwa neuer Betrag): das alte Bild blendet ueber dem neuen aus
+    if (a) ersetzt.add(a);
+    // Ersetzt: laeuft am alten noch der Auftritt, laeuft er am neuen weiter
+    if (a && bewegt) {
+      a.getAnimations().forEach(x => {
+        if ((x.id !== 'auftritt' && x.id !== 'rein') || x.playState === 'finished') return;
+        const c = n.animate(x.effect.getKeyframes(), x.effect.getTiming());
+        c.id = x.id;
+        c.currentTime = x.currentTime;
+      });
+    }
+    reihe.push(n);
+    if (!a) frisch.push(n);
+  }
+  // Wegfallende: vor dem Entfernen die Lage fuer das Abbild merken
+  const weg = [...altTop.values()];
+  const geister = bewegt ? weg.map(e => [e, e.getBoundingClientRect()]).filter(([, r]) => imBild(r, 0)) : [];
+  weg.forEach(e => e.remove());
+  let ref = host.firstElementChild;
+  for (const n of reihe) {
+    while (ref && ref.classList.contains('wl-geist')) ref = ref.nextElementSibling;
+    if (ref === n) { ref = ref.nextElementSibling; continue; }
+    host.insertBefore(n, ref);
+  }
+  if (!bewegt) return { neu: frisch };
+  geister.forEach(([e, r]) => geistAusblenden(e, r, host, ziel ? ziel(e) : null, ersetzt.has(e)));
+  // Gleiten: alles mit Schluessel, das es vorher schon gab (bleibend oder neu gebaut)
+  const lagen = new Map();
+  host.querySelectorAll('*').forEach(e => {
+    if (e.classList.contains('wl-geist') || e.closest('.wl-geist')) return;
+    const s = listeSchluessel(e);
+    // data-auch: gab es das Element unter diesem Schluessel nicht, dann unter
+    // jenem (der Stapel kommt von der Stelle seiner obersten Karte)
+    const k = s && altLage.has(s) ? s : (e.dataset.auch && altLage.has(e.dataset.auch) ? e.dataset.auch : '');
+    if (k && !lagen.has(e)) lagen.set(e, altLage.get(k));
+  });
+  // Ein Element, dessen Vorfahre schon gleitet, bewegt sich mit ihm
+  for (const e of [...lagen.keys()]) {
+    for (let p = e.parentElement; p && p !== host; p = p.parentElement) if (lagen.has(p)) { lagen.delete(e); break; }
+  }
+  lagenGleiten(lagen);
+  // Neue Einheiten ohne Vorgaenger blenden ein; Karten aus einem Stapel
+  // kommen aus dessen Richtung
+  const einheiten = [];
+  for (const n of frisch) {
+    if (lagen.has(n)) continue;
+    const drin = [...n.querySelectorAll('*')].some(e => lagen.has(e));
+    if (drin) { [...n.children].forEach(c => { if (![...lagen.keys()].some(l => c === l || c.contains(l))) einheiten.push(c); }); }
+    else einheiten.push(n);
+  }
+  const vonStapel = herkunft ? einheiten.filter(e => herkunft(e)) : [];
+  reinGleiten(einheiten.filter(e => !vonStapel.includes(e)));
+  if (vonStapel.length) reinGleiten(vonStapel, { von: herkunft(vonStapel[0]), dauer: 380, stufe: 40 });
+  lagenGleiten(folgende);
+  return { neu: frisch };
+}
+
+// Inhalt einer Seite angleichen statt neu zu schreiben (Gutschein, Rabattcode):
+// gleiche Bausteine bleiben stehen und bekommen nur geaenderte Attribute und
+// Texte — so laufen CSS-Uebergaenge (Balken) weiter, nichts flackert. Neue
+// Bausteine blenden ein, was folgt, gleitet mit.
+function knotenSchluessel(n) {
+  if (!n || n.nodeType !== 1) return '';
+  return n.id ? '#' + n.id : n.dataset.tx ? 'tx:' + n.dataset.tx : n.dataset.gpAn ? 'an:' + n.dataset.gpAn : '';
+}
+// Art eines Knotens ohne Schluessel: Tag und die ersten beiden Klassen
+// ("gd-block gd-codes" ist etwas anderes als "gd-block gd-bild")
+function knotenArt(n) {
+  return n.nodeType === 1 ? n.nodeName + '.' + (n.getAttribute('class') || '').trim().split(/\s+/).slice(0, 2).join('.') : '#' + n.nodeType;
+}
+function morpheKnoten(alt, neu, neuListe) {
+  if (alt.nodeType !== neu.nodeType || alt.nodeName !== neu.nodeName) { alt.replaceWith(neu); if (neu.nodeType === 1) neuListe.push(neu); return neu; }
+  if (alt.nodeType !== 1) { if (alt.nodeValue !== neu.nodeValue) alt.nodeValue = neu.nodeValue; return alt; }
+  for (const a of [...alt.attributes]) if (!neu.hasAttribute(a.name)) alt.removeAttribute(a.name);
+  for (const a of [...neu.attributes]) if (alt.getAttribute(a.name) !== a.value) alt.setAttribute(a.name, a.value);
+  kinderMorphen(alt, neu, neuListe);
+  return alt;
+}
+function kinderMorphen(host, quelle, neuListe) {
+  const altK = [...host.childNodes].filter(k => !(k.nodeType === 1 && k.classList.contains('wl-geist')));
+  const benutzt = new Set();
+  const mitS = new Map();
+  altK.forEach(k => { const s = knotenSchluessel(k); if (s) mitS.set(s, k); });
+  const reihe = [];
+  for (const n of [...quelle.childNodes]) {
+    const s = knotenSchluessel(n);
+    let a = s ? mitS.get(s) : null;
+    if (!s) { const art = knotenArt(n); a = altK.find(k => !benutzt.has(k) && !knotenSchluessel(k) && knotenArt(k) === art) || null; }
+    if (a && !benutzt.has(a)) { benutzt.add(a); reihe.push(morpheKnoten(a, n, neuListe)); }
+    else { reihe.push(n); if (n.nodeType === 1) neuListe.push(n); }
+  }
+  altK.forEach(k => { if (!benutzt.has(k)) k.remove(); });
+  let ref = host.firstChild;
+  for (const n of reihe) {
+    if (ref === n) { ref = ref.nextSibling; continue; }
+    host.insertBefore(n, ref);
+  }
+}
+function inhaltAngleichen(host, html) {
+  if (!host) return;
+  if (!host.firstElementChild) { host.innerHTML = html; return; }
+  const bewegt = weich() && host.getClientRects().length > 0;
+  // Lagen: Bausteine und ihre direkten Kinder (Verlaufszeilen, Code-Zeilen)
+  const vorher = bewegt ? lagenMerken([...host.children].flatMap(c => [c, ...c.children])) : null;
+  const tpl = document.createElement('template');
+  tpl.innerHTML = html;
+  const neu = [];
+  kinderMorphen(host, tpl.content, neu);
+  if (!bewegt) return;
+  const neuSet = new Set(neu);
+  const lagen = new Map([...vorher].filter(([e]) => e.isConnected && !neuSet.has(e)));
+  lagenGleiten(lagen);
+  // Nur die obersten neuen Elemente blenden ein (nicht jedes Kind einzeln)
+  reinGleiten(neu.filter(e => e.isConnected && !neu.some(o => o !== e && o.contains(e))), { versatz: 8, stufe: 0 });
+}
+
 function wseiten() { return wseiten.stapel || (wseiten.stapel = []); }
 function wseiteOben() { const s = wseiten(); return s[s.length - 1] || null; }
 function wseiteBewegt() { return !reducedMotion(); }
@@ -6938,14 +7328,46 @@ function wseiteOeffnen({ art, id = '', titel = '', klasse = '', baue, sofort = f
   dimm.getAnimations?.().forEach(a => a.cancel());
   dimm.style.opacity = '';
   if (!sofort && wseiteBewegt() && el.animate) {
-    el.animate([{ transform: 'translate3d(100%, 0, 0)' }, { transform: 'translate3d(0, 0, 0)' }],
+    // In Pixeln statt Prozent: so laeuft die Bewegung sicher auf dem Compositor
+    const b = wseiteBreite();
+    el.animate([{ transform: `translate3d(${b}px, 0, 0)` }, { transform: 'translate3d(0, 0, 0)' }],
       { duration: 380, easing: 'cubic-bezier(.22, 1, .36, 1)' });
     dimm.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 380, easing: 'ease-out' });
+    // Wie ein Schieber: die Seite darunter weicht ein Stueck nach links aus
+    if (vorige) {
+      vorige.el.getAnimations().forEach(a => { if (a.id === 'unten') a.cancel(); });
+      const u = vorige.el.animate([{ transform: 'translate3d(0, 0, 0)' }, { transform: `translate3d(${-wseiteVersatz()}px, 0, 0)` }],
+        { duration: 380, easing: 'cubic-bezier(.22, 1, .36, 1)', fill: 'forwards' });
+      u.id = 'unten';
+    }
   }
   // Die Seite darunter muss nicht mehr gezeichnet werden, sobald sie bedeckt ist
-  if (vorige) setTimeout(() => { if (wseiteOben() === seite) vorige.el.classList.add('verdeckt'); }, sofort ? 0 : 400);
+  if (vorige) setTimeout(() => {
+    if (wseiteOben() !== seite) return;
+    vorige.el.classList.add('verdeckt');
+    vorige.el.getAnimations().forEach(a => { if (a.id === 'unten') a.cancel(); });
+  }, sofort ? 0 : 400);
   requestAnimationFrame(() => el.focus({ preventScroll: true }));
   return seite;
+}
+function wseiteBreite() { return $('#wseiten')?.clientWidth || innerWidth; }
+// So weit weicht die Seite darunter aus (wie bei einem Schieber)
+function wseiteVersatz() { return Math.round(wseiteBreite() * .28); }
+// Die Seite darunter kommt zurueck an ihren Platz (Zurueck, Wisch)
+function wseiteUntenZurueck(darunter, vonP, dauer) {
+  if (!darunter?.el.animate) return;
+  // Laeuft das Ausweichen noch (schnell wieder zurueck), geht es von dort aus weiter
+  let start = -wseiteVersatz() * (1 - vonP);
+  const laeuft = darunter.el.getAnimations().filter(a => a.id === 'unten' && a.playState !== 'idle');
+  if (laeuft.length && !vonP) {
+    try { start = new DOMMatrixReadOnly(getComputedStyle(darunter.el).transform).m41 || 0; } catch { /* alter Browser */ }
+  }
+  laeuft.forEach(a => a.cancel());
+  darunter.el.style.transform = '';
+  if (!wseiteBewegt()) return;
+  const u = darunter.el.animate([{ transform: `translate3d(${Math.round(start)}px, 0, 0)` }, { transform: 'translate3d(0, 0, 0)' }],
+    { duration: dauer, easing: 'cubic-bezier(.32, .72, .4, 1)' });
+  u.id = 'unten';
 }
 
 // Eine Seite zurueck. vonP: wie weit der Finger sie schon weggeschoben hat (0..1)
@@ -6974,11 +7396,15 @@ function wseiteZurueck({ vonP = 0, sofort = false } = {}) {
     const ziel = oben ? oben.el : seite.fokusVorher;
     if (ziel?.isConnected) ziel.focus?.({ preventScroll: true });
   };
-  if (sofort || !wseiteBewegt() || !seite.el.animate) return weg();
+  if (sofort || !wseiteBewegt() || !seite.el.animate) { if (darunter) darunter.el.style.transform = ''; return weg(); }
   const dauer = Math.max(150, Math.round(300 * (1 - vonP)));
+  const b = wseiteBreite();
+  seite.el.getAnimations().forEach(x => x.cancel());
+  seite.el.style.transform = '';
   const a = seite.el.animate(
-    [{ transform: `translate3d(${(vonP * 100).toFixed(2)}%, 0, 0)` }, { transform: 'translate3d(100%, 0, 0)' }],
+    [{ transform: `translate3d(${Math.round(vonP * b)}px, 0, 0)` }, { transform: `translate3d(${b}px, 0, 0)` }],
     { duration: dauer, easing: 'cubic-bezier(.32, .72, .4, 1)', fill: 'forwards' });
+  wseiteUntenZurueck(darunter, vonP, dauer);
   dimm.getAnimations?.().forEach(x => x.cancel());
   dimm.animate([{ opacity: 1 - vonP }, { opacity: 0 }], { duration: dauer, easing: 'ease-out', fill: 'forwards' });
   a.onfinish = weg;
@@ -7083,23 +7509,38 @@ function wseiteZiehen(seite, p) {
   seite.el.getAnimations?.().forEach(a => a.cancel());
   const dimm = $('#wseiten .wseiten-dimm');
   dimm?.getAnimations?.().forEach(a => a.cancel());
-  seite.el.style.transform = `translate3d(${(p * 100).toFixed(2)}%, 0, 0)`;
+  seite.el.style.transform = `translate3d(${Math.round(p * wseiteBreite())}px, 0, 0)`;
   if (dimm) dimm.style.opacity = String(1 - p);
+  // Die Seite darunter folgt dem Finger ein Stueck (wie beim Hineinschieben)
+  if (darunter && wseiteBewegt()) {
+    darunter.el.getAnimations().forEach(a => a.cancel());
+    darunter.el.style.transform = `translate3d(${Math.round(-wseiteVersatz() * (1 - p))}px, 0, 0)`;
+  }
 }
 function wseiteFedern(seite, p) {
   const el = seite.el;
   const dimm = $('#wseiten .wseiten-dimm');
+  const s = wseiten();
+  const darunter = s[s.indexOf(seite) - 1];
   const fertig = () => {
     el.style.transform = '';
     if (dimm) dimm.style.opacity = '';
-    const s = wseiten();
-    const darunter = s[s.indexOf(seite) - 1];
-    if (darunter && wseiteOben() === seite) darunter.el.classList.add('verdeckt');
+    if (darunter) {
+      darunter.el.getAnimations().forEach(a => { if (a.id === 'unten') a.cancel(); });
+      darunter.el.style.transform = '';
+      if (wseiteOben() === seite) darunter.el.classList.add('verdeckt');
+    }
   };
   if (!el.animate || !wseiteBewegt()) return fertig();
-  const a = el.animate([{ transform: `translate3d(${(p * 100).toFixed(2)}%, 0, 0)` }, { transform: 'translate3d(0, 0, 0)' }],
+  const a = el.animate([{ transform: `translate3d(${Math.round(p * wseiteBreite())}px, 0, 0)` }, { transform: 'translate3d(0, 0, 0)' }],
     { duration: 260, easing: 'cubic-bezier(.22, 1, .36, 1)' });
   dimm?.animate([{ opacity: 1 - p }, { opacity: 1 }], { duration: 260, easing: 'ease-out' });
+  if (darunter) {
+    darunter.el.style.transform = '';
+    const u = darunter.el.animate([{ transform: `translate3d(${Math.round(-wseiteVersatz() * (1 - p))}px, 0, 0)` },
+      { transform: `translate3d(${-wseiteVersatz()}px, 0, 0)` }], { duration: 260, easing: 'cubic-bezier(.22, 1, .36, 1)', fill: 'forwards' });
+    u.id = 'unten';
+  }
   el.style.transform = '';
   if (dimm) dimm.style.opacity = '';
   a.onfinish = fertig;
@@ -7107,7 +7548,7 @@ function wseiteFedern(seite, p) {
 // Esc: erst das Aufgeklappte der obersten Seite, dann die Seite selbst
 addEventListener('keydown', e => {
   if (e.key !== 'Escape' || !wseiten().length) return;
-  if (document.querySelector('.overlay:not(.hidden), .karten-lupe, .bild-lupe, .vk-menue, .pack-buehne')) return;
+  if (document.querySelector('.overlay:not(.hidden), .karten-lupe, .bild-lupe, .vk-menue:not(.zu), .pack-buehne')) return;
   if (document.body.classList.contains('blatt-ueber-seite')) return;   // das Blatt schliesst sich selbst
   e.stopPropagation();
   e.preventDefault();
@@ -7115,7 +7556,7 @@ addEventListener('keydown', e => {
   if (oben.el.classList.contains('panel-offen')) return gdPanelZu(oben);
   if (oben.el.querySelector('.gd-leiste.auf')) return gdOptionen(oben, false);
   // Hinzufuegen: erst die aufgeklappte Shop-Suche zu
-  if (oben.el.querySelector('.wa-suche:not(.hidden)')) return oben.el.querySelector('#wa-vendor-showmore')?.click();
+  if (offenWeich(oben.el.querySelector('.wa-suche'))) return oben.el.querySelector('#wa-vendor-showmore')?.click();
   // Im Eingabefeld verlaesst Esc nur das Feld, nicht gleich die ganze Seite
   const feld = document.activeElement;
   if (feld && oben.el.contains(feld) && feld.matches('input, textarea, select')) { feld.blur(); oben.el.focus({ preventScroll: true }); return; }
@@ -7282,7 +7723,7 @@ function gutscheinSeiteHtml(v, karte) {
   const buchungen = (v.tx || []).map(t => {
     const minus = t.amt < 0;
     return `
-      <div class="gd-tx${t.reverted ? ' zurueck' : ''}">
+      <div class="gd-tx${t.reverted ? ' zurueck' : ''}" data-tx="${esc(t.id)}">
         <span class="gd-tx-zeichen ${minus ? 'minus' : 'plus'}">${minus ? wIcon('minus') : icon('plus')}</span>
         <span class="gd-tx-text"><b>${esc(t.note || (minus ? 'Abbuchung' : 'Aufladung'))}</b>
           <small>${zeit(t.ts)}${t.reverted ? ' · rückgängig gemacht' : ''}</small></span>
@@ -7362,11 +7803,10 @@ function zeichneGutscheinSeite(seite, { animFrom = null } = {}) {
   seite.stand = gdStand(v);
   el.querySelector('.wseite-titel').textContent = v.vendor;
   el.setAttribute('aria-label', `${v.vendor}-Gutschein`);
-  inhalt.innerHTML = gutscheinSeiteHtml(v, karte);
-  el.querySelectorAll('.gd-leiste, .gd-dimm, .gd-panel').forEach(x => x.remove());
-  el.classList.remove('panel-offen');
-  el.insertAdjacentHTML('beforeend', gdLeisteHtml(v)
-    + '<div class="gd-dimm" aria-hidden="true"></div><div class="gd-panel" role="dialog" aria-modal="true"></div>');
+  // Angleichen statt neu schreiben: nach dem Buchen bleibt stehen, was gleich
+  // ist, der Balken gleitet, die neue Buchung blendet ein
+  inhaltAngleichen(inhalt, gutscheinSeiteHtml(v, karte));
+  gdLeisteSetzen(seite, gdLeisteHtml(v));
   inhalt.scrollTop = scroll;
   gdLeisteMessen(seite);
   verdrahteGutscheinSeite(seite, v, karte);
@@ -7375,6 +7815,34 @@ function zeichneGutscheinSeite(seite, { animFrom = null } = {}) {
   }
 }
 
+// Leiste unten, Abdunklung und Feld bleiben beim Neuzeichnen stehen: ein Feld,
+// das nach dem Buchen gerade zugleitet, gleitet so zu Ende, statt mitten in der
+// Bewegung zu verschwinden. Die Leiste wird nur getauscht, wenn sich an ihr
+// etwas aendert — und dann im selben Zustand (auf/zu, gleiche Verschiebung).
+function gdLeisteSetzen(seite, html) {
+  const el = seite.el;
+  const alt = el.querySelector('.gd-leiste');
+  if (!alt || alt._quelle !== html) {
+    const tpl = document.createElement('template');
+    tpl.innerHTML = html.trim();
+    const neu = tpl.content.firstElementChild;
+    neu._quelle = html;
+    if (alt) {
+      const h = alt.style.getPropertyValue('--gd-opt-h');
+      if (h) neu.style.setProperty('--gd-opt-h', h);
+      if (alt.classList.contains('auf')) {
+        neu.classList.add('auf');
+        neu.querySelector('.gd-mehr')?.setAttribute('aria-expanded', 'true');
+        neu.querySelectorAll('.gd-option').forEach(o => { o.tabIndex = 0; });
+      }
+      alt.replaceWith(neu);
+    } else el.appendChild(neu);
+  }
+  if (!el.querySelector('.gd-dimm')) el.insertAdjacentHTML('beforeend', '<div class="gd-dimm" aria-hidden="true"></div>');
+  if (seite.art === 'gutschein' && !el.querySelector('.gd-panel')) {
+    el.insertAdjacentHTML('beforeend', '<div class="gd-panel" role="dialog" aria-modal="true"></div>');
+  }
+}
 // Zugeklappt ragen nur die beiden Knoepfe und der Pfeil hervor: die Leiste
 // wird um die Hoehe der Aktionen nach unten geschoben, der Inhalt bekommt
 // unten genau so viel Luft, wie von der Leiste zu sehen ist
@@ -7383,7 +7851,15 @@ function gdLeisteMessen(seite) {
   const opt = leiste?.querySelector('.gd-optionen');
   if (!opt) return;
   const optH = opt.offsetHeight;
-  leiste.style.setProperty('--gd-opt-h', optH + 'px');
+  const wert = optH + 'px';
+  if (leiste.style.getPropertyValue('--gd-opt-h') !== wert) {
+    // Beim ersten Messen steht die Leiste sofort richtig — sonst glitte sie
+    // beim Oeffnen der Seite sichtbar von "aufgeklappt" nach unten
+    const erstes = !leiste.style.getPropertyValue('--gd-opt-h');
+    if (erstes) leiste.style.transition = 'none';
+    leiste.style.setProperty('--gd-opt-h', wert);
+    if (erstes) { void leiste.offsetHeight; leiste.style.transition = ''; }
+  }
   seite.el.style.setProperty('--gd-leiste-h', Math.max(0, leiste.offsetHeight - optH) + 'px');
 }
 addEventListener('resize', () => wseiten().forEach(s => { if (s.art === 'gutschein' || s.art === 'rabatt') gdLeisteMessen(s); }), { passive: true });
@@ -7391,8 +7867,11 @@ addEventListener('resize', () => wseiten().forEach(s => { if (s.art === 'gutsche
 function verdrahteGutscheinSeite(seite, v, karte) {
   const el = seite.el;
   el.querySelectorAll('[data-copy-txt]').forEach(b => b.onclick = () => { copyText(b.dataset.copyTxt); buzz(10); });
-  // Die Sparkarte zoomt in die Mitte und dreht sich dabei um (wie im Raster)
-  el.querySelector('#wv-karte')?.addEventListener('click', e => zeigeKarteGross({
+  // Die Sparkarte zoomt in die Mitte und dreht sich dabei um (wie im Raster).
+  // onclick statt addEventListener: beim Angleichen bleiben die Knoepfe stehen
+  // und werden neu verdrahtet — so gibt es keinen doppelten Handler
+  const wvKarte = el.querySelector('#wv-karte');
+  if (wvKarte) wvKarte.onclick = e => zeigeKarteGross({
     karteObj: karte, name: v.vendor, vonEl: e.currentTarget.querySelector('.debitkarte') || e.currentTarget,
     aktionen: [
       { text: 'Umdrehen', icon: 'arrow-out', leise: true, drehen: true },
@@ -7403,9 +7882,12 @@ function verdrahteGutscheinSeite(seite, v, karte) {
       { text: 'Ändern', verwalten: true, fn: () => openWalletAdd('card', karte.name, karte.id) },
       { text: 'Löschen', verwalten: true, gefahr: true, bleibt: true, fn: () => karteLoeschen(karte) },
     ],
-  }));
-  el.querySelector('#wv-addkarte')?.addEventListener('click', () => openWalletAdd('card', v.vendor));
-  wireVoucherImage(v); // Bild tauschen / zuschneiden / vergroessern
+  });
+  const wvAdd = el.querySelector('#wv-addkarte');
+  if (wvAdd) wvAdd.onclick = () => openWalletAdd('card', v.vendor);
+  // Bild tauschen / zuschneiden / vergroessern — nur neu gebaute Knoepfe verdrahten
+  const bildDatei = el.querySelector('#wv-img-file');
+  if (!bildDatei || !bildDatei._verdrahtet) { if (bildDatei) bildDatei._verdrahtet = true; wireVoucherImage(v); }
   el.querySelectorAll('[data-revert]').forEach(b => b.onclick = () => gdRueckgaengig(seite, b.dataset.revert));
   el.querySelectorAll('[data-buchen]').forEach(b => b.onclick = () => gdBuchenOeffnen(seite, Number(b.dataset.buchen)));
   el.querySelector('.gd-mehr').onclick = () => gdOptionen(seite);
@@ -8444,9 +8926,19 @@ function setzeWalletMaskottchen(slug) {
 
 // "…" an der Karte: Code/PIN kopieren, Abbuchen, Verschenken, Details — der
 // schnelle Weg, ohne erst die Seite zu lesen
-function schliesseVkMenue() { document.querySelectorAll('.vk-menue').forEach(m => m.remove()); }
+function schliesseVkMenue() {
+  document.querySelectorAll('.vk-menue:not(.zu)').forEach(m => {
+    m.classList.add('zu');
+    m.inert = true;
+    if (!weich() || !m.animate) return m.remove();
+    const a = m.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.94)' }],
+      { duration: 140, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' });
+    a.onfinish = () => m.remove();
+    setTimeout(() => m.remove(), 300);
+  });
+}
 function oeffneVkMenue(id, knopf) {
-  const offen = document.querySelector('.vk-menue');
+  const offen = document.querySelector('.vk-menue:not(.zu)');
   schliesseVkMenue();
   if (offen && offen.dataset.id === id) return;
   const v = state.wallet.vouchers.find(x => x.id === id);
@@ -8684,13 +9176,15 @@ function zeichneRabattSeite(seite) {
   seite.stand = rpStand(v);
   el.querySelector('.wseite-titel').textContent = v.vendor;
   el.setAttribute('aria-label', `${v.vendor}-Rabattcode`);
-  inhalt.innerHTML = rabattSeiteHtml(v);
-  el.querySelectorAll('.gd-leiste, .gd-dimm').forEach(x => x.remove());
-  el.insertAdjacentHTML('beforeend', rpLeisteHtml(v) + '<div class="gd-dimm" aria-hidden="true"></div>');
+  // Wie die Gutschein-Seite: angleichen statt neu schreiben, Leiste bleibt stehen
+  inhaltAngleichen(inhalt, rabattSeiteHtml(v));
+  gdLeisteSetzen(seite, rpLeisteHtml(v));
   inhalt.scrollTop = scroll;
   gdLeisteMessen(seite);
   el.querySelectorAll('[data-copy-txt]').forEach(b => b.onclick = () => { copyText(b.dataset.copyTxt); buzz(10); });
-  wireVoucherImage(v); // Bild tauschen / zuschneiden / vergroessern
+  // Bild tauschen / zuschneiden / vergroessern — nur neu gebaute Knoepfe verdrahten
+  const bildDatei = el.querySelector('#wv-img-file');
+  if (!bildDatei || !bildDatei._verdrahtet) { if (bildDatei) bildDatei._verdrahtet = true; wireVoucherImage(v); }
   el.querySelector('.gd-mehr').onclick = () => gdOptionen(seite);
   el.querySelector('.gd-dimm').onclick = () => gdOptionen(seite, false);
   el.querySelectorAll('[data-rp]').forEach(b => b.onclick = () => {
@@ -9137,7 +9631,7 @@ function renderWallet() {
         const sum = Math.round(list.reduce((acc, v) => acc + (v.balance || 0), 0) * 100) / 100;
         budget -= 1;
         teile.push(`
-        <div class="deck" data-deck="${esc(key)}" style="--bc:${brandColor(vn)}" role="button" aria-label="${esc(titel)}-Stapel öffnen">
+        <div class="deck" data-deck="${esc(key)}" data-auch="v:${esc(list[0].id)}" style="--bc:${brandColor(vn)}" role="button" aria-label="${esc(titel)}-Stapel öffnen">
           ${vCard(list[0]).replace('data-wv=', 'data-deck-top=')}
           <span class="deck-count">${list.length} Gutscheine · ${euroFmt(sum)}</span>
         </div>`);
@@ -9149,34 +9643,45 @@ function renderWallet() {
       const shown = Math.min(list.length, budget);
       budget -= shown;
       rest += list.length - shown;
+      // data-stapel: diese Karten fächern aus dem Stapel auf bzw. fahren beim
+      // Stapeln in ihn zurueck
       teile.push(`
-        <div class="deck-head">
+        <div class="deck-head" data-key="kopf:${esc(key)}">
           <span class="deck-head-name">${brandChipHtml(vn)} <b>${esc(titel)}</b> <small>(${list.length})</small></span>
           <button class="chip" data-deck-close="${esc(key)}">Stapeln</button>
         </div>
-        ${list.slice(0, shown).map(vCard).join('')}`);
+        ${list.slice(0, shown).map(v => vCard(v).replace('data-wv=', `data-stapel="${esc(key)}" data-wv=`)).join('')}`);
     }
     voucherHtml = teile.join('') + (rest > 0 ? moreBtn('__sicht', rest) : '');
   }
+  // Runde 118: die Liste wird ABGEGLICHEN statt neu geschrieben. Vorher bekam
+  // bei jeder Aenderung (Abgleich mit dem Konto, Buchung, Suche) jede Karte ein
+  // neues Element — und damit ihren Auftritt noch einmal: alle Karten blendeten
+  // aus und glitten wieder herein ("die Gutscheine springen rum"). Jetzt bleibt
+  // stehen, was gleich ist; Geaendertes wird still ersetzt, Neues blendet ein,
+  // Wegfallendes aus, und was seinen Platz wechselt, gleitet dorthin.
   const liste = $('#voucher-list');
-  const vorher = renderWallet.letzteListe || '';
-  const knopfAb = vorher.lastIndexOf('<button class="deck-more"');
-  const vorherOhneKnopf = knopfAb >= 0 ? vorher.slice(0, knopfAb) : vorher;
-  if (vorher && liste.firstElementChild && vorherOhneKnopf && voucherHtml.startsWith(vorherOhneKnopf)) {
-    // Nur nachgewachsen: den alten Knopf wegnehmen und den Rest anhaengen.
-    // So bleiben die schon gezeichneten Karten stehen, die Seite springt nicht,
-    // und man verliert beim Nachladen nicht die Stelle, an der man war.
-    liste.querySelectorAll('[data-deck-more]').forEach(b => b.remove());
-    liste.insertAdjacentHTML('beforeend', voucherHtml.slice(vorherOhneKnopf.length));
-  } else {
-    liste.innerHTML = voucherHtml;
+  const ansicht = $('#view-wallet');
+  const faechert = renderWallet.faechert, stapelt = renderWallet.stapelt;
+  renderWallet.faechert = renderWallet.stapelt = null;
+  if (renderWallet.letzteListe !== voucherHtml || !liste.firstElementChild) {
+    listeAngleichen(liste, voucherHtml, {
+      // Nur, wenn man die Liste gerade sieht — nicht hinter der Sperre, nicht
+      // waehrend die Ansicht selbst hereinkommt, nicht beim allerersten Aufbau
+      bewegt: !!renderWallet.letzteListe && state.activeView === 'wallet' && walletTab === 'gutscheine'
+        && !walletGesperrt() && document.visibilityState === 'visible' && !/\benter-/.test(ansicht?.className || '')
+        && !wseiten().length,   // unter einer offenen Seite sieht es niemand
+      herkunft: faechert ? (e => (e.dataset.stapel === faechert.key ? faechert.rect : null)) : null,
+      ziel: stapelt ? (e => (e.dataset.stapel === stapelt ? liste.querySelector(`[data-deck="${CSS.escape(stapelt)}"]`)?.getBoundingClientRect() || null : null)) : null,
+    });
+    renderWallet.letzteListe = voucherHtml;
   }
-  renderWallet.letzteListe = voucherHtml;
-  // Aufgebrauchte: nur die ersten 12 rendern, Rest auf Wunsch
+  // Aufgebrauchte: nur die ersten 12 rendern, Rest auf Wunsch (nur bei Aenderung)
   const usedLim = walletDeckShown.__used || SICHT_SCHRITT;
-  $('#voucher-used').innerHTML = (used.slice(0, usedLim).map(vCard).join('')
+  const usedHtml = (used.slice(0, usedLim).map(vCard).join('')
     + (used.length > usedLim ? moreBtn('__used', used.length - usedLim) : ''))
     || '<div class="status">Nichts aufgebraucht.</div>';
+  if (renderWallet.letzteUsed !== usedHtml) { $('#voucher-used').innerHTML = usedHtml; renderWallet.letzteUsed = usedHtml; }
   $('#used-count').textContent = used.length ? `(${used.length})` : '';
 
   // Die Sparkarten selbst leben jetzt im Tab "Karten & Coupons" — dort steht
@@ -9190,11 +9695,9 @@ function renderWallet() {
   $('#wallet-mini')?.classList.add('rangfarbe');
   renderSyncBadge();
 
-  // Suchergebnisse gleiten gestaffelt herein
-  document.querySelectorAll('#voucher-list .wallet-card').forEach((el, i) => {
-    el.classList.add('anim-item');
-    el.style.animationDelay = Math.min(i * 45, 300) + 'ms';
-  });
+  // (Frueher bekam hier jede Karte bei jedem Aufruf eine CSS-Auftrittsanimation.
+  // Die lief bei jedem Neuaufbau und jedem Reiterwechsel neu an — sichtbar als
+  // Springen. Neue Karten blenden jetzt ueber listeAngleichen ein.)
   $('#view-wallet').querySelectorAll('[data-wv]').forEach(el => el.onclick = () => openVoucherSheet(el.dataset.wv));
   $('#view-wallet').querySelectorAll('[data-wv-mehr]').forEach(b => b.onclick = e => {
     e.stopPropagation();
@@ -9202,16 +9705,23 @@ function renderWallet() {
     oeffneVkMenue(b.dataset.wvMehr, b);
   });
   // Deck auf/zu + portionsweise nachladen (auch automatisch beim Scrollen)
+  // Aufgefaechert wird sofort: die oberste Karte gleitet an ihren Platz, die
+  // anderen kommen unter ihr aus dem Stapel hervor. Stapeln geht rueckwaerts.
   $('#view-wallet').querySelectorAll('[data-deck]').forEach(el => el.onclick = () => {
     walletDeckOpen.add(el.dataset.deck);
     buzz(12);
-    el.classList.add('deck-pop');   // Stapel federt kurz auf, dann kommt die Liste
-    setTimeout(renderWallet, 110);
+    renderWallet.faechert = { key: el.dataset.deck, rect: el.getBoundingClientRect() };
+    renderWallet();
+    // Die oberste Karte bleibt beim Auffaechern obenauf, die anderen kommen unter ihr hervor
+    const oben = el.dataset.auch && $('#voucher-list').querySelector(`[data-wv="${CSS.escape(el.dataset.auch.slice(2))}"]`);
+    if (oben && weich()) { oben.style.zIndex = '2'; setTimeout(() => { oben.style.zIndex = ''; }, 500); }
   });
   $('#view-wallet').querySelectorAll('[data-deck-close]').forEach(el => el.onclick = e => {
     e.stopPropagation();
     walletDeckOpen.delete(el.dataset.deckClose);
     delete walletDeckShown[el.dataset.deckClose];
+    buzz(8);
+    renderWallet.stapelt = el.dataset.deckClose;
     renderWallet();
   });
   $('#view-wallet').querySelectorAll('[data-deck-more]').forEach(el => {
@@ -9257,8 +9767,13 @@ function renderZuletztVerwendet(q, fMarke) {
   if (!host) return;
   const z = !q ? zuletztVerwendet() : null;
   const passt = z && (!fMarke || String(z.v.vendor || '').toLowerCase() === fMarke);
-  host.classList.toggle('hidden', !passt);
-  if (!passt) { host.innerHTML = ''; delete host.dataset.stand; return; }
+  // Kommt die Zeile dazu oder geht sie, waehrend man die Wallet sieht (erste
+  // Abbuchung, Abgleich, Suche), blendet sie weich ein bzw. aus und die Liste
+  // darunter gleitet mit — vorher sprang alles darunter um eine Zeile
+  const sanft = !!renderWallet.letzteListe && state.activeView === 'wallet' && walletTab === 'gutscheine'
+    && !walletGesperrt() && !wseiten().length;
+  const zeigen = an => (sanft ? zeigeWeich(host, an, { bis: $('#wallet-content') }) : host.classList.toggle('hidden', !an));
+  if (!passt) { zeigen(false); delete host.dataset.stand; return; }
   const { v, ts } = z;
   const tage = Math.floor((new Date().setHours(0, 0, 0, 0) - new Date(ts).setHours(0, 0, 0, 0)) / 864e5);
   const wann = tage <= 0 ? 'heute' : tage === 1 ? 'gestern' : tage < 7 ? `vor ${tage} Tagen`
@@ -9274,6 +9789,7 @@ function renderZuletztVerwendet(q, fMarke) {
       ${icon('chevron', 'icon zv-pfeil')}
     </button>`;
   host.querySelector('[data-zv]').onclick = e => oeffneGutscheinSeite(e.currentTarget.dataset.zv);
+  zeigen(true);
 }
 
 // App-Raster per Gedrückthalten sortieren (Maus + Touch über Pointer Events)
@@ -9319,14 +9835,23 @@ function makeGridSortable(grid, tileSel, onReorder, idOf) {
 // Marken-Liste: jede Marke mit Anzahl und Restguthaben, "Alle Marken" oben
 function schliesseMarkenMenue() {
   const menu = $('#wallet-marken-menue');
-  if (!menu || menu.classList.contains('hidden')) return;
-  menu.classList.add('hidden');
+  if (!menu || menu.classList.contains('hidden') || menu._zu) return;
   $('#wallet-marke')?.setAttribute('aria-expanded', 'false');
+  // Klappt weich zu (dieselbe Bewegung wie beim Aufgehen, rueckwaerts)
+  if (!weich() || !menu.animate || state.activeView !== 'wallet') { menu.classList.add('hidden'); return; }
+  menu._zu = true;
+  const a = menu.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translate3d(0, -6px, 0) scale(.96)' }],
+    { duration: 150, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' });
+  const fertig = () => { if (!menu._zu) return; menu._zu = false; menu.classList.add('hidden'); a.cancel(); };
+  a.onfinish = fertig;
+  setTimeout(fertig, 320);
 }
 function oeffneMarkenMenue() {
   const menu = $('#wallet-marken-menue'), knopf = $('#wallet-marke');
   if (!menu || !knopf) return;
-  if (!menu.classList.contains('hidden')) return schliesseMarkenMenue();
+  if (!menu.classList.contains('hidden') && !menu._zu) return schliesseMarkenMenue();
+  // Ging es gerade zu: das Zuklappen abbrechen und wieder aufmachen
+  if (menu._zu) { menu._zu = false; menu.getAnimations().forEach(a => a.cancel()); menu.classList.add('hidden'); }
   const aktiv = state.wallet.vouchers.filter(v => !istRabatt(v) && (v.balance == null || v.balance > 0));
   const proMarke = new Map();
   for (const v of aktiv) {
@@ -9535,7 +10060,7 @@ function anaMarkenHtml() {
       ${rest.length ? `<p class="ana-fussnote">Dazu ${rest.length} weitere Marke${rest.length === 1 ? '' : 'n'} mit zusammen ${euroFmt(Math.round(rest.reduce((x, [, e]) => x + e.summe, 0) * 100) / 100)}.</p>` : ''}
     </section>`;
 }
-function zeichneAnalyse(seite, { nurWennNeu = false } = {}) {
+function zeichneAnalyse(seite, { nurWennNeu = false, richtung = null } = {}) {
   const bereich = zeichneAnalyse.bereich || 'monat';
   const s = walletStats(bereich);
   const felder = walletVerlauf(anaMonate(bereich));
@@ -9549,12 +10074,38 @@ function zeichneAnalyse(seite, { nurWennNeu = false } = {}) {
   if (seite.gewaehlt == null || seite.gewaehlt >= felder.length) seite.gewaehlt = felder.length - 1;
   const idx = ANA_BEREICHE.findIndex(([k]) => k === bereich);
   const inhalt = seite.el.querySelector('.wseite-inhalt');
-  inhalt.innerHTML = `
-    <div class="ana-zeitraum" role="tablist" aria-label="Zeitraum" data-kein-wisch style="--i:${idx}">
+  // Der Zeitraum-Schalter bleibt stehen (Runde 118): vorher wurde 200 ms nach
+  // dem Antippen die ganze Seite neu geschrieben — samt Schalter, dessen Flaeche
+  // dabei mitten im Gleiten an ihr Ziel sprang. Jetzt gleitet sie durch, und nur
+  // der Teil darunter wechselt: er blendet aus und gleitet aus der Richtung des
+  // neuen Zeitraums herein.
+  let koerper = inhalt.querySelector('.ana-koerper');
+  if (!koerper) {
+    inhalt.innerHTML = `
+    <div class="ana-zeitraum" role="tablist" aria-label="Zeitraum" data-kein-wisch>
       <span class="ana-flaeche" aria-hidden="true"></span>
-      ${ANA_BEREICHE.map(([k, t]) => `<button class="ana-tab${k === bereich ? ' an' : ''}" type="button" role="tab"
-        aria-selected="${k === bereich}" data-bereich="${k}">${t}</button>`).join('')}
+      ${ANA_BEREICHE.map(([k, t]) => `<button class="ana-tab" type="button" role="tab" data-bereich="${k}">${t}</button>`).join('')}
     </div>
+    <div class="ana-koerper"></div>`;
+    koerper = inhalt.querySelector('.ana-koerper');
+    inhalt.querySelectorAll('[data-bereich]').forEach(b => b.onclick = () => {
+      const alt = zeichneAnalyse.bereich || 'monat';
+      if (b.dataset.bereich === alt) return;
+      zeichneAnalyse.bereich = b.dataset.bereich;
+      seite.gewaehlt = null;
+      buzz(6);
+      const von = ANA_BEREICHE.findIndex(([k]) => k === alt), nach = ANA_BEREICHE.findIndex(([k]) => k === b.dataset.bereich);
+      zeichneAnalyse(seite, { richtung: Math.sign(nach - von) });
+    });
+  }
+  const schalter = inhalt.querySelector('.ana-zeitraum');
+  schalter.style.setProperty('--i', idx);
+  schalter.querySelectorAll('.ana-tab').forEach(b => {
+    const an = b.dataset.bereich === bereich;
+    b.classList.toggle('an', an);
+    b.setAttribute('aria-selected', String(an));
+  });
+  const html = `
     <p class="ana-periode">${esc(anaPeriode(bereich))}</p>
     <div class="ana-kacheln">
       <div class="ana-kachel"><span class="ana-kachel-kopf"><i class="ana-punkt rein"></i>Aufgeladen</span>
@@ -9572,34 +10123,33 @@ function zeichneAnalyse(seite, { nurWennNeu = false } = {}) {
     </section>
     ${marken}
     ${hatAufgeraeumt ? '<p class="ana-fussnote">Aufgeräumte Gutscheine zählen mit ihren Buchungen weiter mit.</p>' : ''}`;
-  // Beim Zeitraumwechsel zaehlen die Summen vom alten Stand aus
-  if (vorher && !nurWennNeu) {
-    animateNumber(inhalt.querySelector('#ana-rein'), vorher.added, s.added, 500);
-    animateNumber(inhalt.querySelector('#ana-raus'), vorher.spent, s.spent, 500);
-  }
-  inhalt.querySelectorAll('[data-bereich]').forEach(b => b.onclick = () => {
-    if (b.dataset.bereich === (zeichneAnalyse.bereich || 'monat')) return;
-    zeichneAnalyse.bereich = b.dataset.bereich;
-    seite.gewaehlt = null;
-    buzz(6);
-    // Erst die Flaeche gleiten lassen, dann neu zeichnen — sonst springt sie
-    const leiste = inhalt.querySelector('.ana-zeitraum');
-    leiste.style.setProperty('--i', ANA_BEREICHE.findIndex(([k]) => k === b.dataset.bereich));
-    leiste.querySelectorAll('.ana-tab').forEach(x => x.classList.toggle('an', x === b));
-    clearTimeout(zeichneAnalyse.uhr);
-    zeichneAnalyse.uhr = setTimeout(() => { if (wseiten().includes(seite)) zeichneAnalyse(seite); }, wseiteBewegt() ? 200 : 0);
-  });
-  inhalt.querySelectorAll('[data-monat]').forEach(b => b.onclick = () => {
-    seite.gewaehlt = Number(b.dataset.monat);
-    inhalt.querySelectorAll('.ana-monat').forEach(x => {
-      const an = x === b;
-      x.classList.toggle('an', an);
-      x.setAttribute('aria-pressed', String(an));
+  const fuellen = () => {
+    // Im Hintergrund (Abgleich) nur angleichen: nichts blinkt, Balken bleiben stehen
+    if (nurWennNeu) inhaltAngleichen(koerper, html);
+    else koerper.innerHTML = html;
+    // Beim Zeitraumwechsel zaehlen die Summen vom alten Stand aus
+    if (vorher && !nurWennNeu) {
+      animateNumber(koerper.querySelector('#ana-rein'), vorher.added, s.added, 500);
+      animateNumber(koerper.querySelector('#ana-raus'), vorher.spent, s.spent, 500);
+    }
+    koerper.querySelectorAll('[data-monat]').forEach(b => b.onclick = () => {
+      const war = seite.gewaehlt;
+      seite.gewaehlt = Number(b.dataset.monat);
+      if (war === seite.gewaehlt) return;
+      koerper.querySelectorAll('.ana-monat').forEach(x => {
+        const an = x === b;
+        x.classList.toggle('an', an);
+        x.setAttribute('aria-pressed', String(an));
+      });
+      // Die Zeile darunter gleitet aus der Richtung des gewaehlten Monats
+      const aus = koerper.querySelector('.ana-auswahl');
+      const f = felder[seite.gewaehlt];
+      if (aus) tauscheWeich(aus, () => { aus.innerHTML = anaAuswahlHtml(f); }, { richtung: Math.sign(seite.gewaehlt - war) });
+      buzz(4);
     });
-    const aus = inhalt.querySelector('.ana-auswahl');
-    if (aus) aus.innerHTML = anaAuswahlHtml(felder[seite.gewaehlt]);
-    buzz(4);
-  });
+  };
+  if (richtung != null) tauscheWeich(koerper, fuellen, { richtung });
+  else fuellen();
 }
 
 // Alle Stufen auf einen Blick — als Liste, wie man sie aus Banking-Apps kennt
@@ -9916,7 +10466,7 @@ function renderSchenkAuswahl() {
   const seite = wseiten().find(x => x.art === 'schenk-wahl');
   if (seite) zeichneSchenkAuswahl(seite);
 }
-function zeichneSchenkAuswahl(seite) {
+function zeichneSchenkAuswahl(seite, { sanft = false } = {}) {
   if (walletGesperrt()) { aktualisiereSperre(); return; } // gesperrte Wallet: nichts zeigen
   const alle = state.wallet.vouchers.filter(v => !istRabatt(v) && (v.balance == null || v.balance > 0));
   const marken = [...new Set(alle.map(v => v.vendor))];
@@ -9935,7 +10485,7 @@ function zeichneSchenkAuswahl(seite) {
       proMarke.get(v.vendor).push(v);
     });
     inhalt = [...proMarke.entries()].map(([marke, vs]) => `
-      <div class="schenk-gruppe">
+      <div class="schenk-gruppe" data-key="gruppe:${esc(marke)}">
         ${voucherCardHtml(vs[0])}
         ${vs.length > 1 ? `<button class="schenk-mehr" type="button" data-schenk-marke="${esc(marke)}">
           ${vs.length - 1} weitere von ${esc(marke)}${icon('chevron', 'icon icon-sm')}</button>` : ''}
@@ -9950,38 +10500,75 @@ function zeichneSchenkAuswahl(seite) {
         : '');
   }
 
+  // Frage, Marken und Sortierung bleiben stehen (Runde 118): vorher wurde bei
+  // jedem Antippen die ganze Seite neu geschrieben — die Marken-Reihe sprang an
+  // den Anfang zurueck und die Liste tauschte hart. Jetzt wechseln nur die
+  // Markierungen, und die Liste gleicht sich an: bleibende Karten gleiten an
+  // ihren neuen Platz, neue blenden ein, wegfallende aus.
   const host = seite.el.querySelector('.wseite-inhalt');
-  host.innerHTML = `
+  const markenStand = marken.join('|');
+  let listeEl = host.querySelector('.gw-liste');
+  if (!listeEl || seite.gwMarken !== markenStand) {
+    seite.gwMarken = markenStand;
+    sanft = false;
+    host.innerHTML = `
     <p class="gw-frage">Welchen Gutschein möchtest du verschenken?</p>
     ${marken.length > 1 ? `<div class="gw-marken" data-kein-wisch role="toolbar" aria-label="Nach Marke filtern">
-      <button class="gw-chip${!schenkFilter ? ' an' : ''}" type="button" data-sf="">Alle</button>
-      ${marken.map(m => `<button class="gw-chip${schenkFilter === m ? ' an' : ''}" type="button" data-sf="${esc(m)}">
+      <button class="gw-chip" type="button" data-sf="">Alle</button>
+      ${marken.map(m => `<button class="gw-chip" type="button" data-sf="${esc(m)}">
         ${brandChipHtml(m)}<span>${esc(m)}</span></button>`).join('')}
     </div>` : ''}
-    <div class="gw-sortierung" role="tablist" aria-label="Sortieren" style="--i:${schenkSort === 'hoch' ? 1 : 0}">
+    <div class="gw-sortierung" role="tablist" aria-label="Sortieren">
       <span class="gw-flaeche" aria-hidden="true"></span>
-      <button class="gw-sort${schenkSort === 'niedrig' ? ' an' : ''}" type="button" role="tab" aria-selected="${schenkSort === 'niedrig'}" data-ss="niedrig">Kleinster Rest</button>
-      <button class="gw-sort${schenkSort === 'hoch' ? ' an' : ''}" type="button" role="tab" aria-selected="${schenkSort === 'hoch'}" data-ss="hoch">Größter Rest</button>
+      <button class="gw-sort" type="button" role="tab" data-ss="niedrig">Kleinster Rest</button>
+      <button class="gw-sort" type="button" role="tab" data-ss="hoch">Größter Rest</button>
     </div>
-    <div class="wallet-list gw-liste">${inhalt || '<p class="gp-leer">Kein Gutschein mit Guthaben.</p>'}</div>`;
-
-  host.querySelectorAll('[data-sf]').forEach(b => b.onclick = () => { schenkFilter = b.dataset.sf; schenkSicht = 12; buzz(6); zeichneSchenkAuswahl(seite); });
-  host.querySelectorAll('[data-ss]').forEach(b => b.onclick = () => {
-    if (schenkSort === b.dataset.ss) return;
-    schenkSort = b.dataset.ss; schenkSicht = 12; buzz(6);
-    // Erst die Flaeche gleiten lassen, dann neu sortieren
-    host.querySelector('.gw-sortierung').style.setProperty('--i', schenkSort === 'hoch' ? 1 : 0);
-    host.querySelectorAll('.gw-sort').forEach(x => x.classList.toggle('an', x === b));
-    setTimeout(() => { if (wseiten().includes(seite)) zeichneSchenkAuswahl(seite); }, wseiteBewegt() ? 180 : 0);
+    <div class="wallet-list gw-liste"></div>`;
+    listeEl = host.querySelector('.gw-liste');
+    host.querySelectorAll('[data-sf]').forEach(b => b.onclick = () => {
+      if (schenkFilter === b.dataset.sf) return;
+      schenkFilter = b.dataset.sf; schenkSicht = 12; buzz(6);
+      zeichneSchenkAuswahl(seite, { sanft: true });
+    });
+    host.querySelectorAll('[data-ss]').forEach(b => b.onclick = () => {
+      if (schenkSort === b.dataset.ss) return;
+      schenkSort = b.dataset.ss; schenkSicht = 12; buzz(6);
+      zeichneSchenkAuswahl(seite, { sanft: true });
+    });
+  }
+  // Markierungen: die Flaeche der Sortierung gleitet, der Chip faerbt um
+  host.querySelectorAll('.gw-chip').forEach(c => {
+    const an = c.dataset.sf === schenkFilter;
+    c.classList.toggle('an', an);
+    c.setAttribute('aria-pressed', String(an));
   });
-  host.querySelectorAll('[data-schenk-marke]').forEach(b => b.onclick = () => { schenkFilter = b.dataset.schenkMarke; schenkSicht = 12; zeichneSchenkAuswahl(seite); });
-  host.querySelector('[data-schenk-mehr]')?.addEventListener('click', () => { schenkSicht += 12; zeichneSchenkAuswahl(seite); });
-  host.querySelectorAll('[data-wv]').forEach(el => el.onclick = () => {
+  host.querySelector('.gw-sortierung')?.style.setProperty('--i', schenkSort === 'hoch' ? 1 : 0);
+  host.querySelectorAll('.gw-sort').forEach(x => {
+    const an = x.dataset.ss === schenkSort;
+    x.classList.toggle('an', an);
+    x.setAttribute('aria-selected', String(an));
+  });
+  listeAngleichen(listeEl, inhalt || '<p class="gp-leer">Kein Gutschein mit Guthaben.</p>', { bewegt: sanft, bis: host });
+
+  listeEl.querySelectorAll('[data-schenk-marke]').forEach(b => b.onclick = () => {
+    schenkFilter = b.dataset.schenkMarke; schenkSicht = 12; buzz(6);
+    zeichneSchenkAuswahl(seite, { sanft: true });
+  });
+  const mehr = listeEl.querySelector('[data-schenk-mehr]');
+  if (mehr) mehr.onclick = () => { schenkSicht += 12; zeichneSchenkAuswahl(seite, { sanft: true }); };
+  listeEl.querySelectorAll('[data-wv]').forEach(el => el.onclick = () => {
     const v = state.wallet.vouchers.find(x => x.id === el.dataset.wv);
     if (v) zeigeSchenkSchritt(v);
   });
   // Die gewaehlte Marke ins Bild holen, falls die Reihe weiter reicht
-  host.querySelector('.gw-chip.an')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  const chip = host.querySelector('.gw-chip.an');
+  const reihe = chip?.parentElement;
+  if (chip && reihe && reihe.scrollWidth > reihe.clientWidth) {
+    const r = chip.getBoundingClientRect(), rr = reihe.getBoundingClientRect();
+    if (r.left < rr.left + 8 || r.right > rr.right - 8) {
+      reihe.scrollTo({ left: reihe.scrollLeft + (r.left - rr.left) - (rr.width - r.width) / 2, behavior: sanft && weich() ? 'smooth' : 'auto' });
+    }
+  }
 }
 $('#wa-schenken')?.addEventListener('click', () => {
   if (walletGesperrt()) { aktualisiereSperre(); return; }
@@ -10007,7 +10594,9 @@ if ('IntersectionObserver' in window && $('#wallet-kopf')) {
 $('#wallet-mini')?.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
 $('#wallet-sort-btn')?.addEventListener('click', () => {
   const menu = $('#wallet-sort-menu');
-  if (!menu.classList.contains('hidden')) { menu.classList.add('hidden'); return; }
+  const rahmen = $('#wallet-content');
+  // Klappt weich auf und zu, die Liste darunter gleitet mit statt zu springen
+  if (offenWeich(menu)) { zeigeWeich(menu, false, { bis: rahmen }); return; }
   const OPTIONS = [
     ['', 'Neueste zuerst'], ['aelteste', 'Älteste zuerst'],
     ['hoch', 'Guthaben: hoch zu niedrig'], ['niedrig', 'Guthaben: niedrig zu hoch'],
@@ -10015,11 +10604,11 @@ $('#wallet-sort-btn')?.addEventListener('click', () => {
   ];
   menu.innerHTML = OPTIONS.map(([v, l]) =>
     `<button class="cmd-row ${(state.walletSort || '') === v ? 'on' : ''}" data-wsort="${v}"><span>${l}</span></button>`).join('');
-  menu.classList.remove('hidden');
+  zeigeWeich(menu, true, { bis: rahmen });
   menu.querySelectorAll('[data-wsort]').forEach(x => x.onclick = () => {
     state.walletSort = x.dataset.wsort;
     saveWalletFilter();
-    menu.classList.add('hidden');
+    zeigeWeich(menu, false, { bis: rahmen });
     renderWallet();
   });
 });
@@ -11338,6 +11927,11 @@ function sperreFertigZu() {
 // folgen gestaffelt. Beim Start (nach dem Splash) und nach dem Entsperren.
 function walletAuftritt({ menue = false } = {}) {
   if (sperrRuhig() || state.activeView !== 'wallet' || walletGesperrt()) return;
+  // Genau einmal: zwei Aufrufe kurz hintereinander (Start und Abgleich) liessen
+  // die Karten sonst zweimal hereinkommen
+  const jetzt = performance.now();
+  if (walletAuftritt.zuletzt && jetzt - walletAuftritt.zuletzt < 1500) return;
+  walletAuftritt.zuletzt = jetzt;
   const coupons = walletTab === 'coupons';
   const teile = [
     $('.balance-flip-btn'),
@@ -11347,13 +11941,22 @@ function walletAuftritt({ menue = false } = {}) {
     ...(coupons
       ? [...$('#coupons-content').children].slice(0, 6)
       : [$('#pin-empfehlung:not(.hidden)'), $('.wallet-tools'), $('#zuletzt-verwendet:not(.hidden)'),
-        $('#wallet-content .bereich-zeile'), ...[...$('#voucher-list').children].slice(0, 6)]),
-  ].filter(Boolean);
+        $('#wallet-content .bereich-zeile'),
+        ...[...$('#voucher-list').children].filter(e => !e.classList.contains('wl-geist')).slice(0, 6)]),
+  ].filter(el => el && imBild(el.getBoundingClientRect(), 0));
+  // Runde 118: Web-Animationen statt der Klasse .auftritt. Die Klasse lief bei
+  // Karten nicht an (sie trugen schon dieselbe Animation) — Kopf und Werkzeuge
+  // kamen herein, die Karten standen still. Und eine Web-Animation laeuft beim
+  // Umschalten der Reiter nicht noch einmal los.
   teile.forEach((el, i) => {
-    el.style.setProperty('--ad', Math.min(i * 45, 460) + 'ms');
-    neuStarten(el, 'auftritt');
+    el.getAnimations().forEach(a => { if (a.id === 'auftritt' || a.id === 'rein') a.cancel(); });
+    const figur = el.classList.contains('wk-sprite');
+    const a = el.animate(figur
+      ? [{ opacity: 0, transform: 'translate3d(0, 30px, 0) scale(.92)' }, { opacity: 1, transform: 'none' }]
+      : [{ opacity: 0, transform: 'translate3d(0, 14px, 0) scale(.985)' }, { opacity: 1, transform: 'none' }],
+    { duration: figur ? 700 : 550, delay: Math.min(i * 45, 460), easing: 'cubic-bezier(.32, .72, 0, 1)', fill: 'backwards' });
+    a.id = 'auftritt';
   });
-  setTimeout(() => teile.forEach(el => { el.classList.remove('auftritt'); el.style.removeProperty('--ad'); }), 1300);
   const t = $('#wallet-total');
   const bis = renderWallet.lastAnzeige ?? renderWallet.lastTotal ?? 0;
   if (t && state.token && bis > 0) animateNumber(t, 0, bis, 850);

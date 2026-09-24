@@ -535,6 +535,15 @@ body.marken-modus #view-wallet { --wk-schein: var(--marke-k3, var(--kopf-k3, #2F
 }
 .deck .vk-mehr { visibility: hidden; }
 .deck::before, .deck::after { border-radius: 20px; }
+/* Runde 118: die Karten der Wallet-Liste tragen keine CSS-Auftritte mehr.
+   Die liefen bei jedem Neuaufbau, Reiter- und Ansichtswechsel erneut an (auch
+   ".view.enter-right .wallet-card" aus style.css, das nach 520 ms mitten in
+   der Bewegung abbrach) — die Karten sprangen. Neue Karten blenden per
+   Web-Animation ein (listeAngleichen), der Auftritt nach Start und Entsperren
+   laeuft genau einmal (walletAuftritt). Wegfallende blenden als Abbild aus;
+   dafuer ist die Liste ihr Rahmen. */
+.view #voucher-list .wallet-card, .view #voucher-list .deck { animation: none; }
+#voucher-list { position: relative; }
 
 /* "…"-Menue an der Karte */
 .vk-menue {
