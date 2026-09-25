@@ -3035,7 +3035,8 @@ function refreshProfileTab() {
 //             (Rahmen = 1 × 1, Kreis-Mitte 0,5 / 0,5)
 //   frei    = Vielecke in Bild-Pixeln, die aus dem Kreis ragen duerfen
 //             (alles andere schneidet der Kreis ab). Die Kanten laufen durch
-//             Luecken der Figur, damit nie ein Koerperteil gerade abgeschnitten ist.
+//             Luecken der Figur oder an Umrissen entlang (Arm vor Bein, Schleife
+//             vor Zacke), damit nie ein Koerperteil gerade abgeschnitten ist.
 //   kachel  = nur in der Auswahl: Rahmen seitlich versetzt (Rahmen-Einheiten),
 //             damit Posen, die weit nach einer Seite ragen, mittig wirken
 const AVATAR_BASIS = '/brand/avatare/';
@@ -3044,8 +3045,8 @@ const KUMULIO_AVATARE = {
   // haengt ueber den Ring, der Schwanz verschwindet hinter dem Rahmen
   'kumulio-1': {
     name: 'Entspannt', bild: [745, 749],
-    gross: { w: 1.2, x: -0.03, y: -0.14, frei: [[[-20, -20], [700, -20], [700, 250], [560, 380], [545, 640], [560, 780], [-20, 780]]] },
-    klein: { w: 1.4, x: -0.12, y: -0.1, frei: [[[100, -20], [520, -20], [520, 150], [100, 150]]] },
+    gross: { w: 1.2, x: -0.03, y: -0.14, frei: [[[-20, -20], [700, -20], [700, 250], [560, 380], [548, 560], [543, 600], [550, 620], [555, 640], [559, 660], [563, 680], [567, 700], [571, 712], [575, 780], [-20, 780]]] },
+    klein: { w: 1.4, x: -0.12, y: -0.1, frei: [[[138, -20], [520, -20], [520, 150], [180, 150], [175, 119], [160, 111], [145, 106], [140, 100]]] },
   },
   // Klettert: die obere Hand greift ueber den linken Rand
   'kumulio-2': {
@@ -3056,14 +3057,14 @@ const KUMULIO_AVATARE = {
   // Daumen hoch: Daumen und Arm ragen links heraus
   'kumulio-3': {
     name: 'Daumen hoch', bild: [735, 765], kachel: 0.07,
-    gross: { w: 1.12, x: -0.15, y: -0.15, frei: [[[-20, -20], [755, -20], [755, 480], [300, 540], [120, 525], [-20, 515]]] },
+    gross: { w: 1.12, x: -0.15, y: -0.15, frei: [[[-20, -20], [755, -20], [755, 480], [300, 540], [140, 568], [100, 540], [55, 508], [-20, 508]]] },
     klein: { w: 1.33, x: -0.35, y: -0.12, frei: [[[300, -20], [755, -20], [755, 150], [300, 150]]] },
   },
   // Mit Schleife: liegt unten im Rahmen, Kamm und Schleife ragen heraus
   'kumulio-4': {
     name: 'Mit Schleife', bild: [934, 757], kachel: -0.04,
-    gross: { w: 1.45, x: 0.05, y: -0.12, frei: [[[-20, -20], [680, -20], [680, 360], [540, 420], [-20, 420]]] },
-    klein: { w: 1.58, x: 0.024, y: -0.12, frei: [[[250, -20], [680, -20], [680, 360], [540, 360], [400, 100], [250, 100]]] },
+    gross: { w: 1.45, x: 0.05, y: -0.12, frei: [[[-20, -20], [680, -20], [680, 405], [612, 405], [540, 420], [-20, 420]]] },
+    klein: { w: 1.58, x: 0.024, y: -0.12, frei: [[[250, -20], [680, -20], [680, 300], [655, 300], [640, 317], [627, 329], [616, 339], [604, 345], [590, 350], [576, 355], [540, 360], [400, 100], [250, 100]]] },
   },
   // An der Liane: die Liane laeuft ueber den Rahmen (ihre Enden laufen im
   // Bild weich aus), der Schwanz ist um sie gewickelt
@@ -3076,7 +3077,7 @@ const KUMULIO_AVATARE = {
   'kumulio-6': {
     name: 'Winkt', bild: [703, 731],
     gross: { w: 1.2, x: -0.24, y: -0.13, frei: [[[-20, -20], [723, -20], [723, 340], [-20, 340]], [[270, 600], [610, 600], [640, 760], [270, 760]]] },
-    klein: { w: 1.71, x: -0.647, y: -0.18, frei: [[[380, -20], [700, -20], [700, 110], [380, 110]]] },
+    klein: { w: 1.71, x: -0.647, y: -0.18, frei: [[[372, -20], [700, -20], [700, 100], [580, 100], [575, 110], [400, 110], [385, 100], [372, 70]]] },
   },
 };
 // Nur bekannte IDs; alles andere (auch alte data-URLs aus einem Zwischenspeicher) = kein Bild
