@@ -1042,7 +1042,8 @@ function mccheapBlockHtml() {
 }
 
 // ---------------- Feed nach dem Entwurf des Nutzers ----------------
-// Oben ein Banner-Karussell (hervorgehobene Angebote), darunter die Filter,
+// Oben ein Banner-Karussell (hervorgehobene Angebote, jede Folie ein Fenster
+// mit Maskottchen oder 3D-Kachel der Marke), darunter die Filter,
 // "Top Deals für dich" als seitwaerts wischbare Reihe und "Weitere starke
 // Angebote" als zweispaltiges Raster. Alles aus echten Daten: kein Bild =
 // Markenfarbe mit Logo, keine Laufzeit = "vor 2 Std.", kein Rabatt = keine Pille.
@@ -1140,14 +1141,34 @@ function heroSlideHtml(e, i) {
   const sub = d ? (d.excerpt || '').replace(/\s+/g, ' ').slice(0, 110) : (f.tagline || '');
   const bild = d ? dealBild(d) : (/^https?:\/\//.test(f.image || '') ? f.image : '');
   const farbe = brandColor(d ? marke : f.title);
-  const hell = brandHelligkeit(farbe) > 0.62;
+  const helligkeit = brandHelligkeit(farbe);
+  const hell = helligkeit > 0.62;
+  // Mittlere Toene (Wolt-Tuerkis, Lieferando-Orange) tragen weisse Schrift nur
+  // knapp: dafuer wird das Fenster etwas tiefer eingefaerbt (0 bis 26 % Schwarz)
+  const tiefe = hell ? 0 : Math.round(Math.min(26, Math.max(0, (helligkeit - 0.36) * 110)));
   const pille = d ? rabattPill(d) : (f.price ? `<span class="dk-pill">${esc(f.price)}</span>` : '');
   // Deal-Folien: die ganze Folie oeffnet den Deal (onOfferClick ueber data-deal)
   const cta = d
     ? `<button class="fh-cta" type="button">Zum Deal ${icon('arrow-right', 'icon icon-sm')}</button>`
     : (f.link ? `<a class="fh-cta" href="${esc(f.link)}" target="_blank" rel="noopener noreferrer">Zum Deal ${icon('arrow-right', 'icon icon-sm')}</a>` : '');
+  // Rechts: das Maskottchen der Marke ragt oben aus dem Fenster wie Kumulio in
+  // der Wallet. Ohne Maskottchen steht dort eine dicke, schraeg gestellte
+  // Kachel mit dem Foto des Deals oder dem Logo, ebenfalls ueber die Kante.
+  const figur = markenMaskottchen(marke || titel);
+  const ersatz = brandChipHtml(marke || titel, true);
+  const rechts = figur
+    ? `<span class="fh-rahmen" aria-hidden="true"><img class="fh-figur" src="${figur.basis}-480.webp"
+        srcset="${figur.basis}-480.webp 480w, ${figur.basis}-960.webp 960w" sizes="176px" alt=""
+        loading="${i ? 'lazy' : 'eager'}" decoding="async" draggable="false"></span>`
+    : `<span class="fh-kachel${bild ? ' foto' : ''}" aria-hidden="true">${bild
+      ? `<img src="${esc(bild)}" alt="" loading="${i ? 'lazy' : 'eager'}" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.classList.remove('foto');this.replaceWith(document.createRange().createContextualFragment(this.dataset.ersatz))" data-ersatz="${esc(ersatz)}">`
+      : ersatz}</span>`;
+  const stil = `--bc:${farbe}; --tiefe:${tiefe}%` + (figur
+    ? `; --fig-ar:${figur.ar}; --fig-oben:${figur.oben}; --licht-x:${figur.licht[0]}; --licht-y:${figur.licht[1]}` : '');
   return `
-    <div class="fh-slide${hell ? ' hell' : ''}" style="--bc:${farbe}"${d ? ` data-deal="${esc(d.id)}"` : ''} role="group" aria-roledescription="Folie" aria-label="${i + 1}">
+    <div class="fh-slide${hell ? ' hell' : ''}${figur ? ' mit-figur' : bild ? ' mit-foto' : ''}${i ? '' : ' aktiv'}" style="${stil}"${d ? ` data-deal="${esc(d.id)}"` : ''} role="group" aria-roledescription="Folie" aria-label="${i + 1}">
+      <span class="fh-licht" aria-hidden="true"></span>
+      ${rechts}
       <div class="fh-text">
         ${marke ? `<span class="fh-marke">${esc(marke)}</span>` : ''}
         ${pille}
@@ -1155,11 +1176,6 @@ function heroSlideHtml(e, i) {
         ${sub && sub !== titel ? `<span class="fh-sub">${esc(sub)}</span>` : ''}
         ${cta}
       </div>
-      <span class="fh-bild${bild ? ' foto' : ' logo'}" aria-hidden="true">
-        ${bild
-          ? `<img src="${esc(bild)}" alt="" loading="${i ? 'lazy' : 'eager'}" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.className='fh-bild logo';this.replaceWith(document.createRange().createContextualFragment(this.dataset.ersatz))" data-ersatz="${esc(brandChipHtml(marke || titel, true))}">`
-          : brandChipHtml(marke || titel, true)}
-      </span>
     </div>`;
 }
 function renderFeedHero() {
@@ -1176,14 +1192,19 @@ function renderFeedHero() {
       ${eintraege.length > 1 ? `<div class="fh-dots" aria-hidden="true">${eintraege.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>` : ''}
     </div>`;
   const track = host.querySelector('.fh-track');
+  const folien = [...track.children];
   const dots = [...host.querySelectorAll('.fh-dots i')];
   let raf = 0;
-  if (dots.length) track.addEventListener('scroll', () => {
+  // Die Spur laeuft bis an den Bildschirmrand: eine Folie weiter = Folienbreite
+  // plus Abstand. Nur die sichtbare Folie dreht ihre Strahlen (.aktiv)
+  if (folien.length > 1) track.addEventListener('scroll', () => {
     if (raf) return;
     raf = requestAnimationFrame(() => {
       raf = 0;
-      const i = Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
+      const schritt = folien[1].offsetLeft - folien[0].offsetLeft || track.clientWidth;
+      const i = Math.round(track.scrollLeft / Math.max(1, schritt));
       dots.forEach((el, j) => el.classList.toggle('on', j === i));
+      folien.forEach((el, j) => el.classList.toggle('aktiv', j === i));
     });
   }, { passive: true });
 }
@@ -5732,6 +5753,22 @@ const MARKEN_LOGOS = {
   netto: 'netto', edeka: 'edeka', dm: 'dm', lidl: 'lidl', 'lidl plus': 'lidl', 'müller': 'mueller',
   mueller: 'mueller', wolt: 'wolt', 'peter pane': 'peter-pane',
 };
+// Maskottchen der Marken fuer das Feed-Banner: ragt oben aus dem Fenster wie
+// Kumulio in der Wallet. Schluessel wie die Dateinamen in MARKEN_LOGOS
+// (Aliasse wie 'lidl plus' laufen dort mit). Bild: public/brand/marken/
+// <name>-480.webp und -960.webp, auf den Inhalt zugeschnitten, durchsichtig.
+// ar = Breite / Hoehe des Bildes, oben = Anteil der Bildhoehe ueber der
+// Fensterkante (hoechstens 46 px, --fh-luft in look.css — sonst wird der Kopf
+// oben abgeschnitten), licht = Mitte der Strahlen hinter dem Kopf (Anteile des
+// Bildes). Neue Marken einfach dazuschreiben.
+const MARKEN_MASKOTTCHEN = {
+  wolt: { basis: '/brand/marken/wolt-maskottchen', ar: 0.7136, oben: 0.2, licht: [0.44, 0.36] },  // Yuho
+};
+function markenMaskottchen(name) {
+  const key = String(name || '').toLowerCase().trim();
+  const datei = Object.hasOwn(MARKEN_LOGOS, key) ? MARKEN_LOGOS[key] : key;
+  return Object.hasOwn(MARKEN_MASKOTTCHEN, datei) ? MARKEN_MASKOTTCHEN[datei] : null;
+}
 function markenLogoUrl(name, px = 64) {
   const key = String(name || '').toLowerCase().trim();
   if (MARKEN_LOGOS[key]) return `/brand/logos/${MARKEN_LOGOS[key]}.webp`;
