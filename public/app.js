@@ -14103,6 +14103,31 @@ document.addEventListener('pointerdown', e => {
   neuStarten(t, 'tipp');
   t.addEventListener('animationend', () => t.classList.remove('tipp'), { once: true });
 }, { passive: true, capture: true });
+// Ziffern und Loeschen zaehlen schon beim Beruehren (pointerdown), nicht erst
+// beim click. Tippt man schnell mit zwei Daumen und der naechste Finger ist
+// schon auf dem Glas, bevor der vorige losgelassen hat, verwerfen iOS und
+// manche Android-Browser den click — die Taste leuchtete auf, die Ziffer fehlte
+// (Meldung eines Nutzers). click bleibt fuer Tastatur und Bildschirmleser;
+// liefert: schonGezaehlt(b) — true, wenn dieser click zum eben gezaehlten
+// Beruehren gehoert und darum nichts mehr tun darf.
+function tastenBeimBeruehren(host, aktion, { erlaubt = () => true } = {}) {
+  let zuletzt = null, zuletztT = 0;
+  host.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const b = e.target.closest?.('.ws-taste');
+    if (!b || !host.contains(b) || b.disabled || b.classList.contains('leer')) return;
+    // Nur Ziffern und Loeschen — die Face-ID-Taste braucht einen echten click
+    if (b.dataset.z == null && !b.dataset.weg) return;
+    if (!erlaubt(b)) return;
+    zuletzt = b; zuletztT = performance.now();
+    aktion(b);
+  });
+  return b => {
+    if (b !== zuletzt || performance.now() - zuletztT > 1500) return false;
+    zuletzt = null;
+    return true;
+  };
+}
 
 // ---- Sperrbildschirm der Wallet
 // Liegt ueber der GANZEN App (Kopfzeile und Menue unten eingeschlossen),
@@ -14423,11 +14448,12 @@ function nachStartSplash(fn) {
     pruefe();
   });
 }
+const sperrTasteAus = b => { if (b.dataset.z != null) sperrTaste(b.dataset.z); else if (b.dataset.weg) sperrZurueck(); };
+const sperrSchonGezaehlt = $('#ws-tasten') ? tastenBeimBeruehren($('#ws-tasten'), sperrTasteAus) : () => false;
 $('#ws-tasten')?.addEventListener('click', async e => {
   const b = e.target.closest('button');
   if (!b) return;
-  if (b.dataset.z != null) sperrTaste(b.dataset.z);
-  else if (b.dataset.weg) sperrZurueck();
+  if (b.dataset.z != null || b.dataset.weg) { if (!sperrSchonGezaehlt(b)) sperrTasteAus(b); }
   else if (b.dataset.bio && !sperrBeschaeftigt) bioVersuch();
 });
 $('#ws-vergessen')?.addEventListener('click', () => pinVergessen());
@@ -14570,10 +14596,15 @@ function pinModal() {
     punkte();
     hinweis();
   };
+  // Ziffern beim Beruehren zaehlen (siehe tastenBeimBeruehren)
+  const schonGezaehlt = tastenBeimBeruehren(wrap,
+    b => { if (b.dataset.z != null) tippe(b.dataset.z); else loesche(); },
+    { erlaubt: b => !b.closest('.pin-schritt.raus') });
   wrap.addEventListener('click', e => {
     const b = e.target.closest('button');
     if (!b) { if (e.target === wrap) zu(); return; }
     if (b.closest('.pin-schritt.raus')) return;
+    if ((b.dataset.z != null || b.dataset.weg) && schonGezaehlt(b)) return;
     if (b.dataset.z != null) tippe(b.dataset.z);
     else if (b.dataset.weg) loesche();
     else if (b.dataset.abbrechen != null) zu();
