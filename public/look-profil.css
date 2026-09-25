@@ -61,20 +61,80 @@
 #view-profile .pf-seite > * { margin: 0; }
 .pf-seite.hidden { display: none; }
 
-/* Kopf: Bild ohne Rahmen, Name in der Namensfarbe, @Name, Bio */
-#view-profile .pf-kopf { padding: 16px; }
-.pf-kopf-zeile { display: flex; align-items: center; gap: 14px; }
-.pf-ava { flex: none; display: grid; }
-.pf-ava .avatar-big { width: 64px; height: 64px; font-size: 1.6rem; }
-.pf-kopf-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.pf-name { font-size: 1.3rem; font-weight: 850; letter-spacing: -.02em; line-height: 1.2; overflow-wrap: anywhere; }
-.pf-handle { font-size: .86rem; font-weight: 650; color: var(--muted); overflow-wrap: anywhere; }
-.pf-bio { margin: 14px 0 0; font-size: .93rem; line-height: 1.5; color: var(--text); overflow-wrap: anywhere; }
-.pf-bio.leer { color: var(--muted); }
-#view-profile .pf-bearbeiten {
-  display: flex; width: 100%; margin: 16px 0 0; min-height: 44px;
-  font-size: .9rem; justify-content: center;
+/* Kopf: dieselbe Karte wie das Rang-Fenster (.rf, unten) — Rang-Verlauf,
+   weisse Schrift, Glas-Pille und Glas-Knopf. Statt des Maskottchens steht
+   links das Profilbild mit weissem Ring, die Strahlen drehen sich dahinter.
+   Farbe ueber data-stufe (renderRangKarte), gesperrt 0 = neutral. */
+#view-profile .pf-kopf {
+  --rf-radius: 18px;
+  position: relative; isolation: isolate; overflow: hidden;
+  padding: 18px 18px 16px; border: 0; border-radius: var(--rf-radius); color: #fff;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(255, 255, 255, .17), transparent 46%),
+    linear-gradient(172deg, var(--r1) 0%, var(--r2) 62%, color-mix(in srgb, var(--r2) 55%, var(--r3)) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .22),
+    0 12px 28px -10px color-mix(in srgb, var(--r1) 70%, transparent);
 }
+:root[data-theme="dark"] #view-profile .pf-kopf { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), 0 12px 28px -10px rgba(0, 0, 0, .6); }
+.pf-kopf-zeile { display: flex; align-items: center; gap: 16px; }
+.pf-ava-rahmen { position: relative; flex: none; display: grid; }
+/* Strahlen wie hinter dem Maskottchen, mittig hinter dem Bild; die Karte
+   (isolation + overflow) schneidet sie an den runden Ecken ab */
+.pf-ava-rahmen::before {
+  content: ""; position: absolute; z-index: -1; left: 50%; top: 50%;
+  width: 250px; aspect-ratio: 1; pointer-events: none;
+  transform: translate(-50%, -50%);
+  background: repeating-conic-gradient(from 4deg,
+    color-mix(in srgb, var(--r3) 55%, #fff) 0deg 5deg, transparent 5deg 18deg);
+  -webkit-mask-image: radial-gradient(closest-side, rgba(0, 0, 0, .55) 0%, rgba(0, 0, 0, .3) 38%, transparent 82%);
+          mask-image: radial-gradient(closest-side, rgba(0, 0, 0, .55) 0%, rgba(0, 0, 0, .3) 38%, transparent 82%);
+  opacity: .6;
+  animation: wkStrahlen 70s linear infinite;
+}
+.pf-ava { display: grid; }
+.pf-ava .avatar-big {
+  width: 76px; height: 76px; font-size: 1.9rem;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, .92), 0 8px 18px -6px rgba(0, 0, 0, .35);
+}
+/* Bilder mit Transparenz: fester Grund, sonst scheinen die Strahlen durch */
+.pf-ava img.avatar-big { background: #fff; object-fit: cover; }
+/* Zwei goldene Funken am Bild, wie am Maskottchen */
+.pf-funken { position: absolute; inset: -12px; pointer-events: none; }
+.pf-funken .wk-f1 { left: auto; right: -4px; top: 2px; width: 14px; height: 14px; }
+.pf-funken .wk-f2 { left: -6px; top: auto; bottom: 8px; width: 10px; height: 10px; }
+.pf-kopf-text { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+/* Name immer weiss: die freie Namensfarbe waere auf dem Rang-Verlauf oft
+   nicht lesbar (sie gilt im Chat und in der Nutzer-Karte) */
+#view-profile .pf-kopf .pf-name {
+  max-width: 100%; color: #fff !important;
+  font-size: clamp(1.35rem, 6.2vw, 1.6rem); font-weight: 850; letter-spacing: -.03em; line-height: 1.1;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, .16); overflow-wrap: anywhere;
+}
+.pf-handle {
+  max-width: 100%; margin-top: 8px; padding: 3px 8px; border-radius: 8px;
+  background: rgba(255, 255, 255, .2); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3);
+  font-size: .76rem; font-weight: 750; line-height: 1.35;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pf-bio {
+  position: relative; margin: 14px 0 0; font-size: .93rem; font-weight: 550; line-height: 1.5;
+  color: rgba(255, 255, 255, .95); overflow-wrap: anywhere;
+}
+.pf-bio.leer { color: rgba(255, 255, 255, .8); }
+#view-profile .pf-bearbeiten {
+  display: inline-flex; align-items: center; gap: 7px; height: 38px; margin: 14px 0 0; padding: 0 14px;
+  border: 0; border-radius: 11px; color: #fff; cursor: pointer;
+  background: rgba(255, 255, 255, .22); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .38);
+  font: inherit; font-size: .86rem; font-weight: 750; white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .2s var(--spring), background-color .2s;
+}
+#view-profile .pf-bearbeiten .icon { width: 16px; height: 16px; stroke-width: 2.2; }
+#view-profile .pf-bearbeiten:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+@media (hover: hover) { #view-profile .pf-bearbeiten:hover { background: rgba(255, 255, 255, .3); } }
+body.sparsam .pf-ava-rahmen::before { animation: none; }
+@media (prefers-reduced-motion: reduce) { .pf-ava-rahmen::before { animation: none; } }
 
 /* Rang: die ganze Karte ist der Knopf zur Rang-Seite. Die Karte selbst ist
    das Rang-Fenster (.rf, unten); oben braucht es Luft fuer den Kopf des
@@ -104,14 +164,14 @@ button.pf-rang:focus-visible { outline: 2px solid var(--akzent-text); outline-of
    ========================================================================== */
 /* Stufenfarben: dieselben Werte wie .wallet-kopf.tier-N in style.css
    (r1 dunkel, r2 Hauptton, r3 hell). 0 = gesperrt: die aktuelle Akzentfarbe */
-:is(.rf, .rs-stufe)[data-stufe="0"] { --r1: var(--kopf-k1, #0A8452); --r2: var(--kopf-k2, #0FA86B); --r3: var(--kopf-k3, #2FE09C); }
-:is(.rf, .rs-stufe)[data-stufe="1"] { --r1: #0A8452; --r2: #0FA86B; --r3: #2FE09C; }
-:is(.rf, .rs-stufe)[data-stufe="2"] { --r1: #0A6E78; --r2: #0E95A3; --r3: #3DD3DE; }
-:is(.rf, .rs-stufe)[data-stufe="3"] { --r1: #1C4FB0; --r2: #2D6BDB; --r3: #79A9FF; }
-:is(.rf, .rs-stufe)[data-stufe="4"] { --r1: #4B2FA6; --r2: #6B4CD9; --r3: #AE96FF; }
-:is(.rf, .rs-stufe)[data-stufe="5"] { --r1: #8C1D5E; --r2: #BB2F7E; --r3: #F58CC4; }
-:is(.rf, .rs-stufe)[data-stufe="6"] { --r1: #9A3412; --r2: #C2410C; --r3: #FDA56B; }
-:is(.rf, .rs-stufe)[data-stufe="7"] { --r1: #7A5406; --r2: #A87A0C; --r3: #F2CE5E; }
+:is(.rf, .rs-stufe, .pf-kopf)[data-stufe="0"] { --r1: var(--kopf-k1, #0A8452); --r2: var(--kopf-k2, #0FA86B); --r3: var(--kopf-k3, #2FE09C); }
+:is(.rf, .rs-stufe, .pf-kopf)[data-stufe="1"] { --r1: #0A8452; --r2: #0FA86B; --r3: #2FE09C; }
+:is(.rf, .rs-stufe, .pf-kopf)[data-stufe="2"] { --r1: #0A6E78; --r2: #0E95A3; --r3: #3DD3DE; }
+:is(.rf, .rs-stufe, .pf-kopf)[data-stufe="3"] { --r1: #1C4FB0; --r2: #2D6BDB; --r3: #79A9FF; }
+:is(.rf, .rs-stufe, .pf-kopf)[data-stufe="4"] { --r1: #4B2FA6; --r2: #6B4CD9; --r3: #AE96FF; }
+:is(.rf, .rs-stufe, .pf-kopf)[data-stufe="5"] { --r1: #8C1D5E; --r2: #BB2F7E; --r3: #F58CC4; }
+:is(.rf, .rs-stufe, .pf-kopf)[data-stufe="6"] { --r1: #9A3412; --r2: #C2410C; --r3: #FDA56B; }
+:is(.rf, .rs-stufe, .pf-kopf)[data-stufe="7"] { --r1: #7A5406; --r2: #A87A0C; --r3: #F2CE5E; }
 
 .rf {
   --sb: clamp(232px, 62.5vw, 256px);

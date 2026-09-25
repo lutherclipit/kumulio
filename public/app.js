@@ -3074,6 +3074,9 @@ function renderRangKarte() {
   const zu = walletGesperrt();
   const total = zu ? 0 : rangGuthaben();
   const r = zu ? null : rankFor(total);
+  // Der Profil-Kopf traegt dieselbe Rang-Farbe; gesperrt wie die gesperrte
+  // Rang-Karte die aktuelle App-Farbe (Stufe 0), ohne Rang-Name und Stufe
+  $('#pf-kopf')?.setAttribute('data-stufe', zu ? 0 : r.tier);
   // Nur bei Aenderung neu zeichnen (laeuft auch bei jedem Sperren/Entsperren)
   const stand = zu ? 'zu' : `${r.tier}|${total}`;
   if (el.dataset.stand === stand) return;
@@ -10371,6 +10374,7 @@ function renderWallet() {
     });
     setzeLeistenfarbe();   // Statusleiste traegt die Stufenfarbe mit
     setzeWalletMaskottchen(rank.slug);
+    renderRangKarte();     // Profil-Kopf und Rang-Karte ziehen mit (Kontowechsel, Abgleich)
     messeKopfzeile();
     // Der Rang steht klein neben der Gutschein-Zahl, mehr braucht es nicht
     const rangEl = $('#wallet-rank');
