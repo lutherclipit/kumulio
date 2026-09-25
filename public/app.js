@@ -2988,6 +2988,25 @@ function favChipHtml(v) {
     : `<span class="pf-marke ohne-logo"><span>${esc(v)}</span></span>`;
 }
 
+// Profil-Kopf: nur die Laeden und Marken als Logos (ohne Lieblingsessen),
+// doppelte einmal. Die ganze Liste mit Namen steht in der Karte darunter.
+const KOPF_FAVS = ['discounter', 'supermarkt', 'onlineshop', 'mode'];
+function kopfMarkenHtml(favs) {
+  const gesehen = new Set();
+  const marken = KOPF_FAVS.map(k => String(favs?.[k] || '').trim()).filter(n => {
+    const key = n.toLowerCase();
+    if (!n || gesehen.has(key)) return false;
+    gesehen.add(key);
+    return true;
+  });
+  return { marken, html: marken.map(n => brandChipHtml(n)).join('') };
+}
+// "Kunde seit September 2026" aus dem Registrierungszeitpunkt; ungueltig = leer
+function kundeSeitText(ts) {
+  const d = new Date(Number(ts) || NaN);
+  return Number.isFinite(d.getTime()) ? d.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' }) : '';
+}
+
 // Profil-Seite: Kopf, Rang, Login-Serie, Lieblingsmarken, Freunde
 function renderProfil() {
   if (!state.token || !myProfile) return;
@@ -2997,6 +3016,17 @@ function renderProfil() {
   const bio = $('#me-bio');
   bio.textContent = myProfile.bio || 'Noch keine Bio. Erzähl kurz, wer du bist.';
   bio.classList.toggle('leer', !myProfile.bio);
+  // Rechts im Kopf: Lieblingsmarken als Logos unter dem @Namen, unten neben
+  // "Profil bearbeiten" seit wann man dabei ist. Fehlt etwas, bleibt es weg.
+  const km = kopfMarkenHtml(myProfile.favs);
+  const kmEl = $('#me-kopf-marken');
+  kmEl.innerHTML = km.html;
+  kmEl.classList.toggle('hidden', !km.marken.length);
+  kmEl.setAttribute('aria-label', 'Lieblingsmarken: ' + km.marken.join(', '));
+  const seit = kundeSeitText(myProfile.seit);
+  const seitEl = $('#me-seit');
+  seitEl.innerHTML = seit ? `<small>Kunde seit</small> <b>${esc(seit)}</b>` : '';
+  seitEl.classList.toggle('hidden', !seit);
   renderRangKarte();
   renderSerie();
   const mf = myProfile.favs || {};

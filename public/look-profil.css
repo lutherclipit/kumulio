@@ -63,7 +63,8 @@
 
 /* Kopf: dieselbe Karte wie das Rang-Fenster (.rf, unten) — Rang-Verlauf,
    weisse Schrift, Glas-Pille und Glas-Knopf. Statt des Maskottchens steht
-   links das Profilbild mit weissem Ring, die Strahlen drehen sich dahinter.
+   links das Profilbild im Ring der Rang-Farbe, kurze Strahlen drehen sich
+   dahinter. Rechts: Lieblingsmarken unter dem @Namen, unten "Kunde seit".
    Farbe ueber data-stufe (renderRangKarte), gesperrt 0 = neutral. */
 #view-profile .pf-kopf {
   --rf-radius: 18px;
@@ -79,23 +80,29 @@
 :root[data-theme="dark"] #view-profile .pf-kopf { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), 0 12px 28px -10px rgba(0, 0, 0, .6); }
 .pf-kopf-zeile { display: flex; align-items: center; gap: 16px; }
 .pf-ava-rahmen { position: relative; flex: none; display: grid; }
-/* Strahlen wie hinter dem Maskottchen, mittig hinter dem Bild; die Karte
-   (isolation + overflow) schneidet sie an den runden Ecken ab */
+/* Strahlen wie hinter dem Maskottchen, mittig hinter dem Bild — aber kurz:
+   sie beginnen am Ring und sind nach gut 20 px verblasst (vorher 250 px
+   breit, das war zu gross). Die Karte schneidet sie an den Ecken ab. */
 .pf-ava-rahmen::before {
   content: ""; position: absolute; z-index: -1; left: 50%; top: 50%;
-  width: 250px; aspect-ratio: 1; pointer-events: none;
+  width: 136px; aspect-ratio: 1; pointer-events: none;
   transform: translate(-50%, -50%);
   background: repeating-conic-gradient(from 4deg,
     color-mix(in srgb, var(--r3) 55%, #fff) 0deg 5deg, transparent 5deg 18deg);
-  -webkit-mask-image: radial-gradient(closest-side, rgba(0, 0, 0, .55) 0%, rgba(0, 0, 0, .3) 38%, transparent 82%);
-          mask-image: radial-gradient(closest-side, rgba(0, 0, 0, .55) 0%, rgba(0, 0, 0, .3) 38%, transparent 82%);
+  -webkit-mask-image: radial-gradient(closest-side, rgba(0, 0, 0, .6) 50%, rgba(0, 0, 0, .28) 70%, transparent 96%);
+          mask-image: radial-gradient(closest-side, rgba(0, 0, 0, .6) 50%, rgba(0, 0, 0, .28) 70%, transparent 96%);
   opacity: .6;
   animation: wkStrahlen 70s linear infinite;
 }
-.pf-ava { display: grid; }
+/* Ring statt weissem Rahmen: duenn, in der hellen Rang-Farbe, mit etwas
+   Luft zum Bild — dieselbe Idee wie oben links in der Kopfzeile (look.css) */
+.pf-ava {
+  display: grid; padding: 5px; border-radius: 50%;
+  box-shadow: inset 0 0 0 2.5px color-mix(in srgb, var(--r3) 70%, #fff);
+}
 .pf-ava .avatar-big {
   width: 76px; height: 76px; font-size: 1.9rem;
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, .92), 0 8px 18px -6px rgba(0, 0, 0, .35);
+  box-shadow: 0 6px 14px -6px rgba(0, 0, 0, .4);
 }
 /* Bilder mit Transparenz: fester Grund, sonst scheinen die Strahlen durch */
 .pf-ava img.avatar-big { background: #fff; object-fit: cover; }
@@ -122,8 +129,25 @@
   color: rgba(255, 255, 255, .95); overflow-wrap: anywhere;
 }
 .pf-bio.leer { color: rgba(255, 255, 255, .8); }
+/* Lieblingsmarken: kleine Logo-Kacheln unter dem @Namen. Marken ohne Logo
+   (eigene Eingaben) als Glas-Kachel mit Initialen statt in fremder Farbe */
+.pf-kopf-marken { display: flex; flex-wrap: wrap; gap: 6px; max-width: 100%; margin-top: 8px; }
+.pf-kopf-marken .brand-chip {
+  flex: 0 0 26px; width: 26px; height: 26px; border-radius: 8px; font-size: .56rem;
+  background: rgba(255, 255, 255, .2); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3);
+}
+.pf-kopf-marken .brand-chip.hat-logo { background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, .14); }
+.pf-kopf-marken .brand-chip .brand-logo { padding: 3px; }
+/* Unten: links der Knopf, rechts "Kunde seit" zweizeilig, mittig zum Knopf */
+.pf-kopf-fuss { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 12px; margin-top: 14px; }
+.pf-seit {
+  display: flex; flex-direction: column; align-items: flex-end; min-width: 0; margin-left: auto;
+  text-align: right; line-height: 1.25;
+}
+.pf-seit small { font-size: .72rem; font-weight: 650; color: rgba(255, 255, 255, .82); }
+.pf-seit b { font-size: .9rem; font-weight: 800; letter-spacing: -.01em; white-space: nowrap; }
 #view-profile .pf-bearbeiten {
-  display: inline-flex; align-items: center; gap: 7px; height: 38px; margin: 14px 0 0; padding: 0 14px;
+  display: inline-flex; align-items: center; gap: 7px; height: 38px; margin: 0; padding: 0 14px;
   border: 0; border-radius: 11px; color: #fff; cursor: pointer;
   background: rgba(255, 255, 255, .22); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .38);
   font: inherit; font-size: .86rem; font-weight: 750; white-space: nowrap;

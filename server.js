@@ -1291,6 +1291,8 @@ function eigenesProfil(user) {
     friends: prof.friends || [], friendRequests: prof.friendRequests || [],
     nameColor: namensfarbe(user), loginStreak: loginSerie(prof),
     eingeladen: eingeladenZahl(prof),
+    // "Kunde seit": Zeitpunkt der Registrierung (fehlt bei ganz alten Konten)
+    seit: users[user].ts || null,
   };
 }
 // Abgeschaltete Endpunkte (Kisten, Funken, Quests, Shop, Paints, Rahmen):

@@ -134,10 +134,30 @@ body:not([data-ansicht="feed"]) #btn-search-top {
 }
 #btn-search-top { transition: opacity .2s ease, visibility 0s linear .2s; }
 body[data-ansicht="feed"] #btn-search-top { transition: opacity .2s ease, visibility 0s; }
-#btn-profile-top { padding: 0; overflow: visible; box-shadow: 0 0 0 2.5px #fff, 0 4px 14px rgba(0, 0, 0, .12); }
-:root[data-theme="dark"] #btn-profile-top { box-shadow: 0 0 0 2.5px rgba(255, 255, 255, .85), 0 4px 14px rgba(0, 0, 0, .3); }
-#btn-profile-top .avatar-mini { width: 100%; height: 100%; font-size: .95rem; }
+/* Profilbild oben links: statt weissem Rahmen ein duenner Ring in der
+   Rang-Farbe (dem App-Akzent) mit 2 px Luft zum Bild. Die Luft ist
+   durchsichtig, der Knopf bleibt 42 px wie die Suche rechts. Auf hellem Grund
+   der Hauptton, auf farbigem Grund (Wallet, auch weggescrollt) und im
+   Dunkelmodus der helle; in der Marken-Ansicht die Toene der Marke. */
+#btn-profile-top { padding: 0; overflow: visible; }
+#btn-profile-top.iconbtn {
+  --ava-ring: var(--kopf-k2, #0FA86B);
+  padding: 4px; background: transparent;
+  box-shadow: inset 0 0 0 2px var(--ava-ring);
+}
+:root[data-theme="dark"] #btn-profile-top.iconbtn,
+body.wallet-farbe #btn-profile-top.iconbtn { --ava-ring: var(--kopf-k3, #2FE09C); }
+body.marken-modus.wallet-farbe #btn-profile-top.iconbtn { --ava-ring: var(--marke-k3, var(--kopf-k3, #2FE09C)); }
+/* Marken-Ansicht weggescrollt: dort ist die Kopfzeile hell (weiter unten) */
+body.marken-modus.wallet-farbe.kopf-weg #btn-profile-top.iconbtn { --ava-ring: var(--marke-k2, var(--kopf-k2, #0FA86B)); }
+:root[data-theme="dark"] body.marken-modus.wallet-farbe.kopf-weg #btn-profile-top.iconbtn { --ava-ring: var(--marke-k3, var(--kopf-k3, #2FE09C)); }
+#btn-profile-top .avatar-mini { width: 100%; height: 100%; font-size: .86rem; box-shadow: 0 2px 8px rgba(0, 0, 0, .14); }
 #btn-profile-top img.avatar-mini { width: 100%; height: 100%; }
+/* Logo optisch auf die Mitte der runden Knoepfe: die Kaestchen sind gleich
+   zentriert, die Wortmarke wiegt aber unten (Kleinbuchstaben, oben nur k, l
+   und die Muenzen) — ihr Schwerpunkt lag gut 3 px unter der Mitte des
+   Profilbilds. In %, damit es beim Schrumpfen (gescrollt, 21 px) mitzieht. */
+.topbar .k-wordmark { translate: 0 -13%; }
 .has-dot::after, #btn-profile-top.has-dot::after { box-shadow: 0 0 0 2px var(--karte); }
 
 /* =============================================================================

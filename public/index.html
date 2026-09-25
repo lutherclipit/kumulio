@@ -207,10 +207,15 @@
             <div class="pf-kopf-text">
               <b id="me-name" class="pf-name"></b>
               <span id="me-handle" class="pf-handle"></span>
+              <!-- Lieblingsmarken als kleine Logos; die ganze Liste mit Namen steht weiter unten -->
+              <span id="me-kopf-marken" class="pf-kopf-marken hidden" role="img"></span>
             </div>
           </div>
           <p id="me-bio" class="pf-bio"></p>
-          <button id="btn-edit-profile" class="pf-bearbeiten" type="button"><svg class="icon"><use href="#i-stift"/></svg>Profil bearbeiten</button>
+          <div class="pf-kopf-fuss">
+            <button id="btn-edit-profile" class="pf-bearbeiten" type="button"><svg class="icon"><use href="#i-stift"/></svg>Profil bearbeiten</button>
+            <span id="me-seit" class="pf-seit hidden"></span>
+          </div>
         </div>
         <!-- Rang nach Wallet-Guthaben: privat, antippen zeigt alle Stufen -->
         <button class="card pf-rang" id="pf-rang" type="button"></button>
