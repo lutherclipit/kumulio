@@ -10,10 +10,12 @@
 :root {
   --lio-weich: color-mix(in srgb, #FFC21A 16%, var(--karte));
   --lio-text: #8A5800;
+  --lio-ring: #4A3AB4;   /* Nachtviolett der Lio-Karten, fuer Ringe auf weissen Karten */
 }
 :root[data-theme="dark"] {
   --lio-weich: color-mix(in srgb, #FFC21A 13%, var(--karte));
   --lio-text: #FFCF5C;
+  --lio-ring: #8E7FFF;
 }
 .lio-stern { display: block; flex: none; object-fit: contain; -webkit-user-drag: none; -webkit-user-select: none; user-select: none; }
 /* Die Zahl federt beim Hochzaehlen (transform braucht ein Block-Element) */
@@ -27,8 +29,11 @@
    dreht ihre schon, zwei Bewegungen uebereinander waeren zu viel). Weisse
    Schrift, Glas-Pillen, Fortschritt und "Abholen" in Gold. Oben die ganze
    Zeile ist ein Knopf in den Shop (rechts die Pille "Shop").
-   Dieselbe Flaeche traegt die Lio-Karte in der Tour (.tour-lio). */
-#top-menu .tm-lio, .tour-lio, .pf-lio {
+   Dieselbe Flaeche traegt die Lio-Karte in der Tour (.tour-lio), die
+   Lio-Zeile im Profil (.pf-lio) und der Kopf des Gutschein-Shops (.lsh-kopf,
+   Runde 126: vorher in der Rang-Farbe — die Lios haben ueberall dieselbe
+   Farbe, egal welcher Rang). */
+#top-menu .tm-lio, .tour-lio, .pf-lio, .lsh-kopf {
   --lio-n1: #111945;
   --lio-n2: #1F266C;
   --lio-n3: #3A2A84;
@@ -40,7 +45,7 @@
     linear-gradient(155deg, var(--lio-n1) 0%, var(--lio-n2) 52%, var(--lio-n3) 100%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16), 0 12px 26px -12px rgba(35, 38, 112, .75);
 }
-:root[data-theme="dark"] :is(#top-menu .tm-lio, .tour-lio) {
+:root[data-theme="dark"] :is(#top-menu .tm-lio, .tour-lio, .lsh-kopf) {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14), 0 0 0 1px rgba(255, 255, 255, .05), 0 12px 26px -12px rgba(0, 0, 0, .6);
 }
 #top-menu .tm-lio { margin-top: 12px; padding: 0; border-radius: 18px; }
@@ -70,7 +75,8 @@
   font-size: 1.22rem; font-weight: 850; letter-spacing: -.02em; line-height: 1.15; white-space: nowrap;
   text-shadow: 0 1px 10px rgba(0, 0, 0, .2);
 }
-.tm-lio-stand small { font-size: .8rem; font-weight: 650; line-height: 1.3; color: rgba(255, 255, 255, .84); }
+/* Darunter klein und ruhig der Wert in Euro ("Wert 0,41 €") */
+.tm-lio-stand small { font-size: .72rem; font-weight: 600; line-height: 1.3; color: rgba(255, 255, 255, .7); font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* Der Weg in den Shop: Glas-Pille rechts (wie "Stufe 2 von 7" auf der Rang-Karte) */
 .tm-lio-shop {
   flex: none; display: inline-flex; align-items: center; gap: 5px;
@@ -258,16 +264,13 @@ body:not(.wallet-farbe) .lio-ecke, .lio-ecke:not(.bereit) {
 .lsh .wseite-inhalt { padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px)); }
 .lsh.lsh-fragt .wseite-inhalt { padding-bottom: calc(200px + env(safe-area-inset-bottom, 0px)); }
 
-/* Kopf: Karte in der Rangfarbe wie Profil und Rang, links der Stern mit Strahlen */
+/* Kopf: dieselbe Nachtgold-Karte wie die Lio-Karte im Menue und die
+   Lio-Zeile im Profil (Flaeche und Schatten oben bei #top-menu .tm-lio),
+   links der grosse Stern in seinem goldenen Schein */
 .lsh-kopf {
-  position: relative; isolation: isolate; overflow: hidden;
   display: flex; align-items: center; gap: 14px; margin-top: 4px; padding: 16px 18px 16px 12px;
-  border-radius: 18px; color: #fff;
-  background:
-    linear-gradient(172deg, var(--kopf-k1, #405A7C) 0%, var(--kopf-k2, #6081A9) 62%, color-mix(in srgb, var(--kopf-k2, #6081A9) 55%, var(--kopf-k3, #B6C9DF)) 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), 0 12px 28px -10px color-mix(in srgb, var(--kopf-k1, #405A7C) 70%, transparent);
+  border-radius: 18px;
 }
-:root[data-theme="dark"] .lsh-kopf { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), 0 12px 28px -10px rgba(0, 0, 0, .6); }
 .lsh-kopf-stern {
   position: relative; flex: none; display: grid; place-items: center; width: 84px; height: 84px;
   margin: 0; padding: 0; border: 0; border-radius: 50%; background: none; color: inherit; font: inherit;
@@ -455,7 +458,9 @@ button.lsh-weg:focus-visible { outline: 2px solid var(--akzent-text); outline-of
 .lsh-zahl-text b { font-size: .96rem; font-weight: 800; line-height: 1.25; }
 .lsh-zahl-text small { font-size: .78rem; line-height: 1.35; color: var(--muted); }
 .lsh-zahl-preis { flex: none; font-size: .95rem; font-weight: 850; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.lsh-zahl.bereit { box-shadow: var(--schatten-1), inset 0 0 0 2px var(--akzent); }
+/* Mit Lios bezahlen (bereit): Ring im Nachtviolett der Lio-Karten statt in
+   der Rang-Farbe — die Lios sehen ueberall gleich aus */
+.lsh-zahl.bereit { box-shadow: var(--schatten-1), inset 0 0 0 2px var(--lio-ring); }
 .lsh-zahl:disabled { cursor: default; transform: none; }
 .lsh-zahl:disabled :is(.lsh-zahl-ico, .lsh-zahl-text b, .lsh-zahl-preis) { opacity: .5; }
 .lsh-bald {

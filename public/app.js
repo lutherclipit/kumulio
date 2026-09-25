@@ -3239,8 +3239,9 @@ function renderProfil() {
   const bio = $('#me-bio');
   bio.textContent = myProfile.bio || 'Noch keine Bio. Erzähl kurz, wer du bist.';
   bio.classList.toggle('leer', !myProfile.bio);
-  // Rechts im Kopf: Lieblingsmarken als Logos unter dem @Namen, unten neben
-  // "Profil bearbeiten" seit wann man dabei ist. Fehlt etwas, bleibt es weg.
+  // Rechts im Kopf: Lieblingsmarken als Logos unter dem @Namen, darunter
+  // klein, seit wann man dabei ist (unten rechts ist seit Runde 126 Platz fuer
+  // den Kopf des Rang-Maskottchens). Fehlt etwas, bleibt es weg.
   const km = kopfMarkenHtml(myProfile.favs);
   const kmEl = $('#me-kopf-marken');
   kmEl.innerHTML = km.html;
@@ -3248,7 +3249,7 @@ function renderProfil() {
   kmEl.setAttribute('aria-label', 'Lieblingsmarken: ' + km.marken.join(', '));
   const seit = kundeSeitText(myProfile.seit);
   const seitEl = $('#me-seit');
-  seitEl.innerHTML = seit ? `<small>Kunde seit</small> <b>${esc(seit)}</b>` : '';
+  seitEl.innerHTML = seit ? `Kunde seit <b>${esc(seit)}</b>` : '';
   seitEl.classList.toggle('hidden', !seit);
   renderRangKarte();
   renderSerie();
@@ -3343,7 +3344,9 @@ function rangFensterHtml({ r = null, total = 0, zu = false, mehr = false, eigen 
     </span>`;
 }
 
-// Rang-Karte im Profil: nur hier und in der Wallet, nie bei anderen
+// Rang-Karte im Profil: nur hier und in der Wallet, nie bei anderen. Seit
+// Runde 126 der untere Teil der Profil-Karte (#pf-rang liegt in #pf-kopf):
+// zwei gleichfarbige Karten mit je einem Kumulio untereinander wirkten doppelt
 function renderRangKarte() {
   aktualisiereTmKopf(); // der Kopf der Seitenleiste traegt den Rang auch
   const el = $('#pf-rang');
@@ -13259,8 +13262,10 @@ document.addEventListener('visibilitychange', () => {
   else lioNeuPruefen();
 });
 
-// ---- Seitenmenue: eigene Karte im Lio-Verlauf. Oben der Stand mit "1 Lio =
-// 1 Cent" — die ganze Zeile fuehrt in den Shop (rechts die Glas-Pille "Shop").
+// ---- Seitenmenue: eigene Karte im Lio-Verlauf. Oben der Stand, darunter
+// klein sein Wert in Euro ("Wert 0,41 €", wie im Shop-Kopf; zieht ueber
+// data-lio-euro mit) — die ganze Zeile fuehrt in den Shop (rechts die
+// Glas-Pille "Shop"). Die Regel "1 Lio = 1 Cent" erklaert nur die Tour.
 // Darunter Wochen- und Monats-Bonus: offene mit "Abholen", sonst wie viele
 // Login-Tage es noch sind (echte Serie vom Server; heute ist schon mitgezaehlt).
 function tmLioHtml() {
@@ -13297,7 +13302,7 @@ function tmLioHtml() {
     <span class="tm-lio-glanz" aria-hidden="true"></span>
     <button class="tm-lio-kopf" type="button" data-lio-shop data-lio-aria aria-label="Gutschein-Shop öffnen. Du hast ${lioText(lioAnzeige())}">
       <span class="tm-lio-stern">${lioSternImg(44)}</span>
-      <span class="tm-lio-stand"><b data-lio-stand>${lioText(lioAnzeige())}</b><small>1 Lio = 1 Cent</small></span>
+      <span class="tm-lio-stand"><b data-lio-stand>${lioText(lioAnzeige())}</b><small>Wert <span data-lio-euro>${euroFmt(lioAnzeige() / 100)}</span></small></span>
       <span class="tm-lio-shop">${icon('shop', 'icon')}Shop</span>
     </button>
     ${zeilen.trim() ? `<div class="tm-lio-zeilen">${zeilen}</div>` : ''}`;
@@ -13314,7 +13319,9 @@ function renderTmLio() {
 }
 
 // ---- Tour fuer neue Nutzer: die Lio-Karte im selben Verlauf wie im Menue,
-// oben der Stern mit "1 Lio = 1 Cent", darunter die Wege zu Lios. Die Werte
+// oben der Stern mit "1 Lio = 1 Cent" (hier bleibt die Regel stehen: wer neu
+// ist, hat noch keinen Stand, dessen Wert man zeigen koennte — und die Tour
+// soll ja erklaeren, was ein Lio wert ist), darunter die Wege zu Lios. Die Werte
 // kommen mit Profil vom Server; ohne Konto (Tour vor der Anmeldung) gelten
 // die Regeln, wie sie in server.js stehen (LIO).
 const LIO_REGELN = { tag: 1, woche: 3, monat: 10, freund: 10, freundTage: 3 };
