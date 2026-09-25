@@ -1154,16 +1154,18 @@ function heroSlideHtml(e, i) {
   // Rechts: das Maskottchen der Marke ragt oben aus dem Fenster wie Kumulio in
   // der Wallet. Ohne Maskottchen steht dort eine dicke, schraeg gestellte
   // Kachel mit dem Foto des Deals oder dem Logo, ebenfalls ueber die Kante.
+  // Das Maskottchen laedt sofort: "lazy" holt es in der seitwaerts wischbaren
+  // Spur erst beim Wischen, dann ploppt es sichtbar auf
   const figur = markenMaskottchen(marke || titel);
   const ersatz = brandChipHtml(marke || titel, true);
   const rechts = figur
     ? `<span class="fh-rahmen" aria-hidden="true"><img class="fh-figur" src="${figur.basis}-480.webp"
         srcset="${figur.basis}-480.webp 480w, ${figur.basis}-960.webp 960w" sizes="176px" alt=""
-        loading="${i ? 'lazy' : 'eager'}" decoding="async" draggable="false"></span>`
+        decoding="async" draggable="false"${i ? ' fetchpriority="low"' : ''}></span>`
     : `<span class="fh-kachel${bild ? ' foto' : ''}" aria-hidden="true">${bild
-      ? `<img src="${esc(bild)}" alt="" loading="${i ? 'lazy' : 'eager'}" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.classList.remove('foto');this.replaceWith(document.createRange().createContextualFragment(this.dataset.ersatz))" data-ersatz="${esc(ersatz)}">`
+      ? `<img src="${esc(bild)}" alt="" loading="${i ? 'lazy' : 'eager'}" decoding="async" referrerpolicy="no-referrer" onerror="this.closest('.fh-slide').classList.remove('mit-foto');this.parentNode.classList.remove('foto');this.replaceWith(document.createRange().createContextualFragment(this.dataset.ersatz))" data-ersatz="${esc(ersatz)}">`
       : ersatz}</span>`;
-  const stil = `--bc:${farbe}; --tiefe:${tiefe}%` + (figur
+  const stil = `--bc:${farbe}; --tiefe:${tiefe}%` + (tiefe ? `; --tiefe-oben:${28 + tiefe}%` : '') + (figur
     ? `; --fig-ar:${figur.ar}; --fig-oben:${figur.oben}; --licht-x:${figur.licht[0]}; --licht-y:${figur.licht[1]}` : '');
   return `
     <div class="fh-slide${hell ? ' hell' : ''}${figur ? ' mit-figur' : bild ? ' mit-foto' : ''}${i ? '' : ' aktiv'}" style="${stil}"${d ? ` data-deal="${esc(d.id)}"` : ''} role="group" aria-roledescription="Folie" aria-label="${i + 1}">

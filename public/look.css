@@ -735,9 +735,12 @@ body.marken-modus.wallet-farbe.kopf-weg .topbar .k-wordmark .k-dot { fill: var(-
 .fh-track::-webkit-scrollbar { display: none; }
 .fh-track:focus-visible { outline: 2px solid var(--akzent); outline-offset: -2px; border-radius: 20px; }
 .fh-slide {
-  /* f1 dunkel, f2 Hauptton, f3 hell (Strahlen, Schein) — wie r1..r3 der Rang-Karte */
-  --f1: color-mix(in srgb, var(--bc) calc(72% - var(--tiefe, 0%)), #000);
-  --f2: color-mix(in srgb, var(--bc) calc(100% - var(--tiefe, 0%)), #000);
+  /* f1 dunkel, f2 Hauptton, f3 hell (Strahlen, Schein) — wie r1..r3 der Rang-Karte.
+     Die Schwarz-Anteile kommen fertig aus app.js (--tiefe, --tiefe-oben): kein
+     calc() in color-mix, das kann nicht jedes Safari — sonst fiele die ganze
+     Flaeche weg und die weisse Schrift stuende auf dem hellen Grund */
+  --f1: color-mix(in srgb, var(--bc), #000 var(--tiefe-oben, 28%));
+  --f2: color-mix(in srgb, var(--bc), #000 var(--tiefe, 0%));
   --f3: color-mix(in srgb, var(--bc) 52%, #fff);
   --fig-rechts: -8px;                     /* < 0: Zauberstab & Co. duerfen ueber den Rand */
   position: relative; isolation: isolate; scroll-snap-align: center; scroll-snap-stop: always;
@@ -762,7 +765,7 @@ body.marken-modus.wallet-farbe.kopf-weg .topbar .k-wordmark .k-dot { fill: var(-
     0 1px 0 rgba(255, 255, 255, .08);
 }
 /* Helle Marken (Gelb) nur leicht abdunkeln — mit 28 % Schwarz wird Gelb oliv */
-.fh-slide.hell { --f1: color-mix(in srgb, var(--bc) 88%, #000); color: #14151A; }
+.fh-slide.hell { --tiefe-oben: 12%; color: #14151A; }
 /* Strahlen hinter Kopf oder Kachel, nur im Fenster (eigene Ebene mit den
    runden Ecken). Es dreht nur die sichtbare Folie — beim Wischen steht der
    Rest still, damit nichts ruckelt. */
@@ -791,13 +794,15 @@ body.marken-modus.wallet-farbe.kopf-weg .topbar .k-wordmark .k-dot { fill: var(-
 }
 /* Rahmen fuer das Maskottchen: nur oben offen (der Kopf schaut heraus), rechts
    darf etwas ueber den Rand ragen, unten schneidet die Fensterkante mit der
-   runden Ecke und laeuft weich aus */
+   runden Ecke und laeuft weich aus. Der Auslauf ist kuerzer als in der Wallet
+   (14 statt 30 px): Yuho steht mit ganzem Koerper im Fenster, die Fuesse enden
+   meist knapp ueber der Kante und waeren sonst halb durchsichtig */
 .fh-rahmen {
   position: absolute; z-index: 1; pointer-events: none;
   top: calc(-1 * var(--fh-luft)); bottom: 0; left: 0; right: -10px;
   overflow: hidden; border-radius: 0 0 0 var(--fh-radius);
-  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 30px), rgba(0, 0, 0, .35) calc(100% - 6px), rgba(0, 0, 0, .15) 100%);
-          mask-image: linear-gradient(to bottom, #000 calc(100% - 30px), rgba(0, 0, 0, .35) calc(100% - 6px), rgba(0, 0, 0, .15) 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 14px), rgba(0, 0, 0, .35) calc(100% - 3px), rgba(0, 0, 0, .15) 100%);
+          mask-image: linear-gradient(to bottom, #000 calc(100% - 14px), rgba(0, 0, 0, .35) calc(100% - 3px), rgba(0, 0, 0, .15) 100%);
 }
 .fh-figur {
   position: absolute; right: calc(10px + var(--fig-rechts));
@@ -852,10 +857,12 @@ body.marken-modus.wallet-farbe.kopf-weg .topbar .k-wordmark .k-dot { fill: var(-
 .fh-titel {
   font-size: 1.06rem; font-weight: 850; line-height: 1.22; letter-spacing: -.01em;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  overflow-wrap: anywhere;  /* lange Woerter ("Neukundenrabatt") nicht ueber das Maskottchen */
 }
 .fh-sub {
   font-size: .8rem; line-height: 1.35; opacity: .92;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  overflow-wrap: anywhere;
 }
 .fh-slide.hell .fh-marke { text-shadow: none; }
 .fh-cta {
