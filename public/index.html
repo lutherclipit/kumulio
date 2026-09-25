@@ -226,16 +226,18 @@
               <span id="me-handle" class="pf-handle"></span>
               <!-- Lieblingsmarken als kleine Logos; die ganze Liste mit Namen steht weiter unten -->
               <span id="me-kopf-marken" class="pf-kopf-marken hidden" role="img"></span>
+              <span id="me-seit" class="pf-seit hidden"></span>
             </div>
           </div>
           <p id="me-bio" class="pf-bio"></p>
           <div class="pf-kopf-fuss">
             <button id="btn-edit-profile" class="pf-bearbeiten" type="button"><svg class="icon"><use href="#i-stift"/></svg>Profil bearbeiten</button>
-            <span id="me-seit" class="pf-seit hidden"></span>
           </div>
+          <!-- Rang nach Wallet-Guthaben: privat, antippen zeigt alle Stufen.
+               Seit Runde 126 der untere Teil derselben Karte (vorher eine
+               zweite Karte in derselben Farbe darunter) -->
+          <button class="pf-rang" id="pf-rang" type="button"></button>
         </div>
-        <!-- Rang nach Wallet-Guthaben: privat, antippen zeigt alle Stufen -->
-        <button class="card pf-rang" id="pf-rang" type="button"></button>
         <!-- Login-Serie: Tage in Folge, ohne Belohnung -->
         <div class="card pf-serie hidden" id="pf-serie"></div>
         <div class="card pf-marken">
