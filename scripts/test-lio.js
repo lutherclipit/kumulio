@@ -57,6 +57,13 @@ pruefe('Serie: noch 1 Tag bis zur Woche', S.lioSerie(P('anna'), tag(10, 6)).bisW
 S.loginTagZaehlen('anna', tag(10, 7));
 pruefe('Tag 7: Wochen-Bonus offen, nicht gutgeschrieben', S.lioStand(P('anna')) === 7 && P('anna').lioBoni.length === 1 && P('anna').lioBoni[0].art === 'woche' && P('anna').lioBoni[0].menge === 3);
 pruefe('Serie: an Tag 7 wieder 7 bis zur naechsten Woche', S.lioSerie(P('anna'), tag(10, 7)).bisWoche === 7);
+// Fuer den Countdown im Shop: heute gebucht? welcher Berliner Tag? Serverzeit
+const s7 = S.lioSerie(P('anna'), tag(10, 7));
+pruefe('Serie: Tages-Lio heute gebucht, Berliner Tag, Serverzeit', s7.lioHeute === true && s7.tag === '2026-10-07' && s7.jetzt === tag(10, 7));
+pruefe('Serie: am naechsten Tag vor dem Login noch nicht gebucht', S.lioSerie(P('anna'), tag(10, 8)).lioHeute === false);
+// 22:30 UTC am 7.10. ist in Berlin (Sommerzeit) schon der 8.10., 00:30
+const sMitte = S.lioSerie(P('anna'), Date.UTC(2026, 9, 7, 22, 30));
+pruefe('Serie: Tageswechsel um 00:00 in Berlin, nicht in UTC', sMitte.tag === '2026-10-08' && sMitte.lioHeute === false && S.lioSerie(P('anna'), Date.UTC(2026, 9, 7, 21, 30)).lioHeute === true);
 const bid = P('anna').lioBoni[0].id;
 pruefe('abholen: +3', S.lioBonusAbholen('anna', bid) && S.lioStand(P('anna')) === 10);
 pruefe('zweimal abholen geht nicht', !S.lioBonusAbholen('anna', bid) && S.lioStand(P('anna')) === 10);
@@ -103,6 +110,7 @@ pruefe('dritter Tag in Folge: +10', S.lioStand(P('olga')) === 20 && P('olga').li
   // --- Profil: alles fuers Seitenmenue
   let a = await api('tokAnna', '/api/profile');
   pruefe('Profil: lio, lioBoni, lioSerie, lioFreunde', a.j.lio >= 33 && a.j.lioBoni.length === 4 && a.j.lioBoni[0].text === 'Wochen-Bonus (14 Tage in Folge)' && a.j.lioSerie.woche === 3 && a.j.lioFreunde.proFreund === 10);
+  pruefe('Profil: lioSerie mit lioHeute, tag und jetzt (Abruf zaehlt den Tag)', a.j.lioSerie.lioHeute === true && /^\d{4}-\d{2}-\d{2}$/.test(a.j.lioSerie.tag) && Math.abs(a.j.lioSerie.jetzt - Date.now()) < 5000);
   pruefe('Profil: lioNeu mit Tages-Lios', Array.isArray(a.j.lioNeu) && a.j.lioNeu.length > 0 && a.j.lioNeu.every(n => n.id && n.menge > 0));
   a = await api('tokAnna', '/api/lio/gesehen', { ids: a.j.lioNeu.slice(0, 2).map(n => n.id) });
   pruefe('gesehen: zwei weniger', a.status === 200 && a.j.lioNeu.length === (P('anna').lioNeu || []).length);

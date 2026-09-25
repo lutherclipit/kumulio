@@ -1554,12 +1554,16 @@ function lioWerbungPruefen(user, { jetzt = Date.now(), leise = false } = {}) {
 }
 
 // Was das Seitenmenue ueber die Serie wissen muss: wie viele Login-Tage
-// (heute mitgezaehlt, falls noch offen) bis zum naechsten Bonus
+// (heute mitgezaehlt, falls noch offen) bis zum naechsten Bonus. Fuer den
+// Shop dazu: ob der taegliche Lio fuer heute schon gebucht ist (lioHeute),
+// welcher Kalendertag in Berlin das ist (tag) und die Serverzeit (jetzt) —
+// daran misst der Client den Countdown bis 00:00 in Berlin.
 function lioSerie(prof, jetzt = Date.now()) {
   const serie = loginSerie(prof, jetzt);
-  const heute = !!(prof.loginStreak && prof.loginStreak.letzterTag === berlinTag(jetzt));
+  const tag = berlinTag(jetzt);
+  const heute = !!(prof.loginStreak && prof.loginStreak.letzterTag === tag);
   return {
-    tage: serie.tage, heute,
+    tage: serie.tage, heute, lioHeute: prof.lioTag === tag, tag, jetzt,
     bisWoche: 7 - (serie.tage % 7), bisMonat: 30 - (serie.tage % 30),
     proTag: LIO.tag, woche: LIO.woche, monat: LIO.monat,
   };
