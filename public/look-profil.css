@@ -80,19 +80,17 @@
 :root[data-theme="dark"] #view-profile .pf-kopf { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), 0 12px 28px -10px rgba(0, 0, 0, .6); }
 .pf-kopf-zeile { display: flex; align-items: center; gap: 16px; }
 .pf-ava-rahmen { position: relative; flex: none; display: grid; }
-/* Strahlen wie hinter dem Maskottchen, mittig hinter dem Bild — aber kurz:
-   sie beginnen am Ring und sind nach gut 20 px verblasst (vorher 250 px
-   breit, das war zu gross). Die Karte schneidet sie an den Ecken ab. */
+/* Hinter dem Bild nur ein sanfter, ruhender Lichtschein in der hellen
+   Rang-Farbe — keine drehenden Strahlen mehr (Wunsch des Nutzers: "lieber
+   was sanfteres"). Er laeuft kurz hinter dem Ring weich aus. */
 .pf-ava-rahmen::before {
   content: ""; position: absolute; z-index: -1; left: 50%; top: 50%;
-  width: 136px; aspect-ratio: 1; pointer-events: none;
+  width: 150px; aspect-ratio: 1; pointer-events: none;
   transform: translate(-50%, -50%);
-  background: repeating-conic-gradient(from 4deg,
-    color-mix(in srgb, var(--r3) 55%, #fff) 0deg 5deg, transparent 5deg 18deg);
-  -webkit-mask-image: radial-gradient(closest-side, rgba(0, 0, 0, .6) 50%, rgba(0, 0, 0, .28) 70%, transparent 96%);
-          mask-image: radial-gradient(closest-side, rgba(0, 0, 0, .6) 50%, rgba(0, 0, 0, .28) 70%, transparent 96%);
-  opacity: .6;
-  animation: wkStrahlen 70s linear infinite;
+  background: radial-gradient(closest-side,
+    color-mix(in srgb, var(--r3) 45%, rgba(255, 255, 255, .5)) 0%,
+    color-mix(in srgb, var(--r3) 22%, transparent) 55%, transparent 100%);
+  opacity: .55;
 }
 /* Ring statt weissem Rahmen: duenn, in der hellen Rang-Farbe, mit etwas
    Luft zum Bild — dieselbe Idee wie oben links in der Kopfzeile (look.css) */
@@ -157,8 +155,6 @@
 #view-profile .pf-bearbeiten .icon { width: 16px; height: 16px; stroke-width: 2.2; }
 #view-profile .pf-bearbeiten:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 @media (hover: hover) { #view-profile .pf-bearbeiten:hover { background: rgba(255, 255, 255, .3); } }
-body.sparsam .pf-ava-rahmen::before { animation: none; }
-@media (prefers-reduced-motion: reduce) { .pf-ava-rahmen::before { animation: none; } }
 
 /* Rang: die ganze Karte ist der Knopf zur Rang-Seite. Die Karte selbst ist
    das Rang-Fenster (.rf, unten); oben braucht es Luft fuer den Kopf des
