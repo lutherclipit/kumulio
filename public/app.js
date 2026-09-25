@@ -301,12 +301,6 @@ function forYouScore(d) {
 
 // ---------------- Hilfen ----------------
 
-// Profilbilder und Bilder aus Geschenken kommen von anderen Konten: nur
-// echte Bild-Daten (data:image/…;base64) durchlassen
-function sichereBildUrl(u) {
-  const t = String(u || '');
-  return /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(t) ? t : '';
-}
 // Auch Anfuehrungszeichen: esc() landet oft in Attributen (src, data-*,
 // aria-label) — dort half das bisherige Escaping (nur & < >) nicht
 const ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -673,13 +667,13 @@ async function renderFriendsView() {
     dmListeNamenMerken(r);
     const friends = myProfile?.friends || [];
     const meta = {};
-    r.list.forEach(l => { meta[l.partner] = { avatar: l.avatar, ts: l.lastTs }; });
-    (r.friends || []).forEach(f => { meta[f.name] = meta[f.name] || { avatar: f.avatar, ts: 0 }; });
+    r.list.forEach(l => { meta[l.partner] = { ts: l.lastTs }; });
+    (r.friends || []).forEach(f => { meta[f.name] = meta[f.name] || { ts: 0 }; });
     const sorted = [...friends].sort((a, b) => (meta[b]?.ts || 0) - (meta[a]?.ts || 0));
     host.innerHTML = sorted.length ? sorted.map(f => `
       <div class="friend-row">
         <button class="friend-open" type="button" data-fr-profile="${esc(f)}" aria-label="Profil von ${esc(anzeigeName(f))} (@${esc(f)})">
-          ${avatarHtml(f, meta[f]?.avatar, 'avatar-big')}
+          ${avatarHtml(f, undefined, 'avatar-big')}
           ${nameMitHandleHtml(f, 'friend-name')}
         </button>
         <button class="btn btn-small" data-fr-write="${esc(f)}">Schreiben</button>
@@ -1383,7 +1377,7 @@ function sendDealToFriend(d) {
     <p class="dl-schicken-deal">${esc(d.title)}</p>
     <div class="dl-schicken-liste">${friends.map(f => `
       <button class="dl-schicken-freund" type="button" data-send-to="${esc(f)}" title="@${esc(f)}">
-        ${avatarHtml(f, '', 'avatar-mini dl-schicken-ava')}<span>${esc(anzeigeName(f))}</span>${icon('send', 'icon')}
+        ${avatarHtml(f, undefined, 'avatar-mini dl-schicken-ava')}<span>${esc(anzeigeName(f))}</span>${icon('send', 'icon')}
       </button>`).join('')}</div>
   </div>`;
   document.body.appendChild(wrap);
@@ -2820,9 +2814,8 @@ function commentHtml(c, replies) {
   // Autors — der Server liefert den jeweils AKTUELLEN Stand mit
   const ns = nameStyleOf(c.user, c.paint);
   merkeAnzeigename(c.user, c.anzeigename || '');
-  const ava = c.avatar
-    ? `<img class="avatar-mini avatar-img c-ava" src="${sichereBildUrl(c.avatar)}" alt="">`
-    : `<span class="avatar-mini c-ava" style="background:${chatColor(c.user)}">${esc(anfangsBuchstabe(c.user))}</span>`;
+  merkeAvatar(c.user, c.avatar);
+  const ava = avatarHtml(c.user, undefined, 'avatar-mini c-ava');
   return `
     <div class="comment" data-cid="${esc(c.id)}">
       <div class="comment-head">
@@ -2999,10 +2992,10 @@ function refreshProfileTab() {
   if (!state.token) schliesseTopMenu({ fokus: false });
   if (state.token && state.userName) {
     btn.className = 'iconbtn';
-    btn.innerHTML = `<span class="avatar-mini">${esc(anfangsBuchstabe(state.userName))}</span>`;
+    renderKopfAvatar();
     btn.setAttribute('aria-label', 'Profil: ' + state.userName);
-    updateGiftBadges(); // innerHTML-Tausch wirft den Geschenk-Punkt sonst raus
   } else {
+    delete btn.dataset.ava;
     btn.className = 'btn-auth';
     btn.textContent = 'Anmelden';
     btn.setAttribute('aria-label', 'Anmelden / Registrieren');
@@ -3020,13 +3013,129 @@ function refreshProfileTab() {
   lioKnopfZeigen(); // Lio-Stand oben rechts in der Wallet: erst mit dem Profil dieses Kontos
 }
 
-// Profilbild oder Anfangsbuchstabe auf der festen Farbe des Namens. Die Farbe
-// haengt am @Name, der Buchstabe ist der des Anzeigenamens (so steht er daneben).
-function avatarHtml(name, bild, cls, id = '') {
+// ---- Profilbilder: die sechs Kumulios (Runde 123) ----
+// Eigene Uploads sind raus (es gibt noch keinen Bildfilter). Waehlbar sind
+// sechs Posen von Kumulio; gespeichert wird nur die ID ('kumulio-1' …), ohne
+// Wahl steht der Anfangsbuchstabe da. Alte hochgeladene Bilder (data-URLs)
+// liefert der Server nicht mehr aus, und hier werden sie auch nie gezeichnet.
+//
+// Die Figuren "ploppen" aus dem Rahmen: unten schneidet der Kreis sie ab, oben
+// und an den Seiten duerfen Kamm, Hand, Daumen, Schleife oder Liane
+// herausragen. Technik (look-avatare.css): der Rahmen (.ava-k) hat die Groesse
+// des bisherigen Avatars, ::before ist der runde Grund. Die Figur liegt in
+// .ava-k-fig, einem Kasten, der links und rechts je einen halben Rahmen, oben
+// 0,6 und unten 0,2 Rahmen uebersteht. Dessen Maske = Kreis ∪ Freiflaechen
+// der Figur (SVG, hier aus der Tabelle erzeugt).
+//
+// Tabelle: je Figur die Bildgroesse (Pixel des zugeschnittenen Bilds) und zwei
+// Stufen — "gross" fuer grosse Rahmen (Profil-Kopf, fremde Profile, Auswahl,
+// ab etwa 56 px) mit der ganzen Pose, "klein" fuer alles darunter (Kopfzeile,
+// Seitenleiste, Chat, Listen): naeher am Gesicht, nur der Kamm ragt heraus,
+// damit nichts an Nachbarn stoesst.
+//   w, x, y = Breite und linke obere Ecke der Figur in Rahmen-Einheiten
+//             (Rahmen = 1 × 1, Kreis-Mitte 0,5 / 0,5)
+//   frei    = Vielecke in Bild-Pixeln, die aus dem Kreis ragen duerfen
+//             (alles andere schneidet der Kreis ab). Die Kanten laufen durch
+//             Luecken der Figur oder an Umrissen entlang (Arm vor Bein, Schleife
+//             vor Zacke), damit nie ein Koerperteil gerade abgeschnitten ist.
+//   kachel  = nur in der Auswahl: Rahmen seitlich versetzt (Rahmen-Einheiten),
+//             damit Posen, die weit nach einer Seite ragen, mittig wirken
+const AVATAR_BASIS = '/brand/avatare/';
+const KUMULIO_AVATARE = {
+  // Liegt auf dem unteren Rand wie auf einer Fensterbank: die rechte Pfote
+  // haengt ueber den Ring, der Schwanz verschwindet hinter dem Rahmen
+  'kumulio-1': {
+    name: 'Entspannt', bild: [745, 749],
+    gross: { w: 1.2, x: -0.03, y: -0.14, frei: [[[-20, -20], [700, -20], [700, 250], [560, 380], [548, 560], [543, 600], [550, 620], [555, 640], [559, 660], [563, 680], [567, 700], [571, 712], [575, 780], [-20, 780]]] },
+    klein: { w: 1.4, x: -0.12, y: -0.1, frei: [[[138, -20], [520, -20], [520, 150], [180, 150], [175, 119], [160, 111], [145, 106], [140, 100]]] },
+  },
+  // Klettert: die obere Hand greift ueber den linken Rand
+  'kumulio-2': {
+    name: 'Klettert', bild: [513, 757],
+    gross: { w: 1.05, x: -0.105, y: -0.177, frei: [[[-20, -20], [533, -20], [533, 330], [-20, 330]]] },
+    klein: { w: 1.34, x: -0.364, y: -0.17, frei: [[[200, -20], [533, -20], [533, 120], [200, 120]]] },
+  },
+  // Daumen hoch: Daumen und Arm ragen links heraus
+  'kumulio-3': {
+    name: 'Daumen hoch', bild: [735, 765], kachel: 0.07,
+    gross: { w: 1.12, x: -0.15, y: -0.15, frei: [[[-20, -20], [755, -20], [755, 480], [300, 540], [140, 568], [100, 540], [55, 508], [-20, 508]]] },
+    klein: { w: 1.33, x: -0.35, y: -0.12, frei: [[[300, -20], [755, -20], [755, 150], [300, 150]]] },
+  },
+  // Mit Schleife: liegt unten im Rahmen, Kamm und Schleife ragen heraus
+  'kumulio-4': {
+    name: 'Mit Schleife', bild: [934, 757], kachel: -0.04,
+    gross: { w: 1.45, x: 0.05, y: -0.12, frei: [[[-20, -20], [680, -20], [680, 405], [612, 405], [540, 420], [-20, 420]]] },
+    klein: { w: 1.58, x: 0.024, y: -0.12, frei: [[[250, -20], [680, -20], [680, 300], [655, 300], [640, 317], [627, 329], [616, 339], [604, 345], [590, 350], [576, 355], [540, 360], [400, 100], [250, 100]]] },
+  },
+  // An der Liane: die Liane laeuft ueber den Rahmen (ihre Enden laufen im
+  // Bild weich aus), der Schwanz ist um sie gewickelt
+  'kumulio-5': {
+    name: 'An der Liane', bild: [953, 761], kachel: 0.1,
+    gross: { w: 1.24, x: -0.33, y: -0.075, frei: [[[-20, -20], [800, -20], [700, 130], [500, 165], [420, 170], [360, 215], [345, 380], [150, 420], [-20, 300]]] },
+    klein: { w: 1.6, x: -0.71, y: -0.185, frei: [] },
+  },
+  // Winkt: die Hand winkt ueber den Rand, die Fuesse sitzen auf dem Ring
+  'kumulio-6': {
+    name: 'Winkt', bild: [703, 731],
+    gross: { w: 1.2, x: -0.24, y: -0.13, frei: [[[-20, -20], [723, -20], [723, 340], [-20, 340]], [[270, 600], [610, 600], [640, 760], [270, 760]]] },
+    klein: { w: 1.71, x: -0.647, y: -0.18, frei: [[[372, -20], [700, -20], [700, 100], [580, 100], [575, 110], [400, 110], [385, 100], [372, 70]]] },
+  },
+};
+// Nur bekannte IDs; alles andere (auch alte data-URLs aus einem Zwischenspeicher) = kein Bild
+function avatarId(v) { return typeof v === 'string' && Object.hasOwn(KUMULIO_AVATARE, v) ? v : ''; }
+// Die Maske einer Stufe als SVG: Kreis plus Freiflaechen, in Rahmen-Einheiten
+// × 100 auf den Kasten von .ava-k-fig (x -50…150, y -60…120)
+function kumulioMaske(e, p) {
+  const k = v => Math.round(v * 1000) / 10;
+  const bw = e.bild[0];
+  const flaechen = (p.frei || []).map(f => `<polygon points='${f.map(([px, py]) => `${k(p.x + px / bw * p.w)},${k(p.y + py / bw * p.w)}`).join(' ')}'/>`).join('');
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='-50 -60 200 180' preserveAspectRatio='none'><circle cx='50' cy='50' r='50'/>${flaechen}</svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+}
+// Lage und Maske je Figur und Stufe als CSS-Variablen, einmal beim Start
+(function kumulioStil() {
+  const regeln = [];
+  for (const [id, e] of Object.entries(KUMULIO_AVATARE)) {
+    for (const [stufe, sel] of [['klein', '.ava-k'], ['gross', '.ava-k.ava-gross']]) {
+      const p = e[stufe];
+      regeln.push(`${sel}[data-ava="${id}"]{--ava-w:${p.w};--ava-x:${p.x};--ava-y:${p.y};--ava-maske:${kumulioMaske(e, p)}}`);
+    }
+  }
+  const st = document.createElement('style');
+  st.id = 'ava-k-stil';
+  st.textContent = regeln.join('\n');
+  document.head.appendChild(st);
+})();
+// Die Figur selbst. sizes grob nach Stufe: klein bis ~44 px Rahmen, gross bis ~96 px
+function kumulioFigurHtml(id, gross) {
+  const b = AVATAR_BASIS + id;
+  return `<span class="ava-k-fig" aria-hidden="true"><img src="${b}-256.webp" srcset="${b}-128.webp 128w, ${b}-256.webp 256w, ${b}-512.webp 512w" sizes="${gross ? 140 : 72}px" alt="" decoding="async" draggable="false"></span>`;
+}
+
+// Profilbilder anderer, wie sie der Server zuletzt mitgeschickt hat (Chat-Liste,
+// Freunde, Anfragen, Kommentare …): so haben auch Stellen ohne eigene Abfrage
+// (Anfragen, Verschenken, Deal schicken) das Bild. Nur gueltige IDs.
+const avatarMerk = new Map();
+function merkeAvatar(handle, v) {
+  if (!handle || v === undefined) return;
+  const a = avatarId(v);
+  if (a) avatarMerk.set(handle, a); else avatarMerk.delete(handle);
+}
+function merkeAvatare(karte, handles = []) {
+  if (!karte || typeof karte !== 'object') return;
+  for (const h of handles) merkeAvatar(h, karte[h] || '');
+}
+
+// Profilbild (Kumulio) oder Anfangsbuchstabe auf der festen Farbe des Namens.
+// Die Farbe haengt am @Name, der Buchstabe ist der des Anzeigenamens (so
+// steht er daneben). bild = die ID vom Server; undefined = die gemerkte.
+// gross: die ganze Pose (nur fuer grosse Rahmen, siehe KUMULIO_AVATARE).
+function avatarHtml(name, bild, cls, id = '', { gross = false } = {}) {
   const n = name || '?';
   const idAttr = id ? ` id="${id}"` : '';
-  return bild
-    ? `<img class="${cls}"${idAttr} src="${sichereBildUrl(bild)}" alt="">`
+  const a = avatarId(bild === undefined ? avatarMerk.get(n) : bild);
+  return a
+    ? `<span class="${cls} ava-k${gross ? ' ava-gross' : ''}"${idAttr} data-ava="${a}">${kumulioFigurHtml(a, gross)}</span>`
     : `<span class="${cls}"${idAttr} style="background:${chatColor(n)}">${esc(anfangsBuchstabe(n))}</span>`;
 }
 function anfangsBuchstabe(handle) { return ([...anzeigeName(handle || '?')][0] || '?').toUpperCase(); }
@@ -3037,6 +3146,9 @@ function profilNamenMerken(p) {
   if (!p) return false;
   const eigen = 'anzeigename' in p && merkeAnzeigename(state.userName, p.anzeigename || '');
   const andere = merkeNamen(p.namen, [...(p.friends || []), ...(p.friendRequests || [])]);
+  // Profilbilder der Freunde und Anfragenden (nur IDs, darum immer dabei)
+  merkeAvatare(p.avatare, [...(p.friends || []), ...(p.friendRequests || [])]);
+  if ('avatar' in p) merkeAvatar(state.userName, p.avatar);
   return eigen || andere;
 }
 
@@ -3051,21 +3163,26 @@ async function ladeProfil() {
   profilNamenMerken(frisch);
   // Namensfelder frisch halten — nicht, waehrend jemand darin tippt
   if (state.activeView !== 'editprofile') renderNamensFelder();
-  // Profil bearbeiten: Vorschau des Bildes
-  $('#g-avatar-preview').outerHTML = avatarHtml(state.userName, myProfile.avatar, 'avatar-big', 'g-avatar-preview');
-  $('#g-avatar-del').classList.toggle('hidden', !myProfile.avatar);
   renderProfil();
-  // Kopfzeilen-Knopf: Profilbild statt Initiale
-  if (myProfile.avatar && state.token) {
-    $('#btn-profile-top').innerHTML = `<img class="avatar-mini avatar-img" src="${sichereBildUrl(myProfile.avatar)}" alt="">`;
-    updateGiftBadges(); // der Avatar-Tausch wirft den Geschenk-Punkt sonst raus
-  } else {
-    // Ohne Bild: der Anfangsbuchstabe des Anzeigenamens (jetzt bekannt)
-    const ini = $('#btn-profile-top .avatar-mini:not(.avatar-img)');
-    if (ini) ini.textContent = anfangsBuchstabe(state.userName);
-  }
+  // Kopfzeilen-Knopf: Kumulio oder der Anfangsbuchstabe des Anzeigenamens (jetzt bekannt)
+  renderKopfAvatar();
   updateReqDot();
   lioNachProfil();
+}
+
+// Oben links: das eigene Profilbild (Kumulio) oder der Anfangsbuchstabe.
+// Nur neu zeichnen, wenn sich etwas geaendert hat (sonst laedt das Bild bei
+// jedem Profil-Abruf neu); der Geschenk-Punkt haengt danach wieder dran.
+function renderKopfAvatar() {
+  const btn = $('#btn-profile-top');
+  if (!btn || !state.token || !state.userName) return;
+  const a = avatarId(myProfile?.avatar);
+  const schluessel = (a || '-') + '|' + anfangsBuchstabe(state.userName) + '|' + state.userName;
+  if (btn.dataset.ava !== schluessel || !btn.querySelector('.avatar-mini')) {
+    btn.innerHTML = avatarHtml(state.userName, a, 'avatar-mini');
+    btn.dataset.ava = schluessel;
+  }
+  updateGiftBadges(); // innerHTML-Tausch wirft den Geschenk-Punkt sonst raus
 }
 
 // Der eigene Name in der eigenen Namensfarbe (Profil-Kopf)
@@ -3107,7 +3224,7 @@ function kundeSeitText(ts) {
 // Profil-Seite: Kopf, Rang, Login-Serie, Lieblingsmarken, Freunde
 function renderProfil() {
   if (!state.token || !myProfile) return;
-  $('#me-avatar').innerHTML = avatarHtml(state.userName, myProfile.avatar, 'avatar-big');
+  $('#me-avatar').innerHTML = avatarHtml(state.userName, myProfile.avatar || '', 'avatar-big', '', { gross: true });
   renderMyName();
   $('#me-handle').textContent = '@' + (state.userName || '');
   const bio = $('#me-bio');
@@ -3367,8 +3484,10 @@ function oeffneProfilBearbeiten() {
   $('#g-bio-msg').textContent = '';
   for (const k of Object.keys(favPick)) delete favPick[k];
   peFarbe = myProfile?.nameColor || '';
+  peAvatar = avatarId(myProfile?.avatar);
   renderFavPickers();
   renderFarbwahl();
+  renderAvatarWahl();
   switchView('editprofile', 'enter-drop');
 }
 $('#btn-edit-profile').addEventListener('click', oeffneProfilBearbeiten);
@@ -3388,6 +3507,9 @@ $('#g-bio-save').addEventListener('click', async () => {
       : `Anzeigenamen entfernen? Dann steht dort dein @Name, und ändern geht erst wieder in 7 Tagen.`;
     if (!await askConfirm(frage, { okLabel: 'Speichern' })) return;
   }
+  // Profilbild nur, wenn anders gewaehlt (ein altes Upload-Bild bleibt sonst
+  // unangetastet im Konto liegen)
+  const bildNeu = peAvatar !== avatarId(myProfile?.avatar);
   setBtnLoading($('#g-bio-save'), true);
   try {
     const r = await api('/api/profile', {
@@ -3396,6 +3518,7 @@ $('#g-bio-save').addEventListener('click', async () => {
         bio: $('#g-bio').value, publicProfile: $('#g-public').checked,
         favs: { ...favPick }, nameColor: peFarbe || '',
         ...(nameNeu ? { anzeigename: name } : {}),
+        ...(bildNeu ? { avatar: peAvatar } : {}),
       }),
     });
     profSeq++; // ein laufender Ladevorgang darf den neuen Stand nicht zurueckrollen
@@ -3405,6 +3528,7 @@ $('#g-bio-save').addEventListener('click', async () => {
     renderNamensFelder();
     island('Profil gespeichert');
     renderProfil();
+    renderKopfAvatar();
     switchView('profile', 'enter-drop'); // direkt zurück
   } catch (e) {
     m.className = 'form-msg error'; m.textContent = e.message;
@@ -3446,32 +3570,35 @@ $('#g-anzeigename').addEventListener('input', e => {
   zeigeFarbVorschau();
 });
 
-// Profilbild: quadratisch auf 96px verkleinert, als kleines JPEG gespeichert
-$('#g-avatar').addEventListener('change', async e => {
-  const f = e.target.files[0];
-  if (!f) return;
-  try {
-    const url = await new Promise((res, rej) => {
-      const rd = new FileReader();
-      rd.onload = () => res(rd.result); rd.onerror = rej; rd.readAsDataURL(f);
+// Profilbild waehlen: sechs Kumulios in Kacheln (die ganze Pose), darunter
+// "Kein Bild" mit dem Anfangsbuchstaben. Eigene Bilder hochladen gibt es
+// vorerst nicht (noch kein Bildfilter). Gespeichert wird mit "Speichern".
+let peAvatar = '';
+function renderAvatarWahl() {
+  const host = $('#pe-avatare');
+  if (!host) return;
+  const n = state.userName || '?';
+  const kachel = (id, inhalt, cls, label) => `
+    <button type="button" class="pe-ava-wahl${cls}${peAvatar === id ? ' an' : ''}" role="radio" aria-checked="${peAvatar === id}" data-ava-wahl="${id}" aria-label="${esc(label)}">
+      ${inhalt}<span class="pe-ava-haken" aria-hidden="true">${icon('check', 'icon')}</span>
+    </button>`;
+  host.innerHTML = Object.entries(KUMULIO_AVATARE).map(([id, e], i) =>
+    kachel(id, avatarHtml(n, id, 'avatar-big pe-ava', '', { gross: true }).replace('<span ', `<span style="--kachel:${e.kachel || 0}" `), '', `Kumulio ${i + 1}: ${e.name}`)).join('')
+    + kachel('', `${avatarHtml(n, '', 'avatar-big')}<span class="pe-ava-ohne-txt"><b>Kein Bild</b><span>Nur dein Anfangsbuchstabe</span></span>`, ' pe-ava-ohne', 'Kein Bild');
+  host.querySelectorAll('[data-ava-wahl]').forEach(b => b.onclick = () => {
+    if (peAvatar === b.dataset.avaWahl) return;
+    peAvatar = b.dataset.avaWahl;
+    // Nur Zustand umschalten (kein Neuzeichnen: die Bilder bleiben stehen)
+    host.querySelectorAll('[data-ava-wahl]').forEach(x => {
+      const an = x === b;
+      x.classList.toggle('an', an);
+      x.setAttribute('aria-checked', String(an));
+      x.classList.remove('pop');
     });
-    const img = new Image();
-    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
-    const c = document.createElement('canvas');
-    c.width = c.height = 96;
-    const s = Math.min(img.naturalWidth, img.naturalHeight);
-    c.getContext('2d').drawImage(img, (img.naturalWidth - s) / 2, (img.naturalHeight - s) / 2, s, s, 0, 0, 96, 96);
-    const avatar = c.toDataURL('image/jpeg', 0.82);
-    await api('/api/profile', { method: 'POST', body: JSON.stringify({ avatar }) });
-    island('Profilbild gespeichert');
-    refreshProfileTab();
-  } catch { island('Bild konnte nicht verarbeitet werden'); }
-  e.target.value = ''; // dasselbe Bild laesst sich so nochmal waehlen
-});
-$('#g-avatar-del').addEventListener('click', async () => {
-  await api('/api/profile', { method: 'POST', body: JSON.stringify({ avatar: '' }) }).catch(() => { });
-  refreshProfileTab();
-});
+    if (weich()) { void b.offsetWidth; b.classList.add('pop'); }
+    buzz(6);
+  });
+}
 
 // Oben links: Gäste landen direkt beim Anmelden, Angemeldete bekommen die
 // Seitenleiste, die von links hereingleitet
@@ -3519,7 +3646,7 @@ function tmKopfHtml() {
         alt="" decoding="async" draggable="false">${funkenHtml('tm-rang-funken')}</span>
       <span class="tm-rang-text">
         <span class="tm-rang-ich">
-          <span class="tm-rang-ava">${avatarHtml(name, myProfile?.avatar, 'avatar-big')}${state.role === 'admin' ? `<span class="tm-rang-krone">${icon('crown', 'icon')}</span>` : ''}</span>
+          <span class="tm-rang-ava">${avatarHtml(name, myProfile?.avatar || '', 'avatar-big')}${state.role === 'admin' ? `<span class="tm-rang-krone">${icon('crown', 'icon')}</span>` : ''}</span>
           <span class="tm-rang-wer">
             <span class="tm-name">${esc(myProfile?.anzeigename || anzeigeName(name))}</span>
             <span class="tm-rang-profil">Profil ansehen${icon('chevron', 'icon')}</span>
@@ -3559,7 +3686,7 @@ function oeffneTopMenu() {
     <div class="tm-lio" id="tm-lio">${tmLioHtml()}</div>
     ${reqs.length ? `<div class="tm-section">Freundschaftsanfragen</div>
     ${reqs.map(u => `<div class="tm-req">
-      <span class="avatar-mini" style="background:${chatColor(u)}">${esc(anfangsBuchstabe(u))}</span>
+      ${avatarHtml(u, undefined, 'avatar-mini')}
       ${nameMitHandleHtml(u, 'tm-req-name', { at: false })}
       <button class="btn btn-small" data-freq-ok="${esc(u)}">Annehmen</button>
       <button class="btn btn-small btn-ghost" data-freq-no="${esc(u)}">Ablehnen</button>
@@ -3597,14 +3724,13 @@ function oeffneTopMenu() {
   api('/api/dm/list').then(r => {
     dmListeNamenMerken(r);
     const rows = [
-      ...r.list.map(l => ({ name: l.partner, avatar: l.avatar, ts: l.lastTs })),
-      ...(r.friends || []).map(f => ({ name: f.name, avatar: f.avatar, ts: 0 })),
+      ...r.list.map(l => ({ name: l.partner, ts: l.lastTs })),
+      ...(r.friends || []).map(f => ({ name: f.name, ts: 0 })),
     ].filter(x => (myProfile?.friends || []).includes(x.name)).slice(0, 3);
     $('#tm-friends').innerHTML = rows.length ? rows.map(f => `
       <div class="tm-req">
         <span class="tm-friend-open" data-tm-user="${esc(f.name)}" style="display:flex; align-items:center; gap:8px; flex:1; cursor:pointer">
-          ${f.avatar ? `<img class="avatar-mini avatar-img" src="${sichereBildUrl(f.avatar)}" alt="">`
-        : `<span class="avatar-mini" style="background:${chatColor(f.name)}">${esc(anfangsBuchstabe(f.name))}</span>`}
+          ${avatarHtml(f.name, undefined, 'avatar-mini')}
           <span style="font-weight:700" title="@${esc(f.name)}">${esc(anzeigeName(f.name))}</span>
         </span>
         <button class="btn btn-small btn-ghost" data-tm-whisper="${esc(f.name)}">Schreiben</button>
@@ -3702,7 +3828,7 @@ let knownReqs = null;
 function showReqToast(user) {
   const t = $('#req-toast');
   t.innerHTML = `
-    <span class="avatar-mini" style="background:${chatColor(user)}">${esc(anfangsBuchstabe(user))}</span>
+    ${avatarHtml(user, undefined, 'avatar-mini')}
     <span style="flex:1">${hatAnzeigename(user) ? `<b>${esc(anzeigeName(user))}</b> (@${esc(user)})` : `<b>@${esc(user)}</b>`} möchte dein Freund sein</span>
     <button class="btn btn-small" id="rt-ok">Annehmen</button>
     <button class="btn btn-small btn-ghost" id="rt-no">Ablehnen</button>`;
@@ -7277,7 +7403,7 @@ function zeigeSchenkSchritt(v) {
     const gefiltert = s ? freunde.filter(f => f.toLowerCase().includes(s) || anzeigeName(f).toLowerCase().includes(s)) : freunde;
     return gefiltert.map(f => `
       <button class="gp-freund${anWen === f ? ' gewaehlt' : ''}" type="button" data-gp-an="${esc(f)}" aria-pressed="${anWen === f}">
-        <span class="gp-ava" style="--fc:${chatColor(f)}">${esc(anfangsBuchstabe(f))}</span>
+        ${avatarHtml(f, undefined, 'gp-ava')}
         ${nameMitHandleHtml(f, 'gp-name')}
         <span class="gp-haken">${icon('check', 'icon icon-sm')}</span>
       </button>`).join('') || '<p class="gp-leer">Niemand gefunden.</p>';
@@ -9453,7 +9579,7 @@ function couponSchickenSchritt(wrap, it, brand, key, offen) {
       ${freunde.length ? `
         <div class="ccs-freunde">${freunde.map(f => `
           <button class="gp-freund" type="button" data-ccs-an="${esc(f)}" aria-pressed="false">
-            <span class="gp-ava" style="--fc:${chatColor(f)}">${esc(anfangsBuchstabe(f))}</span>
+            ${avatarHtml(f, undefined, 'gp-ava')}
             ${nameMitHandleHtml(f, 'gp-name', { at: false })}
             <span class="gp-haken">${icon('check', 'icon icon-sm')}</span>
           </button>`).join('')}</div>
@@ -12395,12 +12521,14 @@ function setChatMode(mode, partner) {
       $('#dm-partner-hinweis').textContent = hatAnzeigename(dmPartner) ? '@' + dmPartner : 'Profil ansehen';
     };
     nameZeigen();
-    $('#dm-partner-ava').innerHTML = `<span class="avatar-mini" style="background:${chatColor(dmPartner)}">${esc(anfangsBuchstabe(dmPartner))}</span>`;
+    const avaZeigen = () => { $('#dm-partner-ava').innerHTML = avatarHtml(dmPartner, undefined, 'avatar-mini'); };
+    avaZeigen();
     const fuer = dmPartner;
     api('/api/user?name=' + encodeURIComponent(dmPartner)).then(u => {
       if (fuer !== dmPartner) return; // inzwischen ein anderer Chat offen
       if ('anzeigename' in u && merkeAnzeigename(dmPartner, u.anzeigename)) nameZeigen();
-      if (u.avatar) $('#dm-partner-ava').innerHTML = `<img class="avatar-mini avatar-img" src="${sichereBildUrl(u.avatar)}" alt="">`;
+      // Private Profile schicken kein Bild mit: dann bleibt das gemerkte stehen
+      if ('avatar' in u && avatarId(u.avatar) !== (avatarMerk.get(dmPartner) || '')) { merkeAvatar(dmPartner, u.avatar); avaZeigen(); }
       const ns = nameStyleOf(dmPartner, u.activePaint);
       el.className = ns.cls.trim();
       el.setAttribute('style', ns.style);
@@ -12499,8 +12627,8 @@ function chatListenZeit(ts) {
 
 // /api/dm/list: Anzeigenamen der Gespraechspartner und der Freunde ohne Chat
 function dmListeNamenMerken(r) {
-  (r?.list || []).forEach(c => merkeAnzeigename(c.partner, c.anzeigename || ''));
-  (r?.friends || []).forEach(f => merkeAnzeigename(f.name, f.anzeigename || ''));
+  (r?.list || []).forEach(c => { merkeAnzeigename(c.partner, c.anzeigename || ''); merkeAvatar(c.partner, c.avatar || ''); });
+  (r?.friends || []).forEach(f => { merkeAnzeigename(f.name, f.anzeigename || ''); merkeAvatar(f.name, f.avatar || ''); });
 }
 
 async function pollChat(force) {
@@ -12518,10 +12646,8 @@ async function pollChat(force) {
       const r = await api('/api/dm/list');
       if (veraltet()) return;
       dmListeNamenMerken(r);
-      // Profilbild, sonst der Anfangsbuchstabe auf der Chat-Farbe
-      const ava = (name, avatar) => avatar
-        ? `<img class="avatar-mini avatar-img" src="${sichereBildUrl(avatar)}" alt="">`
-        : `<span class="avatar-mini" style="background:${chatColor(name)}">${esc(anfangsBuchstabe(name))}</span>`;
+      // Profilbild (Kumulio), sonst der Anfangsbuchstabe auf der Chat-Farbe
+      const ava = (name, avatar) => avatarHtml(name, avatar || '', 'avatar-mini');
       // Letzte Nachricht als Vorschau: Emotes als kleine Bilder, ein geteilter
       // Deal ohne das [deal:…]-Kuerzel, eigene mit "Du:" davor
       const vorschau = c => {
@@ -12681,6 +12807,7 @@ async function openUserPop(user, msgId) {
   let u = { user };
   try { u = await api('/api/user?name=' + encodeURIComponent(user)); } catch { }
   if ('anzeigename' in u) merkeAnzeigename(user, u.anzeigename || '');
+  if ('avatar' in u) merkeAvatar(user, u.avatar);
   const isFriend = (myProfile?.friends || []).includes(user);
   const ns = nameStyleOf(user, u.activePaint);
   // Wie das eigene Profil, nur ohne Privates: keine Serie. Vom Rang kommt nur
@@ -12693,7 +12820,7 @@ async function openUserPop(user, msgId) {
     <div class="up-kopf"${stufe ? ` data-stufe="${stufe}"` : ''}>
       <div class="up-hero">
         <span class="up-ava-rahmen">
-          ${avatarHtml(user, u.avatar, 'avatar-big up-ava')}
+          ${avatarHtml(user, u.private ? '' : u.avatar || '', 'avatar-big up-ava', '', { gross: true })}
           ${stufe ? funkenHtml('up-funken', 2) : ''}
         </span>
         <div class="up-name"><span class="${ns.cls.trim()}" style="${ns.style}">${esc(anzeigeName(user))}</span> ${u.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : u.role === 'mod' ? icon('check', 'icon icon-sm role-mod') : ''}</div>
@@ -12765,10 +12892,10 @@ async function renderProfileRatings(user) {
     ${r.list.length ? r.list.map(c => {
     const cns = nameStyleOf(c.from, c.paint);
     merkeAnzeigename(c.from, c.anzeigename || '');
+    merkeAvatar(c.from, c.avatar);
     return `
     <div class="up-rate-row">
-      ${c.avatar ? `<img class="avatar-mini avatar-img" src="${sichereBildUrl(c.avatar)}" alt="">`
-      : `<span class="avatar-mini" style="background:${chatColor(c.from)}">${esc(anfangsBuchstabe(c.from))}</span>`}
+      ${avatarHtml(c.from, undefined, 'avatar-mini')}
       <div class="up-rate-body">
         <div><span class="chat-user${cns.cls}" style="${cns.style}" title="@${esc(c.from)}">${esc(anzeigeName(c.from))}</span> ${starRow(c.stars, false)} <span class="comment-time">${esc(timeAgo(c.ts))}</span></div>
         ${c.text ? `<div class="up-rate-text">${withEmotes(esc(c.text))}</div>` : ''}
@@ -15264,6 +15391,9 @@ function verarbeiteGeteiltes() {
 // dazu lokal als Rueckfallebene, falls das Melden ans Konto gerade nicht klappt.
 // Neue Konten starten beim aktuellen Stand und sehen erst das naechste Update.
 // Inhalt: public/neuigkeiten.json (bei jedem Update oben einen Eintrag ergaenzen).
+// Ein Punkt darf ein Bild tragen: "bild" (Pfad unter /brand/), optional
+// "bildDunkel" (Fassung fuer den Dunkelmodus), "bildAlt" und "bildGroesse"
+// [Breite, Hoehe] in Pixeln, damit beim Laden nichts springt.
 async function ladeNeuigkeiten() {
   if (neuListe) return neuListe;
   try {
@@ -15304,6 +15434,16 @@ async function pruefeNeuigkeiten(versuch = 0) {
 }
 function zeigeNeuigkeiten(eintraege) {
   const iconName = n => (/^[a-z-]{2,20}$/.test(n || '') ? n : 'sparkle');
+  // Nur eigene Bilder (unter /brand/), im Dunkelmodus die dunkle Fassung
+  const bildPfad = u => (/^\/brand\/[a-z0-9/_-]+\.(webp|png|jpg|svg)$/i.test(u || '') ? u : '');
+  const dunkel = document.documentElement.dataset.theme === 'dark';
+  const bildHtml = pt => {
+    const src = bildPfad(dunkel && pt.bildDunkel ? pt.bildDunkel : pt.bild);
+    if (!src) return '';
+    const [w, h] = Array.isArray(pt.bildGroesse) ? pt.bildGroesse.map(Number) : [];
+    const mass = w > 0 && h > 0 ? ` width="${Math.round(w)}" height="${Math.round(h)}"` : '';
+    return `<span class="neu-bild"><img src="${esc(src)}"${mass} alt="${esc(pt.bildAlt || '')}" decoding="async"></span>`;
+  };
   let i = 0;
   const wrap = document.createElement('div');
   wrap.className = 'overlay neu-overlay';
@@ -15319,7 +15459,7 @@ function zeigeNeuigkeiten(eintraege) {
         <ul class="neu-liste">${e.punkte.map(pt => `
           <li style="--i:${i++}">
             <span class="neu-icon">${icon(iconName(pt.icon), 'icon')}</span>
-            <span class="neu-txt"><b>${esc(pt.titel || '')}</b><span>${esc(pt.text || '')}</span></span>
+            <span class="neu-txt"><b>${esc(pt.titel || '')}</b><span>${esc(pt.text || '')}</span>${bildHtml(pt)}</span>
           </li>`).join('')}</ul>`).join('')}
     </div>
     <button class="btn btn-big neu-ok" type="button" data-neu-ok>Alles klar</button>

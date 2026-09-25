@@ -1,0 +1,102 @@
+/* =============================================================================
+   Profilbilder: die sechs Kumulios (Runde 123)
+   Der Rahmen (.ava-k) ist das Element mit der Groesse des Avatars an seiner
+   Stelle (avatar-mini, avatar-big, c-ava, gp-ava …). ::before ist der runde
+   Grund, die Figur liegt in .ava-k-fig: ein Kasten, der links und rechts je
+   einen halben Rahmen, oben 0,6 und unten 0,2 Rahmen uebersteht. Seine Maske
+   (Kreis ∪ Freiflaechen der Figur) und die Lage der Figur kommen je Figur und
+   Stufe als Variablen aus app.js (KUMULIO_AVATARE). So schneidet der Kreis die
+   Figur unten ab, Kamm, Hand oder Liane ragen oben und seitlich heraus.
+   ========================================================================== */
+.ava-k {
+  position: relative; isolation: isolate; overflow: visible !important;
+  background: none !important; color: transparent; padding: 0;
+}
+/* Der Grund: hell und ruhig, ein Hauch Himmelblau zum gruenen Kumulio — auf
+   weissen Karten, im Rang-Verlauf und in der farbigen Kopfzeile gleich */
+.ava-k::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; border-radius: 50%;
+  background: radial-gradient(circle at 50% 30%, #FFFFFF 0%, #F1F6FB 42%, #DCE8F3 100%);
+  box-shadow: inset 0 0 0 1px rgba(20, 40, 60, .07);
+}
+:root[data-theme="dark"] .ava-k::before {
+  background: radial-gradient(circle at 50% 30%, #465767 0%, #354452 52%, #2A3643 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .09);
+}
+/* Farbige Flaechen sehen hell und dunkel gleich aus (Rang-Karten, farbige
+   Kopfzeile der Wallet) — dort bleibt auch der Grund der helle */
+:root[data-theme="dark"] :is(.pf-kopf, .tm-rang, .up-kopf[data-stufe]) .ava-k::before,
+:root[data-theme="dark"] body.wallet-farbe:not(.kopf-weg) #btn-profile-top .ava-k::before {
+  background: radial-gradient(circle at 50% 30%, #FFFFFF 0%, #F1F6FB 42%, #DCE8F3 100%);
+  box-shadow: inset 0 0 0 1px rgba(20, 40, 60, .07);
+}
+.ava-k-fig {
+  position: absolute; left: -50%; right: -50%; top: -60%; bottom: -20%;
+  pointer-events: none;
+  -webkit-mask: var(--ava-maske) 0 0 / 100% 100% no-repeat;
+  mask: var(--ava-maske) 0 0 / 100% 100% no-repeat;
+}
+/* Lage in Rahmen-Einheiten: der Kasten ist 2 Rahmen breit und 1,8 hoch */
+.ava-k-fig > img {
+  position: absolute; display: block; max-width: none; height: auto; margin: 0;
+  width: calc(var(--ava-w) * 50%);
+  left: calc((var(--ava-x) + .5) * 50%);
+  top: calc((var(--ava-y) + .6) * 100% / 1.8);
+  -webkit-user-select: none; user-select: none; -webkit-user-drag: none;
+}
+
+/* ---- Profil bearbeiten: Kumulio waehlen ---------------------------------- */
+.pe-avatare { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+/* Jede Kachel laesst oben Luft, damit Kamm, Daumen und Liane Platz haben */
+.pe-ava-wahl {
+  position: relative; display: flex; align-items: flex-end; justify-content: center;
+  height: 102px; margin: 0; padding: 0 0 13px; border: 0; border-radius: 16px;
+  background: var(--karte-2); color: inherit; font: inherit; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.pe-ava-wahl .pe-ava { width: 62px; height: 62px; translate: calc(var(--kachel, 0) * 62px) 0; }
+.pe-ava-wahl.an {
+  background: color-mix(in srgb, var(--akzent) 13%, var(--karte-2));
+  box-shadow: inset 0 0 0 2px var(--akzent);
+}
+.pe-ava-wahl:focus-visible { outline: 2px solid var(--akzent); outline-offset: 2px; }
+.pe-ava-haken {
+  position: absolute; top: 7px; right: 7px; z-index: 1;
+  display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--akzent); color: #fff; box-shadow: 0 0 0 2px var(--karte);
+  opacity: 0; transform: scale(.6);
+  transition: opacity .16s ease, transform .24s var(--spring);
+}
+.pe-ava-haken .icon { width: 13px; height: 13px; stroke-width: 3; }
+.pe-ava-wahl.an .pe-ava-haken { opacity: 1; transform: none; }
+/* Kein Bild: eine flache Zeile unter den Kacheln, mit dem Anfangsbuchstaben */
+.pe-ava-wahl.pe-ava-ohne {
+  grid-column: 1 / -1; height: auto; align-items: center; justify-content: flex-start; gap: 12px;
+  padding: 10px 44px 10px 12px; text-align: left;
+}
+.pe-ava-ohne .avatar-big { width: 38px; height: 38px; font-size: .98rem; }
+.pe-ava-ohne-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; line-height: 1.3; }
+.pe-ava-ohne-txt b { font-size: .92rem; font-weight: 750; }
+.pe-ava-ohne-txt span { font-size: .8rem; color: var(--muted); }
+.pe-ava-ohne .pe-ava-haken { top: 50%; right: 12px; margin-top: -11px; }
+/* Kleiner Hopser beim Waehlen (nur transform) */
+.pe-ava-wahl.pop .pe-ava, .pe-ava-wahl.pop .avatar-big { animation: peAvaPop .34s var(--spring); }
+@keyframes peAvaPop { 0% { transform: scale(.86); } 100% { transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .pe-ava-wahl.pop .pe-ava, .pe-ava-wahl.pop .avatar-big { animation: none; }
+  .pe-ava-haken { transition: none; }
+}
+body:is(.sparsam, .ohne-anim) .pe-ava-wahl.pop :is(.pe-ava, .avatar-big) { animation: none; }
+/* Erste Beschriftung einer Karte ohne Abstand nach oben */
+#view-editprofile .pe-karte > .f-label:first-child { margin-top: 0; }
+
+/* ---- Neu in kumulio: Bilder im Update-Log -------------------------------- */
+.neu-bild {
+  display: block; margin: 8px 0 2px; border-radius: 12px; overflow: hidden;
+  background: var(--karte-2);
+}
+.neu-bild img { display: block; width: 100%; height: auto; }
+/* Dunkelmodus: der allgemeine Dialog-Innenabstand und die blaue Wortmarke
+   gelten hier nicht — der Kopf bleibt randlos, die Wortmarke weiss wie im Hellen */
+:root[data-theme="dark"] .neu-modal { padding: 0; }
+:root[data-theme="dark"] .neu-logo .k-wordmark { color: #fff; }
