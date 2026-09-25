@@ -4991,7 +4991,7 @@ function euroFmt(n) { return n == null ? '' : n.toFixed(2).replace('.', ',').rep
 
 // ---- Spielgefühl: Sounds, Vibration, Aufleuchten, Geldscheine, Zähl-Animation ----
 
-const SFX = { kaching: '/sounds/kaching.mp3', pay: '/sounds/pay.mp3', plop: '/sounds/plop.mp3', coin: '/sounds/coin.mp3', error: '/sounds/error.mp3', wow: '/sounds/wow.mp3', wowShort: '/sounds/wow-short.mp3', anmelden: '/sounds/anmelden.mp3' };
+const SFX = { kaching: '/sounds/kaching.mp3', plop: '/sounds/plop.mp3', coin: '/sounds/coin.mp3', error: '/sounds/error.mp3', wow: '/sounds/wow.mp3', wowShort: '/sounds/wow-short.mp3', anmelden: '/sounds/anmelden.mp3', abbuchen: '/sounds/abbuchen.mp3' };
 // Ton ist Opt-in: alle Effekte bleiben stumm, bis der Schalter in den Einstellungen an ist
 // (function statt const: wird auch weiter oben im Skript schon beim Laden gebraucht)
 function soundOn() { return localStorage.getItem('ra.sound') === '1'; }
@@ -8538,10 +8538,10 @@ function gutscheinBuchen(seite, sign, amt, note) {
   // schon den neuen Stand und zeichnet nicht ein zweites Mal
   zeichneGutscheinSeite(seite, { animFrom: before });
   saveWallet();
-  // Geld raus = Apple-Pay-Klang, rotes Aufleuchten, kurzer Ruckler an der
-  // Karte; Geld rein = Ka-ching, gruenes Aufleuchten, Geldscheine
+  // Geld raus = Abbuchungston (vom Nutzer), rotes Aufleuchten, kurzer Ruckler
+  // an der Karte; Geld rein = Ka-ching, gruenes Aufleuchten, Geldscheine
   if (sign < 0) {
-    playSfx('pay'); buzz([45, 40, 45]); moneyFlash('red');
+    playSfx('abbuchen', .5); buzz([45, 40, 45]); moneyFlash('red');
     if (!reducedMotion()) neuStarten(seite.el.querySelector('#gd-karte'), 'shake-once');
   } else {
     playSfx('kaching'); buzz(35); moneyFlash('green'); billRain(5);
