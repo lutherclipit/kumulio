@@ -148,10 +148,14 @@ let profComments = loadJson('profile-comments.json', {}); // { user: [ {from,tex
 let ratings = loadJson('ratings.json', {});     // { dealId: {up, down, clicks} }
 let users = loadJson('users.json', {});
 {
+  // Profilbilder sind seit Runde 123 nur noch die Kumulio-IDs (AVATARE, weiter
+  // unten). Alte hochgeladene Bilder (data-URLs) bleiben im Konto liegen —
+  // rueckholbar, falls es Uploads mit Filter wieder gibt —, gehen aber nie
+  // mehr raus (avatarVon). Alles andere war nie gueltig und fliegt raus.
   let weg = 0;
   for (const u of Object.values(users)) {
     const pr = u && u.profile;
-    if (pr && pr.avatar && !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(pr.avatar)) { pr.avatar = ''; weg++; }
+    if (pr && pr.avatar && !/^kumulio-[1-6]$/.test(pr.avatar) && !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(pr.avatar)) { pr.avatar = ''; weg++; }
   }
   if (weg) console.log(`[Profil] ${weg} ungueltige Profilbilder entfernt`);
 }         // { username: {hash, salt, ts} }
@@ -510,7 +514,22 @@ const BILD_ENDUNG = { 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/png': 'p
 const ENDUNG_TYP = { jpg: 'image/jpeg', webp: 'image/webp', png: 'image/png', gif: 'image/gif' };
 const BILD_NAME = /^[a-f0-9]{40}\.(jpg|webp|png|gif)$/;
 // Nur echte Bilddaten: Anfuehrungszeichen o. Ae. koennten sonst aus src="…" ausbrechen
-const AVATAR_OK = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
+const AVATAR_ALT = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
+// Profilbilder: die sechs Kumulios (public/brand/avatare/, Tabelle in app.js).
+// Eigene Uploads gibt es vorerst nicht (kein Bildfilter). '' = kein Bild.
+const AVATARE = new Set(['kumulio-1', 'kumulio-2', 'kumulio-3', 'kumulio-4', 'kumulio-5', 'kumulio-6']);
+// JEDE Antwort mit einem Profilbild geht hier durch: nur eine erlaubte ID,
+// sonst '' (so tauchen alte, ungefilterte Uploads nirgends mehr auf)
+function avatarVon(user) {
+  const a = users[user] && users[user].profile && users[user].profile.avatar;
+  return typeof a === 'string' && AVATARE.has(a) ? a : '';
+}
+// Fuer Namenslisten (Freunde, Anfragen): { "@Name": "kumulio-3" }, nur gesetzte
+function avatarKarte(namen) {
+  const m = {};
+  for (const n of new Set(namen)) { const a = avatarVon(n); if (a) m[n] = a; }
+  return m;
+}
 function bildFeldOk(w) {
   const t = String(w || '');
   return /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(t)
@@ -1362,7 +1381,7 @@ function eigenesProfil(user) {
   const prof = profileOf(user);
   return {
     user, bio: prof.bio || '', publicProfile: prof.publicProfile !== false,
-    avatar: prof.avatar || '', favs: prof.favs || {},
+    avatar: avatarVon(user), favs: prof.favs || {},
     friends: prof.friends || [], friendRequests: prof.friendRequests || [],
     nameColor: namensfarbe(user), loginStreak: loginSerie(prof),
     eingeladen: eingeladenZahl(prof),
@@ -1372,6 +1391,8 @@ function eigenesProfil(user) {
     // und die Anzeigenamen der Freunde und Anfragenden
     anzeigename: anzeigenameVon(user), anzeigenameAb: anzeigenameAb(prof),
     namen: anzeigeNamen([...(prof.friends || []), ...(prof.friendRequests || [])]),
+    // ... und ihre Profilbilder (nur IDs, darum klein)
+    avatare: avatarKarte([...(prof.friends || []), ...(prof.friendRequests || [])]),
     // Lio: Stand, ungesehene Gutschriften (Stern), offene Boni, Serie und
     // Einladungen — alles, was das Seitenmenue ohne Extra-Abruf braucht
     lio: lioStand(prof), lioNeu: lioNeuListe(prof), lioBoni: lioBoniListe(prof),
@@ -2833,7 +2854,7 @@ async function fillCompareCache(key, query, cached) {
 
 // ---------------------------------------------------------------- HTTP
 
-const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.ico': 'image/x-icon', '.json': 'application/json' };
 
 function send(res, code, body, type = 'application/json') {
   // Fertige Dateien (Buffer) NIE durch JSON.stringify schicken — sonst kommt
@@ -3413,7 +3434,7 @@ const server = http.createServer(async (req, res) => {
       list.sort((x, y) => y.lastTs - x.lastTs);
       list.forEach(l => {
         const lp = users[l.partner] ? profileOf(l.partner) : null;
-        l.avatar = lp ? lp.avatar || '' : '';
+        l.avatar = avatarVon(l.partner);
         l.paint = namensfarbe(l.partner);
         if (lp && lp.anzeigename) l.anzeigename = anzeigenameVon(l.partner);
       });
@@ -3421,16 +3442,15 @@ const server = http.createServer(async (req, res) => {
       const friends = (profileOf(me).friends || [])
         .filter(f => !list.some(l => l.partner === f))
         .map(f => {
-          const fp = users[f] ? profileOf(f) : null;
-          return { name: f, avatar: fp ? fp.avatar || '' : '', paint: namensfarbe(f), ...mitAnzeigename(f) };
+          return { name: f, avatar: avatarVon(f), paint: namensfarbe(f), ...mitAnzeigename(f) };
         });
       return send(res, 200, { list, friends });
     }
-    // Avatare für Listen (Freunde, Anfragen), nur kleine Profilbilder
+    // Avatare für Listen (Freunde, Anfragen): die Kumulio-IDs
     if (p === '/api/avatars' && req.method === 'GET') {
       const names = String(url.searchParams.get('names') || '').split(',').filter(Boolean).slice(0, 50);
       const map = {};
-      for (const n of names) if (users[n]) map[n] = profileOf(n).avatar || '';
+      for (const n of names) if (users[n]) map[n] = avatarVon(n);
       return send(res, 200, map);
     }
     if (p === '/api/dm/with' && req.method === 'GET') {
@@ -3523,7 +3543,7 @@ const server = http.createServer(async (req, res) => {
         }
       }
       saveJson('users.json', users);
-      return send(res, 200, { ok: true, friends: my.friends, friendRequests: my.friendRequests, namen: anzeigeNamen([...my.friends, ...my.friendRequests]) });
+      return send(res, 200, { ok: true, friends: my.friends, friendRequests: my.friendRequests, namen: anzeigeNamen([...my.friends, ...my.friendRequests]), avatare: avatarKarte([...my.friends, ...my.friendRequests]) });
     }
     // Öffentliches Profil eines Nutzers ansehen (Mods sehen zusätzlich den Moderations-Status)
     if (p === '/api/user' && req.method === 'GET') {
@@ -3545,7 +3565,7 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, { user: name, private: true, role: roleOf(name), activePaint: namensfarbe(name), anzeigename: anzeigenameVon(name), ...modInfo });
       }
       return send(res, 200, {
-        user: name, role: roleOf(name), bio: prof.bio || '', avatar: prof.avatar || '',
+        user: name, role: roleOf(name), bio: prof.bio || '', avatar: avatarVon(name),
         favs: prof.favs || {}, activePaint: namensfarbe(name), anzeigename: anzeigenameVon(name), ...(wer ? { stufe: rangStufe(name) } : {}), ...modInfo,
       });
     }
@@ -3673,11 +3693,20 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/profile' && req.method === 'POST') {
       const user = authUser(req);
       if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
-      const b = await readBody(req, 300_000); // Platz fürs (komprimierte) Profilbild
+      // Profilbilder sind nur noch IDs: die normale Grenze reicht (alte
+      // Upload-Bilder der App waren kleiner und bekommen so die 400 unten)
+      const b = await readBody(req);
       // Erst alles pruefen, dann schreiben: sonst stuende bei einer 400 die
       // halbe Aenderung (Bio, Sichtbarkeit, Bild) schon im Konto
       if (typeof b.nameColor === 'string' && b.nameColor !== '' && !FARBE_OK.test(b.nameColor))
         return send(res, 400, { error: 'Bitte eine Farbe im Format #RRGGBB wählen.' });
+      // Profilbild: nur '' oder eine der Kumulio-IDs. Eigene Bilder gehen
+      // vorerst nicht (kein Bildfilter) — abgelehnt, bevor sich etwas aendert.
+      if (b.avatar !== undefined && !(b.avatar === '' || (typeof b.avatar === 'string' && AVATARE.has(b.avatar)))) {
+        return send(res, 400, { error: /^data:/.test(String(b.avatar))
+          ? 'Eigene Profilbilder gehen im Moment nicht. Such dir einen Kumulio aus.'
+          : 'Dieses Profilbild gibt es nicht.' });
+      }
       const prof = profileOf(user);
       // Anzeigename: nur pruefen, wenn er sich wirklich aendert (ein inzwischen
       // strengerer Filter blockiert so nicht jedes Speichern mit dem alten).
@@ -3696,10 +3725,12 @@ const server = http.createServer(async (req, res) => {
       }
       if (typeof b.bio === 'string') prof.bio = censor(b.bio.trim().slice(0, 160));
       if (typeof b.publicProfile === 'boolean') prof.publicProfile = b.publicProfile;
-      // Profilbild: kleines dataURL-Bild (Client verkleinert auf 96px)
-      // Ganz pruefen, nicht nur den Anfang: das Bild landet bei allen in src="…"
-      if (typeof b.avatar === 'string' && (b.avatar === '' || (AVATAR_OK.test(b.avatar) && b.avatar.length < 60_000)))
+      // Profilbild (oben geprueft). Ein altes Upload-Bild wird nicht
+      // weggeworfen, sondern zur Seite gelegt (rueckholbar, geht nie raus).
+      if (typeof b.avatar === 'string') {
+        if (prof.avatar && AVATAR_ALT.test(prof.avatar)) prof.avatarUpload = prof.avatar;
         prof.avatar = b.avatar;
+      }
       // Namensfarbe: #rrggbb oder leer (= automatisch, die feste Chat-Farbe)
       if (b.nameColor === '' || b.nameColor === null) delete prof.nameColor;
       else if (typeof b.nameColor === 'string') prof.nameColor = b.nameColor.toLowerCase(); // oben geprueft
@@ -3852,7 +3883,7 @@ const server = http.createServer(async (req, res) => {
       const me = authUser(req);
       const list = (profComments[target] || []).map(c => {
         const cp = users[c.from] ? profileOf(c.from) : null;
-        return { ...c, avatar: cp ? cp.avatar || '' : '', paint: cp ? namensfarbe(c.from) : null, ...(cp ? mitAnzeigename(c.from) : {}) };
+        return { ...c, avatar: cp ? avatarVon(c.from) : '', paint: cp ? namensfarbe(c.from) : null, ...(cp ? mitAnzeigename(c.from) : {}) };
       }).sort((a, z) => z.ts - a.ts);
       const stars = list.map(c => c.stars).filter(Boolean);
       const avg = stars.length ? Math.round(stars.reduce((a, x) => a + x, 0) / stars.length * 10) / 10 : 0;
@@ -4730,7 +4761,7 @@ const server = http.createServer(async (req, res) => {
       const list = all.filter(c => !c.deleted || all.some(x => x.parent === c.id && !x.deleted)).map(c => {
         const { badge, ...rest } = c;
         if (c.deleted || !users[c.user]) return rest;
-        return { ...rest, avatar: profileOf(c.user).avatar || '', paint: namensfarbe(c.user), ...mitAnzeigename(c.user) };
+        return { ...rest, avatar: avatarVon(c.user), paint: namensfarbe(c.user), ...mitAnzeigename(c.user) };
       });
       return send(res, 200, list);
     }
@@ -4753,7 +4784,7 @@ const server = http.createServer(async (req, res) => {
       };
       (comments[dealId] = comments[dealId] || []).push(c);
       saveJson('comments.json', comments);
-      return send(res, 201, { ...c, avatar: profileOf(user).avatar || '', paint: namensfarbe(user), ...mitAnzeigename(user) });
+      return send(res, 201, { ...c, avatar: avatarVon(user), paint: namensfarbe(user), ...mitAnzeigename(user) });
     }
 
     // Kommentar-Reaktionen: like, helpful oder ein Emote-Name (Toggle)

@@ -24,8 +24,12 @@ fs.writeFileSync(path.join(DIR, 'users.json'), JSON.stringify(Object.fromEntries
   konto('ida', 3000, { invitedBy: 'vera' }),   // vera hat sich geloescht, der Name gehoert jetzt jemand Neuem
   konto('jan', 3000, { invitedBy: 'niemand' }),
   konto('vera', 7000),
+  // Profilbilder (Runde 123): ein altes Upload-Bild, eine Kumulio-ID, Unsinn
+  konto('ulla', 8000, { avatar: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', friends: ['kim'] }),
+  konto('kim', 8100, { avatar: 'kumulio-4', friends: ['ulla'] }),
+  konto('rudi', 8200, { avatar: 'javascript:alert(1)' }),
 ])));
-fs.writeFileSync(path.join(DIR, 'sessions.json'), JSON.stringify({ tokWera: 'wera', tokGina: 'gina', tokHans: 'hans' }));
+fs.writeFileSync(path.join(DIR, 'sessions.json'), JSON.stringify({ tokWera: 'wera', tokGina: 'gina', tokHans: 'hans', tokUlla: 'ulla', tokKim: 'kim' }));
 const S = require('../server.js');
 
 let fehler = 0;
@@ -141,6 +145,37 @@ pruefe('Start: zweiter Lauf aendert nichts', S.einladungenAufraeumen() === 0);
   pruefe('gueltige Farbe: gespeichert, klein geschrieben', a.status === 200 && a.j.bio === 'ok' && a.j.nameColor === '#aabbcc');
   a = await api('tokHans', '/api/profile', { nameColor: '' });
   pruefe('leere Farbe: automatisch', a.status === 200 && a.j.nameColor === null);
+
+  // --- Profilbilder: nur die sechs Kumulios, alte Uploads bleiben liegen, gehen aber nie raus
+  const UPLOAD = S.users.ulla.profile.avatar;
+  pruefe('Start: altes Upload-Bild bleibt im Konto', /^data:image\/png;base64,/.test(UPLOAD));
+  pruefe('Start: Kumulio-ID bleibt', S.users.kim.profile.avatar === 'kumulio-4');
+  pruefe('Start: Unsinn fliegt raus', S.users.rudi.profile.avatar === '');
+  a = await api('tokUlla', '/api/profile');
+  pruefe('eigenes Profil: Upload wird nicht ausgeliefert', a.j.avatar === '' && !JSON.stringify(a.j).includes('data:image'));
+  pruefe('eigenes Profil: Bild des Freundes als ID', a.j.avatare && a.j.avatare.kim === 'kumulio-4');
+  a = await api('tokKim', '/api/user?name=ulla');
+  pruefe('fremdes Profil: Upload wird nicht ausgeliefert', a.j.avatar === '' && !JSON.stringify(a.j).includes('data:image'));
+  a = await api('tokKim', '/api/profile');
+  pruefe('Freundesliste: Upload wird nicht ausgeliefert', !a.j.avatare.ulla && !JSON.stringify(a.j).includes('data:image'));
+  a = await api(null, '/api/avatars?names=ulla,kim');
+  pruefe('/api/avatars: nur IDs', a.j.ulla === '' && a.j.kim === 'kumulio-4');
+  a = await api('tokKim', '/api/dm/list');
+  pruefe('Chat-Liste: Upload wird nicht ausgeliefert', a.j.friends.some(f => f.name === 'ulla' && f.avatar === '') && !JSON.stringify(a.j).includes('data:image'));
+  a = await api('tokUlla', '/api/profile', { avatar: UPLOAD, bio: 'neu' });
+  pruefe('Upload hochladen: 400 mit Hinweis', a.status === 400 && /Kumulio/.test(a.j.error));
+  pruefe('... und nichts gespeichert', S.users.ulla.profile.bio === '' && S.users.ulla.profile.avatar === UPLOAD);
+  a = await api('tokUlla', '/api/profile', { avatar: 'kumulio-7' });
+  pruefe('unbekannte ID: 400', a.status === 400);
+  a = await api('tokUlla', '/api/profile', { avatar: 42 });
+  pruefe('keine Zeichenkette: 400', a.status === 400);
+  a = await api('tokUlla', '/api/profile', { avatar: 'kumulio-2' });
+  pruefe('Kumulio waehlen: gespeichert', a.status === 200 && a.j.avatar === 'kumulio-2' && S.users.ulla.profile.avatar === 'kumulio-2');
+  pruefe('... altes Upload-Bild liegt zur Seite (rueckholbar)', S.users.ulla.profile.avatarUpload === UPLOAD);
+  a = await api('tokUlla', '/api/profile', { bio: 'ohne Bild-Feld' });
+  pruefe('Speichern ohne Bild-Feld: Bild bleibt', a.status === 200 && a.j.avatar === 'kumulio-2');
+  a = await api('tokUlla', '/api/profile', { avatar: '' });
+  pruefe('Kein Bild: leer', a.status === 200 && a.j.avatar === '' && S.users.ulla.profile.avatarUpload === UPLOAD);
 
   S.server.closeAllConnections();
   await new Promise(ok => S.server.close(ok));

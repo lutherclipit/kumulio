@@ -40,6 +40,8 @@
   <link rel="stylesheet" href="/look-intro.css">
   <!-- Lio (Waehrung), Stern-Flug und Gutschein-Shop -->
   <link rel="stylesheet" href="/look-lio.css">
+  <!-- Profilbilder: die sechs Kumulios, die aus dem Rahmen ragen -->
+  <link rel="stylesheet" href="/look-avatare.css">
   <script>window.KBrandReady = new Promise(r => { window.__kbrandResolve = r; });</script>
   <!-- API-Server: im Browser immer die eigene Origin (lokal wie live),
        nur die native App (Capacitor) spricht den gehosteten Server an -->
@@ -286,17 +288,17 @@
         </button>
         <h1 style="margin:0">Profil bearbeiten</h1>
       </div>
-      <!-- Bild, Name und Bio. Der Anzeigename ist alle 7 Tage aenderbar, der
+      <!-- Profilbild: einer der sechs Kumulios oder keins (Anfangsbuchstabe).
+           Eigene Bilder hochladen geht vorerst nicht (noch kein Bildfilter).
+           Die Kacheln zeichnet renderAvatarWahl, gespeichert wird mit "Speichern". -->
+      <div class="card pe-karte">
+        <h2 class="pe-h" id="pe-ava-h">Profilbild</h2>
+        <p class="pe-hinweis">Such dir deinen Kumulio aus. Er steht oben links, im Chat und auf deinem Profil.</p>
+        <div class="pe-avatare" id="pe-avatare" role="radiogroup" aria-labelledby="pe-ava-h"></div>
+      </div>
+      <!-- Name und Bio. Der Anzeigename ist alle 7 Tage aenderbar, der
            @Name steht fest (aendern geht gar nicht) -->
       <div class="card pe-karte">
-        <div class="pe-bild">
-          <span class="avatar-big" id="g-avatar-preview"></span>
-          <div class="pe-bild-knoepfe">
-            <label class="btn btn-small btn-ghost pe-bild-waehlen">Profilbild wählen
-              <input id="g-avatar" type="file" accept="image/*" hidden></label>
-            <button id="g-avatar-del" class="btn btn-small btn-ghost hidden" type="button">Entfernen</button>
-          </div>
-        </div>
         <label class="f-label" for="g-anzeigename">Anzeigename</label>
         <input id="g-anzeigename" class="input" maxlength="24" autocomplete="nickname" spellcheck="false" aria-describedby="g-anzeigename-hinweis">
         <p class="pe-feld-hinweis" id="g-anzeigename-hinweis">Alle 7 Tage änderbar</p>

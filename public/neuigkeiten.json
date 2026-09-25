@@ -1,5 +1,26 @@
 [
   {
+    "v": "2026-09-25-profilbilder",
+    "datum": "25. September 2026",
+    "titel": "Dein Kumulio als Profilbild",
+    "punkte": [
+      {
+        "icon": "user",
+        "titel": "Sechs Kumulios zur Wahl",
+        "text": "Unter „Profil bearbeiten“ suchst du dir dein Profilbild aus: Kumulio klettert, winkt, hängt an der Liane und schaut dabei ein Stück aus dem Rahmen.",
+        "bild": "/brand/neu/2026-09-25-profilbilder-hell.webp",
+        "bildDunkel": "/brand/neu/2026-09-25-profilbilder-dunkel.webp",
+        "bildAlt": "Die sechs Kumulios in ihren runden Rahmen",
+        "bildGroesse": [1008, 618]
+      },
+      {
+        "icon": "lock",
+        "titel": "Eigene Fotos machen Pause",
+        "text": "Eigene Bilder hochladen geht vorerst nicht, bis wir einen Bildfilter haben. Bisher hochgeladene Fotos sind so lange ausgeblendet."
+      }
+    ]
+  },
+  {
     "v": "2026-09-25",
     "datum": "25. September 2026",
     "titel": "Ränge, Deals und Geschenke",

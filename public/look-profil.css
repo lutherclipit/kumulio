@@ -476,9 +476,6 @@ body.sparsam .rf-balken > span { transition: none; }
 #view-editprofile .f-label { margin: 16px 0 8px; font-size: .86rem; font-weight: 750; opacity: 1; }
 #view-editprofile .f-label .opt { font-weight: 550; color: var(--muted); opacity: 1; }
 .pe-bild { display: flex; align-items: center; gap: 14px; }
-.pe-bild .avatar-big { width: 64px; height: 64px; font-size: 1.55rem; }
-.pe-bild-knoepfe { display: flex; flex-wrap: wrap; gap: 8px; }
-.pe-bild-waehlen { cursor: pointer; }
 #g-bio { min-height: 76px; margin-top: 0; resize: vertical; }
 
 /* Namensfarbe: Vorschau, dann sechs Farben je Zeile */
