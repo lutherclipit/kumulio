@@ -13069,7 +13069,7 @@ function inviteUrl() { return 'https://kumulio.de/?ref=' + encodeURIComponent(st
 function shareInvite() {
   if (!state.userName) { island('Zum Einladen bitte anmelden'); return; }
   const url = inviteUrl();
-  const text = 'Komm zu kumulio: Deals, Preisfehler-Alarm und deine Gutschein-Wallet in einer App.';
+  const text = 'Komm zu kumulio: alle Gutscheine mit Restguthaben in einer Wallet, die besten Deals und Lios für neue Gutscheine.';
   if (navigator.share) { navigator.share({ title: 'kumulio', text, url }).catch(() => { }); return; }
   copyInvite();
 }
