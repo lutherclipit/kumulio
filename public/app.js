@@ -4995,29 +4995,66 @@ const SFX = { kaching: '/sounds/kaching.mp3', plop: '/sounds/plop.mp3', coin: '/
 // Ton ist Opt-in: alle Effekte bleiben stumm, bis der Schalter in den Einstellungen an ist
 // (function statt const: wird auch weiter oben im Skript schon beim Laden gebraucht)
 function soundOn() { return localStorage.getItem('ra.sound') === '1'; }
-// WebAudio: Sounds vorgeladen und ohne Anlauf-Stille, spielen sofort beim Tipp
+// WebAudio: Sounds vorgeladen und ohne Anlauf-Stille, spielen sofort beim Tipp.
+//
+// Runde 121 — warum der Anmeldeton nicht bei jedem Start kam: der Ton-Motor
+// wurde erst beim ersten Antippen gebaut, und zwar im pointerdown. Am iPhone
+// zaehlt ein Finger-pointerdown aber nicht als "Nutzer hat getippt", der Motor
+// blieb stumm (suspended); die Dateien wurden ausserdem erst dann geladen.
+// Nach vier schnellen PIN-Tipps war der Anmeldeton oft noch nicht da, und der
+// Ersatzweg (Audio-Element) lief nach der PIN-Pruefung schon ausserhalb des
+// Tipps und wurde geblockt. Jetzt: Dateien gleich beim Start laden (nur die
+// Bytes, ohne Motor), Motor beim ersten echten Tipp (pointerup/touchend/
+// keydown/click) bauen und bei jedem weiteren Tipp wecken, falls er schlaeft.
 let sfxCtx = null;
 const sfxBuffers = {};
+const sfxRoh = {};
+function sfxVorladen() {
+  if (sfxVorladen.laeuft) return;
+  sfxVorladen.laeuft = true;
+  // Der Anmeldeton zuerst: er kommt schon nach der ersten PIN
+  const reihe = Object.entries(SFX).sort(([a], [b]) => (b === 'anmelden') - (a === 'anmelden'));
+  for (const [k, url] of reihe) {
+    sfxRoh[k] = fetch(url).then(r => r.ok ? r.arrayBuffer() : null).catch(() => null);
+  }
+}
+function sfxDekodieren(k) {
+  if (!sfxCtx || sfxBuffers[k] || !sfxRoh[k]) return;
+  sfxRoh[k].then(raw => raw && sfxCtx.decodeAudioData(raw.slice(0))).then(audio => {
+    if (!audio || sfxBuffers[k]) return;
+    const d = audio.getChannelData(0);
+    let i = 0; while (i < d.length && Math.abs(d[i]) < 0.02) i++;
+    sfxBuffers[k] = { audio, offset: i / audio.sampleRate };
+  }).catch(() => { });
+}
 function initSfx() {
+  sfxVorladen();
   if (sfxCtx) return;
   try { sfxCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch { return; }
-  Object.entries(SFX).forEach(async ([k, url]) => {
-    try {
-      const raw = await (await fetch(url)).arrayBuffer();
-      const audio = await sfxCtx.decodeAudioData(raw);
-      const d = audio.getChannelData(0);
-      let i = 0; while (i < d.length && Math.abs(d[i]) < 0.02) i++;
-      sfxBuffers[k] = { audio, offset: i / audio.sampleRate };
-    } catch { }
-  });
+  Object.keys(SFX).forEach(sfxDekodieren);
 }
-document.addEventListener('pointerdown', initSfx, { once: true, capture: true });
+// Bei jedem echten Tipp: Motor bauen bzw. aufwecken. Ein stiller Mini-Klang
+// entsperrt aeltere iPhones endgueltig.
+function sfxWecken() {
+  if (!soundOn()) return;
+  initSfx();
+  if (!sfxCtx || sfxCtx.state === 'running') return;
+  try {
+    sfxCtx.resume().catch(() => { });
+    const leer = sfxCtx.createBufferSource();
+    leer.buffer = sfxCtx.createBuffer(1, 1, 22050);
+    leer.connect(sfxCtx.destination);
+    leer.start(0);
+  } catch { }
+}
+for (const t of ['pointerup', 'touchend', 'keydown', 'click']) document.addEventListener(t, sfxWecken, { capture: true, passive: true });
+if (soundOn()) sfxVorladen();
 function playSfx(name, vol) {
   if (!soundOn()) return { stop() { } };
   const b = sfxBuffers[name];
-  if (sfxCtx && b) {
+  if (sfxCtx && sfxCtx.state === 'suspended') sfxCtx.resume().catch(() => { });
+  if (sfxCtx && b && sfxCtx.state === 'running') {
     try {
-      if (sfxCtx.state === 'suspended') sfxCtx.resume();
       const src = sfxCtx.createBufferSource();
       src.buffer = b.audio;
       const gain = sfxCtx.createGain();
@@ -12689,6 +12726,7 @@ function entsperreWallet() {
   const sichtbar = el && !el.classList.contains('hidden') && !el.classList.contains('geht');
   setTimeout(() => pruefeNeuigkeiten(), 1000); // Update-Log wartete auf das Entsperren
   setTimeout(verarbeiteGeteiltes, 700);          // geteiltes Bild wartete auch
+  playSfx('anmelden', 1);   // Anmeldeton (vom Nutzer, in der Datei leiser), auch nach Face ID
   setTimeout(() => {                               // "Karte zeigen" aus dem Laden-Banner
     if (!markeWartet || walletGesperrt()) return;
     const k = markeWartet;
@@ -12715,7 +12753,6 @@ function entsperreWallet() {
   neuStarten(logo, 'k-go');
   setzeSperrText('Entsperrt', false);
   buzz(15);
-  playSfx('anmelden', 1);   // Anmeldeton (vom Nutzer, 70 % leiser in der Datei), auch nach Face ID
   clearTimeout(sperreGehtUhr);
   sperreGehtUhr = setTimeout(() => {
     el.classList.add('geht');

@@ -542,9 +542,14 @@ button.gd-block:active, label.gd-block:active { transform: scale(.985); }
 }
 .gd-knopf .icon { width: 20px; height: 20px; stroke-width: 2.3; flex: none; }
 .gd-knopf:active { transform: scale(.97); }
-.gd-ab { background: #16191E; color: #fff; box-shadow: 0 6px 16px rgba(16, 24, 32, .18); }
-.gd-auf { background: var(--karte-2); color: var(--text); }
-:root[data-theme="dark"] .gd-ab { background: #EEF1F5; color: #14171B; box-shadow: none; }
+/* Abbuchen rot, Aufladen gruen (Wunsch des Nutzers) — auch im Betragsfeld */
+.gd-ab, .gd-los.ab, :root[data-theme="dark"] .gd-los.ab {
+  background: #D92D20; color: #fff; box-shadow: 0 6px 16px rgba(217, 45, 32, .28);
+}
+.gd-auf, .gd-los.auf, :root[data-theme="dark"] .gd-los.auf {
+  background: #178A47; color: #fff; box-shadow: 0 6px 16px rgba(23, 138, 71, .26);
+}
+:root[data-theme="dark"] .gd-ab, :root[data-theme="dark"] .gd-auf { box-shadow: none; }
 .gd-knopf:disabled, :root[data-theme="dark"] .gd-knopf:disabled {
   background: var(--karte-2); color: var(--muted); opacity: .7; cursor: default; box-shadow: none; transform: none;
 }
