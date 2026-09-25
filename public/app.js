@@ -11331,9 +11331,32 @@ function zeichneRangSeite(seite) {
     rangVorschau(seite, t === seite.zeigt ? eigenerRang() : t, { hinsehen: true });
   });
   inhalt.querySelector('.rs-zurueck').addEventListener('click', () => rangVorschau(seite, eigenerRang()));
+  rfHoeheAngleichen(inhalt.querySelector('.rs-oben'));
   rangKarteWisch(seite, inhalt.querySelector('.rs-oben'));
   rangBilderVorladen();
 }
+// Alle sieben Karten gleich hoch (--rf-h, look-blaetter.css): die eigene hat
+// den laengeren Abstand ("Noch 200,01 € bis Legende") und bricht schon bei
+// 390 px um — ohne Angleich waere sie hoeher als die Vorschauen, und die
+// Liste darunter spraenge beim Blaettern. Gemessen an unsichtbaren Abzuegen
+// ohne Bild (die Figur liegt absolut und zaehlt nicht zur Hoehe).
+function rfHoeheAngleichen(host) {
+  if (!host?.isConnected || !host.clientWidth) return;
+  host._rfB = host.clientWidth;
+  const probe = document.createElement('div');
+  probe.className = 'rs-mass';
+  probe.setAttribute('aria-hidden', 'true');
+  probe.innerHTML = RANKS.map(r => rangFensterFuer(r.tier).replace(/<img[^>]*>/g, '')).join('');
+  host.appendChild(probe);
+  const h = Math.max(...[...probe.children].map(k => k.offsetHeight));
+  probe.remove();
+  if (h > 0) host.style.setProperty('--rf-h', h + 'px');
+}
+// Handy gedreht (neue Breite): neu messen
+addEventListener('resize', () => {
+  const host = wseiten().find(s => s.art === 'rang')?.el.querySelector('.rs-oben');
+  if (host && host._rfB !== host.clientWidth) rfHoeheAngleichen(host);
+});
 
 // Eine Stufe oben zeigen (Vorschau, oder wieder die eigene). richtung: aus
 // welcher Seite die neue Karte kommt (1 von rechts, -1 von links). karte:
@@ -11406,14 +11429,27 @@ function rfDaneben(host, neu, x, still = false) {
   host.appendChild(neu);
   return neu;
 }
+// Waagerechte Lage einer Karte, wie sie gerade gezeichnet wird (samt Bewegung)
+function rfLage(el) {
+  try { return new DOMMatrixReadOnly(getComputedStyle(el).transform).m41 || 0; } catch { return 0; }  // alter Browser
+}
 // Laufenden Wechsel sofort abschliessen; liefert, wo die neue Karte gerade
-// stand — von dort geht der naechste Wechsel weiter (schnelle Tipps)
+// stand — von dort geht der naechste Wechsel weiter (schnelle Tipps). Federt
+// die Karte nach einem zu kurzen Wisch noch zurueck, wird auch das beendet:
+// sonst liefe die Feder weiter, waehrend der Finger schon wieder zieht, und
+// Karte und Nachbar liefen auseinander.
 function rfFertig(host) {
-  if (!host._rfEnde) return 0;
-  const neu = host.querySelector('.rf.rf-neben');
   let x = 0;
-  try { x = neu ? new DOMMatrixReadOnly(getComputedStyle(neu).transform).m41 || 0 : 0; } catch { /* alter Browser */ }
-  host._rfEnde();
+  if (host._rfEnde) {
+    const neu = host.querySelector('.rf.rf-neben');
+    x = neu ? rfLage(neu) : 0;
+    host._rfEnde();
+  }
+  const karte = rfJetzt(host), feder = karte?.getAnimations?.() || [];
+  if (feder.length) {
+    x += rfLage(karte);
+    feder.forEach(a => a.cancel());
+  }
   return x;
 }
 // alt gleitet von altX aus hinaus, neu (liegt schon daneben) folgt im festen

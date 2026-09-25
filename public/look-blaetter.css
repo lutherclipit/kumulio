@@ -1259,8 +1259,14 @@ body.sparsam #sheet-content #btn-sheet-fav .icon, body.sparsam #sheet-content .a
    fuer den Schatten */
 .rs .rs-oben { clip-path: inset(-120px -16px -48px -16px); }
 .rs-oben > .rf.rf-neben { position: absolute; z-index: 1; pointer-events: none; }
+/* Alle Karten gleich hoch (rfHoeheAngleichen misst an unsichtbaren Abzuegen
+   in .rs-mass): sonst sprang die Liste, wenn die eigene Karte umbricht */
+.rs-oben > .rf { min-height: var(--rf-h, 168px); }
+.rs-mass { position: absolute; top: 0; left: 0; right: 0; visibility: hidden; pointer-events: none; }
 /* Ueberschrift, rechts daneben (nur in der Vorschau) der Weg zurueck */
-.rs-h-zeile { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 24px 2px 0; }
+/* Links 2 px wie bisher (Schriftkante), rechts keiner: die Pille schliesst
+   buendig mit Karte und Liste ab */
+.rs-h-zeile { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 24px 0 0 2px; }
 .rs .rs-h-zeile .rs-h { margin: 0; }
 .rs-zurueck {
   flex: none; display: inline-flex; align-items: center; gap: 5px;
