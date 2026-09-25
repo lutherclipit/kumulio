@@ -95,6 +95,43 @@
   </div>
 
 
+  <!-- Gutschein-Shop: Codes nachfuellen, Cashback, aktiv. Codes gehen nie
+       an die App, ausser an den Kaeufer; hier nur maskiert. -->
+  <div class="card" id="shop-card" style="display:none">
+    <strong>Gutschein-Shop</strong> <span class="sub" id="shop-sum"></span>
+    <div id="shop-list"></div>
+    <label>Produkt</label>
+    <select id="shop-produkt" style="width:100%; background:#10141a; color:#e8ecef; border:1px solid #2c3542; border-radius:10px; padding:10px 12px; font:inherit"></select>
+    <label>Codes (einer pro Zeile, optional mit PIN: CODE;PIN)</label>
+    <textarea id="shop-codes" rows="4" style="width:100%; background:#10141a; color:#e8ecef; border:1px solid #2c3542; border-radius:10px; padding:10px 12px; font:inherit; font-size:.86rem; resize:vertical"></textarea>
+    <div class="row">
+      <button id="btn-shop-codes">Codes hinzufügen</button>
+      <button class="ghost" id="btn-shop-weg">Diese Codes entfernen</button>
+    </div>
+    <div class="row">
+      <div style="flex:1"><label>Cashback (Lios je Kauf)</label><input id="shop-cashback" type="number" min="0" step="1"></div>
+      <label style="display:flex; align-items:center; gap:8px; margin-top:26px; font-size:.88rem; color:#e8ecef">
+        <input type="checkbox" id="shop-aktiv" style="width:auto"> im Shop sichtbar
+      </label>
+    </div>
+    <button class="ghost" id="btn-shop-produkt">Produkt speichern</button>
+    <div class="msg" id="shop-msg"></div>
+    <label style="margin-top:14px">Letzte Verkäufe</label>
+    <div id="shop-verkaeufe"></div>
+  </div>
+
+  <div class="card" id="lio-card" style="display:none">
+    <strong>Lios von Hand buchen</strong>
+    <p class="sub" style="margin-top:4px">Für Erstattungen und Korrekturen. Plus schreibt gut (mit Stern in der App), Minus zieht ab.</p>
+    <div class="row">
+      <div style="flex:2"><label>Nutzer</label><input id="lio-user" placeholder="Name"></div>
+      <div style="flex:1"><label>Menge</label><input id="lio-delta" type="number" step="1" placeholder="z. B. 500"></div>
+    </div>
+    <label>Grund (sieht der Nutzer)</label><input id="lio-grund" maxlength="60" placeholder="z. B. Erstattung Amazon-Code">
+    <button id="btn-lio">Buchen</button>
+    <div class="msg" id="lio-msg"></div>
+  </div>
+
   <div class="card" id="settings-card" style="display:none">
     <strong>Einstellungen: Turnstile-Captcha</strong>
     <p class="sub" style="margin-top:4px">Aktuell laufen die offiziellen Test-Keys. Für den
@@ -157,7 +194,7 @@
     });
     if (!t.ok) { msg('Admin-Key falsch.', 'err'); return; }
     sessionStorage.setItem('ra.adminkey', key());
-    ['list-card', 'form-card', 'deal-card', 'posts-card', 'users-card', 'settings-card', 'mail-card']
+    ['list-card', 'form-card', 'deal-card', 'posts-card', 'users-card', 'shop-card', 'lio-card', 'settings-card', 'mail-card']
       .forEach(id => $('#' + id).style.display = 'block');
     const chs = await (await fetch('/api/channels')).json();
     $('#d-channel').innerHTML = chs.filter(c => c.type === 'community')
@@ -167,6 +204,7 @@
     loadPosts();
     loadUsers();
     loadMail();
+    loadShop();
   }
   async function loadMail() {
     const r = await adminFetch('/api/admin/mail');
@@ -322,6 +360,87 @@
       if (i > 0) { [items[i - 1], items[i]] = [items[i], items[i - 1]]; saveAll(); }
     });
   }
+
+  // ---- Gutschein-Shop und Lios. Alles vom Server kommt per textContent in
+  // die Seite (nie innerHTML), Codes nur maskiert.
+  let shopDaten = null;
+  const el = (tag, text, style) => { const e = document.createElement(tag); if (text != null) e.textContent = text; if (style) e.style.cssText = style; return e; };
+  const shopMsg = (t, cls) => { const m = $('#shop-msg'); m.textContent = t; m.className = 'msg ' + (cls || ''); };
+  const euro = n => Number(n || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+  async function loadShop() {
+    const r = await adminFetch('/api/admin/shop');
+    if (!r.ok) return;
+    shopDaten = await r.json();
+    const produkte = shopDaten.produkte || [];
+    $('#shop-sum').textContent = '(' + produkte.reduce((s, x) => s + x.bestand, 0) + ' Codes auf Lager)';
+    const liste = $('#shop-list');
+    liste.replaceChildren(...produkte.map(x => {
+      const zeile = el('div'); zeile.className = 'item';
+      const info = el('div'); info.className = 'info';
+      const t = el('div', `${x.name} · ${euro(x.wert)}`); t.className = 't';
+      const p = el('div', `${x.bestand} auf Lager · ${x.verkauft} verkauft · ${x.preisLio} Lios oder ${euro(x.preisEuro)} · Cashback ${x.cashbackLio} Lios${x.aktiv ? '' : ' · ausgeblendet'}`);
+      p.className = 'p'; p.style.color = x.bestand ? '#39d980' : '#8b96a0';
+      info.append(t, p); zeile.append(info);
+      return zeile;
+    }));
+    const sel = $('#shop-produkt');
+    const vorher = sel.value;
+    sel.replaceChildren(...produkte.map(x => { const o = el('option', x.name + ' ' + euro(x.wert)); o.value = x.id; return o; }));
+    if (vorher && produkte.some(x => x.id === vorher)) sel.value = vorher;
+    produktFelder();
+    const vk = $('#shop-verkaeufe');
+    const verk = shopDaten.verkaeufe || [];
+    vk.replaceChildren(...(verk.length ? verk.map(x => {
+      const zeile = el('div'); zeile.className = 'item';
+      const info = el('div'); info.className = 'info';
+      const t = el('div', `@${x.user} · ${x.produkt}`); t.className = 't';
+      const p = el('div', `${new Date(x.ts).toLocaleString('de-DE')} · ${x.zahlung === 'lio' ? x.preisLio + ' Lios' : 'Echtgeld'} · Code ${x.code}`);
+      p.className = 'p'; p.style.color = '#8b96a0';
+      info.append(t, p); zeile.append(info);
+      return zeile;
+    }) : [el('div', 'Noch nichts verkauft.')]));
+    if (!verk.length) vk.firstChild.className = 'msg';
+  }
+  function produktFelder() {
+    const x = (shopDaten && shopDaten.produkte || []).find(p => p.id === $('#shop-produkt').value);
+    if (!x) return;
+    $('#shop-cashback').value = x.cashbackLio;
+    $('#shop-aktiv').checked = !!x.aktiv;
+  }
+  $('#shop-produkt').onchange = produktFelder;
+  $('#btn-shop-codes').onclick = async () => {
+    const r = await adminFetch('/api/admin/shop/codes', { method: 'POST', body: JSON.stringify({ produkt: $('#shop-produkt').value, codes: $('#shop-codes').value }) });
+    const j = await r.json();
+    if (!r.ok) { shopMsg(j.error || 'Fehler', 'err'); return; }
+    $('#shop-codes').value = '';
+    shopMsg(`${j.hinzu} hinzugefügt${j.doppelt ? `, ${j.doppelt} schon bekannt` : ''}${j.ungueltig ? `, ${j.ungueltig} ungültig` : ''}. Auf Lager: ${j.bestand}.`, j.hinzu ? 'ok' : 'err');
+    loadShop();
+  };
+  $('#btn-shop-weg').onclick = async () => {
+    if (!$('#shop-codes').value.trim()) { shopMsg('Erst die Codes eintragen, die raus sollen.', 'err'); return; }
+    const r = await adminFetch('/api/admin/shop/codes-weg', { method: 'POST', body: JSON.stringify({ produkt: $('#shop-produkt').value, codes: $('#shop-codes').value }) });
+    const j = await r.json();
+    if (!r.ok) { shopMsg(j.error || 'Fehler', 'err'); return; }
+    $('#shop-codes').value = '';
+    shopMsg(`${j.entfernt} entfernt. Auf Lager: ${j.bestand}.`, 'ok');
+    loadShop();
+  };
+  $('#btn-shop-produkt').onclick = async () => {
+    const r = await adminFetch('/api/admin/shop/produkt', { method: 'POST',
+      body: JSON.stringify({ produkt: $('#shop-produkt').value, cashbackLio: Number($('#shop-cashback').value), aktiv: $('#shop-aktiv').checked }) });
+    const j = await r.json();
+    shopMsg(r.ok ? 'Gespeichert.' : (j.error || 'Fehler'), r.ok ? 'ok' : 'err');
+    loadShop();
+  };
+  $('#btn-lio').onclick = async () => {
+    const r = await adminFetch('/api/admin/lio', { method: 'POST',
+      body: JSON.stringify({ user: $('#lio-user').value.trim(), delta: Number($('#lio-delta').value), grund: $('#lio-grund').value }) });
+    const j = await r.json();
+    const m = $('#lio-msg');
+    m.textContent = r.ok ? `Gebucht. @${j.user} hat jetzt ${j.lio} Lios.` : (j.error || 'Fehler');
+    m.className = 'msg ' + (r.ok ? 'ok' : 'err');
+    if (r.ok) { $('#lio-delta').value = ''; $('#lio-grund').value = ''; }
+  };
 
   $('#btn-load').onclick = load;
   $('#btn-add').onclick = async () => {

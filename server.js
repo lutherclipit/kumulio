@@ -1372,8 +1372,223 @@ function eigenesProfil(user) {
     // und die Anzeigenamen der Freunde und Anfragenden
     anzeigename: anzeigenameVon(user), anzeigenameAb: anzeigenameAb(prof),
     namen: anzeigeNamen([...(prof.friends || []), ...(prof.friendRequests || [])]),
+    // Lio: Stand, ungesehene Gutschriften (Stern), offene Boni, Serie und
+    // Einladungen — alles, was das Seitenmenue ohne Extra-Abruf braucht
+    lio: lioStand(prof), lioNeu: lioNeuListe(prof), lioBoni: lioBoniListe(prof),
+    lioSerie: lioSerie(prof), lioFreunde: lioFreundeInfo(prof),
   };
 }
+// ---------------------------------------------------------------- Lio: die Waehrung der App
+//
+// 1 Lio = 1 Cent. Es gibt ihn fuers taegliche Anmelden (1), fuer jede volle
+// Woche und jeden vollen Monat Login-Serie (3 bzw. 10, abzuholen im
+// Seitenmenue), fuer eingeladene Freunde (10) und als Cashback beim
+// Gutscheinkauf. Einloesen: im Gutschein-Shop. Der Kontostand liegt NUR hier
+// am Server (prof.lio, ganze Zahl); der Client schickt nie Betraege.
+//
+// Im Profil:
+//   prof.lio        Kontostand
+//   prof.lioLog     die letzten Buchungen [{id, ts, delta, grund, text}]
+//   prof.lioNeu     Gutschriften, die der Nutzer noch nicht gesehen hat (der
+//                   Client zeigt dafuer den fliegenden Stern und quittiert)
+//   prof.lioBoni    offene Wochen-/Monats-Boni [{id, art, menge, tag, ts}]
+//   prof.loginTage  verschiedene Login-Tage insgesamt (fuer die Einladungen)
+const LIO = {
+  tag: 1, woche: 3, monat: 10, freund: 10,
+  freundTage: 3,          // so viele Login-Tage braucht ein Geworbener
+  logMax: 50, neuMax: 30, boniMax: 100,
+};
+// Welche E-Mail-Adressen schon einmal eine Einladungs-Belohnung ausgeloest
+// haben (nur als Hash): Konto loeschen und mit derselben Adresse ueber einen
+// Link neu anlegen bringt so kein zweites Mal Lios.
+let lioDaten = loadJson('lio.json', null);
+if (!lioDaten || typeof lioDaten !== 'object') lioDaten = {};
+if (!lioDaten.geworbenMails || typeof lioDaten.geworbenMails !== 'object') lioDaten.geworbenMails = {};
+
+const lioStand = prof => Math.max(0, Math.floor(Number(prof && prof.lio) || 0));
+const lioWort = n => (n === 1 ? 'Lio' : 'Lios');
+// Verschiedene Login-Tage. Konten von vor dem Lio-Start haben den Zaehler
+// noch nicht — ihr Serien-Rekord ist die sichere Untergrenze.
+const loginTageZahl = prof => Math.max(Number(prof.loginTage) || 0, Number(prof.loginStreak && prof.loginStreak.rekord) || 0);
+
+// Buchen (positiv = Gutschrift). neu: kommt in die Liste fuer den Stern.
+function lioBuchen(prof, delta, grund, text, { neu = false, jetzt = Date.now() } = {}) {
+  delta = Math.trunc(Number(delta) || 0);
+  prof.lio = lioStand(prof) + delta;
+  const id = crypto.randomBytes(6).toString('hex');
+  const log = Array.isArray(prof.lioLog) ? prof.lioLog : [];
+  prof.lioLog = [...log, { id, ts: jetzt, delta, grund, text }].slice(-LIO.logMax);
+  if (neu && delta > 0) {
+    const liste = Array.isArray(prof.lioNeu) ? prof.lioNeu : [];
+    prof.lioNeu = [...liste, { id, menge: delta, grund, text, ts: jetzt }].slice(-LIO.neuMax);
+  }
+  return id;
+}
+const lioBonusText = b => (b.art === 'monat' ? 'Monats-Bonus' : 'Wochen-Bonus') + ` (${b.tag} Tage in Folge)`;
+
+// Neuer Login-Tag: zaehlt die Serie, schreibt 1 Lio gut und legt bei jeder
+// vollen Woche (7, 14, …) bzw. jedem vollen Monat (30, 60, …) einen Bonus
+// zum Abholen an. true = heute neu gezaehlt (dann speichern).
+function loginTagZaehlen(user, jetzt = Date.now()) {
+  const prof = profileOf(user);
+  const rekordVorher = Number(prof.loginStreak && prof.loginStreak.rekord) || 0;
+  if (!zaehleLoginTag(prof, jetzt)) return false;
+  prof.loginTage = (Number(prof.loginTage) || rekordVorher) + 1;
+  const s = prof.loginStreak;
+  lioBuchen(prof, LIO.tag, 'login', 'Täglicher Login', { neu: true, jetzt });
+  const erledigt = Array.isArray(prof.lioBoniErledigt) ? prof.lioBoniErledigt : [];
+  for (const [art, alle, menge] of [['woche', 7, LIO.woche], ['monat', 30, LIO.monat]]) {
+    if (!s.tage || s.tage % alle) continue;
+    // Je Meilenstein (Art + Kalendertag) hoechstens ein Bonus
+    const id = art + '-' + s.letzterTag;
+    const boni = Array.isArray(prof.lioBoni) ? prof.lioBoni : [];
+    if (boni.some(b => b && b.id === id) || erledigt.includes(id)) continue;
+    prof.lioBoni = [...boni, { id, art, menge, tag: s.tage, ts: jetzt }].slice(-LIO.boniMax);
+  }
+  lioWerbungPruefen(user, { jetzt });
+  return true;
+}
+
+// Einen offenen Bonus abholen. Die Menge steht seit dem Anlegen fest.
+function lioBonusAbholen(user, id, jetzt = Date.now()) {
+  const prof = profileOf(user);
+  const boni = Array.isArray(prof.lioBoni) ? prof.lioBoni : [];
+  const b = boni.find(x => x && x.id === id);
+  if (!b) return null;
+  prof.lioBoni = boni.filter(x => x !== b);
+  prof.lioBoniErledigt = [...(Array.isArray(prof.lioBoniErledigt) ? prof.lioBoniErledigt : []), b.id].slice(-40);
+  lioBuchen(prof, Math.max(0, Math.trunc(Number(b.menge) || 0)), b.art, lioBonusText(b), { jetzt });
+  return b;
+}
+
+// Freunde werben: 10 Lios je Freund, einmal je Geworbenem und nur, wenn der
+// Freund echt ist — bestaetigte E-Mail-Adresse und an mindestens 3
+// verschiedenen Tagen angemeldet. Geprueft beim Login-Tag und beim
+// Bestaetigen der Adresse des Geworbenen (und einmal beim Serverstart fuer
+// die vorgemerkten Einladungen). Alt-Einladungen ohne Eintrag in geworben
+// (nur refCount) bekommen nichts. leise: ohne Push (Serverstart).
+// Die Adresse fuer den Abgleich auf ihren Kern gebracht: Gross/Klein egal, ein
+// +Zusatz faellt weg (a+1@… und a+2@… landen im selben Postfach), bei Gmail
+// zaehlen auch die Punkte nicht. Sonst liessen sich aus einem Postfach
+// beliebig viele "Freunde" mit bestaetigter Adresse anlegen.
+function mailKern(email) {
+  const e = String(email || '').trim().toLowerCase();
+  const at = e.lastIndexOf('@');
+  if (at < 1) return e;
+  let lokal = e.slice(0, at).split('+')[0];
+  let domain = e.slice(at + 1);
+  if (domain === 'googlemail.com') domain = 'gmail.com';
+  if (domain === 'gmail.com') lokal = lokal.replace(/\./g, '');
+  return (lokal || e.slice(0, at)) + '@' + domain;
+}
+const werbungMailHash = email => sha256('lio-werbung:' + mailKern(email));
+function lioWerbungPruefen(user, { jetzt = Date.now(), leise = false } = {}) {
+  const u = users[user];
+  const prof = u && u.profile;
+  if (!prof || !prof.invitedBy || !u.email || !u.emailOk) return false;
+  if (loginTageZahl(prof) < LIO.freundTage) return false;
+  const werber = prof.invitedBy;
+  if (werber === user || !users[werber]) return false;
+  const wp = profileOf(werber);
+  const eintrag = (Array.isArray(wp.geworben) ? wp.geworben : []).find(g => g && String(g.user || '').toLowerCase() === user.toLowerCase());
+  if (!eintrag || eintrag.lio || eintrag.lioKein) return false;
+  const h = werbungMailHash(u.email);
+  // Diese Adresse hat schon einmal Lios gebracht (Konto geloescht und neu,
+  // oder dasselbe Postfach mit +Zusatz), oder es ist das Postfach des Werbers
+  const eigene = users[werber].email && mailKern(users[werber].email) === mailKern(u.email);
+  if (lioDaten.geworbenMails[h] || eigene) {
+    eintrag.lioKein = jetzt;
+    saveJson('users.json', users);
+    return false;
+  }
+  eintrag.lio = jetzt;
+  wp.lioFreunde = (Number(wp.lioFreunde) || 0) + 1;
+  lioBuchen(wp, LIO.freund, 'freund', `@${user} ist dabei`, { neu: true, jetzt });
+  lioDaten.geworbenMails[h] = jetzt;
+  // Erst die Gutschrift samt Merker am Eintrag, dann die Adressliste
+  saveJson('users.json', users);
+  saveJson('lio.json', lioDaten);
+  if (!leise) {
+    ssePush('lio', werber);
+    pushToUser(werber, { title: `+${LIO.freund} Lios`, body: `@${user} ist über deinen Link dabei. Danke fürs Einladen!`, url: '/', tag: 'lio-freund-' + user, kind: 'info', from: user });
+  }
+  return true;
+}
+
+// Was das Seitenmenue ueber die Serie wissen muss: wie viele Login-Tage
+// (heute mitgezaehlt, falls noch offen) bis zum naechsten Bonus
+function lioSerie(prof, jetzt = Date.now()) {
+  const serie = loginSerie(prof, jetzt);
+  const heute = !!(prof.loginStreak && prof.loginStreak.letzterTag === berlinTag(jetzt));
+  return {
+    tage: serie.tage, heute,
+    bisWoche: 7 - (serie.tage % 7), bisMonat: 30 - (serie.tage % 30),
+    proTag: LIO.tag, woche: LIO.woche, monat: LIO.monat,
+  };
+}
+function lioFreundeInfo(prof) {
+  const liste = Array.isArray(prof.geworben) ? prof.geworben : [];
+  return {
+    proFreund: LIO.freund, tageNoetig: LIO.freundTage,
+    gutgeschrieben: Number(prof.lioFreunde) || 0,
+    // vorgemerkt, aber (noch) nicht bestaetigt/aktiv genug
+    wartend: liste.filter(g => g && !g.lio && !g.lioKein).length,
+  };
+}
+const lioBoniListe = prof => (Array.isArray(prof.lioBoni) ? prof.lioBoni : []).filter(b => b && b.id)
+  .map(b => ({ id: b.id, art: b.art, menge: b.menge, tag: b.tag, ts: b.ts, text: lioBonusText(b) }));
+const lioNeuListe = prof => (Array.isArray(prof.lioNeu) ? prof.lioNeu : []).filter(n => n && n.id)
+  .map(n => ({ id: n.id, menge: n.menge, grund: n.grund, text: n.text, ts: n.ts }));
+
+// Einmal beim Start: vorgemerkte Einladungen, die die Bedingungen schon
+// erfuellen, bekommen ihre Lios (das war das Versprechen)
+{
+  let n = 0;
+  for (const [name, u] of Object.entries(users)) if (u && u.profile && u.profile.invitedBy && lioWerbungPruefen(name, { leise: true })) n++;
+  if (n) console.log(`[Lio] ${n} vorgemerkte Einladungen gutgeschrieben`);
+}
+
+// ---------------------------------------------------------------- Gutschein-Shop
+//
+// Katalog in data/shop.json (fehlt er, kommt der Standard: Amazon 5 €), der
+// Bestand an Codes getrennt in data/shop-bestand.json — Codes gehen NIE an
+// Clients, ausser der eine, den ein Kaeufer bekommt. Leerer Bestand =
+// ausverkauft (die App zeigt den Gutschein ausgegraut, aber ansehbar).
+// Echtgeld gibt es noch nicht (kein Zahlungsanbieter): 501.
+const SHOP_STANDARD = [{
+  id: 'amazon-5', marke: 'Amazon', name: 'Amazon.de Gutschein', wert: 5,
+  preisLio: 500, preisEuro: 5, cashbackLio: 0, aktiv: true,
+  hinweis: 'Einlösbar auf amazon.de. Der Code liegt nach dem Kauf direkt in deiner Wallet.',
+}];
+let shop = loadJson('shop.json', null);
+if (!shop || !Array.isArray(shop.produkte)) { shop = { produkte: SHOP_STANDARD.map(x => ({ ...x })) }; saveJson('shop.json', shop); }
+let shopBestand = loadJson('shop-bestand.json', null);
+if (!shopBestand || typeof shopBestand !== 'object') shopBestand = {};
+if (!shopBestand.codes || typeof shopBestand.codes !== 'object') shopBestand.codes = {};
+if (!Array.isArray(shopBestand.verkauft)) shopBestand.verkauft = [];
+const SHOP_VERKAUFT_MAX = 20000;
+const shopProdukt = id => shop.produkte.find(x => x && x.id === id) || null;
+const shopCodes = id => (Array.isArray(shopBestand.codes[id]) ? shopBestand.codes[id] : []);
+function shopOeffentlich(pr) {
+  const bestand = shopCodes(pr.id).length;
+  return {
+    id: pr.id, marke: pr.marke, name: pr.name, wert: pr.wert,
+    preisLio: pr.preisLio, preisEuro: pr.preisEuro, cashbackLio: Number(pr.cashbackLio) || 0,
+    hinweis: pr.hinweis || '', verfuegbar: bestand > 0, ausverkauft: bestand === 0,
+  };
+}
+// Codes vergleichen ohne Leerzeichen, Striche und Gross/Klein
+const codeSchluessel = c => String(c || '').replace(/[\s-]+/g, '').toLowerCase();
+// Fuer die Admin-Liste: nie den ganzen Code zeigen
+const codeMaske = c => { const s = String(c || ''); return s.length <= 8 ? s.slice(0, 2) + '…' : s.slice(0, 4) + '…' + s.slice(-4); };
+// Eine Zeile aus dem Admin-Feld: "CODE" oder "CODE;PIN" (auch Tab)
+function shopCodeZeile(zeile) {
+  const [c, pin = ''] = String(zeile).split(/[;\t]/).map(x => x.trim());
+  if (!/^[A-Za-z0-9][A-Za-z0-9 ._-]{2,38}[A-Za-z0-9]$/.test(c)) return null;
+  if (pin && !/^[A-Za-z0-9-]{1,16}$/.test(pin)) return null;
+  return { code: c, pin };
+}
+
 // Abgeschaltete Endpunkte (Kisten, Funken, Quests, Shop, Paints, Rahmen):
 // 410 statt 404, damit klar ist: das gab es, und es ist bewusst weg
 const GAMI_WEG = new Set([
@@ -2921,6 +3136,8 @@ const server = http.createServer(async (req, res) => {
         return send(res, 400, { error: 'Der Bestätigungslink ist abgelaufen. Schick dir in den Einstellungen einfach einen neuen.' });
       }
       users[e.user].emailOk = Date.now();
+      // Wurde die Person eingeladen, bekommt der Werber jetzt vielleicht seine Lios
+      lioWerbungPruefen(e.user);
       delete resets[k];
       saveJson('users.json', users);
       saveJson('resets.json', resets);
@@ -3407,7 +3624,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/profile' && req.method === 'GET') {
       const user = authUser(req);
       if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
-      if (zaehleLoginTag(profileOf(user))) saveJsonSoon('users.json', users);
+      if (loginTagZaehlen(user)) saveJsonSoon('users.json', users);
       return send(res, 200, eigenesProfil(user));
     }
     if (p === '/api/profile' && req.method === 'POST') {
@@ -3457,6 +3674,120 @@ const server = http.createServer(async (req, res) => {
       saveJson('users.json', users);
       return send(res, 200, { ok: true, ...eigenesProfil(user) });
     }
+    // ---- Lio: Kontostand, Buchungen, Boni abholen, Stern quittieren
+    if (p === '/api/lio' && req.method === 'GET') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      const prof = profileOf(user);
+      return send(res, 200, {
+        lio: lioStand(prof), lioNeu: lioNeuListe(prof), lioBoni: lioBoniListe(prof),
+        lioSerie: lioSerie(prof), lioFreunde: lioFreundeInfo(prof),
+        // neueste zuerst
+        log: (Array.isArray(prof.lioLog) ? prof.lioLog : []).slice().reverse()
+          .map(e => ({ id: e.id, ts: e.ts, delta: e.delta, grund: e.grund, text: e.text })),
+      });
+    }
+    // Wochen-/Monats-Bonus abholen: { id } fuer einen, { alle: true } fuer alle
+    if (p === '/api/lio/bonus' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      if (authUser(req) !== user) return send(res, 409, { error: 'Dein Konto hat sich gerade geändert.' });
+      if (!drossel('lio-bonus:' + user, 30, 60e3)) return send(res, 429, { error: 'Kurz durchatmen, gleich nochmal.' });
+      const prof = profileOf(user);
+      const ids = b.alle === true ? lioBoniListe(prof).map(x => x.id) : [String(b.id || '')];
+      const abgeholt = [];
+      let menge = 0;
+      for (const id of ids) {
+        const bon = lioBonusAbholen(user, id);
+        if (bon) { abgeholt.push(bon.id); menge += Number(bon.menge) || 0; }
+      }
+      if (!abgeholt.length) return send(res, 404, { error: 'Diesen Bonus gibt es nicht (mehr).', lio: lioStand(prof), lioBoni: lioBoniListe(prof) });
+      saveJson('users.json', users);
+      ssePush('lio', user);
+      return send(res, 200, { ok: true, menge, abgeholt, lio: lioStand(prof), lioBoni: lioBoniListe(prof) });
+    }
+    // Der Client hat den Stern fuer diese Gutschriften gezeigt
+    if (p === '/api/lio/gesehen' && req.method === 'POST') {
+      const user = authUser(req);
+      if (!user) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      const prof = profileOf(user);
+      const ids = new Set(Array.isArray(b.ids) ? b.ids.map(String) : []);
+      const vorher = Array.isArray(prof.lioNeu) ? prof.lioNeu : [];
+      prof.lioNeu = b.alle === true ? [] : vorher.filter(n => n && !ids.has(n.id));
+      if (prof.lioNeu.length !== vorher.length) saveJsonSoon('users.json', users);
+      return send(res, 200, { ok: true, lioNeu: lioNeuListe(prof) });
+    }
+
+    // ---- Gutschein-Shop: Katalog (auch ohne Anmeldung ansehbar) und Kauf
+    if (p === '/api/shop' && req.method === 'GET') {
+      const user = authUser(req);
+      return send(res, 200, {
+        produkte: shop.produkte.filter(x => x && x.aktiv !== false).map(shopOeffentlich),
+        echtgeld: false, // kein Zahlungsanbieter eingerichtet: "Bald verfügbar"
+        ...(user ? { lio: lioStand(profileOf(user)) } : {}),
+      });
+    }
+    if (p === '/api/shop/kaufen' && req.method === 'POST') {
+      const me = authUser(req);
+      if (!me) return send(res, 401, { error: 'Bitte anmelden.' });
+      const b = await readBody(req);
+      if (authUser(req) !== me) return send(res, 409, { error: 'Dein Konto hat sich gerade geändert.' });
+      if (!drossel('shop-kauf:' + me, 10, 60e3)) return send(res, 429, { error: 'Zu viele Versuche. Bitte gleich nochmal.' });
+      const pr = shopProdukt(String(b.produkt || ''));
+      if (!pr || pr.aktiv === false) return send(res, 404, { error: 'Diesen Gutschein gibt es nicht (mehr).' });
+      if (b.zahlung !== 'lio' && b.zahlung !== 'euro') return send(res, 400, { error: 'Bitte eine Zahlart wählen.' });
+      if (b.zahlung === 'euro') return send(res, 501, { error: 'Bezahlen mit Echtgeld kommt bald.' });
+      // Ab hier kein await mehr: pruefen, abbuchen, Code nehmen und einbuchen
+      // passieren am Stueck — zwei gleichzeitige Kaeufe koennen sich nicht
+      // denselben Code oder dieselben Lios teilen
+      const codes = shopCodes(pr.id);
+      if (!codes.length) return send(res, 409, { error: 'Leider ausverkauft.', ausverkauft: true });
+      if (!users[me].emailOk) return send(res, 403, { error: 'Bitte bestätige zuerst deine E-Mail-Adresse (Einstellungen).', emailNoetig: true });
+      const prof = profileOf(me);
+      const stand = lioStand(prof);
+      const preis = Math.max(0, Math.trunc(Number(pr.preisLio) || 0));
+      if (!preis) return send(res, 404, { error: 'Diesen Gutschein gibt es nicht (mehr).' });
+      if (stand < preis) {
+        const fehlen = preis - stand;
+        return send(res, 409, { error: `Dir fehlen noch ${fehlen} ${lioWort(fehlen)}.`, fehlen, lio: stand });
+      }
+      const w = wallets[me] || (wallets[me] = { vouchers: [], cards: [], deleted: [] });
+      w.vouchers = w.vouchers || [];
+      if (w.vouchers.length >= WALLET_LIMIT_GUTSCHEINE) {
+        return send(res, 409, { error: `Deine Wallet ist voll (${WALLET_LIMIT_GUTSCHEINE} Gutscheine). Lösch aufgebrauchte Gutscheine, dann klappt der Kauf.` });
+      }
+      const jetzt = Date.now();
+      const kaufId = crypto.randomBytes(6).toString('hex');
+      const vid = neueGutscheinId();
+      const posten = codes.shift();
+      shopBestand.verkauft = [...shopBestand.verkauft, {
+        id: kaufId, ts: jetzt, user: me, produkt: pr.id, zahlung: 'lio', preisLio: preis, code: posten.code, pin: posten.pin || '', gutschein: vid,
+      }].slice(-SHOP_VERKAUFT_MAX);
+      // Erst den Bestand sichern (ein Code wird so nie zweimal verkauft).
+      // Klappt das nicht, bleibt alles, wie es war.
+      if (!saveJson('shop-bestand.json', shopBestand)) {
+        codes.unshift(posten);
+        shopBestand.verkauft = shopBestand.verkauft.filter(x => x.id !== kaufId);
+        return send(res, 507, { error: 'Kauf gerade nicht möglich. Bitte gleich nochmal versuchen.' });
+      }
+      const titel = `${pr.name} ${String(pr.wert).replace('.', ',')} €`;
+      lioBuchen(prof, -preis, 'kauf', titel, { jetzt });
+      const cashback = Math.max(0, Math.trunc(Number(pr.cashbackLio) || 0));
+      if (cashback) lioBuchen(prof, cashback, 'cashback', 'Cashback: ' + titel, { jetzt });
+      const v = {
+        id: vid, vendor: pr.marke, amount: pr.wert, balance: pr.wert, code: posten.code, pin: posten.pin || '',
+        tx: [], img: '', codeImg: '', added: jetzt, mt: jetzt, herkunft: 'shop', shopKauf: kaufId,
+      };
+      w.vouchers.unshift(v);
+      saveJson('users.json', users);
+      saveJson('wallets.json', wallets);
+      ssePush('gift', me); // die anderen Geraete holen die Wallet sofort
+      ssePush('lio', me);
+      return send(res, 200, { ok: true, lio: lioStand(prof), cashback, gutschein: v, produkt: shopOeffentlich(pr), kauf: kaufId });
+    }
+
     // Profil einmalig bewerten und kommentieren (ein Eintrag pro Besucher, Upsert)
     if (p === '/api/profile/comments' && req.method === 'GET') {
       const target = String(url.searchParams.get('user') || '');
@@ -3750,10 +4081,11 @@ const server = http.createServer(async (req, res) => {
       if (!user) return send(res, 401, { error: 'Nicht angemeldet.' });
       const u = users[user] || {};
       // Login-Serie: der angemeldete Start der App zaehlt den heutigen Tag
-      if (zaehleLoginTag(profileOf(user))) saveJsonSoon('users.json', users);
+      if (loginTagZaehlen(user)) saveJsonSoon('users.json', users);
       return send(res, 200, {
         user, role: roleOf(user),
         loginStreak: loginSerie(profileOf(user)),
+        lio: lioStand(profileOf(user)),
         zweiFaktor: zweiFaktorAn(user),
         ersatzcodes: zweiFaktorAn(user) ? (u.totp.reserve || []).length : 0,
         hatEmail: !!u.email,
@@ -4007,6 +4339,94 @@ const server = http.createServer(async (req, res) => {
       catch { return send(res, 404, { error: 'Keine Datei.' }); }
     }
 
+    // ---- Gutschein-Shop (Admin): Bestand ansehen, Codes nachfuellen/entfernen,
+    // Cashback und aktiv einstellen. Codes gehen auch hier nur maskiert raus.
+    if (p === '/api/admin/shop' && req.method === 'GET') {
+      if (!isAdmin(req)) return send(res, 403, { error: 'Admin-Key falsch.' });
+      return send(res, 200, {
+        produkte: shop.produkte.map(pr => ({
+          ...shopOeffentlich(pr), aktiv: pr.aktiv !== false,
+          bestand: shopCodes(pr.id).length,
+          verkauft: shopBestand.verkauft.filter(x => x.produkt === pr.id).length,
+        })),
+        verkaeufe: shopBestand.verkauft.slice(-30).reverse().map(x => ({
+          id: x.id, ts: x.ts, user: x.user, produkt: x.produkt, zahlung: x.zahlung, preisLio: x.preisLio, code: codeMaske(x.code),
+        })),
+      });
+    }
+    if (p === '/api/admin/shop/codes' && req.method === 'POST') {
+      if (!isAdmin(req)) return send(res, 403, { error: 'Admin-Key falsch.' });
+      const b = await readBody(req, 300_000);
+      const pr = shopProdukt(String(b.produkt || ''));
+      if (!pr) return send(res, 404, { error: 'Produkt nicht gefunden.' });
+      const zeilen = String(b.codes || '').split(/\r?\n/).map(z => z.trim()).filter(Boolean);
+      if (zeilen.length > 5000) return send(res, 400, { error: 'Höchstens 5000 Codes auf einmal.' });
+      // Doppelt ist, was schon im Bestand liegt oder je verkauft wurde
+      const bekannt = new Set([
+        ...Object.values(shopBestand.codes).flat().map(x => codeSchluessel(x && x.code)),
+        ...shopBestand.verkauft.map(x => codeSchluessel(x.code)),
+      ]);
+      let hinzu = 0, doppelt = 0, ungueltig = 0;
+      const liste = shopBestand.codes[pr.id] = shopCodes(pr.id);
+      for (const z of zeilen) {
+        const c = shopCodeZeile(z);
+        if (!c) { ungueltig++; continue; }
+        const k = codeSchluessel(c.code);
+        if (bekannt.has(k)) { doppelt++; continue; }
+        bekannt.add(k);
+        liste.push({ code: c.code, pin: c.pin, ts: Date.now() });
+        hinzu++;
+      }
+      if (hinzu && !saveJson('shop-bestand.json', shopBestand)) return send(res, 507, { error: 'Speichern fehlgeschlagen.' });
+      return send(res, 200, { ok: true, hinzu, doppelt, ungueltig, bestand: liste.length });
+    }
+    if (p === '/api/admin/shop/codes-weg' && req.method === 'POST') {
+      if (!isAdmin(req)) return send(res, 403, { error: 'Admin-Key falsch.' });
+      const b = await readBody(req, 300_000);
+      const pr = shopProdukt(String(b.produkt || ''));
+      if (!pr) return send(res, 404, { error: 'Produkt nicht gefunden.' });
+      const vorher = shopCodes(pr.id);
+      let rest;
+      if (b.alle === true) rest = [];
+      else {
+        const weg = new Set(String(b.codes || '').split(/\r?\n/).map(z => codeSchluessel(z.split(/[;\t]/)[0])).filter(Boolean));
+        rest = vorher.filter(x => !weg.has(codeSchluessel(x.code)));
+      }
+      const entfernt = vorher.length - rest.length;
+      shopBestand.codes[pr.id] = rest;
+      if (entfernt && !saveJson('shop-bestand.json', shopBestand)) return send(res, 507, { error: 'Speichern fehlgeschlagen.' });
+      return send(res, 200, { ok: true, entfernt, bestand: rest.length });
+    }
+    if (p === '/api/admin/shop/produkt' && req.method === 'POST') {
+      if (!isAdmin(req)) return send(res, 403, { error: 'Admin-Key falsch.' });
+      const b = await readBody(req);
+      const pr = shopProdukt(String(b.produkt || ''));
+      if (!pr) return send(res, 404, { error: 'Produkt nicht gefunden.' });
+      if (b.cashbackLio !== undefined) {
+        const n = Number(b.cashbackLio);
+        if (!Number.isInteger(n) || n < 0 || n > 10000) return send(res, 400, { error: 'Cashback: ganze Zahl von 0 bis 10000 Lios.' });
+        pr.cashbackLio = n;
+      }
+      if (typeof b.aktiv === 'boolean') pr.aktiv = b.aktiv;
+      saveJson('shop.json', shop);
+      return send(res, 200, { ok: true, produkt: { ...shopOeffentlich(pr), aktiv: pr.aktiv !== false, bestand: shopCodes(pr.id).length } });
+    }
+    // Lios von Hand gutschreiben oder abziehen (Erstattung, Korrektur)
+    if (p === '/api/admin/lio' && req.method === 'POST') {
+      if (!isAdmin(req)) return send(res, 403, { error: 'Admin-Key falsch.' });
+      const b = await readBody(req);
+      const user = String(b.user || '');
+      if (!users[user]) return send(res, 404, { error: 'Nutzer nicht gefunden.' });
+      const delta = Number(b.delta);
+      if (!Number.isInteger(delta) || !delta || Math.abs(delta) > 100000) return send(res, 400, { error: 'Menge: ganze Zahl ungleich 0.' });
+      const prof = profileOf(user);
+      if (lioStand(prof) + delta < 0) return send(res, 409, { error: `@${user} hat nur ${lioStand(prof)} ${lioWort(lioStand(prof))}.` });
+      const text = String(b.grund || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 60) || (delta > 0 ? 'Gutschrift' : 'Korrektur');
+      lioBuchen(prof, delta, 'korrektur', text, { neu: delta > 0 });
+      saveJson('users.json', users);
+      ssePush('lio', user);
+      return send(res, 200, { ok: true, user, lio: lioStand(prof) });
+    }
     if (p === '/api/admin/users' && req.method === 'GET') {
       if (!isAdmin(req)) return send(res, 403, { error: 'Admin-Key falsch.' });
       return send(res, 200, Object.entries(users).map(([name, u]) => ({
@@ -4452,6 +4872,8 @@ if (process.env.RA_TEST) {
   profileOf, users, STICKERS, GAMI_WEG, zaehleLoginTag, loginSerie, berlinTag, namensfarbe, eingeladenZahl, eigenesProfil,
     // Endpunkte im Test ansprechen: server.listen(0) im Testskript
     server, geworbenEntfernen, einladungenAufraeumen,
+    // fuer scripts/test-lio.js
+    LIO, loginTagZaehlen, lioBonusAbholen, lioWerbungPruefen, lioSerie, loginTageZahl, lioStand, shop, shopBestand, mailKern,
     // fuer scripts/test-wallet.js
     bilderAufraeumen, bildDateien, bildAblegen, vereinigeWallet, archiviere, archivFlush, wallets, gifts, walletIndex, waehleFassung,
     totpCode, totpPruefen, base32, base32Lesen, ersatzcodeEinloesen, neueErsatzcodes, aufgebrauchtWeg, raeumeAufgebrauchteAuf, drossel,

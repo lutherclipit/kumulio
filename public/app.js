@@ -387,6 +387,7 @@ async function api(path, opts) {
   if (!res.ok) {
     const err = new Error(data.error || `Fehler ${res.status}`);
     err.status = res.status;
+    err.data = data; // weitere Angaben des Servers (z. B. fehlende Lios)
     throw err;
   }
   return data;
@@ -3062,6 +3063,7 @@ async function ladeProfil() {
     if (ini) ini.textContent = anfangsBuchstabe(state.userName);
   }
   updateReqDot();
+  lioNachProfil();
 }
 
 // Der eigene Name in der eigenen Namensfarbe (Profil-Kopf)
@@ -3235,7 +3237,13 @@ function renderSerie() {
       <span class="pf-serie-flamme">${icon('flame', 'icon')}</span>
       <span class="pf-serie-text"><b>${tage} ${tage === 1 ? 'Tag' : 'Tage'} in Folge</b><small>${unter}</small></span>
     </div>
-    <div class="pf-woche" aria-hidden="true">${zellen}</div>`;
+    <div class="pf-woche" aria-hidden="true">${zellen}</div>
+    <button class="pf-lio" type="button" data-pf-lio>
+      ${lioSternImg(30)}
+      <span class="pf-lio-text"><b data-lio-stand>${lioText(lioAnzeige())}</b><small>Im Gutschein-Shop einlösen</small></span>
+      ${icon('chevron', 'icon icon-sm')}
+    </button>`;
+  el.querySelector('[data-pf-lio]').onclick = () => oeffneLioShop();
 }
 
 // Lieblings-Kategorien: Auswahl-Chips wie bei den Gutscheinen + eigenes Feld
@@ -3525,6 +3533,8 @@ function oeffneTopMenu() {
   // Einladen/Geschenke/Favoriten und die Einstellungen
   host.innerHTML = `
     ${tmKopfHtml()}
+    <div class="tm-lio" id="tm-lio">${tmLioHtml()}</div>
+    <button class="tm-item" id="tm-shop" type="button">${icon('shop', 'icon icon-sm')} Gutschein-Shop</button>
     ${reqs.length ? `<div class="tm-section">Freundschaftsanfragen</div>
     ${reqs.map(u => `<div class="tm-req">
       <span class="avatar-mini" style="background:${chatColor(u)}">${esc(anfangsBuchstabe(u))}</span>
@@ -3534,7 +3544,7 @@ function oeffneTopMenu() {
     </div>`).join('')}` : ''}
     <div class="tm-section tm-section-row">Freunde <button class="tm-mini-link" id="tm-all-friends">alle ansehen</button></div>
     <div id="tm-friends"><div class="tm-sub" style="padding:4px 0">Lade …</div></div>
-    <button class="tm-item" id="tm-invite">${icon('share', 'icon icon-sm')} Freunde einladen</button>
+    <button class="tm-item" id="tm-invite">${icon('share', 'icon icon-sm')} Freunde einladen${myProfile?.lioFreunde?.proFreund ? `<span class="tm-lio-pille" aria-label="${myProfile.lioFreunde.proFreund} Lios pro Freund">+${myProfile.lioFreunde.proFreund}${lioSternImg(14)}</span>` : ''}</button>
     <button class="tm-item" id="tm-gifts">${icon('gift', 'icon icon-sm')} Geschenke ${pendingGifts.length ? `<span class="dm-unread-pill">${pendingGifts.length}</span>` : ''}</button>
     <button class="tm-item" id="tm-favs">${icon('star', 'icon icon-sm')} Favoriten</button>
     <button class="tm-item" id="tm-settings">${icon('sliders', 'icon icon-sm')} Einstellungen</button>`;
@@ -3551,6 +3561,8 @@ function oeffneTopMenu() {
   // Der Profil-Eintrag oben führt zum Profil
   menu.querySelector('.tm-head').onclick = () => { done(); switchView('profile'); };
   $('#tm-invite').onclick = () => { done(); switchView('invite', 'enter-drop'); };
+  $('#tm-shop').onclick = () => { done(); oeffneLioShop(); };
+  renderTmLio();
   $('#tm-gifts').onclick = () => { done(); switchView('gifts', 'enter-drop'); };
   $('#tm-favs').onclick = () => {
     done();
@@ -3598,7 +3610,8 @@ function oeffneTopMenu() {
 }
 // Roter Punkt am Avatar, wenn Anfragen warten
 function updateReqDot() {
-  $('#btn-profile-top').classList.toggle('has-dot', !!(myProfile?.friendRequests || []).length);
+  // … und fuer Wochen-/Monats-Boni, die im Menue zum Abholen warten
+  $('#btn-profile-top').classList.toggle('has-dot', !!(myProfile?.friendRequests || []).length || !!(myProfile?.lioBoni || []).length);
 }
 $('#top-menu-backdrop').addEventListener('click', () => schliesseTopMenu());
 $('#tm-zu').addEventListener('click', () => schliesseTopMenu());
@@ -8378,7 +8391,7 @@ function wseitenAbgleichen() {
   const s = wseiten();
   if (!s.length) return;
   // Deal-Seiten zeigen nichts aus der Wallet: sie bleiben bei Sperre und fuer Gaeste offen
-  if (walletGesperrt() || !state.token) { if (s.some(x => x.art !== 'deal')) wseitenZu(); return; }
+  if (walletGesperrt() || !state.token) { if (s.some(x => x.art !== 'deal' && (!state.token || !istLioSeite(x)))) wseitenZu(); return; }
   if (s.some(x => x.sendet)) return;          // Verschenken laeuft gerade
   for (let i = 0; i < s.length; i++) {
     const seite = s[i];
@@ -12537,6 +12550,8 @@ function connectStream() {
   chatStream = es;
   es.onopen = () => { streamRetry = 0; };
   es.addEventListener('gift', () => pullWallet()); // Geschenk kommt sofort an
+  // Lios: Gutschrift (Freund, Admin), Bonus oder Kauf — Profil neu, der Stern fliegt
+  es.addEventListener('lio', () => ladeProfil());
   // PIN auf einem anderen Geraet festgelegt, geaendert oder entfernt: sofort mitziehen
   es.addEventListener('pin', () => api('/api/me').then(r => { kontoInfo = r; pinKontoUebernehmen(r); }).catch(() => { }));
   es.addEventListener('dm', () => {
@@ -12582,15 +12597,20 @@ async function renderInvitePage() {
   }
   await ladeProfil(); // frischer Zaehler
   const n = myProfile?.eingeladen || 0;
+  const lf = myProfile?.lioFreunde || {};
+  const proFreund = Number(lf.proFreund) || 0, tage = Number(lf.tageNoetig) || 3;
+  const bekommen = (Number(lf.gutgeschrieben) || 0) * proFreund, wartend = Number(lf.wartend) || 0;
+  const stand = [bekommen ? `${lioText(bekommen)} bekommen` : '', wartend ? `${wartend} ${wartend === 1 ? 'wartet' : 'warten'} noch` : ''].filter(Boolean).join(' · ');
   host.innerHTML = `
     <div class="card inv-kopf">
       <span class="inv-kopf-ico">${icon('user', 'icon')}</span>
       <span class="inv-kopf-text">
         <b>${n ? `${n} ${n === 1 ? 'Freund' : 'Freunde'} eingeladen` : 'Noch niemand eingeladen'}</b>
-        <small>Wer sich über deinen Link anmeldet, zählt hier.</small>
+        <small>${stand || 'Wer sich über deinen Link anmeldet, zählt hier.'}</small>
       </span>
     </div>
-    <p class="inv-vorgemerkt">${icon('gift', 'icon icon-sm')}<span>Belohnungen folgen. Deine Einladungen sind vorgemerkt.</span></p>
+    ${proFreund ? `<p class="inv-vorgemerkt inv-lio">${lioSternImg(26)}<span>${proFreund} Lios für jeden Freund, sobald er seine E-Mail-Adresse bestätigt und an ${tage} Tagen reingeschaut hat.</span></p>`
+    : `<p class="inv-vorgemerkt">${icon('gift', 'icon icon-sm')}<span>Deine Einladungen sind vorgemerkt.</span></p>`}
 
     <h3 class="inv-h">Dein Einladungslink</h3>
     <button class="inv-link" id="inv-link-box" type="button" aria-label="Link kopieren">
@@ -12605,13 +12625,702 @@ async function renderInvitePage() {
     <div class="inv-steps">
       <div class="inv-step"><b>1</b><span>Link teilen, per WhatsApp, Story oder wie du magst.</span></div>
       <div class="inv-step"><b>2</b><span>Dein Freund öffnet ihn und legt ein kostenloses Konto an.</span></div>
-      <div class="inv-step"><b>3</b><span>Die Einladung wird bei dir vorgemerkt.</span></div>
+      <div class="inv-step"><b>3</b><span>${proFreund ? `Bestätigt er seine E-Mail-Adresse und schaut an ${tage} Tagen rein, bekommst du ${proFreund} Lios.` : 'Die Einladung wird bei dir vorgemerkt.'}</span></div>
     </div>`;
   $('#inv-share').onclick = shareInvite;
   $('#inv-copy').onclick = copyInvite;
   $('#inv-link-box').onclick = copyInvite;
 }
 
+
+// =============================================================================
+// Lio: die Waehrung von kumulio (1 Lio = 1 Cent)
+//
+// Den Stand fuehrt nur der Server (myProfile.lio, dazu lioNeu, lioBoni,
+// lioSerie und lioFreunde aus /api/profile). Hier wird er nur gezeigt: im
+// Seitenmenue (Stand, Wochen- und Monats-Bonus zum Abholen), unter der
+// Login-Serie im Profil und im Gutschein-Shop. Jede neue Gutschrift fliegt als
+// Stern ins Profilbild oben links (lioSternFlug) und wird danach quittiert
+// (/api/lio/gesehen), damit sie genau einmal fliegt.
+// =============================================================================
+function lioStand() { return Math.max(0, Math.floor(Number(myProfile?.lio) || 0)); }
+function lioWort(n) { return Math.abs(Number(n)) === 1 ? 'Lio' : 'Lios'; }
+function lioText(n) { return `${Number(n || 0).toLocaleString('de-DE')} ${lioWort(n)}`; }
+// Der Stern als Bild (nie ein Emoji). px = Anzeigegroesse; geladen wird die
+// Datei, die auf 2x-Displays scharf bleibt
+function lioSternImg(px = 24, cls = 'lio-stern') {
+  const datei = px <= 24 ? 48 : px <= 48 ? 96 : 192;
+  return `<img class="${cls}" src="/brand/lio-stern-${datei}.webp" width="${px}" height="${px}" alt="" draggable="false" decoding="async">`;
+}
+// Die Shop-Seiten zeigen nichts aus der Wallet: sie bleiben offen, wenn die
+// Wallet sich sperrt (wie die Deal-Seiten)
+function istLioSeite(s) { return !!s && (s.art === 'lio-shop' || s.art === 'lio-produkt'); }
+
+let lioGehalten = null;         // solange ein Stern fliegt: der alte Stand (die Zahl springt erst bei der Ankunft)
+const lioGeflogen = new Set();  // Gutschriften, die hier schon geflogen sind — auch wenn das Quittieren scheitert
+let lioFliegt = false;
+let lioShopDaten = null;        // letzter Stand von /api/shop
+let lioVerlauf = null;          // letzte Buchungen aus /api/lio
+
+function lioAnzeige() { return lioGehalten ?? lioStand(); }
+// Alle sichtbaren Staende nachziehen. von: der Wert davor, dann zaehlt die Zahl hoch
+function lioStandZeigen({ von = null } = {}) {
+  const ziel = lioAnzeige();
+  document.querySelectorAll('[data-lio-stand]').forEach(el => {
+    if (von == null || von === ziel || reducedMotion()) { el.textContent = lioText(ziel); return; }
+    const t0 = performance.now(), ms = 520;
+    const schritt = jetzt => {
+      if (!el.isConnected) return;
+      const p = Math.min(1, (jetzt - t0) / ms);
+      el.textContent = lioText(Math.round(von + (ziel - von) * (1 - Math.pow(1 - p, 3))));
+      if (p < 1) requestAnimationFrame(schritt);
+    };
+    requestAnimationFrame(schritt);
+    // Endwert auch dann, wenn rAF pausiert (App im Hintergrund)
+    setTimeout(() => { if (el.isConnected) el.textContent = lioText(lioAnzeige()); }, ms + 120);
+    el.animate?.([{ transform: 'scale(1)' }, { transform: 'scale(1.1)', offset: .35 }, { transform: 'scale(1)' }],
+      { duration: 440, easing: 'ease-out' });
+  });
+  document.querySelectorAll('[data-lio-euro]').forEach(el => { el.textContent = euroFmt(ziel / 100); });
+}
+
+// Nach jedem Laden des Profils: Menue, Shop-Seiten und neue Gutschriften
+let lioProfilTag = '';          // Kalendertag (Berlin) des letzten Profil-Abrufs
+function lioBerlinTag() { try { return new Date().toLocaleDateString('de-DE', { timeZone: 'Europe/Berlin' }); } catch { return new Date().toDateString(); } }
+function lioNachProfil() {
+  if (!myProfile) return;
+  lioProfilTag = lioBerlinTag();
+  if (lioGehalten == null) { renderTmLio(); lioStandZeigen(); }
+  for (const s of wseiten()) if (s.art === 'lio-produkt') zeichneLioProdukt(s, { nurWennNeu: true });
+  lioNeuPruefen();
+}
+
+// Zurueck in der App an einem neuen Tag (die App war seit gestern offen): das
+// Profil zaehlt den Login-Tag — Serie und taeglicher Lio kommen dann auch so
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || !state.token || !myProfile) return;
+  if (lioProfilTag && lioProfilTag !== lioBerlinTag()) ladeProfil();
+  else lioNeuPruefen();
+});
+
+// ---- Seitenmenue: Stand, "1 Lio = 1 Cent", darunter Wochen- und Monats-Bonus.
+// Offene Boni mit "Abholen", sonst wie viele Login-Tage es noch sind (echte
+// Serie vom Server; heute ist dann schon mitgezaehlt).
+function tmLioHtml() {
+  if (!myProfile) return '';
+  const s = myProfile.lioSerie || {};
+  const boni = Array.isArray(myProfile.lioBoni) ? myProfile.lioBoni : [];
+  const zeile = (art, name, alle, menge) => {
+    const offen = boni.filter(b => b && b.art === art);
+    if (offen.length) {
+      const summe = offen.reduce((x, b) => x + (Number(b.menge) || 0), 0);
+      const tag = Math.round(Number(offen[0].tag) || 0);
+      const unter = offen.length === 1 && tag ? `${tag} Tage in Folge geschafft` : `${offen.length}-mal geschafft`;
+      return `
+        <div class="tm-lio-zeile offen">
+          <span class="tm-lio-text"><b>${name}</b><small>${unter}</small></span>
+          <button class="tm-lio-abholen" type="button" data-lio-abholen="${art}" aria-label="${name}: ${lioText(summe)} abholen">+${summe} abholen</button>
+        </div>`;
+    }
+    const bis = Math.round(Number(art === 'woche' ? s.bisWoche : s.bisMonat) || 0);
+    if (!(bis > 0 && bis <= alle) || !(Number(menge) > 0)) return '';
+    const geschafft = alle - bis;
+    const balken = art === 'woche'
+      ? `<span class="tm-lio-balken woche" aria-hidden="true">${Array.from({ length: alle }, (_, i) => `<i${i < geschafft ? ' class="an"' : ''}></i>`).join('')}</span>`
+      : `<span class="tm-lio-balken monat" aria-hidden="true"><i style="transform:scaleX(${(geschafft / alle).toFixed(3)})"></i></span>`;
+    return `
+      <div class="tm-lio-zeile">
+        <span class="tm-lio-text"><b>${name}</b><small>${bis === 1 ? 'morgen' : `noch ${bis} Tage`}</small></span>
+        <span class="tm-lio-plus">+${menge}${lioSternImg(16)}</span>
+        ${balken}
+      </div>`;
+  };
+  return `
+    <div class="tm-lio-kopf">
+      ${lioSternImg(44)}
+      <span class="tm-lio-stand"><b data-lio-stand>${lioText(lioAnzeige())}</b><small>1 Lio = 1 Cent</small></span>
+      ${s.heute && s.proTag ? `<span class="tm-lio-heute">+${s.proTag} heute</span>` : ''}
+    </div>
+    <div class="tm-lio-zeilen">
+      ${zeile('woche', 'Wochen-Bonus', 7, s.woche)}
+      ${zeile('monat', 'Monats-Bonus', 30, s.monat)}
+    </div>`;
+}
+function renderTmLio() {
+  const host = $('#tm-lio');
+  if (!host) return;
+  host.classList.toggle('hidden', !myProfile);
+  host.innerHTML = tmLioHtml();
+  host.querySelectorAll('[data-lio-abholen]').forEach(b => { b.onclick = () => lioBonusHolen(b.dataset.lioAbholen, b); });
+}
+
+// Bonus abholen: der Server schreibt gut, der Stern fliegt vom Knopf ins Profil
+async function lioBonusHolen(art, knopf) {
+  if (!state.token || !myProfile || knopf.disabled) return;
+  const ids = (myProfile.lioBoni || []).filter(b => b && b.art === art).map(b => b.id);
+  if (!ids.length) return;
+  knopf.disabled = true;
+  const start = knopf.getBoundingClientRect();
+  const vorher = lioAnzeige();
+  let menge = 0, letzte = null, fehler = null;
+  for (const id of ids) {
+    try {
+      letzte = await api('/api/lio/bonus', { method: 'POST', body: JSON.stringify({ id }) });
+      menge += Number(letzte.menge) || 0;
+    } catch (e) {
+      fehler = e;
+      const d = e.data || {};
+      if (Array.isArray(d.lioBoni)) myProfile.lioBoni = d.lioBoni;
+      if (Number.isFinite(d.lio)) myProfile.lio = d.lio;
+      break;
+    }
+  }
+  if (letzte) { myProfile.lio = letzte.lio; myProfile.lioBoni = letzte.lioBoni; }
+  updateReqDot();
+  if (!menge) {
+    island(fehler?.message || 'Das hat gerade nicht geklappt.');
+    if (lioGehalten == null) renderTmLio();
+    return;
+  }
+  knopf.classList.add('fertig');
+  knopf.innerHTML = `${icon('check', 'icon icon-sm')}abgeholt`;
+  lioGehalten = vorher;
+  const name = art === 'monat' ? 'Monats-Bonus' : 'Wochen-Bonus';
+  lioSternFlug(menge, {
+    von: start, text: `${name}: +${lioText(menge)}`,
+    beiAnkunft: () => { lioGehalten = null; renderTmLio(); lioStandZeigen({ von: vorher }); },
+  });
+}
+
+// ---- Neue Gutschriften (taeglicher Login, eingeladene Freunde, Korrekturen):
+// der Stern fliegt, sobald nichts anderes davor liegt, dann wird quittiert
+function lioBuehneFrei() {
+  if (document.visibilityState !== 'visible' || startAuftrittOffen) return false;
+  if (!$('#wallet-sperre')?.classList.contains('hidden')) return false;
+  if (state.sheetMode || document.querySelector('.k-splash, #tour, .overlay:not(.hidden)')) return false;
+  if ($('#onboard') && !$('#onboard').classList.contains('hidden')) return false;
+  // Eine offene Seite verdeckt das Profilbild: nur die Shop-Seiten haben ein eigenes Ziel
+  const oben = wseiteOben();
+  if (oben && !oben.el.querySelector('[data-lio-ziel]')) return false;
+  return true;
+}
+function lioNeuPruefen(versuch = 0) {
+  clearTimeout(lioNeuPruefen.uhr);
+  if (!state.token || !myProfile || lioFliegt) return;
+  const neu = (Array.isArray(myProfile.lioNeu) ? myProfile.lioNeu : []).filter(x => x && x.id && !lioGeflogen.has(x.id));
+  if (!neu.length) return;
+  // Das Update-Log darf zuerst (es kommt kurz nach dem Start), danach der Stern
+  if (!lioBuehneFrei() || (!neuGeprueft && versuch < 6)) {
+    if (versuch < 120) lioNeuPruefen.uhr = setTimeout(() => lioNeuPruefen(versuch + 1), 1000);
+    return;
+  }
+  // Kurz Luft, damit die Seite erst steht
+  if (!lioNeuPruefen.bereit) {
+    lioNeuPruefen.bereit = true;
+    lioNeuPruefen.uhr = setTimeout(() => lioNeuPruefen(versuch + 1), 650);
+    return;
+  }
+  neu.forEach(x => lioGeflogen.add(x.id));
+  const menge = neu.reduce((a, x) => a + Math.max(0, Math.round(Number(x.menge) || 0)), 0);
+  const text = neu.length === 1 ? `${neu[0].text || 'Gutschrift'}: +${lioText(menge)}` : `+${lioText(menge)} bekommen`;
+  const vorher = Math.max(0, lioStand() - menge);
+  lioGehalten = vorher;
+  lioStandZeigen();
+  lioFliegt = true;
+  // Quittiert wird, sobald der Stern angekommen ist (nicht erst am Ende der
+  // Animation: wer die App dann schliesst, hat ihn schon gesehen)
+  let quittiert = false;
+  const quittieren = () => {
+    if (quittiert) return;
+    quittiert = true;
+    api('/api/lio/gesehen', { method: 'POST', body: JSON.stringify({ ids: neu.map(x => x.id) }) })
+      .then(r => { if (myProfile && Array.isArray(r.lioNeu)) myProfile.lioNeu = r.lioNeu; })
+      .catch(() => { /* hier fliegt er nicht nochmal (lioGeflogen) */ });
+  };
+  lioSternFlug(menge, {
+    text,
+    beiAnkunft: () => { lioGehalten = null; renderTmLio(); lioStandZeigen({ von: vorher }); quittieren(); },
+  }).finally(() => {
+    lioFliegt = false;
+    quittieren();
+    // Wartet ein Bonus im Menue? Einmal pro Sitzung ein kurzer Hinweis
+    const boni = (myProfile?.lioBoni || []).filter(b => b && b.id);
+    if (boni.length && !lioNeuPruefen.hinweis) {
+      lioNeuPruefen.hinweis = true;
+      const wer = boni.length > 1 ? 'Deine Boni warten' : `Dein ${boni[0].art === 'monat' ? 'Monats' : 'Wochen'}-Bonus wartet`;
+      setTimeout(() => { if (!topMenuOffen()) island(`${wer} im Menü`); }, 2800);
+    }
+    lioNeuPruefen();
+  });
+}
+
+// ---- Der Stern: erscheint (Bildschirmmitte oder am Knopf), dreht sich schnell
+// um die eigene Achse und fliegt im Bogen ins Profilbild oben links (bei
+// offenem Menue: ins Profilbild im Menue, auf einer Shop-Seite: in deren
+// Stern). Dort federt das Ziel kurz und "+N" blendet ein. Mehrere Lios: bis
+// zu fuenf Sterne leicht versetzt. Nur transform und opacity (Web Animations),
+// alles zu Beginn angelegt — keine Messung waehrend des Flugs. Weniger
+// Bewegung, "sparsam" oder Animationen aus: kein Flug, nur "+N" blendet ein.
+function lioZiel() {
+  const sichtbar = el => {
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth ? r : null;
+  };
+  const nimm = el => { const r = sichtbar(el); return r ? { el, r } : null; };
+  if (topMenuOffen()) {
+    const m = $('#top-menu');
+    return nimm(m.querySelector('.tm-head .avatar-big') || m.querySelector('.tm-head img') || m.querySelector('.tm-head'));
+  }
+  const oben = wseiteOben();
+  if (oben) return nimm(oben.el.querySelector('[data-lio-ziel]'));
+  return nimm($('#btn-profile-top'));
+}
+function lioFlugEbene() {
+  let e = $('#lio-flug');
+  if (!e) {
+    e = document.createElement('div');
+    e.id = 'lio-flug';
+    e.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(e);
+  }
+  return e;
+}
+function lioSternFlug(menge, { von = null, text = '', beiAnkunft = null } = {}) {
+  menge = Math.max(0, Math.round(Number(menge) || 0));
+  let angekommen = false;
+  const ankunft = () => {
+    if (angekommen) return;
+    angekommen = true;
+    try { beiAnkunft?.(); } catch { /* die Anzeige darf den Flug nicht aufhalten */ }
+  };
+  if (!menge) { ankunft(); return Promise.resolve(); }
+  const ziel = lioZiel();
+  const ruhig = reducedMotion() || document.body.classList.contains('sparsam') || !document.body.animate;
+  if (!ziel) { ankunft(); if (text) island(text); return Promise.resolve(); }
+  const ebene = lioFlugEbene();
+  const zr = ziel.r;
+  // "+N" sitzt unten rechts am Ziel, wie ein kleines Abzeichen
+  const plus = document.createElement('div');
+  plus.className = 'lio-plus';
+  plus.textContent = '+' + menge.toLocaleString('de-DE');
+  ebene.appendChild(plus);
+  const lx = Math.min(innerWidth - 60, zr.right - 14), ly = zr.bottom - 20;
+  const lt = (dy, s) => `translate3d(${lx.toFixed(1)}px, ${(ly + dy).toFixed(1)}px, 0) scale(${s})`;
+  const weg = [plus];
+  const anims = [];
+  const ende = (dauer) => Promise.race([
+    Promise.all(anims.map(a => a.finished.catch(() => { }))),
+    new Promise(r => setTimeout(r, dauer)),
+  ]).then(() => {
+    anims.forEach(a => { try { a.cancel(); } catch { } });
+    weg.forEach(el => el.remove());
+  });
+
+  if (ruhig) {
+    plus.style.transform = lt(0, 1);
+    if (plus.animate) anims.push(plus.animate([{ opacity: 0 }, { opacity: 1, offset: .15 }, { opacity: 1, offset: .75 }, { opacity: 0 }], { duration: 1500, easing: 'ease-out' }));
+    ankunft();
+    if (text) island(text);
+    playSfx('coin', .45);
+    return ende(1700);
+  }
+
+  const n = Math.min(5, menge);
+  const T_AUF = von ? 380 : 600;     // erscheinen, dann schnell drehen
+  const T_FLUG = 700;                // Bogen ins Profil
+  const VERSATZ = 110;               // zwischen den Sternen
+  const D = T_AUF + T_FLUG;
+  const aufAnteil = T_AUF / D;
+  const S0 = von
+    ? { x: von.left + von.width / 2, y: von.top + von.height / 2 }
+    : { x: innerWidth / 2, y: innerHeight * .44 };
+  const E = { x: zr.left + zr.width / 2, y: zr.top + zr.height / 2 };
+  const tr = (p, s) => `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0) scale(${s.toFixed(3)})`;
+
+  // Ein weicher Schein, wo der Stern auftaucht
+  const glanz = document.createElement('div');
+  glanz.className = 'lio-glanz';
+  ebene.appendChild(glanz);
+  weg.push(glanz);
+  anims.push(glanz.animate([
+    { transform: tr(S0, .3), opacity: 0 },
+    { transform: tr(S0, 1), opacity: .95, offset: .3 },
+    { transform: tr(S0, 1.6), opacity: 0 },
+  ], { duration: T_AUF + 260, easing: 'ease-out', fill: 'both' }));
+
+  for (let i = 0; i < n; i++) {
+    const w = (-90 + i * 360 / n) * Math.PI / 180;
+    const rad = n > 1 ? (von ? 12 : 30) : 0;
+    const S = { x: S0.x + Math.cos(w) * rad, y: S0.y + Math.sin(w) * rad };
+    const dx = E.x - S.x, dy = E.y - S.y, len = Math.hypot(dx, dy) || 1;
+    // Bogen: der Kontrollpunkt liegt seitlich der Geraden, auf der oberen Seite
+    let px = -dy / len, py = dx / len;
+    if (py > 0) { px = -px; py = -py; }
+    const bogen = len * (.24 + .05 * (i % 3));
+    const C = { x: (S.x + E.x) / 2 + px * bogen, y: (S.y + E.y) / 2 + py * bogen };
+    const punkt = t => ({
+      x: (1 - t) * (1 - t) * S.x + 2 * (1 - t) * t * C.x + t * t * E.x,
+      y: (1 - t) * (1 - t) * S.y + 2 * (1 - t) * t * C.y + t * t * E.y,
+    });
+    const kf = [
+      { offset: 0, transform: tr(S, .2), opacity: 0 },
+      { offset: aufAnteil * .4, transform: tr(S, 1.22), opacity: 1 },
+      { offset: aufAnteil, transform: tr(S, 1), opacity: 1 },
+    ];
+    const SCHRITTE = 16;
+    for (let k = 1; k <= SCHRITTE; k++) {
+      const u = k / SCHRITTE;
+      const e = u < .5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2;
+      const s = u < .2 ? 1 + .14 * (u / .2) : 1.14 - .82 * ((u - .2) / .8);
+      kf.push({ offset: aufAnteil + (1 - aufAnteil) * u, transform: tr(punkt(e), s), opacity: u < .8 ? 1 : Math.max(0, 1 - (u - .8) / .2) });
+    }
+    const el = document.createElement('div');
+    el.className = 'lio-flieger';
+    el.innerHTML = '<img src="/brand/lio-stern-192.webp" alt="" draggable="false">';
+    ebene.appendChild(el);
+    weg.push(el);
+    const delay = i * VERSATZ;
+    anims.push(el.animate(kf, { duration: D, delay, easing: 'linear', fill: 'both' }));
+    // Die Drehung: erst von vorn auftauchen, dann schnell um die eigene Achse
+    // (wie eine Muenze), im Flug ruhiger mit etwas Schraeglage
+    const seite = i % 2 ? 1 : -1;
+    anims.push(el.firstChild.animate([
+      { transform: 'rotateY(0deg) rotate(0deg)' },
+      { transform: 'rotateY(0deg) rotate(0deg)', offset: aufAnteil * .3, easing: 'cubic-bezier(.45, 0, .55, 1)' },
+      { transform: 'rotateY(1080deg) rotate(0deg)', offset: aufAnteil },
+      { transform: `rotateY(1440deg) rotate(${24 * seite}deg)` },
+    ], { duration: D, delay, fill: 'both' }));
+  }
+
+  // Ankunft: das Ziel federt, "+N" blendet ein, Zahl zaehlt hoch
+  const an = D - 30;
+  const nach = (n - 1) * VERSATZ;
+  const popDauer = 440 + nach;
+  const popKf = n > 1
+    ? [{ transform: 'scale(1)' }, { transform: 'scale(1.16)', offset: 110 / popDauer }, { transform: 'scale(1.1)', offset: (nach + 110) / popDauer }, { transform: 'scale(1)' }]
+    : [{ transform: 'scale(1)' }, { transform: 'scale(1.16)', offset: .25 }, { transform: 'scale(1)' }];
+  try { anims.push(ziel.el.animate(popKf, { duration: popDauer, delay: an, easing: 'ease-out', composite: 'add' })); } catch { /* ohne Federn */ }
+  anims.push(plus.animate([
+    { transform: lt(6, .6), opacity: 0 },
+    { transform: lt(0, 1.1), opacity: 1, offset: .12 },
+    { transform: lt(-2, 1), opacity: 1, offset: .62 },
+    { transform: lt(-14, 1), opacity: 0 },
+  ], { duration: 1400 + nach, delay: an, easing: 'ease-out', fill: 'both' }));
+  setTimeout(() => {
+    ankunft();
+    playSfx('coin', .45);
+    buzz(12);
+    if (text) setTimeout(() => island(text), 120);
+  }, an);
+  return ende(an + 1400 + nach + 400);
+}
+
+// ---- Gutschein-Shop: eigene Seite im Seitenstapel (wie Raenge und Analyse).
+// Oben der Lio-Stand, darunter die Gutscheine (ausverkaufte grau, aber
+// ansehbar), wie man Lios sammelt und die letzten Buchungen.
+function oeffneLioShop() {
+  if (!state.token) { island('Zum Gutschein-Shop bitte anmelden'); return; }
+  if (wseiteOben()?.art === 'lio-shop') return;
+  buzz(8);
+  wseiteOeffnen({
+    art: 'lio-shop', titel: 'Gutschein-Shop', klasse: 'lsh',
+    baue: s => { zeichneLioShop(s); lioShopLaden(); },
+  });
+}
+async function lioShopLaden() {
+  const [shop, lio, me] = await Promise.allSettled([api('/api/shop'), api('/api/lio'), api('/api/me')]);
+  if (shop.status === 'fulfilled') lioShopDaten = shop.value;
+  lioShopLaden.fehler = shop.status !== 'fulfilled' && !lioShopDaten;
+  if (lio.status === 'fulfilled') {
+    lioVerlauf = Array.isArray(lio.value.log) ? lio.value.log : [];
+    if (myProfile && Number.isFinite(lio.value.lio)) myProfile.lio = lio.value.lio;
+  }
+  // Ob die E-Mail inzwischen bestaetigt ist, entscheidet ueber den Kauf
+  if (me.status === 'fulfilled') kontoInfo = { ...(kontoInfo || {}), ...me.value };
+  for (const s of wseiten()) {
+    if (s.art === 'lio-shop') zeichneLioShop(s);
+    if (s.art === 'lio-produkt') zeichneLioProdukt(s, { nurWennNeu: true });
+  }
+  if (lioGehalten == null) lioStandZeigen();
+}
+function lioProdukt(id) { return (lioShopDaten?.produkte || []).find(x => x && x.id === id) || null; }
+function lioAusverkauft(p) { return !!p && (p.ausverkauft || !p.verfuegbar); }
+// Das blasse Logo hinten auf der Karte nur mit eigener Logo-Datei — ein
+// Favicon (Amazon) waere gross nur ein helles Quadrat
+function lioMotivHtml(p, cls) {
+  return MARKEN_LOGOS[String(p.marke || '').toLowerCase().trim()]
+    ? `<span class="vk-motiv ${cls}" aria-hidden="true">${vkMotivHtml({ vendor: p.marke })}</span>` : '';
+}
+
+// Die kleine Gutscheinkarte im Markenton (wie in der Wallet)
+function lioProduktKarteHtml(p) {
+  const aus = lioAusverkauft(p);
+  const farbe = brandColor(p.marke);
+  return `
+    <button class="gd-block lsh-produkt${aus ? ' aus' : ''}" type="button" data-lsh-produkt="${esc(p.id)}"
+      aria-label="${esc(p.name)}, ${euroFmt(p.wert)}, ${lioText(p.preisLio)}${aus ? ', ausverkauft' : ''}">
+      <span class="lsh-karte${brandHelligkeit(farbe) > 0.62 ? ' hell' : ''}" style="--bc:${farbe}; --tc:${brandTextColor(p.marke)}">
+        ${lioMotivHtml(p, 'lsh-motiv')}
+        <span class="vk-logo">${brandChipHtml(p.marke)}</span>
+        <span class="lsh-karte-namen"><b>${esc(p.marke)}</b><small>Gutschein</small></span>
+        <b class="lsh-karte-wert">${euroFmt(p.wert)}</b>
+      </span>
+      <span class="lsh-fuss">
+        <span class="lsh-preis">${lioSternImg(22)}<b>${lioText(p.preisLio)}</b>${p.preisEuro ? `<small>oder ${euroFmt(p.preisEuro)}</small>` : ''}</span>
+        ${aus ? '<span class="lsh-status">Ausverkauft</span>'
+          : p.cashbackLio > 0 ? `<span class="lsh-status cashback">+${lioText(p.cashbackLio)} Cashback</span>` : ''}
+        ${icon('chevron', 'icon icon-sm lsh-pfeil')}
+      </span>
+    </button>`;
+}
+function zeichneLioShop(seite) {
+  const inhalt = seite.el.querySelector('.wseite-inhalt');
+  if (!inhalt) return;
+  const d = lioShopDaten;
+  const s = myProfile?.lioSerie || {};
+  const f = myProfile?.lioFreunde || {};
+  const stand = lioAnzeige();
+  const produkte = d ? (d.produkte || []).filter(Boolean) : null;
+  const liste = produkte == null
+    ? (lioShopLaden.fehler
+      ? `<div class="gd-block lsh-leer"><p>Der Shop lädt gerade nicht.</p><button class="gd-los leise" type="button" data-lsh-neu>Nochmal versuchen</button></div>`
+      : `<div class="gd-block lsh-leer"><p>Lade Gutscheine …</p></div>`)
+    : produkte.length ? produkte.map(lioProduktKarteHtml).join('')
+      : '<div class="gd-block lsh-leer"><p>Gerade gibt es hier keine Gutscheine.</p></div>';
+  // So kommen Lios dazu (die Werte kommen vom Server)
+  const weg = (ico, titel, unter, menge, attr = '') => menge > 0 ? `
+    <${attr ? 'button type="button"' : 'div'} class="lsh-weg"${attr}>
+      <span class="lsh-weg-ico">${icon(ico, 'icon')}</span>
+      <span class="lsh-weg-text"><b>${titel}</b><small>${unter}</small></span>
+      <span class="lsh-weg-plus">+${menge}${lioSternImg(16)}</span>
+      ${attr ? icon('chevron', 'icon icon-sm lsh-pfeil') : ''}
+    </${attr ? 'button' : 'div'}>` : '';
+  const wege = [
+    weg('sun', 'Jeden Tag reinschauen', 'einmal pro Tag, von selbst', Number(s.proTag) || 0),
+    weg('flame', '7 Tage in Folge', 'im Menü abholen', Number(s.woche) || 0),
+    weg('trophy', '30 Tage in Folge', 'im Menü abholen', Number(s.monat) || 0),
+    weg('user', 'Freund einladen', `sobald er an ${Number(f.tageNoetig) || 3} Tagen reinschaut`, Number(f.proFreund) || 0, ' data-lsh-einladen'),
+  ].join('');
+  const zeit = ts => new Date(ts).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const verlauf = (lioVerlauf || []).slice(0, 5).map(e => {
+    const plus = Number(e.delta) > 0;
+    return `
+      <div class="gd-tx lsh-tx">
+        <span class="gd-tx-zeichen ${plus ? 'plus lio' : 'minus'}">${plus ? lioSternImg(20) : icon('shop', 'icon')}</span>
+        <span class="gd-tx-text"><b>${esc(e.text || (plus ? 'Gutschrift' : 'Einkauf'))}</b><small>${zeit(e.ts)}</small></span>
+        <span class="gd-tx-betrag ${plus ? 'plus' : 'minus'}">${plus ? '+' : '−'}${Math.abs(Number(e.delta) || 0).toLocaleString('de-DE')}</span>
+      </div>`;
+  }).join('');
+  inhalt.innerHTML = `
+    <div class="lsh-kopf">
+      <span class="lsh-kopf-stern" data-lio-ziel>${lioSternImg(72)}</span>
+      <span class="lsh-kopf-text">
+        <small>Deine Lios</small>
+        <b data-lio-stand>${lioText(stand)}</b>
+        <span class="lsh-kopf-zeile"><span class="lsh-pille">1 Lio = 1 Cent</span><span class="lsh-wert">Wert <span data-lio-euro>${euroFmt(stand / 100)}</span></span></span>
+      </span>
+    </div>
+    <h3 class="gd-h">Gutscheine</h3>
+    <div class="lsh-liste">${liste}</div>
+    ${wege ? `<h3 class="gd-h">So sammelst du Lios</h3><div class="gd-block lsh-wege">${wege}</div>` : ''}
+    ${verlauf ? `<h3 class="gd-h">Zuletzt</h3><div class="gd-block gd-verlauf lsh-verlauf">${verlauf}</div>` : ''}`;
+  inhalt.querySelectorAll('[data-lsh-produkt]').forEach(b => { b.onclick = () => oeffneLioProdukt(b.dataset.lshProdukt); });
+  inhalt.querySelector('[data-lsh-neu]')?.addEventListener('click', () => { lioShopLaden.fehler = false; zeichneLioShop(seite); lioShopLaden(); });
+  inhalt.querySelector('[data-lsh-einladen]')?.addEventListener('click', () => { wseitenZu(); switchView('invite', 'enter-drop'); });
+}
+
+// ---- Ein Gutschein im Detail: was man bekommt und wie man bezahlt
+function oeffneLioProdukt(id) {
+  const p = lioProdukt(id);
+  if (!p || wseiteOben()?.art === 'lio-produkt') return;
+  buzz(8);
+  wseiteOeffnen({ art: 'lio-produkt', id, titel: p.name, klasse: 'lsh lsh-detail', baue: s => zeichneLioProdukt(s) });
+}
+// Kann man gerade mit Lios kaufen? Sonst der ehrliche Grund
+function lioKaufStand(p) {
+  const stand = lioStand();
+  const fehlen = Math.max(0, (Number(p.preisLio) || 0) - stand);
+  const fehlt = fehlen ? `dir fehlen noch ${lioText(fehlen)}` : '';
+  if (lioAusverkauft(p)) return { ok: false, text: 'Gerade ausverkauft' + (fehlt ? ' · ' + fehlt : '') };
+  if (kontoInfo && kontoInfo.emailOk === false) return { ok: false, email: true, text: 'Bestätige zuerst deine E-Mail-Adresse' };
+  if (fehlen) return { ok: false, text: fehlt[0].toUpperCase() + fehlt.slice(1) };
+  return { ok: true, text: `Du hast ${lioText(stand)}, danach noch ${lioText(stand - p.preisLio)}` };
+}
+function lioGrosseKarteHtml(p, { gekauft = false } = {}) {
+  const farbe = brandColor(p.marke);
+  const aus = !gekauft && lioAusverkauft(p);
+  return `
+    <div class="gd-karte lsh-gross${brandHelligkeit(farbe) > 0.62 ? ' hell' : ''}${aus ? ' aus' : ''}" style="--bc:${farbe}; --tc:${brandTextColor(p.marke)}">
+      ${lioMotivHtml(p, 'gd-motiv')}
+      <div class="gd-karte-kopf">
+        <span class="vk-logo">${brandChipHtml(p.marke)}</span>
+        <span class="gd-karte-namen"><b>${esc(p.marke)}</b><span>${esc(p.name)}</span></span>
+      </div>
+      <div class="gd-guthaben"><b>${euroFmt(p.wert)}</b><span>Guthaben</span></div>
+      <div class="gd-karte-fuss"><span class="pill">${gekauft ? 'In deiner Wallet' : aus ? 'Ausverkauft' : 'Sofort verfügbar'}</span></div>
+    </div>`;
+}
+function zeichneLioProdukt(seite, { nurWennNeu = false } = {}) {
+  const inhalt = seite.el.querySelector('.wseite-inhalt');
+  if (!inhalt || seite.kauft || seite.fragt) return;
+  const p = lioProdukt(seite.id);
+  if (seite.gekauft) {
+    if (nurWennNeu) return;
+    inhalt.innerHTML = lioErfolgHtml(seite.gekauft, p || seite.gekauft.produkt);
+    inhalt.querySelector('[data-lsh-ansehen]').onclick = () => lioGekauftAnsehen(seite.gekauft);
+    inhalt.querySelector('[data-lsh-zurueck]').onclick = () => wseiteVerlassen(seite);
+    return;
+  }
+  if (!p) {
+    inhalt.innerHTML = '<div class="gd-block lsh-leer"><p>Diesen Gutschein gibt es gerade nicht.</p></div>';
+    return;
+  }
+  const k = lioKaufStand(p);
+  const stand = [JSON.stringify(p), k.ok, k.text, seite.fehlerText || ''].join('|');
+  if (nurWennNeu && stand === seite.stand) return;
+  seite.stand = stand;
+  inhalt.innerHTML = `
+    ${lioGrosseKarteHtml(p)}
+    <h3 class="gd-h">Das bekommst du</h3>
+    <div class="gd-block lsh-info">
+      <div class="lsh-info-zeile"><span class="lsh-info-ico">${icon('gift', 'icon')}</span>
+        <span class="lsh-info-text"><b>${esc(p.name)} über ${euroFmt(p.wert)}</b>${p.hinweis ? `<small>${esc(p.hinweis)}</small>` : ''}</span></div>
+      <div class="lsh-info-zeile"><span class="lsh-info-ico">${icon('wallet', 'icon')}</span>
+        <span class="lsh-info-text"><b>Landet direkt in deiner Wallet</b><small>Mit Code, gleich nach dem Kauf und auf all deinen Geräten</small></span></div>
+      ${p.cashbackLio > 0 ? `<div class="lsh-info-zeile"><span class="lsh-info-ico lio">${lioSternImg(24)}</span>
+        <span class="lsh-info-text"><b>+${lioText(p.cashbackLio)} Cashback</b><small>kommen nach dem Kauf auf dein Lio-Konto</small></span></div>` : ''}
+    </div>
+    <h3 class="gd-h">Bezahlen</h3>
+    ${seite.fehlerText ? `<p class="lsh-fehler" role="alert">${icon('warning', 'icon icon-sm')}<span>${esc(seite.fehlerText)}</span></p>` : ''}
+    <button class="gd-block lsh-zahl${k.ok ? ' bereit' : ''}" type="button" data-lsh-zahl="lio"${k.ok ? '' : ' disabled'}>
+      <span class="lsh-zahl-ico lio" data-lio-ziel>${lioSternImg(30)}</span>
+      <span class="lsh-zahl-text"><b>Mit Lios bezahlen</b><small>${esc(k.text)}</small></span>
+      <span class="lsh-zahl-preis">${lioText(p.preisLio)}</span>
+    </button>
+    ${k.email ? '<button class="lsh-email" type="button" data-lsh-email>Zur E-Mail-Adresse in den Einstellungen</button>' : ''}
+    <button class="gd-block lsh-zahl euro" type="button" disabled>
+      <span class="lsh-zahl-ico euro">${icon('banknote', 'icon')}</span>
+      <span class="lsh-zahl-text"><b>Mit Echtgeld bezahlen</b><small><span class="lsh-bald">Bald verfügbar</span></small></span>
+      <span class="lsh-zahl-preis">${euroFmt(p.preisEuro)}</span>
+    </button>`;
+  inhalt.querySelector('[data-lsh-zahl="lio"]').onclick = () => lioKaufFragen(seite, p);
+  inhalt.querySelector('[data-lsh-email]')?.addEventListener('click', () => { wseitenZu(); switchView('settings', 'enter-drop'); });
+}
+
+// Bestaetigen: eine Leiste schiebt sich von unten herein. Die Wallet muss dafuer
+// entsperrt sein — der Kauf gibt Lios aus und legt einen Code in die Wallet.
+async function lioKaufFragen(seite, p) {
+  if (seite.kauft || seite.fragt || !lioKaufStand(p).ok) return;
+  if (walletGesperrt()) {
+    const ok = await walletFreigeben();
+    if (!ok || wseiteOben() !== seite) return;
+  }
+  seite.fragt = true;
+  const stand = lioStand();
+  const leiste = document.createElement('div');
+  leiste.className = 'wseite-leiste lsh-leiste';
+  leiste.setAttribute('role', 'group');
+  leiste.setAttribute('aria-label', 'Kauf bestätigen');
+  leiste.innerHTML = `
+    <div class="lsh-leiste-text"><b>${esc(p.name)} für ${lioText(p.preisLio)} kaufen?</b>
+      <small>Danach hast du noch ${lioText(stand - p.preisLio)}. Der Gutschein landet sofort in deiner Wallet.</small></div>
+    <div class="gd-knoepfe">
+      <button class="gd-knopf lsh-nein" type="button">Abbrechen</button>
+      <button class="gd-knopf lsh-ja" type="button">Jetzt kaufen</button>
+    </div>`;
+  seite.el.appendChild(leiste);
+  seite.el.classList.add('lsh-fragt');
+  if (!reducedMotion() && leiste.animate) {
+    leiste.animate([{ transform: 'translate3d(0, 100%, 0)' }, { transform: 'translate3d(0, 0, 0)' }], { duration: 340, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+  }
+  const zu = () => {
+    seite.fragt = false;
+    seite.el.classList.remove('lsh-fragt');
+    if (reducedMotion() || !leiste.animate) { leiste.remove(); return; }
+    const a = leiste.animate([{ transform: 'translate3d(0, 0, 0)' }, { transform: 'translate3d(0, 100%, 0)' }], { duration: 240, easing: 'ease-in', fill: 'forwards' });
+    a.onfinish = () => leiste.remove();
+    setTimeout(() => leiste.remove(), 400);
+  };
+  seite.leisteZu = zu;
+  leiste.querySelector('.lsh-nein').onclick = zu;
+  leiste.querySelector('.lsh-ja').onclick = () => lioKaufen(seite, p, leiste);
+  setTimeout(() => leiste.querySelector('.lsh-ja')?.focus({ preventScroll: true }), 60);
+}
+async function lioKaufen(seite, p, leiste) {
+  if (seite.kauft) return;
+  seite.kauft = true;
+  seite.fest = true;                 // Zurueck wartet, bis der Kauf durch ist
+  const ja = leiste.querySelector('.lsh-ja');
+  setBtnLoading(ja, true);
+  leiste.querySelector('.lsh-nein').disabled = true;
+  let r = null, fehler = null;
+  try {
+    r = await api('/api/shop/kaufen', { method: 'POST', body: JSON.stringify({ produkt: p.id, zahlung: 'lio' }) });
+  } catch (e) { fehler = e; }
+  seite.kauft = false;
+  seite.fest = false;
+  seite.fragt = false;
+  seite.el.classList.remove('lsh-fragt');
+  leiste.remove();
+  if (fehler) {
+    const d = fehler.data || {};
+    if (myProfile && Number.isFinite(d.lio)) myProfile.lio = d.lio;
+    if (d.ausverkauft) Object.assign(p, { ausverkauft: true, verfuegbar: false });
+    if (d.emailNoetig) kontoInfo = { ...(kontoInfo || {}), emailOk: false };
+    seite.fehlerText = fehler.message || 'Der Kauf hat nicht geklappt.';
+    playSfx('error');
+    buzz([20, 40, 20]);
+    if (wseiten().includes(seite)) zeichneLioProdukt(seite);
+    lioShopLaden();
+    return;
+  }
+  seite.fehlerText = '';
+  if (myProfile && Number.isFinite(r.lio)) myProfile.lio = r.lio;
+  if (r.produkt && lioShopDaten?.produkte) {
+    lioShopDaten.produkte = lioShopDaten.produkte.map(x => x && x.id === r.produkt.id ? r.produkt : x);
+  }
+  seite.gekauft = r;
+  playSfx('kaching');
+  buzz([30, 30]);
+  // Der Gutschein liegt am Server schon in der Wallet: gleich holen
+  pullWallet();
+  if (wseiten().includes(seite)) {
+    zeichneLioProdukt(seite);
+    seite.el.querySelector('.wseite-inhalt')?.scrollTo({ top: 0 });
+  }
+  const cashback = Math.max(0, Number(r.cashback) || 0);
+  if (cashback) {
+    const vorher = Math.max(0, lioStand() - cashback);
+    lioGehalten = vorher;
+    lioStandZeigen();
+    lioSternFlug(cashback, {
+      text: `Cashback: +${lioText(cashback)}`,
+      beiAnkunft: () => { lioGehalten = null; lioStandZeigen({ von: vorher }); },
+    });
+  } else lioStandZeigen();
+  lioShopLaden();
+}
+function lioErfolgHtml(r, p) {
+  const name = p?.name || 'Gutschein';
+  return `
+    ${p ? lioGrosseKarteHtml(p, { gekauft: true }) : ''}
+    <div class="lsh-erfolg">
+      <span class="lsh-haken">${icon('check', 'icon')}</span>
+      <h3>Gekauft!</h3>
+      <p>Dein ${esc(name)}${p ? ` über ${euroFmt(p.wert)}` : ''} liegt jetzt in deiner Wallet.</p>
+      <p class="lsh-erfolg-stand"><span class="lsh-erfolg-stern" data-lio-ziel>${lioSternImg(22)}</span><span>Du hast noch <b data-lio-stand>${lioText(lioAnzeige())}</b></span></p>
+    </div>
+    <button class="gd-los" type="button" data-lsh-ansehen>Gutschein ansehen</button>
+    <button class="gd-los leise" type="button" data-lsh-zurueck>Zurück zum Shop</button>`;
+}
+async function lioGekauftAnsehen(r) {
+  const id = r?.gutschein?.id;
+  if (!id) return;
+  if (!state.wallet.vouchers.some(v => v.id === id)) await pullWallet();
+  if (!state.wallet.vouchers.some(v => v.id === id)) { island('Der Gutschein kommt gleich in deiner Wallet an'); return; }
+  oeffneGutscheinSeite(id);
+}
 
 // ---------------- Wallet-Sperre: PIN, Face ID / Fingerabdruck ----------------
 // Die PIN schuetzt die Wallet auf DIESEM Geraet: wer das entsperrte Handy in
@@ -12890,7 +13599,7 @@ function schliesseWalletAnsichten() {
   schliesseVkMenue();
   // Gutschein-, Verschenken- und Analyse-Seiten: sofort weg, samt Inhalt.
   // Eine offene Deal-Seite allein zeigt nichts aus der Wallet und bleibt.
-  if (wseiten().some(x => x.art !== 'deal')) wseitenZu();
+  if (wseiten().some(x => x.art !== 'deal' && !istLioSeite(x))) wseitenZu();
   if (state.sheetMode) closeSheet();
   // Das zugeklappte Blatt behaelt sonst Code, PIN und Knoepfe im Baum
   const inhalt = $('#sheet-content');

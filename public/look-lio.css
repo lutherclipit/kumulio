@@ -1,0 +1,332 @@
+/* =============================================================================
+   Lio (Runde 122): die Waehrung der App — Stand und Boni im Seitenmenue, der
+   Stern-Flug ins Profilbild, der Gutschein-Shop als Seite im Stapel.
+   Dieselben Bausteine wie ueberall: weisse Karten (16-18 px), Knoepfe 12-13 px,
+   Pillen 8-10 px, Akzent in der Rangfarbe. Dazu ein warmer Goldton nur dort,
+   wo es um Lios geht (passend zum Stern). Animationen nur transform/opacity.
+   ========================================================================== */
+:root {
+  --lio-weich: color-mix(in srgb, #FFC21A 16%, var(--karte));
+  --lio-text: #8A5800;
+}
+:root[data-theme="dark"] {
+  --lio-weich: color-mix(in srgb, #FFC21A 13%, var(--karte));
+  --lio-text: #FFCF5C;
+}
+.lio-stern { display: block; flex: none; object-fit: contain; -webkit-user-drag: none; -webkit-user-select: none; user-select: none; }
+/* Die Zahl federt beim Hochzaehlen (transform braucht ein Block-Element) */
+[data-lio-stand] { display: inline-block; transform-origin: left center; font-variant-numeric: tabular-nums; }
+
+/* ---- Seitenmenue: Lio-Block direkt unter dem Profil-Kopf ---- */
+#top-menu .tm-lio {
+  margin-top: 12px; padding: 14px;
+  background: var(--karte); border-radius: 18px; box-shadow: var(--schatten-1);
+}
+#top-menu .tm-lio.hidden { display: none; }
+.tm-lio-kopf { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.tm-lio-kopf > .lio-stern { width: 44px; height: 44px; filter: drop-shadow(0 3px 6px rgba(214, 140, 0, .28)); }
+.tm-lio-stand { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
+.tm-lio-stand b { font-size: 1.22rem; font-weight: 850; letter-spacing: -.02em; line-height: 1.15; white-space: nowrap; }
+.tm-lio-stand small { font-size: .8rem; font-weight: 600; line-height: 1.3; color: var(--muted); }
+.tm-lio-heute {
+  flex: none; padding: 4px 8px; border-radius: 8px;
+  background: var(--lio-weich); color: var(--lio-text);
+  font-size: .74rem; font-weight: 800; line-height: 1.3; white-space: nowrap;
+}
+.tm-lio-zeilen { margin-top: 12px; border-top: 1px solid var(--linie); }
+.tm-lio-zeile {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 10px;
+  padding-top: 11px;
+}
+.tm-lio-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.tm-lio-text b { font-size: .9rem; font-weight: 800; line-height: 1.25; }
+.tm-lio-text small { font-size: .76rem; font-weight: 600; line-height: 1.3; color: var(--muted); }
+.tm-lio-plus {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: .86rem; font-weight: 850; color: var(--text); font-variant-numeric: tabular-nums;
+}
+.tm-lio-plus .lio-stern { width: 16px; height: 16px; }
+/* Fortschritt: die Woche in sieben Tagen (wie die Serie im Profil), der Monat als Balken */
+.tm-lio-balken { grid-column: 1 / -1; height: 6px; margin-top: 8px; }
+.tm-lio-balken.woche { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.tm-lio-balken.woche i { display: block; border-radius: 3px; background: color-mix(in srgb, var(--muted) 16%, transparent); }
+.tm-lio-balken.woche i.an { background: var(--akzent); }
+.tm-lio-balken.monat {
+  position: relative; display: block; overflow: hidden; border-radius: 3px;
+  background: color-mix(in srgb, var(--muted) 16%, transparent);
+}
+.tm-lio-balken.monat i { position: absolute; inset: 0; border-radius: inherit; background: var(--akzent); transform-origin: left center; }
+/* Offener Bonus: warm hinterlegt, rechts der Knopf zum Abholen */
+.tm-lio-zeile.offen { margin-top: 11px; padding: 10px 10px 10px 12px; border-radius: 13px; background: var(--lio-weich); }
+.tm-lio-zeile.offen + .tm-lio-zeile.offen { margin-top: 8px; }
+.tm-lio-zeile.offen .tm-lio-text small { color: var(--lio-text); }
+.tm-lio-abholen {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  height: 36px; padding: 0 13px; border: 0; border-radius: 12px; cursor: pointer;
+  background: var(--akzent-tief); color: #fff;
+  font: inherit; font-size: .84rem; font-weight: 800; white-space: nowrap;
+  box-shadow: 0 6px 14px -6px color-mix(in srgb, var(--akzent-tief) 80%, transparent);
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: transform .2s var(--spring), background-color .2s ease, color .2s ease;
+}
+.tm-lio-abholen:active { transform: scale(.95); }
+.tm-lio-abholen:focus-visible { outline: 2px solid var(--akzent-text); outline-offset: 2px; }
+.tm-lio-abholen:disabled { cursor: default; }
+.tm-lio-abholen.fertig { background: var(--karte); color: var(--akzent-text); box-shadow: none; }
+.tm-lio-abholen .icon { width: 15px; height: 15px; stroke-width: 2.6; }
+/* Der Shop: eigener Eintrag direkt unter dem Lio-Block */
+#top-menu #tm-shop { margin-top: 10px; border-radius: 16px; background-image: none; }
+#top-menu .tm-item .tm-lio-pille {
+  display: inline-flex; align-items: center; gap: 2px; margin-left: auto; padding: 3px 6px 3px 7px; border-radius: 8px;
+  background: var(--lio-weich); color: var(--lio-text);
+  font-size: .74rem; font-weight: 800; line-height: 1.3;
+}
+#top-menu .tm-item .tm-lio-pille .lio-stern { width: 14px; height: 14px; }
+#top-menu .tm-item:has(.tm-lio-pille)::after { margin-left: 0; }
+
+/* ---- Der Stern-Flug: eigene Ebene ueber allem (auch ueber Menue und Seiten) ---- */
+#lio-flug { position: fixed; inset: 0; z-index: 390; pointer-events: none; overflow: hidden; contain: strict; }
+.lio-flieger {
+  position: absolute; left: -32px; top: -32px; width: 64px; height: 64px;
+  opacity: 0; will-change: transform, opacity;
+}
+.lio-flieger img {
+  display: block; width: 100%; height: 100%;
+  filter: drop-shadow(0 6px 10px rgba(200, 120, 0, .35)); will-change: transform;
+}
+.lio-glanz {
+  position: absolute; left: -80px; top: -80px; width: 160px; height: 160px; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(255, 214, 90, .62), rgba(255, 214, 90, .18) 55%, rgba(255, 214, 90, 0));
+  opacity: 0; will-change: transform, opacity;
+}
+.lio-plus {
+  position: absolute; left: 0; top: 0; display: inline-flex; align-items: center;
+  height: 24px; padding: 0 8px; border-radius: 9px;
+  background: linear-gradient(180deg, #FFD84D, #FFB61A); color: #4A2E00;
+  font-family: var(--rund); font-size: .82rem; font-weight: 850; line-height: 1; white-space: nowrap;
+  box-shadow: 0 0 0 2px #fff, 0 6px 14px rgba(160, 96, 0, .35);
+  opacity: 0; transform-origin: left center; will-change: transform, opacity;
+}
+:root[data-theme="dark"] .lio-plus { box-shadow: 0 0 0 2px var(--karte), 0 6px 14px rgba(0, 0, 0, .45); }
+
+/* ---- Profil: unter der Login-Serie der Lio-Stand, fuehrt in den Shop ---- */
+.pf-lio {
+  display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 14px; padding: 9px 10px;
+  border: 0; border-radius: 13px; background: var(--lio-weich); color: var(--text);
+  font: inherit; text-align: left; cursor: pointer;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: transform .2s var(--spring);
+}
+.pf-lio:active { transform: scale(.98); }
+.pf-lio:focus-visible { outline: 2px solid var(--akzent-text); outline-offset: 2px; }
+.pf-lio .lio-stern { width: 30px; height: 30px; }
+.pf-lio-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.pf-lio-text b { font-size: .95rem; font-weight: 850; line-height: 1.25; }
+.pf-lio-text small { font-size: .76rem; font-weight: 650; line-height: 1.3; color: var(--lio-text); }
+.pf-lio > .icon { flex: none; color: var(--muted); }
+
+/* ---- Freunde einladen: die Belohnung in Lios ---- */
+.inv-vorgemerkt.inv-lio { background: var(--lio-weich); color: var(--lio-text); }
+.inv-vorgemerkt.inv-lio .lio-stern { width: 26px; height: 26px; }
+
+/* =============================================================================
+   Gutschein-Shop (Seite im Stapel, Klasse .lsh)
+   ========================================================================== */
+.lsh .wseite-inhalt { padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px)); }
+.lsh.lsh-fragt .wseite-inhalt { padding-bottom: calc(200px + env(safe-area-inset-bottom, 0px)); }
+
+/* Kopf: Karte in der Rangfarbe wie Profil und Rang, links der Stern mit Strahlen */
+.lsh-kopf {
+  position: relative; isolation: isolate; overflow: hidden;
+  display: flex; align-items: center; gap: 14px; margin-top: 4px; padding: 16px 18px 16px 12px;
+  border-radius: 18px; color: #fff;
+  background:
+    radial-gradient(circle at 14% 42%, rgba(255, 255, 255, .2), transparent 44%),
+    linear-gradient(172deg, var(--kopf-k1, #0A8452) 0%, var(--kopf-k2, #0FA86B) 62%, color-mix(in srgb, var(--kopf-k2, #0FA86B) 55%, var(--kopf-k3, #2FE09C)) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), 0 12px 28px -10px color-mix(in srgb, var(--kopf-k1, #0A8452) 70%, transparent);
+}
+:root[data-theme="dark"] .lsh-kopf { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), 0 12px 28px -10px rgba(0, 0, 0, .6); }
+.lsh-kopf-stern { position: relative; flex: none; display: grid; place-items: center; width: 84px; height: 84px; }
+.lsh-kopf-stern::before {
+  content: ""; position: absolute; z-index: -1; left: 50%; top: 50%;
+  width: 230px; aspect-ratio: 1; pointer-events: none;
+  transform: translate(-50%, -50%);
+  background: repeating-conic-gradient(from 4deg,
+    color-mix(in srgb, var(--kopf-k3, #2FE09C) 55%, #fff) 0deg 5deg, transparent 5deg 18deg);
+  -webkit-mask-image: radial-gradient(closest-side, rgba(0, 0, 0, .55) 0%, rgba(0, 0, 0, .3) 38%, transparent 82%);
+          mask-image: radial-gradient(closest-side, rgba(0, 0, 0, .55) 0%, rgba(0, 0, 0, .3) 38%, transparent 82%);
+  opacity: .6;
+  animation: wkStrahlen 70s linear infinite;
+}
+.lsh-kopf-stern .lio-stern { width: 72px; height: 72px; filter: drop-shadow(0 8px 14px rgba(0, 0, 0, .22)); }
+.lsh-kopf-text { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+.lsh-kopf-text > small { font-size: .95rem; font-weight: 750; line-height: 1.2; color: rgba(255, 255, 255, .96); }
+.lsh-kopf-text > b {
+  margin-top: 4px; font-size: clamp(1.6rem, 7.6vw, 2rem); font-weight: 850; letter-spacing: -.03em; line-height: 1.08;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, .16); white-space: nowrap;
+}
+.lsh-kopf-zeile { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin-top: 10px; }
+.lsh-pille {
+  padding: 3px 8px; border-radius: 8px;
+  background: rgba(255, 255, 255, .2); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3);
+  font-size: .74rem; font-weight: 750; line-height: 1.35; white-space: nowrap;
+}
+.lsh-wert { font-size: .82rem; font-weight: 650; line-height: 1.3; color: rgba(255, 255, 255, .94); white-space: nowrap; }
+body.sparsam .lsh-kopf-stern::before { animation: none; }
+@media (prefers-reduced-motion: reduce) { .lsh-kopf-stern::before { animation: none; } }
+
+/* Gutscheine: weisse Karte, darin die Gutscheinkarte im Markenton, darunter der Preis */
+.lsh-liste { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.lsh-liste > .gd-block { margin-top: 0; }
+.lsh-produkt { padding: 8px; border-radius: 18px; }
+.lsh-produkt:focus-visible { outline: 2px solid var(--akzent-text); outline-offset: 2px; }
+.lsh-karte {
+  position: relative; overflow: hidden; isolation: isolate;
+  display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; align-items: center; column-gap: 12px;
+  min-height: 72px; padding: 12px 14px 12px 12px; border-radius: 13px; color: var(--tc, #fff);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--bc) 94%, #fff), color-mix(in srgb, var(--bc) 72%, #000));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .2);
+}
+.lsh-karte > * { position: relative; z-index: 1; }
+.lsh-karte > .lsh-motiv {
+  position: absolute; z-index: 0; right: 26%; top: 50%; width: 84px; height: 84px;
+  transform: translateY(-50%) rotate(-10deg); opacity: .1; pointer-events: none;
+  display: grid; place-items: center; filter: grayscale(1) brightness(3);
+}
+.lsh-karte.hell > .lsh-motiv { filter: grayscale(1) brightness(.2); }
+.lsh-karte .vk-logo .brand-chip { width: 46px; height: 46px; border-radius: 12px; }
+.lsh-karte-namen { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.lsh-karte-namen b {
+  font-size: 1.04rem; font-weight: 850; letter-spacing: -.01em; line-height: 1.2;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.lsh-karte-namen small { font-size: .78rem; font-weight: 600; line-height: 1.3; opacity: .9; }
+.lsh-karte-wert { font-size: 1.3rem; font-weight: 850; letter-spacing: -.02em; line-height: 1.2; white-space: nowrap; text-shadow: 0 1px 6px rgba(0, 0, 0, .12); }
+.lsh-fuss { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 8px 6px 0; }
+.lsh-preis { flex: 1; min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 7px; }
+.lsh-preis .lio-stern { width: 22px; height: 22px; }
+.lsh-preis b { font-size: .98rem; font-weight: 850; letter-spacing: -.01em; line-height: 1.25; white-space: nowrap; }
+.lsh-preis small { font-size: .8rem; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.lsh-status {
+  flex: none; padding: 4px 8px; border-radius: 8px;
+  background: var(--karte-2); color: var(--muted);
+  font-size: .74rem; font-weight: 800; line-height: 1.3; white-space: nowrap;
+}
+.lsh-status.cashback { background: var(--lio-weich); color: var(--lio-text); }
+.lsh-pfeil { flex: none; width: 16px; height: 16px; color: var(--muted); opacity: .6; }
+/* Ausverkauft: ausgegraut, aber weiter antippbar (Details ansehen) */
+.lsh-produkt.aus .lsh-karte { filter: grayscale(1); opacity: .5; }
+.lsh-produkt.aus .lsh-preis { opacity: .55; }
+:root[data-theme="dark"] .lsh-produkt.aus .lsh-karte { opacity: .42; }
+
+/* So sammelst du Lios */
+.lsh-wege { overflow: hidden; }
+.lsh-weg {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 62px; padding: 10px 14px 10px 12px;
+  border: 0; background: none; color: var(--text); font: inherit; text-align: left;
+}
+.lsh-weg + .lsh-weg { background: linear-gradient(var(--linie), var(--linie)) no-repeat 60px 0 / calc(100% - 60px) 1px; }
+button.lsh-weg { cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+button.lsh-weg:active { background-color: var(--karte-2); }
+button.lsh-weg:focus-visible { outline: 2px solid var(--akzent-text); outline-offset: -2px; }
+.lsh-weg-ico {
+  flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px;
+  background: var(--akzent-weich); color: var(--akzent-text);
+}
+.lsh-weg-ico .icon { width: 19px; height: 19px; stroke-width: 1.9; }
+.lsh-weg-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.lsh-weg-text b { font-size: .92rem; font-weight: 800; line-height: 1.25; }
+.lsh-weg-text small { font-size: .76rem; line-height: 1.35; color: var(--muted); }
+.lsh-weg-plus { flex: none; display: inline-flex; align-items: center; gap: 3px; font-size: .9rem; font-weight: 850; font-variant-numeric: tabular-nums; }
+.lsh-weg-plus .lio-stern { width: 16px; height: 16px; }
+/* Verlauf: wie am Gutschein, Gutschriften mit dem Stern */
+.lsh-verlauf .gd-tx-zeichen.lio { background: var(--lio-weich); }
+.lsh-verlauf .gd-tx-zeichen .lio-stern { width: 20px; height: 20px; }
+.lsh-verlauf .gd-tx { padding-right: 8px; }
+/* Laden, Fehler, leer */
+.lsh-leer { padding: 18px 16px; text-align: center; }
+.lsh-leer p { margin: 0; font-size: .9rem; color: var(--muted); }
+.lsh-leer .gd-los { margin-top: 12px; }
+
+/* ---- Ein Gutschein im Detail ---- */
+.lsh-gross.aus { filter: grayscale(1); opacity: .55; }
+:root[data-theme="dark"] .lsh-gross.aus { opacity: .45; }
+.lsh-info { padding: 2px 14px 2px 12px; }
+.lsh-info-zeile { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; }
+.lsh-info-zeile + .lsh-info-zeile { border-top: 1px solid var(--linie); }
+.lsh-info-ico {
+  flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px;
+  background: var(--akzent-weich); color: var(--akzent-text);
+}
+.lsh-info-ico.lio { background: var(--lio-weich); }
+.lsh-info-ico .icon { width: 19px; height: 19px; }
+.lsh-info-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding-top: 1px; }
+.lsh-info-text b { font-size: .93rem; font-weight: 800; line-height: 1.3; }
+.lsh-info-text small { font-size: .8rem; line-height: 1.45; color: var(--muted); }
+/* Bezahlen: zwei Wege, Echtgeld sichtbar, aber noch aus */
+.lsh-zahl { display: flex; align-items: center; gap: 12px; min-height: 70px; padding: 12px 14px 12px 12px; }
+.lsh-zahl + .lsh-zahl, .lsh-email + .lsh-zahl { margin-top: 10px; }
+.lsh-zahl-ico { flex: none; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; background: var(--lio-weich); }
+.lsh-zahl-ico .lio-stern { width: 30px; height: 30px; }
+.lsh-zahl-ico.euro { background: var(--akzent-weich); color: var(--akzent-text); }
+.lsh-zahl-ico .icon { width: 22px; height: 22px; }
+.lsh-zahl-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.lsh-zahl-text b { font-size: .96rem; font-weight: 800; line-height: 1.25; }
+.lsh-zahl-text small { font-size: .78rem; line-height: 1.35; color: var(--muted); }
+.lsh-zahl-preis { flex: none; font-size: .95rem; font-weight: 850; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.lsh-zahl.bereit { box-shadow: var(--schatten-1), inset 0 0 0 2px var(--akzent); }
+.lsh-zahl:disabled { cursor: default; transform: none; }
+.lsh-zahl:disabled :is(.lsh-zahl-ico, .lsh-zahl-text b, .lsh-zahl-preis) { opacity: .5; }
+.lsh-bald {
+  display: inline-block; margin-top: 3px; padding: 3px 8px; border-radius: 8px;
+  background: var(--karte-2); color: var(--muted);
+  font-size: .72rem; font-weight: 800; line-height: 1.3; white-space: nowrap;
+}
+.lsh-email {
+  display: block; margin: 8px 4px 0; padding: 4px 0; border: 0; background: none; cursor: pointer;
+  color: var(--akzent-text); font: inherit; font-size: .84rem; font-weight: 750; text-align: left;
+}
+.lsh-fehler {
+  display: flex; align-items: flex-start; gap: 8px; margin: 10px 0 0; padding: 10px 12px; border-radius: 12px;
+  background: color-mix(in srgb, #E5484D 11%, var(--karte)); color: #B42318;
+  font-size: .84rem; font-weight: 650; line-height: 1.4;
+}
+:root[data-theme="dark"] .lsh-fehler { color: #FF8A7E; }
+.lsh-fehler .icon { flex: none; margin-top: 1px; }
+/* Bestaetigen: Leiste von unten (nur transform) */
+.lsh-leiste-text { display: flex; flex-direction: column; gap: 3px; padding: 2px 2px 0; }
+.lsh-leiste-text b { font-size: 1rem; font-weight: 850; line-height: 1.3; }
+.lsh-leiste-text small { font-size: .82rem; line-height: 1.4; color: var(--muted); }
+.lsh-leiste .gd-knoepfe { margin-top: 12px; }
+.lsh-nein { background: var(--karte-2); color: var(--text); }
+.lsh-ja { background: #16191E; color: #fff; }
+:root[data-theme="dark"] .lsh-ja { background: #EEF1F5; color: #14171B; }
+.lsh-ja .btn-dot { display: inline-block; width: 10px; height: 10px; border-radius: 999px; background: currentColor; }
+.lsh-nein:disabled { opacity: .5; }
+/* Gekauft */
+.lsh-erfolg { display: flex; flex-direction: column; align-items: center; margin: 22px 8px 4px; text-align: center; }
+.lsh-haken {
+  display: grid; place-items: center; width: 56px; height: 56px; border-radius: 50%;
+  background: color-mix(in srgb, #1FA85B 14%, var(--karte)); color: #178A47;
+}
+:root[data-theme="dark"] .lsh-haken { color: #3FD68B; }
+.lsh-haken .icon { width: 28px; height: 28px; stroke-width: 2.6; }
+.lsh-erfolg h3 { margin: 12px 0 0; font-size: 1.3rem; font-weight: 850; letter-spacing: -.02em; }
+.lsh-erfolg p { margin: 6px 0 0; font-size: .93rem; line-height: 1.5; }
+.lsh-erfolg .lsh-erfolg-stand {
+  display: inline-flex; align-items: center; gap: 7px; margin-top: 12px; padding: 6px 12px 6px 8px;
+  border-radius: 10px; background: var(--lio-weich); font-weight: 650;
+}
+.lsh-erfolg-stern .lio-stern { width: 22px; height: 22px; }
+.lsh-erfolg + .gd-los { margin-top: 20px; }
+.lsh-detail .gd-los + .gd-los { margin-top: 10px; }
+
+@media (max-width: 370px) {
+  #top-menu .tm-lio { padding: 12px; }
+  .tm-lio-kopf { gap: 10px; }
+  .tm-lio-kopf > .lio-stern { width: 40px; height: 40px; }
+  .tm-lio-abholen { padding: 0 11px; }
+  .lsh-kopf { gap: 10px; padding-right: 14px; }
+  .lsh-kopf-stern { width: 72px; height: 72px; }
+  .lsh-kopf-stern .lio-stern { width: 62px; height: 62px; }
+}
