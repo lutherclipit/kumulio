@@ -13514,8 +13514,14 @@ function lioSternFlug(menge, { von = null, text = '', beiAnkunft = null } = {}) 
   // buendig mit dem weissen Ring (2 px, box-shadow) und von rechts aus
   // skaliert, damit "+N" beim Federn nicht ueber die Kante hinaus waechst
   const ku = ziel.unter;
-  if (ku) plus.style.transformOrigin = 'right center';
-  const lx = ku ? ku.right - 2 - plus.offsetWidth : Math.min(innerWidth - 60, zr.right - 14);
+  // Am grossen Stern im Shop-Kopf bleibt es in dessen Feld (rechtsbuendig,
+  // der Ring schliesst mit der Kante ab): gleich rechts daneben steht
+  // "Wert 0,41 €", weiter aussen deckte "+N" dessen erste Buchstaben zu
+  const imFeld = !ku && ziel.el.hasAttribute('data-lsh-stern');
+  if (ku || imFeld) plus.style.transformOrigin = 'right center';
+  const lx = ku ? ku.right - 2 - plus.offsetWidth
+    : imFeld ? zr.right - 2 - plus.offsetWidth
+      : Math.min(innerWidth - 60, zr.right - 14);
   const ly = ku ? ku.bottom + 6 : zr.bottom - 20;
   const lt = (dy, s) => `translate3d(${lx.toFixed(1)}px, ${(ly + dy).toFixed(1)}px, 0) scale(${s})`;
   const weg = [plus];
