@@ -132,6 +132,13 @@
     <button class="iconbtn" id="btn-search-top" aria-label="Suche">
       <svg class="icon"><use href="#i-search"/></svg>
     </button>
+    <!-- In der Wallet (nur angemeldet) sitzt rechts der Lio-Stand: fuehrt in
+         den Gutschein-Shop. Aussehen in look-lio.css, Stand per data-lio-stand -->
+    <button class="lio-knopf" id="btn-lio-top" type="button" aria-label="Gutschein-Shop öffnen" data-lio-aria>
+      <img class="lio-stern" src="/brand/lio-stern-48.webp" width="24" height="24" alt="" draggable="false" decoding="async">
+      <b data-lio-stand="zahl">0</b>
+      <svg class="icon lio-knopf-tasche" aria-hidden="true"><use href="#i-shop"/></svg>
+    </button>
   </header>
 
   <!-- Statuskapsel: auf Body-Ebene, damit sie auch ueber Sperre und Dialogen steht -->

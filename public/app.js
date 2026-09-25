@@ -3017,6 +3017,7 @@ function refreshProfileTab() {
   }
   renderWallet(); // Wallet-Sperre folgt dem Login-Status
   updateChatGate();
+  lioKnopfZeigen(); // Lio-Stand oben rechts in der Wallet: erst mit dem Profil dieses Kontos
 }
 
 // Profilbild oder Anfangsbuchstabe auf der festen Farbe des Namens. Die Farbe
@@ -3556,7 +3557,6 @@ function oeffneTopMenu() {
   host.innerHTML = `
     ${tmKopfHtml()}
     <div class="tm-lio" id="tm-lio">${tmLioHtml()}</div>
-    <button class="tm-item" id="tm-shop" type="button">${icon('shop', 'icon icon-sm')} Gutschein-Shop</button>
     ${reqs.length ? `<div class="tm-section">Freundschaftsanfragen</div>
     ${reqs.map(u => `<div class="tm-req">
       <span class="avatar-mini" style="background:${chatColor(u)}">${esc(anfangsBuchstabe(u))}</span>
@@ -3583,8 +3583,7 @@ function oeffneTopMenu() {
   // Der Profil-Eintrag oben führt zum Profil
   menu.querySelector('.tm-head').onclick = () => { done(); switchView('profile'); };
   $('#tm-invite').onclick = () => { done(); switchView('invite', 'enter-drop'); };
-  $('#tm-shop').onclick = () => { done(); oeffneLioShop(); };
-  renderTmLio();
+  renderTmLio(); // der Lio-Stand fuehrt in den Gutschein-Shop (eigener Eintrag entfaellt)
   $('#tm-gifts').onclick = () => { done(); switchView('gifts', 'enter-drop'); };
   $('#tm-favs').onclick = () => {
     done();
@@ -4159,6 +4158,12 @@ function startTour() {
   const steps = [
     { view: 'feed', tab: 'feed', title: 'Deals, die sich lohnen', text: 'Oben die Highlights, darunter die Top Deals für dich. Preisfehler meldet kumulio auf Wunsch sofort aufs Handy.', visual: feedDemo },
     { view: 'wallet', tab: 'wallet', title: 'Deine Wallet', text: 'Gutschein abfotografieren, den Rest füllt kumulio aus. Karten & Coupons deiner Läden liegen gleich daneben.', visual: walletDemo },
+    // Lios: mit Konto zeigt das Lichtfeld auf den Knopf oben rechts in der
+    // Wallet, ohne Konto (den Knopf gibt es dann nicht) steht die Karte mittig
+    { view: 'wallet', sel: '#btn-lio-top', nurWenn: lioKnopfSichtbar, title: 'Lios sammeln', text: (state.token
+      ? 'Für jeden Tag in kumulio gibt es Lios. Oben rechts in der Wallet tauschst du sie im Shop gegen Gutscheine.'
+      : 'Mit Konto gibt es für jeden Tag in kumulio Lios. Oben rechts in der Wallet tauschst du sie im Shop gegen Gutscheine.'),
+      visual: lioTourHtml() },
     { view: 'chat', tab: 'chat', title: 'Mit Freunden', text: 'Schick Deals direkt an Freunde und schreibt zusammen.', visual: chatDemo },
     { sel: '#btn-profile-top', title: 'Dein Profil', text: state.token
       ? 'Oben links über dein Profilbild: Profil, Freunde und Einstellungen.'
@@ -4213,6 +4218,7 @@ function startTour() {
       const mitte = k.left + k.width / 2, breite = Math.min(k.width - 16, 92);
       return { x: mitte - breite / 2, y: k.top - 12, b: breite, h: t.bottom + 7 - (k.top - 12) };
     }
+    if (s.nurWenn && !s.nurWenn()) return null;
     const r = s.sel && document.querySelector(s.sel)?.getBoundingClientRect();
     return r ? { x: r.left - 6, y: r.top - 6, b: r.width + 12, h: r.height + 12 } : null;
   };
@@ -12975,11 +12981,13 @@ async function renderInvitePage() {
 // Lio: die Waehrung von kumulio (1 Lio = 1 Cent)
 //
 // Den Stand fuehrt nur der Server (myProfile.lio, dazu lioNeu, lioBoni,
-// lioSerie und lioFreunde aus /api/profile). Hier wird er nur gezeigt: im
-// Seitenmenue (Stand, Wochen- und Monats-Bonus zum Abholen), unter der
-// Login-Serie im Profil und im Gutschein-Shop. Jede neue Gutschrift fliegt als
-// Stern ins Profilbild oben links (lioSternFlug) und wird danach quittiert
-// (/api/lio/gesehen), damit sie genau einmal fliegt.
+// lioSerie und lioFreunde aus /api/profile). Hier wird er nur gezeigt: oben
+// rechts in der Wallet (Knopf in den Shop), im Seitenmenue (eigene Karte:
+// Stand fuehrt in den Shop, Wochen- und Monats-Bonus zum Abholen), unter der
+// Login-Serie im Profil, im Gutschein-Shop und als Schritt der Tour. Jede neue
+// Gutschrift fliegt als Stern ins Profilbild oben links bzw. in der Wallet in
+// den Lio-Knopf (lioSternFlug) und wird danach quittiert (/api/lio/gesehen),
+// damit sie genau einmal fliegt.
 // =============================================================================
 function lioStand() { return Math.max(0, Math.floor(Number(myProfile?.lio) || 0)); }
 function lioWort(n) { return Math.abs(Number(n)) === 1 ? 'Lio' : 'Lios'; }
@@ -13001,25 +13009,55 @@ let lioShopDaten = null;        // letzter Stand von /api/shop
 let lioVerlauf = null;          // letzte Buchungen aus /api/lio
 
 function lioAnzeige() { return lioGehalten ?? lioStand(); }
+// data-lio-stand="zahl": nur die Zahl (der Knopf oben in der Wallet), sonst "12 Lios"
+const lioStandText = (el, n) => el.dataset.lioStand === 'zahl' ? Number(n || 0).toLocaleString('de-DE') : lioText(n);
 // Alle sichtbaren Staende nachziehen. von: der Wert davor, dann zaehlt die Zahl hoch
 function lioStandZeigen({ von = null } = {}) {
   const ziel = lioAnzeige();
   document.querySelectorAll('[data-lio-stand]').forEach(el => {
-    if (von == null || von === ziel || reducedMotion()) { el.textContent = lioText(ziel); return; }
+    if (von == null || von === ziel || reducedMotion()) { el.textContent = lioStandText(el, ziel); return; }
     const t0 = performance.now(), ms = 520;
     const schritt = jetzt => {
       if (!el.isConnected) return;
       const p = Math.min(1, (jetzt - t0) / ms);
-      el.textContent = lioText(Math.round(von + (ziel - von) * (1 - Math.pow(1 - p, 3))));
+      el.textContent = lioStandText(el, Math.round(von + (ziel - von) * (1 - Math.pow(1 - p, 3))));
       if (p < 1) requestAnimationFrame(schritt);
     };
     requestAnimationFrame(schritt);
     // Endwert auch dann, wenn rAF pausiert (App im Hintergrund)
-    setTimeout(() => { if (el.isConnected) el.textContent = lioText(lioAnzeige()); }, ms + 120);
+    setTimeout(() => { if (el.isConnected) el.textContent = lioStandText(el, lioAnzeige()); }, ms + 120);
     el.animate?.([{ transform: 'scale(1)' }, { transform: 'scale(1.1)', offset: .35 }, { transform: 'scale(1)' }],
       { duration: 440, easing: 'ease-out' });
   });
   document.querySelectorAll('[data-lio-euro]').forEach(el => { el.textContent = euroFmt(ziel / 100); });
+  // Knoepfe, die in den Shop fuehren, sagen den Stand mit (der Screenreader
+  // liest sonst nur die nackte Zahl)
+  document.querySelectorAll('[data-lio-aria]').forEach(el => {
+    el.setAttribute('aria-label', `Gutschein-Shop öffnen. Du hast ${lioText(ziel)}`);
+  });
+  // Ab vier Stellen wird der Knopf oben breiter: dann faellt die Tasche weg
+  // (look-lio.css), sonst kaeme er bei 360 px dem Logo zu nahe
+  $('#btn-lio-top')?.classList.toggle('lang', ziel >= 1000);
+}
+
+// ---- Oben rechts in der Wallet: Stern und Stand, fuehrt in den Shop. Nur
+// angemeldet und erst, wenn das Profil dieses Kontos da ist (sonst stuende
+// dort kurz eine 0 oder der Stand des vorigen Kontos). Ob er zu sehen ist,
+// entscheidet look-lio.css (nur in der Wallet, body.wallet-farbe).
+let lioProfilVon = '';          // zu welchem Konto myProfile gehoert
+function lioKnopfZeigen() {
+  const k = $('#btn-lio-top');
+  if (!k) return;
+  const bereit = !!(state.token && myProfile && lioProfilVon && lioProfilVon === state.userName);
+  k.classList.toggle('bereit', bereit);
+  k.tabIndex = bereit ? 0 : -1;
+}
+$('#btn-lio-top')?.addEventListener('click', () => oeffneLioShop());
+// Ist der Knopf gerade zu sehen? (Wallet, angemeldet, keine Seite darueber)
+function lioKnopfSichtbar() {
+  const k = $('#btn-lio-top');
+  return !!k && k.classList.contains('bereit') && document.body.classList.contains('wallet-farbe')
+    && state.activeView === 'wallet' && !wseiteOben() && !topMenuOffen();
 }
 
 // Nach jedem Laden des Profils: Menue, Shop-Seiten und neue Gutschriften
@@ -13028,6 +13066,8 @@ function lioBerlinTag() { try { return new Date().toLocaleDateString('de-DE', { 
 function lioNachProfil() {
   if (!myProfile) return;
   lioProfilTag = lioBerlinTag();
+  lioProfilVon = state.userName || '';
+  lioKnopfZeigen();
   if (lioGehalten == null) { renderTmLio(); lioStandZeigen(); }
   for (const s of wseiten()) if (s.art === 'lio-produkt') zeichneLioProdukt(s, { nurWennNeu: true });
   lioNeuPruefen();
@@ -13041,9 +13081,10 @@ document.addEventListener('visibilitychange', () => {
   else lioNeuPruefen();
 });
 
-// ---- Seitenmenue: Stand, "1 Lio = 1 Cent", darunter Wochen- und Monats-Bonus.
-// Offene Boni mit "Abholen", sonst wie viele Login-Tage es noch sind (echte
-// Serie vom Server; heute ist dann schon mitgezaehlt).
+// ---- Seitenmenue: eigene Karte im Lio-Verlauf. Oben der Stand mit "1 Lio =
+// 1 Cent" — die ganze Zeile fuehrt in den Shop (rechts die Glas-Pille "Shop").
+// Darunter Wochen- und Monats-Bonus: offene mit "Abholen", sonst wie viele
+// Login-Tage es noch sind (echte Serie vom Server; heute ist schon mitgezaehlt).
 function tmLioHtml() {
   if (!myProfile) return '';
   const s = myProfile.lioSerie || {};
@@ -13073,16 +13114,15 @@ function tmLioHtml() {
         ${balken}
       </div>`;
   };
+  const zeilen = zeile('woche', 'Wochen-Bonus', 7, s.woche) + zeile('monat', 'Monats-Bonus', 30, s.monat);
   return `
-    <div class="tm-lio-kopf">
-      ${lioSternImg(44)}
+    <span class="tm-lio-glanz" aria-hidden="true"></span>
+    <button class="tm-lio-kopf" type="button" data-lio-shop data-lio-aria aria-label="Gutschein-Shop öffnen. Du hast ${lioText(lioAnzeige())}">
+      <span class="tm-lio-stern">${lioSternImg(44)}</span>
       <span class="tm-lio-stand"><b data-lio-stand>${lioText(lioAnzeige())}</b><small>1 Lio = 1 Cent</small></span>
-      ${s.heute && s.proTag ? `<span class="tm-lio-heute">+${s.proTag} heute</span>` : ''}
-    </div>
-    <div class="tm-lio-zeilen">
-      ${zeile('woche', 'Wochen-Bonus', 7, s.woche)}
-      ${zeile('monat', 'Monats-Bonus', 30, s.monat)}
-    </div>`;
+      <span class="tm-lio-shop">${icon('shop', 'icon')}Shop</span>
+    </button>
+    ${zeilen.trim() ? `<div class="tm-lio-zeilen">${zeilen}</div>` : ''}`;
 }
 function renderTmLio() {
   const host = $('#tm-lio');
@@ -13090,6 +13130,36 @@ function renderTmLio() {
   host.classList.toggle('hidden', !myProfile);
   host.innerHTML = tmLioHtml();
   host.querySelectorAll('[data-lio-abholen]').forEach(b => { b.onclick = () => lioBonusHolen(b.dataset.lioAbholen, b); });
+  // Stand antippen: in den Shop (das Menue geht dabei zu)
+  const shop = host.querySelector('[data-lio-shop]');
+  if (shop) shop.onclick = () => { schliesseTopMenu({ fokus: false }); oeffneLioShop(); };
+}
+
+// ---- Tour fuer neue Nutzer: die Lio-Karte im selben Verlauf wie im Menue,
+// oben der Stern mit "1 Lio = 1 Cent", darunter die Wege zu Lios. Die Werte
+// kommen mit Profil vom Server; ohne Konto (Tour vor der Anmeldung) gelten
+// die Regeln, wie sie in server.js stehen (LIO).
+const LIO_REGELN = { tag: 1, woche: 3, monat: 10, freund: 10, freundTage: 3 };
+function lioTourHtml() {
+  const s = myProfile?.lioSerie || {}, f = myProfile?.lioFreunde || {};
+  const wert = (x, d) => (Number(x) > 0 ? Math.round(Number(x)) : d);
+  const weg = (titel, unter, menge) => `
+    <li><span class="tour-lio-text"><b>${titel}</b><small>${unter}</small></span>
+      <span class="tour-lio-plus">+${menge}${lioSternImg(16)}</span></li>`;
+  return `
+    <div class="tour-lio">
+      <span class="tm-lio-glanz"></span>
+      <div class="tour-lio-kopf">
+        <span class="tm-lio-stern">${lioSternImg(44)}</span>
+        <span class="tour-lio-titel"><b>1 Lio = 1 Cent</b><small>So sammelst du Lios</small></span>
+      </div>
+      <ul class="tour-lio-wege">
+        ${weg('Jeden Tag reinschauen', 'einmal pro Tag, von selbst', wert(s.proTag, LIO_REGELN.tag))}
+        ${weg('7 Tage in Folge', 'im Menü abholen', wert(s.woche, LIO_REGELN.woche))}
+        ${weg('30 Tage in Folge', 'im Menü abholen', wert(s.monat, LIO_REGELN.monat))}
+        ${weg('Freund einladen', `sobald er seine E-Mail bestätigt und ${wert(f.tageNoetig, LIO_REGELN.freundTage)} Tage in Folge reinschaut`, wert(f.proFreund, LIO_REGELN.freund))}
+      </ul>
+    </div>`;
 }
 
 // Bonus abholen: der Server schreibt gut, der Stern fliegt vom Knopf ins Profil
@@ -13193,10 +13263,11 @@ function lioNeuPruefen(versuch = 0) {
 }
 
 // ---- Der Stern: erscheint (Bildschirmmitte oder am Knopf), dreht sich schnell
-// um die eigene Achse und fliegt im Bogen ins Profilbild oben links (bei
-// offenem Menue: ins Profilbild im Menue, auf einer Shop-Seite: in deren
-// Stern). Dort federt das Ziel kurz und "+N" blendet ein. Mehrere Lios: bis
-// zu fuenf Sterne leicht versetzt. Nur transform und opacity (Web Animations),
+// um die eigene Achse und fliegt im Bogen ins Profilbild oben links (in der
+// Wallet: in den Stern des Lio-Knopfs oben rechts, bei offenem Menue: ins
+// Profilbild im Menue, auf einer Shop-Seite: in deren Stern). Dort federt
+// das Ziel kurz und "+N" blendet ein. Mehrere Lios: bis zu fuenf Sterne
+// leicht versetzt. Nur transform und opacity (Web Animations),
 // alles zu Beginn angelegt — keine Messung waehrend des Flugs. Weniger
 // Bewegung, "sparsam" oder Animationen aus: kein Flug, nur "+N" blendet ein.
 function lioZiel() {
@@ -13212,6 +13283,13 @@ function lioZiel() {
   }
   const oben = wseiteOben();
   if (oben) return nimm(oben.el.querySelector('[data-lio-ziel]'));
+  // In der Wallet: in den Stern des Lio-Knopfs oben rechts, dort zaehlt die
+  // Zahl gleich mit hoch. "+N" steht dann unter dem Knopf (unter).
+  if (lioKnopfSichtbar()) {
+    const k = $('#btn-lio-top');
+    const z = nimm(k.querySelector('.lio-stern'));
+    if (z) return { ...z, unter: k.getBoundingClientRect() };
+  }
   return nimm($('#btn-profile-top'));
 }
 function lioFlugEbene() {
@@ -13243,7 +13321,10 @@ function lioSternFlug(menge, { von = null, text = '', beiAnkunft = null } = {}) 
   plus.className = 'lio-plus';
   plus.textContent = '+' + menge.toLocaleString('de-DE');
   ebene.appendChild(plus);
-  const lx = Math.min(innerWidth - 60, zr.right - 14), ly = zr.bottom - 20;
+  // Am Lio-Knopf rechtsbuendig darunter (die Zahl zaehlt dort sichtbar hoch)
+  const ku = ziel.unter;
+  const lx = ku ? ku.right - plus.offsetWidth : Math.min(innerWidth - 60, zr.right - 14);
+  const ly = ku ? ku.bottom + 6 : zr.bottom - 20;
   const lt = (dy, s) => `translate3d(${lx.toFixed(1)}px, ${(ly + dy).toFixed(1)}px, 0) scale(${s})`;
   const weg = [plus];
   const anims = [];

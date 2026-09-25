@@ -1064,7 +1064,9 @@ body.sparsam .fh-licht::before { animation: none; }
 /* ---- Guthaben beim Scrollen: oben in der Kopfzeile statt ueber der
    Menueleiste (dort sass es auf der Woelbung). Das Logo blendet so lange aus. */
 #wallet-mini {
-  top: calc((var(--kopfzeile-h, 64px) + env(safe-area-inset-top, 0px) - 38px) / 2); bottom: auto;
+  /* Mitte auf der Mitte der 42-px-Knoepfe (Profilbild, Lio-Knopf): die Leiste
+     hat oben 9 px Polster, unten 5 (gescrollt, nur dann ist es zu sehen) */
+  top: calc(env(safe-area-inset-top, 0px) + 11px); bottom: auto;
   z-index: 31; height: 38px; padding: 0 15px; gap: 7px;
   transform: translate(-50%, -8px) scale(.94); opacity: 0; pointer-events: none;
   background: #fff; border: 0; border-radius: 12px;
