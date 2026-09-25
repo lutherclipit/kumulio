@@ -150,7 +150,10 @@ body.wallet-farbe #btn-profile-top.iconbtn { --ava-ring: var(--kopf-k3, #B6C9DF)
 /* Marken-Kopf: k3 der Marke liegt nur 22 % ueber ihrem Grundton (Rewe-Rot auf
    Rot kaum zu sehen), darum wie der Ring im Profil-Kopf mit Weiss aufgehellt */
 body.marken-modus.wallet-farbe #btn-profile-top.iconbtn { --ava-ring: color-mix(in srgb, var(--marke-k3, var(--kopf-k3, #B6C9DF)) 65%, #fff); }
-/* Marken-Ansicht weggescrollt: dort ist die Kopfzeile hell (weiter unten) */
+/* Weggescrollt steht die Kopfzeile ueber dem Seitengrund (Runde 126: auch in
+   der Rang-Ansicht) — dann der Ring wie in den anderen Reitern */
+body.wallet-farbe.kopf-weg #btn-profile-top.iconbtn { --ava-ring: var(--kopf-k2, #6081A9); }
+:root[data-theme="dark"] body.wallet-farbe.kopf-weg #btn-profile-top.iconbtn { --ava-ring: var(--kopf-k3, #B6C9DF); }
 body.marken-modus.wallet-farbe.kopf-weg #btn-profile-top.iconbtn { --ava-ring: var(--marke-k2, var(--kopf-k2, #6081A9)); }
 :root[data-theme="dark"] body.marken-modus.wallet-farbe.kopf-weg #btn-profile-top.iconbtn { --ava-ring: var(--marke-k3, var(--kopf-k3, #B6C9DF)); }
 #btn-profile-top .avatar-mini { width: 100%; height: 100%; font-size: .86rem; box-shadow: 0 2px 8px rgba(0, 0, 0, .14); }
@@ -631,69 +634,80 @@ body.ohne-anim .wk-glas:has(> .wk-figur:active) .wk-sprite { transform: none; }
 @media (prefers-reduced-motion: reduce) { .vk-menue, .wk-sprite.auftritt { animation: none; } }
 
 /* =============================================================================
-   Wallet-Seite ganz in der Rang-Farbe: der Verlauf oben laeuft in einen
-   ruhigen, etwas tieferen Grundton aus, der bis unten traegt. Ueberschriften
-   und Hinweise darauf sind weiss (Wunsch des Nutzers: schwarz passte nicht).
+   Wallet-Seite: die Rang-Farbe traegt den Kopf (Karte mit Maskottchen und
+   Bereichswahl) und laeuft darunter lang und weich in den Seitengrund aus —
+   hell oder dunkel je nach Modus, genau wie die Marken-Ansicht. Die Kurve
+   steht in style.css (#wallet-farbfeld, --auslauf).
+   Runde 126: vorher trug die Rang-Farbe die ganze Seite bis unten. Gutscheine
+   in derselben Farbe (rote REWE-Karte auf Legende-Rot, blaue dm-Karte auf
+   Blau) liefen dann in den Grund hinein. Ueberschriften, Zaehler und Hinweise
+   stehen jetzt auf dem Seitengrund, also in Tinte statt weiss.
    ========================================================================== */
-body.wallet-farbe {
-  --wallet-grund: color-mix(in srgb, var(--kopf-k2, #6081A9) 70%, var(--kopf-k1, #405A7C));
+body.wallet-farbe,
+:root[data-theme="dark"] body.wallet-farbe {
+  --wallet-grund: var(--seite);
   background-color: var(--wallet-grund);
 }
-:root[data-theme="dark"] body.wallet-farbe {
-  --wallet-grund: color-mix(in srgb, var(--kopf-k1, #405A7C) 58%, #0B0E11);
-}
+/* Wohin der Kopf-Verlauf UNTER der Maske laeuft. Hell zur Lichtseite hin, das
+   verkuerzt den Weg zum hellen Grund. Im Dunkeln in einen tiefen Rang-Ton:
+   sonst laege genau an der weichen Kante der hellste Ton und stuende als
+   leuchtender Streifen ueber dem dunklen Grund. */
+body.wallet-farbe { --ff-auslauf-ton: color-mix(in srgb, var(--kopf-k2, #6081A9) 62%, var(--kopf-k3, #B6C9DF)); }
+:root[data-theme="dark"] body.wallet-farbe { --ff-auslauf-ton: color-mix(in srgb, var(--kopf-k1, #405A7C) 58%, #0B0E11); }
 body { transition: background-color .35s ease; }
 body.wallet-farbe #wallet-farbfeld::after {
   background:
     radial-gradient(circle at 84% 6%, rgba(255, 255, 255, .15), transparent 46%),
-    linear-gradient(176deg, var(--kopf-k1, #405A7C) 0%, var(--kopf-k2, #6081A9) 46%, var(--wallet-grund) 100%);
+    linear-gradient(176deg, var(--kopf-k1, #405A7C) 0%, var(--kopf-k2, #6081A9) 46%, var(--ff-auslauf-ton) 100%);
 }
-/* Kopfzeile nach dem Wegscrollen: dieselbe Farbe statt weissem Schleier,
-   Logo und Knoepfe bleiben wie oben */
-:root body.wallet-farbe.kopf-weg .topbar::before { background: var(--wallet-grund); }
-body.wallet-farbe.kopf-weg .topbar .k-wordmark { color: #fff; }
-:root[data-theme="dark"] body.wallet-farbe.kopf-weg .topbar .k-wordmark { color: #fff; }
+/* Kopfzeile nach dem Wegscrollen: sie steht dann ueber dem Seitengrund, also
+   Milchglas, Logo in Tinte und Knoepfe wie in den anderen Reitern (die Regeln
+   dafuer stehen in style.css unter .kopf-weg). Frueher malte sie hier die
+   Rang-Farbe weiter — die gibt es dort unten nicht mehr. */
 
-#view-wallet .bereich-titel { color: #fff; text-shadow: 0 1px 10px rgba(0, 0, 0, .12); }
+#view-wallet .bereich-titel { color: var(--text); text-shadow: none; }
 #view-wallet .rc-hinweis,
 #wallet-content > .status, #coupons-content > .status, #coupons-content .cc-cards > .status,
-#view-wallet .voucher-list > .status { color: rgba(255, 255, 255, .86); }
-/* Zaehler neben "Deine Gutscheine": weiss auf leichtem Glas, kaum gerundet */
+#view-wallet .voucher-list > .status, #coupons-content :is(.cc-leer, .cc-hinweis) { color: var(--muted); }
+/* Zaehler neben "Deine Gutscheine": kleines Kaertchen auf dem Seitengrund */
 .wallet-platz, :root[data-theme="dark"] .wallet-platz {
-  background: rgba(255, 255, 255, .2); color: #fff; border: 0; border-radius: 8px;
-  font-weight: 750; padding: 4px 9px;
+  background: var(--karte); color: var(--muted); border: 0; border-radius: 8px;
+  font-weight: 750; padding: 4px 9px; box-shadow: var(--schatten-1);
 }
+/* Fast voll / voll: auf dem Seitengrund wieder sichtbar (auf der Rang-Farbe
+   war der Zaehler immer weiss, die Warnfarbe ging dort unter) */
+:root .wallet-platz.fast { color: #9A5800; background: color-mix(in srgb, #FFC400 18%, var(--karte)); }
+:root .wallet-platz.voll { color: #B8322A; background: color-mix(in srgb, #E23D2E 12%, var(--karte)); }
+:root[data-theme="dark"] .wallet-platz.fast { color: #F2BE4B; }
+:root[data-theme="dark"] .wallet-platz.voll { color: #FF8A80; }
 /* Sortieren: dieselbe Form wie Suche und Marke */
 #wallet-sort-btn { border-radius: 12px; width: 42px; height: 42px; }
-/* "+ Rabattcode" auf dem farbigen Grund */
-.rc-kopf .rc-neu-chip { border-radius: 11px; background: #fff; color: var(--wk-akzent); border: 0; }
+/* "+ Rabattcode": weisses Kaertchen mit leichtem Schatten auf dem Seitengrund */
+.rc-kopf .rc-neu-chip {
+  border-radius: 11px; background: var(--karte); color: var(--wk-akzent); border: 0;
+  box-shadow: var(--schatten-1);
+}
 :root[data-theme="dark"] .rc-kopf .rc-neu-chip { background: var(--karte); color: var(--akzent-text); }
-#voucher-list > .status { color: rgba(255, 255, 255, .86); }
-/* Kopf eines aufgefaecherten Stapels ("REWE (4)"): steht direkt auf der
-   Rang-Farbe, also weiss wie die Ueberschriften. Das Logo bleibt auf seinem
-   weissen Kaertchen, "Stapeln" ist ein weisser Knopf wie Marke und Sortieren. */
-#view-wallet .deck-head-name { color: #fff; min-width: 0; }
+#voucher-list > .status { color: var(--muted); }
+/* Kopf eines aufgefaecherten Stapels ("REWE (4)"): steht auf dem Seitengrund,
+   also Tinte wie die Ueberschriften. Das Logo bleibt auf seinem weissen
+   Kaertchen, "Stapeln" ist ein Kaertchen wie Marke und Sortieren. */
+#view-wallet .deck-head-name { color: var(--text); min-width: 0; }
 #view-wallet .deck-head-name b {
   font-size: 1.02rem; font-weight: 800; letter-spacing: -.01em;
-  text-shadow: 0 1px 8px rgba(0, 0, 0, .14);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-#view-wallet .deck-head-name small { color: rgba(255, 255, 255, .82); font-weight: 700; flex: none; }
+#view-wallet .deck-head-name small { color: var(--muted); font-weight: 700; flex: none; }
 #view-wallet .deck-head-name .brand-chip {
   width: 34px; height: 34px; flex: 0 0 34px; border-radius: 10px; font-size: .62rem;
   box-shadow: 0 3px 10px rgba(0, 0, 0, .12);
 }
 #view-wallet .deck-head .chip {
   flex: none; border: 0; border-radius: 12px; padding: 8px 14px;
-  background: #fff; color: var(--wk-akzent); font-weight: 750;
-  box-shadow: 0 3px 10px rgba(0, 0, 0, .08);
+  background: var(--karte); color: var(--wk-akzent); font-weight: 750;
+  box-shadow: var(--schatten-1);
 }
 :root[data-theme="dark"] #view-wallet .deck-head .chip { background: var(--karte); color: var(--akzent-text); }
-/* Marken-Ansicht: heller Grund, dort bleibt der Stapelkopf dunkel */
-body.marken-modus #view-wallet .deck-head-name { color: var(--text); }
-body.marken-modus #view-wallet .deck-head-name b { text-shadow: none; }
-body.marken-modus #view-wallet .deck-head-name small { color: var(--muted); }
-body.marken-modus #view-wallet .deck-head .chip { box-shadow: var(--schatten-1); }
 
 /* Beim Betreten der Wallet blendet der Farbgrund mit dem Inhalt ein, wie die
    anderen Reiter. Vorher sprang er sofort da: renderWallet setzt wallet-farbe,
@@ -706,34 +720,28 @@ body.sparsam.wallet-farbe #wallet-farbfeld { transition: opacity .24s ease-out; 
 /* Marken- und Rang-Farben blenden so schnell ueber wie der Bereichswechsel */
 .ff-marke { transition: opacity .4s ease, transform .32s cubic-bezier(.22, 1, .32, 1); }
 @media (prefers-reduced-motion: reduce) { .ff-marke { transition: none; } }
+/* Runde 126: auf dem Handy springt der Farbgrund beim Wechsel Gutscheine <->
+   Karten & Coupons mit Kopf und Inhalt in EINEM Bild (Runde 100, style.css).
+   Die Regel oben (body.wallet-farbe, hoehere Spezifitaet) hatte dort die
+   Verschiebung der Flaeche wieder eingeschaltet — nur die Farbe darin (::after)
+   sprang. Flaeche und Farbe liefen dann 0,3 s lang auseinander, und oben lag
+   ein Streifen Seitengrund frei. Solange die ganze Seite Rang-Farbe trug, fiel
+   das kaum auf; jetzt ist der Grund hell, also muessen beide gemeinsam springen
+   — auch die Marken-Ebenen, die sich mit derselben Verschiebung bewegen. */
+@media (hover: none) and (pointer: coarse) {
+  body.wallet-farbe #wallet-farbfeld { transition: opacity .24s ease-out; }
+  .ff-marke { transition: opacity .4s ease; }
+}
 
 /* =============================================================================
    Marken-Ansicht: der Kopf traegt die Markenfarben, darunter laeuft der Verlauf
-   zu Weiss (Grund der Seite) aus — nicht in die Rang-Farbe, sonst beissen sich
-   die Farben. Die Seite darunter ist hell, Ueberschriften und Texte dunkel.
-   Karten & Coupons bleiben immer in der Rang-Farbe (marken-modus gilt dort nie).
+   in denselben Seitengrund aus wie in der Rang-Ansicht — mit derselben langen
+   Kurve (style.css, --auslauf). Seite, Ueberschriften und Texte darunter sind
+   in beiden Ansichten gleich; hier steht nur, was die Marke anders macht.
+   Karten & Coupons tragen im Kopf immer die Rang-Farbe (marken-modus gilt dort nie).
    ========================================================================== */
-body.wallet-farbe.marken-modus,
-:root[data-theme="dark"] body.wallet-farbe.marken-modus { --wallet-grund: var(--seite); }
-/* Kurzer Auslauf: bis zur Ueberschrift "Deine Gutscheine" ist die Farbe weg */
-body.marken-modus #wallet-farbfeld {
-  --auslauf: linear-gradient(to bottom,
-      rgba(0, 0, 0, 1) var(--ff-kopf, 0px),
-      rgba(0, 0, 0, .97) calc(var(--ff-kopf, 0px) + 12px),
-      rgba(0, 0, 0, .88) calc(var(--ff-kopf, 0px) + 24px),
-      rgba(0, 0, 0, .72) calc(var(--ff-kopf, 0px) + 38px),
-      rgba(0, 0, 0, .52) calc(var(--ff-kopf, 0px) + 52px),
-      rgba(0, 0, 0, .32) calc(var(--ff-kopf, 0px) + 66px),
-      rgba(0, 0, 0, .16) calc(var(--ff-kopf, 0px) + 80px),
-      rgba(0, 0, 0, .06) calc(var(--ff-kopf, 0px) + 94px),
-      rgba(0, 0, 0, 0) calc(var(--ff-kopf, 0px) + 110px));
-}
-body.marken-modus #view-wallet .bereich-titel { color: var(--text); text-shadow: none; }
-body.marken-modus #voucher-list > .status, body.marken-modus #wallet-content > .status { color: var(--muted); }
-body.marken-modus .wallet-platz, :root[data-theme="dark"] body.marken-modus .wallet-platz {
-  background: var(--karte); color: var(--muted); box-shadow: var(--schatten-1);
-}
-body.marken-modus .wsl-suche { box-shadow: var(--schatten-1); }
+/* Suche: leichter Schatten auf dem hellen Grund (gilt jetzt auch fuer den Rang) */
+.wsl-suche { box-shadow: var(--schatten-1); }
 /* Im Dunkeln stand der Markenname in der Rang-Farbe — gruen neben Rot */
 :root[data-theme="dark"] body.marken-modus .wsl-marke { color: var(--marke-k3); }
 /* Mini-Guthaben unten: Symbol und Betrag in derselben Farbe, im Dunkeln hell */
@@ -741,9 +749,8 @@ body.marken-modus #wallet-mini .icon { color: var(--marke-k1); }
 :root[data-theme="dark"] #wallet-mini.rangfarbe #wallet-mini-total { color: var(--kopf-k3, #B6C9DF); }
 :root[data-theme="dark"] body.marken-modus #wallet-mini.rangfarbe #wallet-mini-total,
 :root[data-theme="dark"] body.marken-modus #wallet-mini .icon { color: var(--marke-k3); }
-/* Weggescrollt: helle Kopfzeile wie in den anderen Reitern, Logo in Tinte */
-body.marken-modus.wallet-farbe.kopf-weg .topbar .k-wordmark { color: var(--k-ink); }
-:root[data-theme="dark"] body.marken-modus.wallet-farbe.kopf-weg .topbar .k-wordmark { color: var(--k-paper); }
+/* Weggescrollt: der Punkt der Wortmarke wieder im App-Akzent — style.css setzt
+   ihn in der Marken-Ansicht sonst auf die Markenfarbe (fuer den farbigen Kopf) */
 body.marken-modus.wallet-farbe.kopf-weg .topbar .k-wordmark .k-dot { fill: var(--k-accent); }
 
 /* Karten und Kacheln: weniger rund */

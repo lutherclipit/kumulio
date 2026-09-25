@@ -3404,34 +3404,47 @@ body.gescrollt:not(.wallet-wechsel) .wallet-kopf {
   transform: translate3d(0, calc(-1 * var(--ff-versatz, 0px)), 0);
   /* Die Stufen stehen relativ zu --ff-kopf, und das aendert sich nur bei
      Groessenwechsel — waehrend der Ueberblendung bleibt der Verlauf derselbe
-     und kann zwischengespeichert werden. */
+     und kann zwischengespeichert werden.
+
+     Runde 126: EIN Auslauf fuer Rang- und Marken-Ansicht, und er laeuft in
+     den Seitengrund aus (nicht mehr in eine Rang-Farbe, die bis unten traegt)
+     — Gutscheinkarten in Rang-Farbe stehen so auf ruhigem Grund. Die Kurve ist
+     lang und weich: sie beginnt schon 40 px im Kopf, hinter dem unteren Teil
+     der Bereichswahl — so entsteht an seiner Unterkante keine Linie — und
+     endet 220 px darunter.
+     Form: 1 - smoothstep(1 - (1 - t)^1,6) — oben und unten ohne Knick (Steigung
+     0), die staerkste Aenderung liegt hinter Suche und Marke (die sind eigene
+     Flaechen), der lange flache Rest traegt unter der Ueberschrift aus.
+     27 Stufen im 10-px-Takt, damit die Geraden dazwischen keine Kanten bilden
+     (Mach-Baender). Die Werte stehen fest — erzeugt, nicht geraten. */
   --auslauf: linear-gradient(to bottom,
-      rgba(0, 0, 0, 1) var(--ff-kopf, 0px),
-      rgba(0, 0, 0, .9994) calc(var(--ff-kopf, 0px) + 12px),
-      rgba(0, 0, 0, .9955) calc(var(--ff-kopf, 0px) + 24px),
-      rgba(0, 0, 0, .9857) calc(var(--ff-kopf, 0px) + 36px),
-      rgba(0, 0, 0, .9682) calc(var(--ff-kopf, 0px) + 48px),
-      rgba(0, 0, 0, .9421) calc(var(--ff-kopf, 0px) + 60px),
-      rgba(0, 0, 0, .9067) calc(var(--ff-kopf, 0px) + 72px),
-      rgba(0, 0, 0, .8624) calc(var(--ff-kopf, 0px) + 84px),
-      rgba(0, 0, 0, .8095) calc(var(--ff-kopf, 0px) + 96px),
-      rgba(0, 0, 0, .7491) calc(var(--ff-kopf, 0px) + 108px),
-      rgba(0, 0, 0, .6826) calc(var(--ff-kopf, 0px) + 120px),
-      rgba(0, 0, 0, .6114) calc(var(--ff-kopf, 0px) + 132px),
-      rgba(0, 0, 0, .5375) calc(var(--ff-kopf, 0px) + 144px),
-      rgba(0, 0, 0, .4625) calc(var(--ff-kopf, 0px) + 156px),
-      rgba(0, 0, 0, .3886) calc(var(--ff-kopf, 0px) + 168px),
-      rgba(0, 0, 0, .3174) calc(var(--ff-kopf, 0px) + 180px),
-      rgba(0, 0, 0, .2509) calc(var(--ff-kopf, 0px) + 192px),
-      rgba(0, 0, 0, .1905) calc(var(--ff-kopf, 0px) + 204px),
-      rgba(0, 0, 0, .1376) calc(var(--ff-kopf, 0px) + 216px),
-      rgba(0, 0, 0, .0933) calc(var(--ff-kopf, 0px) + 228px),
-      rgba(0, 0, 0, .0579) calc(var(--ff-kopf, 0px) + 240px),
-      rgba(0, 0, 0, .0318) calc(var(--ff-kopf, 0px) + 252px),
-      rgba(0, 0, 0, .0143) calc(var(--ff-kopf, 0px) + 264px),
-      rgba(0, 0, 0, .0045) calc(var(--ff-kopf, 0px) + 276px),
-      rgba(0, 0, 0, .0006) calc(var(--ff-kopf, 0px) + 288px),
-      rgba(0, 0, 0, 0) calc(var(--ff-kopf, 0px) + 300px));
+      rgba(0, 0, 0, 1) calc(var(--ff-kopf, 0px) - 40px),
+      rgba(0, 0, 0, .9894) calc(var(--ff-kopf, 0px) - 30px),
+      rgba(0, 0, 0, .9601) calc(var(--ff-kopf, 0px) - 20px),
+      rgba(0, 0, 0, .9161) calc(var(--ff-kopf, 0px) - 10px),
+      rgba(0, 0, 0, .8608) var(--ff-kopf, 0px),
+      rgba(0, 0, 0, .7972) calc(var(--ff-kopf, 0px) + 10px),
+      rgba(0, 0, 0, .728) calc(var(--ff-kopf, 0px) + 20px),
+      rgba(0, 0, 0, .6558) calc(var(--ff-kopf, 0px) + 30px),
+      rgba(0, 0, 0, .5825) calc(var(--ff-kopf, 0px) + 40px),
+      rgba(0, 0, 0, .5101) calc(var(--ff-kopf, 0px) + 50px),
+      rgba(0, 0, 0, .4399) calc(var(--ff-kopf, 0px) + 60px),
+      rgba(0, 0, 0, .3734) calc(var(--ff-kopf, 0px) + 70px),
+      rgba(0, 0, 0, .3114) calc(var(--ff-kopf, 0px) + 80px),
+      rgba(0, 0, 0, .2547) calc(var(--ff-kopf, 0px) + 90px),
+      rgba(0, 0, 0, .2038) calc(var(--ff-kopf, 0px) + 100px),
+      rgba(0, 0, 0, .1591) calc(var(--ff-kopf, 0px) + 110px),
+      rgba(0, 0, 0, .1206) calc(var(--ff-kopf, 0px) + 120px),
+      rgba(0, 0, 0, .0884) calc(var(--ff-kopf, 0px) + 130px),
+      rgba(0, 0, 0, .0621) calc(var(--ff-kopf, 0px) + 140px),
+      rgba(0, 0, 0, .0414) calc(var(--ff-kopf, 0px) + 150px),
+      rgba(0, 0, 0, .0257) calc(var(--ff-kopf, 0px) + 160px),
+      rgba(0, 0, 0, .0146) calc(var(--ff-kopf, 0px) + 170px),
+      rgba(0, 0, 0, .0073) calc(var(--ff-kopf, 0px) + 180px),
+      rgba(0, 0, 0, .0029) calc(var(--ff-kopf, 0px) + 190px),
+      rgba(0, 0, 0, .0008) calc(var(--ff-kopf, 0px) + 200px),
+      rgba(0, 0, 0, .0001) calc(var(--ff-kopf, 0px) + 210px),
+      rgba(0, 0, 0, 0) calc(var(--ff-kopf, 0px) + 220px));
   mask-image: var(--auslauf);
   -webkit-mask-image: var(--auslauf);
   transition: opacity .35s ease,
@@ -5261,6 +5274,14 @@ body.sparsam .wa-modus-flaeche { transition-duration: .2s; }
     linear-gradient(172deg, var(--m1, #0E9C64) 0%, var(--m2, #12C77E) 52%, var(--m3, #23D992) 100%);
   transform: translate3d(0, var(--ff-versatz, 0px), 0);
   transition: opacity .6s ease, transform .32s cubic-bezier(.22, 1, .32, 1);
+}
+/* Runde 126: im Dunkeln laeuft auch die Marke unter der Maske in einen tiefen
+   Ton aus statt in ihren hellsten — wie der Rang (look.css, --ff-auslauf-ton) */
+:root[data-theme="dark"] .ff-marke {
+  background:
+    radial-gradient(circle at 84% 6%, rgba(255, 255, 255, .17), transparent 46%),
+    linear-gradient(172deg, var(--m1, #0E9C64) 0%, var(--m2, #12C77E) 52%,
+      color-mix(in srgb, var(--m1, #0E9C64) 58%, #0B0E11) 100%);
 }
 .ff-marke.an { opacity: 1; }
 .ff-marke.oben { z-index: 2; }

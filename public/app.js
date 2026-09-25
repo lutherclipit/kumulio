@@ -67,12 +67,16 @@ function applyTheme(t, animate = false) {
 // klebte darueber ein gruener Streifen, der aussah wie eine zweite Kopfzeile.
 // Jetzt traegt sie dieselbe Farbe wie der obere Rand des Kopfes, und ausserhalb
 // der Wallet den Seitengrund.
+// Runde 126: auch in der Wallet den Seitengrund, sobald der Kopf weggescrollt
+// ist — die Farbe laeuft unter dem Kopf aus, die Kopfzeile ist dann Milchglas
+// auf hellem (bzw. dunklem) Grund, und darueber stuende sonst ein Farbstreifen.
 function setzeLeistenfarbe() {
   const meta = document.querySelector('meta[name="theme-color"]');
   if (!meta) return;
   const st = getComputedStyle(document.documentElement);
   // Auch die Sperre traegt den Rang-Verlauf
-  const inWallet = document.body.classList.contains('wallet-farbe') || document.body.classList.contains('wallet-zu');
+  const inWallet = document.body.classList.contains('wallet-zu')
+    || (document.body.classList.contains('wallet-farbe') && !document.body.classList.contains('kopf-weg'));
   const markenfarbe = document.body.classList.contains('marken-modus') && !document.body.classList.contains('wallet-zu')
     ? st.getPropertyValue('--marke-k1').trim() : '';
   const farbe = inWallet
@@ -11780,8 +11784,11 @@ function pruefeKopfzeile() {
       document.documentElement.style.setProperty('--kopfzeile-h', h + 'px');
     }
   }
-  document.body.classList.toggle('kopf-weg',
+  const warWeg = document.body.classList.contains('kopf-weg');
+  const istWeg = document.body.classList.toggle('kopf-weg',
     state.activeView === 'wallet' && (!inWallet || verdeckt));
+  // Nur beim Wechsel, nicht bei jedem Scroll-Ereignis
+  if (istWeg !== warWeg) setzeLeistenfarbe();
   // Das Mini-Guthaben erscheint im selben Moment: der grosse Betrag ist weg,
   // also braucht es unten einen Ersatz. Frueher entschied das ein
   // IntersectionObserver mit fester Schwelle — der meldete sich nicht mehr,
@@ -11810,10 +11817,11 @@ function messeKopfzeile() {
 //
 // Drei Werte steuern es (siehe style.css):
 //   --ff-kopf    wo die weiche Kante anfaengt, gemessen am AUFGEKLAPPTEN Kopf
-//   --ff-hoehe   Gesamthoehe, also --ff-kopf plus 300 px Auslauf
+//   --ff-hoehe   Gesamthoehe, also --ff-kopf plus 300 px (die Maske ist nach
+//                220 px leer, der Rest haelt nur den Farbverlauf gleich)
 //   --ff-versatz wie weit die Flaeche gerade nach oben gefahren ist
 // Die ersten beiden aendern sich nur bei einem Groessenwechsel, deshalb bleibt
-// der 26-stufige Verlauf waehrend der Ueberblendung derselbe und muss nicht in
+// der 27-stufige Verlauf waehrend der Ueberblendung derselbe und muss nicht in
 // jedem Bild neu erzeugt werden. Bewegt wird nur --ff-versatz, und das ist eine
 // reine Verschiebung auf der Grafikkarte.
 //
