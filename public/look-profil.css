@@ -188,14 +188,14 @@ button.pf-rang:focus-visible { outline: 2px solid var(--akzent-text); outline-of
    ========================================================================== */
 /* Stufenfarben: dieselben Werte wie .wallet-kopf.tier-N in style.css
    (r1 dunkel, r2 Hauptton, r3 hell). 0 = gesperrt: die aktuelle Akzentfarbe */
-:is(.rf, .rs-stufe, .pf-kopf, .tm-rang, .up-kopf)[data-stufe="0"] { --r1: var(--kopf-k1, #0A8452); --r2: var(--kopf-k2, #0FA86B); --r3: var(--kopf-k3, #2FE09C); }
-:is(.rf, .rs-stufe, .pf-kopf, .tm-rang, .up-kopf)[data-stufe="1"] { --r1: #0A8452; --r2: #0FA86B; --r3: #2FE09C; }
-:is(.rf, .rs-stufe, .pf-kopf, .tm-rang, .up-kopf)[data-stufe="2"] { --r1: #0A6E78; --r2: #0E95A3; --r3: #3DD3DE; }
-:is(.rf, .rs-stufe, .pf-kopf, .tm-rang, .up-kopf)[data-stufe="3"] { --r1: #1C4FB0; --r2: #2D6BDB; --r3: #79A9FF; }
-:is(.rf, .rs-stufe, .pf-kopf, .tm-rang, .up-kopf)[data-stufe="4"] { --r1: #4B2FA6; --r2: #6B4CD9; --r3: #AE96FF; }
-:is(.rf, .rs-stufe, .pf-kopf, .tm-rang, .up-kopf)[data-stufe="5"] { --r1: #8C1D5E; --r2: #BB2F7E; --r3: #F58CC4; }
-:is(.rf, .rs-stufe, .pf-kopf, .tm-rang, .up-kopf)[data-stufe="6"] { --r1: #9A3412; --r2: #C2410C; --r3: #FDA56B; }
-:is(.rf, .rs-stufe, .pf-kopf, .tm-rang, .up-kopf)[data-stufe="7"] { --r1: #7A5406; --r2: #A87A0C; --r3: #F2CE5E; }
+:is(.rf, .rs-stufe, .rs-zurueck, .pf-kopf, .tm-rang, .up-kopf)[data-stufe="0"] { --r1: var(--kopf-k1, #0A8452); --r2: var(--kopf-k2, #0FA86B); --r3: var(--kopf-k3, #2FE09C); }
+:is(.rf, .rs-stufe, .rs-zurueck, .pf-kopf, .tm-rang, .up-kopf)[data-stufe="1"] { --r1: #0A8452; --r2: #0FA86B; --r3: #2FE09C; }
+:is(.rf, .rs-stufe, .rs-zurueck, .pf-kopf, .tm-rang, .up-kopf)[data-stufe="2"] { --r1: #0A6E78; --r2: #0E95A3; --r3: #3DD3DE; }
+:is(.rf, .rs-stufe, .rs-zurueck, .pf-kopf, .tm-rang, .up-kopf)[data-stufe="3"] { --r1: #1C4FB0; --r2: #2D6BDB; --r3: #79A9FF; }
+:is(.rf, .rs-stufe, .rs-zurueck, .pf-kopf, .tm-rang, .up-kopf)[data-stufe="4"] { --r1: #4B2FA6; --r2: #6B4CD9; --r3: #AE96FF; }
+:is(.rf, .rs-stufe, .rs-zurueck, .pf-kopf, .tm-rang, .up-kopf)[data-stufe="5"] { --r1: #8C1D5E; --r2: #BB2F7E; --r3: #F58CC4; }
+:is(.rf, .rs-stufe, .rs-zurueck, .pf-kopf, .tm-rang, .up-kopf)[data-stufe="6"] { --r1: #9A3412; --r2: #C2410C; --r3: #FDA56B; }
+:is(.rf, .rs-stufe, .rs-zurueck, .pf-kopf, .tm-rang, .up-kopf)[data-stufe="7"] { --r1: #7A5406; --r2: #A87A0C; --r3: #F2CE5E; }
 
 .rf {
   --sb: clamp(232px, 62.5vw, 256px);
