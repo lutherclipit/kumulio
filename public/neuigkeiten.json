@@ -1,5 +1,41 @@
 [
   {
+    "v": "2026-09-25.4",
+    "datum": "25. September 2026",
+    "titel": "Ruhigere Wallet, ein Profil",
+    "punkte": [
+      {
+        "icon": "wallet",
+        "titel": "Deine Gutscheine auf ruhigem Grund",
+        "text": "Die Farbe deines Rangs bleibt oben bei deiner Wallet und läuft dann sanft ins Weiße aus (im Dunkelmodus ins Dunkle). So heben sich deine Gutscheine besser ab, auch wenn sie dieselbe Farbe haben.",
+        "bild": "/brand/neu/2026-09-25-wallet-hell.webp",
+        "bildDunkel": "/brand/neu/2026-09-25-wallet-dunkel.webp",
+        "bildAlt": "Die Wallet: oben in Rang-Farbe, darunter die Gutscheine auf hellem Grund",
+        "bildGroesse": [
+          468,
+          864
+        ]
+      },
+      {
+        "icon": "user",
+        "titel": "Profil und Rang in einer Karte",
+        "text": "Dein Profil zeigt oben, wer du bist, und darunter deinen Rang mit deinem Kumulio. Antippen führt wie gewohnt zur Rang-Seite.",
+        "bild": "/brand/neu/2026-09-25-profil-hell.webp",
+        "bildDunkel": "/brand/neu/2026-09-25-profil-dunkel.webp",
+        "bildAlt": "Die Profilkarte mit Rang und Kumulio",
+        "bildGroesse": [
+          780,
+          860
+        ]
+      },
+      {
+        "icon": "star",
+        "titel": "Lios überall in Nachtblau",
+        "text": "Menü, Profil und Shop zeigen deine Lios jetzt in derselben Farbe, im Menü mit dem Wert in Euro."
+      }
+    ]
+  },
+  {
     "v": "2026-09-25.3",
     "datum": "25. September 2026",
     "titel": "Neue Rang-Farben und Lio-Uhr",

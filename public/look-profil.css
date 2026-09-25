@@ -70,9 +70,12 @@
    oben wer du bist (Profilbild klein), unter einer feinen Linie dein Rang
    mit dem grossen Maskottchen, dessen Kopf ueber die Linie ragt.
    Farbe ueber data-stufe (renderRangKarte), gesperrt 0 = neutral. */
+/* Kein overflow: hidden — das Rang-Maskottchen darf rechts ueber die Karte
+   ragen wie auf der eigenen Rang-Karte (sonst schnitt die Kante Lorbeer und
+   Zepter ab). Strahlen und Scheine beschneiden sich selbst. */
 #view-profile .pf-kopf {
   --rf-radius: 18px;
-  position: relative; isolation: isolate; overflow: hidden;
+  position: relative; isolation: isolate;
   padding: 18px 18px 0; border: 0; border-radius: var(--rf-radius); color: #fff;
   background:
     radial-gradient(circle at 12% 18%, rgba(255, 255, 255, .17), transparent 46%),
@@ -89,7 +92,7 @@
    was sanfteres"). Er laeuft kurz hinter dem Ring weich aus. */
 .pf-ava-rahmen::before {
   content: ""; position: absolute; z-index: -1; left: 50%; top: 50%;
-  width: 130px; aspect-ratio: 1; pointer-events: none;
+  width: 110px; aspect-ratio: 1; pointer-events: none;   /* endet am Kartenrand */
   transform: translate(-50%, -50%);
   background: radial-gradient(closest-side,
     color-mix(in srgb, var(--r3) 45%, rgba(255, 255, 255, .5)) 0%,
@@ -193,9 +196,9 @@ button.pf-rang:focus-visible { outline: 2px solid #fff; outline-offset: -4px; }
   border-radius: 0 0 var(--rf-radius) var(--rf-radius);
   background: none; box-shadow: none;
 }
-.pf-kopf .rf-rahmen { right: 0; border-radius: 0 0 var(--rf-radius) var(--rf-radius); }
-.pf-kopf .rf-sprite { left: calc(100% - 4px - var(--sb) * 1.0536); }
-.pf-kopf .rf-funken { left: calc(100% - 4px - var(--sb) * .8341); }
+.pf-kopf .rf-rahmen { right: -14px; border-radius: 0 0 0 var(--rf-radius); }
+.pf-kopf .rf-sprite { left: calc(100% - 14px - 4px - var(--sb) * 1.0536); }
+.pf-kopf .rf-funken { left: calc(100% - 14px - 4px - var(--sb) * .8341); }
 /* Die Strahlen hinter dem Kopf reichen mit ueber die Linie (sonst endeten sie
    dort mit harter Kante) und laufen in ihrer runden Maske weich aus */
 .pf-kopf .rf-licht { top: -64px; }
