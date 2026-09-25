@@ -13333,6 +13333,7 @@ function lioNachProfil() {
   if (!myProfile) return;
   lioProfilTag = lioBerlinTag();
   lioProfilVon = state.userName || '';
+  lioMitternachtWecker();
   lioZeitMerken(myProfile.lioSerie);
   lioKnopfZeigen();
   if (lioGehalten == null) { renderTmLio(); lioStandZeigen(); }
@@ -13347,8 +13348,7 @@ function lioNachProfil() {
 // Profil zaehlt den Login-Tag — Serie und taeglicher Lio kommen dann auch so
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible' || !state.token || !myProfile) return;
-  if (lioProfilTag && lioProfilTag !== lioBerlinTag()) ladeProfil();
-  else lioNeuPruefen();
+  if (!lioTagSichern()) lioNeuPruefen();
 });
 
 // ---- Seitenmenue: eigene Karte im Lio-Verlauf. Oben der Stand, darunter
@@ -13870,6 +13870,27 @@ function lioTagStand() {
 // Abstand: geht die Handy-Uhr ein, zwei Sekunden vor (unter der Schwelle von
 // lioZeitMerken), ist beim Server um Mitternacht noch gestern. Klappt es gar
 // nicht, kommt er beim naechsten Oeffnen.
+// Ist das taegliche Lio fuer heute (Berlin) noch nicht gebucht, das Profil neu
+// holen — der Server bucht es dabei, der Stern fliegt danach. Aufgerufen nach
+// der PIN, beim Zurueckkommen in die App und um Mitternacht, wenn sie offen
+// ist. true = es wird nachgeholt (dann oeffnet der ankommende Stern die Fahne).
+function lioTagSichern() {
+  if (!state.token || !myProfile?.lioSerie) return false;
+  const t = lioTagStand();
+  if (t.abgeholt) return false;
+  lioTagNachholen(t.heute);
+  return true;
+}
+// Wecker fuer 0:00 Uhr (Berlin), solange die App offen ist
+function lioMitternachtWecker() {
+  clearTimeout(lioMitternachtWecker.uhr);
+  if (!state.token) return;
+  const rest = Math.max(1000, Math.min(lioNaechsteMitternacht(lioJetzt()) - lioJetzt() + 3000, 2 ** 31 - 1));
+  lioMitternachtWecker.uhr = setTimeout(() => {
+    if (document.visibilityState === 'visible') lioTagSichern();
+    lioMitternachtWecker();
+  }, rest);
+}
 function lioTagNachholen(heute) {
   if (!state.token || lioTagNachholen.laeuft) return;
   if (lioTagNachholen.tag !== heute) { lioTagNachholen.tag = heute; lioTagNachholen.versuche = 0; }
@@ -13879,6 +13900,9 @@ function lioTagNachholen(heute) {
   new Promise(r => setTimeout(r, pause)).then(() => ladeProfil()).catch(() => { }).finally(() => {
     lioTagNachholen.laeuft = false;
     for (const s of wseiten()) if (s.art === 'lio-shop') lioWegeZeigen(s);
+    // Noch nicht gebucht (Netz noch nicht da, Uhr knapp vor dem Server):
+    // selbst nochmal versuchen — nicht erst, wenn jemand den Shop oeffnet
+    if (lioTagNachholen.tag === heute && !lioTagStand().abgeholt && lioTagNachholen.versuche < 3) lioTagNachholen(heute);
   });
 }
 
@@ -14786,7 +14810,8 @@ function entsperreWallet() {
   // Lios: wartende Gutschriften fliegen jetzt (der Stern oeffnet die Fahne),
   // sonst zeigt der Shop-Knopf einmal den Stand — wie beim Oeffnen der Wallet
   setTimeout(() => {
-    if (state.activeView !== 'wallet') return;
+    if (lioTagSichern()) return;
+    if (state.activeView !== 'wallet') { lioNeuPruefen(); return; }
     if (lioWartetNoch()) lioNeuPruefen(); else lioFahneZeigen();
   }, 900);
   setTimeout(verarbeiteGeteiltes, 700);          // geteiltes Bild wartete auch
