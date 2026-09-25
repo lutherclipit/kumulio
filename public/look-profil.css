@@ -188,14 +188,14 @@ button.pf-rang:focus-visible { outline: 2px solid var(--akzent-text); outline-of
    ========================================================================== */
 /* Stufenfarben: dieselben Werte wie .wallet-kopf.tier-N in style.css
    (r1 dunkel, r2 Hauptton, r3 hell). 0 = gesperrt: die aktuelle Akzentfarbe */
-:is(.rf, .rs-stufe, .pf-kopf)[data-stufe="0"] { --r1: var(--kopf-k1, #0A8452); --r2: var(--kopf-k2, #0FA86B); --r3: var(--kopf-k3, #2FE09C); }
-:is(.rf, .rs-stufe, .pf-kopf)[data-stufe="1"] { --r1: #0A8452; --r2: #0FA86B; --r3: #2FE09C; }
-:is(.rf, .rs-stufe, .pf-kopf)[data-stufe="2"] { --r1: #0A6E78; --r2: #0E95A3; --r3: #3DD3DE; }
-:is(.rf, .rs-stufe, .pf-kopf)[data-stufe="3"] { --r1: #1C4FB0; --r2: #2D6BDB; --r3: #79A9FF; }
-:is(.rf, .rs-stufe, .pf-kopf)[data-stufe="4"] { --r1: #4B2FA6; --r2: #6B4CD9; --r3: #AE96FF; }
-:is(.rf, .rs-stufe, .pf-kopf)[data-stufe="5"] { --r1: #8C1D5E; --r2: #BB2F7E; --r3: #F58CC4; }
-:is(.rf, .rs-stufe, .pf-kopf)[data-stufe="6"] { --r1: #9A3412; --r2: #C2410C; --r3: #FDA56B; }
-:is(.rf, .rs-stufe, .pf-kopf)[data-stufe="7"] { --r1: #7A5406; --r2: #A87A0C; --r3: #F2CE5E; }
+:is(.rf, .rs-stufe, .pf-kopf, .tm-rang, .up-kopf)[data-stufe="0"] { --r1: var(--kopf-k1, #0A8452); --r2: var(--kopf-k2, #0FA86B); --r3: var(--kopf-k3, #2FE09C); }
+:is(.rf, .rs-stufe, .pf-kopf, .tm-rang, .up-kopf)[data-stufe="1"] { --r1: #0A8452; --r2: #0FA86B; --r3: #2FE09C; }
+:is(.rf, .rs-stufe, .pf-kopf, .tm-rang, .up-kopf)[data-stufe="2"] { --r1: #0A6E78; --r2: #0E95A3; --r3: #3DD3DE; }
+:is(.rf, .rs-stufe, .pf-kopf, .tm-rang, .up-kopf)[data-stufe="3"] { --r1: #1C4FB0; --r2: #2D6BDB; --r3: #79A9FF; }
+:is(.rf, .rs-stufe, .pf-kopf, .tm-rang, .up-kopf)[data-stufe="4"] { --r1: #4B2FA6; --r2: #6B4CD9; --r3: #AE96FF; }
+:is(.rf, .rs-stufe, .pf-kopf, .tm-rang, .up-kopf)[data-stufe="5"] { --r1: #8C1D5E; --r2: #BB2F7E; --r3: #F58CC4; }
+:is(.rf, .rs-stufe, .pf-kopf, .tm-rang, .up-kopf)[data-stufe="6"] { --r1: #9A3412; --r2: #C2410C; --r3: #FDA56B; }
+:is(.rf, .rs-stufe, .pf-kopf, .tm-rang, .up-kopf)[data-stufe="7"] { --r1: #7A5406; --r2: #A87A0C; --r3: #F2CE5E; }
 
 .rf {
   --sb: clamp(232px, 62.5vw, 256px);
@@ -529,19 +529,22 @@ body.sparsam .rf-balken > span { transition: none; }
 #view-editprofile #g-bio-save { width: 100%; margin: 0; min-height: 50px; font-size: 1rem; }
 .pe-speichern .form-msg:empty { display: none; }
 
-/* ---- Fremdes Profil: Zurueck oben links, alles in einer weissen Karte */
+/* ---- Fremdes Profil: Zurueck oben links, darunter zwei Karten — oben die
+   Person (in der Farbe ihres Rangs), unten die Bewertungen */
 /* Abstand als Polsterung der Seite: ein Aussenabstand wuerde mit der Seite
    zusammenfallen und den Knopf mit nach unten ziehen */
 #view-user { padding-top: 56px; }
 #view-user .up-back { top: 2px; left: 0; }
-#user-page {
-  padding: 4px 16px 12px; border-radius: 18px;
+#user-page { display: flex; flex-direction: column; gap: 12px; }
+#user-page > .up-kopf, #user-page > .up-karte {
+  padding: 4px 16px 16px; border-radius: 18px;
   background: var(--karte); box-shadow: var(--schatten-1);
   --surface: var(--karte-2); --surface-2: var(--karte-2);
 }
-#user-page:has(> .status:only-child) { background: none; box-shadow: none; }
+#user-page > .up-karte { padding-bottom: 12px; }
 #user-page .up-hero { gap: 2px; padding: 22px 0 4px; }
-#user-page .up-ava { width: 84px; height: 84px; font-size: 2rem; margin-bottom: 10px; }
+.up-ava-rahmen { position: relative; display: grid; margin-bottom: 10px; }
+#user-page .up-ava { width: 84px; height: 84px; font-size: 2rem; }
 #user-page .up-name { font-size: 1.35rem; font-weight: 850; letter-spacing: -.02em; line-height: 1.2; overflow-wrap: anywhere; }
 #user-page .up-handle { font-size: .86rem; font-weight: 650; color: var(--muted); }
 #user-page .up-bio { max-width: 320px; margin-top: 10px; font-size: .92rem; line-height: 1.45; color: var(--text); overflow-wrap: anywhere; }
@@ -549,15 +552,88 @@ body.sparsam .rf-balken > span { transition: none; }
 #user-page .role-mod { color: var(--akzent-text); }
 #user-page .up-marken { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 14px; }
 #user-page .up-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 18px; }
-#user-page .up-actions .btn { width: 100%; margin: 0; min-height: 44px; padding: 0 10px; font-size: .88rem; }
+#user-page .up-actions .btn { width: 100%; margin: 0; min-height: 44px; padding: 0 8px; font-size: .88rem; }
+/* Schmale Handys: "Als Freund anfragen" bleibt einzeilig */
+@media (max-width: 370px) { #user-page .up-actions .btn { font-size: .84rem; } }
 #user-page .up-melden { display: block; margin: 6px auto 0; font-size: .8rem; font-weight: 650; color: var(--muted); }
-#up-ratings { margin-top: 18px; padding-top: 4px; border-top: 1px solid var(--linie); }
 #up-ratings .up-center-h { margin: 14px 0 10px; font-size: 1rem; font-weight: 800; }
 #up-ratings .chip { height: 36px; border-radius: 11px; background: var(--karte-2); border-color: transparent; font-weight: 700; }
 #up-ratings .up-rate-form { border: 0; border-radius: 14px; background: var(--karte-2); }
 #up-ratings .up-rate-row { padding: 10px 2px; }
 #up-ratings .up-rate-row + .up-rate-row { border-top: 1px solid var(--linie); }
 #up-ratings > .status { text-align: center; }
+
+/* Oeffentliches Profil mit Stufe: die Karte traegt die Farbe des Rangs (wie
+   der eigene Profil-Kopf und das Rang-Fenster) — Verlauf, weisse Schrift,
+   Glas-Pille und Glas-Knoepfe, hinter dem Bild drehen sich die Strahlen.
+   Rang-Name, Stufe und Maskottchen stehen hier bewusst nicht: die Farbe
+   genuegt, der Rest bleibt dem Nutzer selbst. */
+#user-page > .up-kopf[data-stufe] {
+  position: relative; isolation: isolate; overflow: hidden; color: #fff;
+  background:
+    radial-gradient(circle at 50% 12%, rgba(255, 255, 255, .17), transparent 48%),
+    linear-gradient(172deg, var(--r1) 0%, var(--r2) 62%, color-mix(in srgb, var(--r2) 55%, var(--r3)) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .22),
+    0 12px 28px -10px color-mix(in srgb, var(--r1) 70%, transparent);
+}
+:root[data-theme="dark"] #user-page > .up-kopf[data-stufe] { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), 0 12px 28px -10px rgba(0, 0, 0, .6); }
+/* Strahlen mittig hinter dem Bild; die Karte (isolation + overflow) schneidet
+   sie an den runden Ecken ab */
+.up-kopf[data-stufe] .up-ava-rahmen::before {
+  content: ""; position: absolute; z-index: -1; left: 50%; top: 50%;
+  width: 280px; aspect-ratio: 1; pointer-events: none;
+  transform: translate(-50%, -50%);
+  background: repeating-conic-gradient(from 4deg,
+    color-mix(in srgb, var(--r3) 55%, #fff) 0deg 5deg, transparent 5deg 18deg);
+  -webkit-mask-image: radial-gradient(closest-side, rgba(0, 0, 0, .55) 0%, rgba(0, 0, 0, .3) 38%, transparent 82%);
+          mask-image: radial-gradient(closest-side, rgba(0, 0, 0, .55) 0%, rgba(0, 0, 0, .3) 38%, transparent 82%);
+  opacity: .6;
+  animation: wkStrahlen 70s linear infinite;
+}
+/* Glas-Ring statt eines harten weissen Rands */
+.up-kopf[data-stufe] .up-ava { box-shadow: 0 0 0 3px rgba(255, 255, 255, .34), 0 10px 22px -8px rgba(0, 0, 0, .4); }
+/* Bilder mit Transparenz: fester Grund, sonst scheinen die Strahlen durch */
+.up-kopf[data-stufe] img.up-ava { background: #fff; }
+/* Zwei goldene Funken am Bild, wie am Maskottchen */
+.up-funken { position: absolute; inset: -12px; pointer-events: none; }
+.up-funken .wk-f1 { left: auto; right: -6px; top: 4px; width: 14px; height: 14px; }
+.up-funken .wk-f2 { left: -8px; top: auto; bottom: 10px; width: 10px; height: 10px; }
+/* Name immer weiss: die freie Namensfarbe waere auf dem Verlauf oft nicht
+   lesbar (sie gilt weiter im Chat und auf der neutralen Karte) */
+#user-page .up-kopf[data-stufe] .up-name > span { color: #fff !important; text-shadow: 0 2px 12px rgba(0, 0, 0, .16); }
+#user-page .up-kopf[data-stufe] .role-mod { color: #fff; }
+#user-page .up-kopf[data-stufe] .role-admin { color: #FFD23F; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .25)); }
+#user-page .up-kopf[data-stufe] .up-handle {
+  max-width: 100%; margin-top: 6px; padding: 3px 8px; border-radius: 8px;
+  background: rgba(255, 255, 255, .2); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3);
+  font-size: .76rem; font-weight: 750; line-height: 1.35; color: #fff;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#user-page .up-kopf[data-stufe] .up-bio { margin-top: 12px; font-weight: 550; color: rgba(255, 255, 255, .95); }
+#user-page .up-kopf[data-stufe] .up-bio.leer { color: rgba(255, 255, 255, .8); }
+.up-kopf[data-stufe] .pf-marke {
+  background: rgba(255, 255, 255, .2); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3); color: #fff;
+}
+/* Glas-Knoepfe wie "Profil bearbeiten"; Schreiben als Hauptknopf voll weiss */
+#user-page .up-kopf[data-stufe] .up-actions .btn {
+  border-radius: 11px; color: #fff;
+  background: rgba(255, 255, 255, .22); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .38);
+  -webkit-tap-highlight-color: transparent;
+}
+#user-page .up-kopf[data-stufe] .up-actions #up-whisper {
+  background: #fff; color: var(--r1); box-shadow: 0 6px 16px -6px rgba(0, 0, 0, .3);
+}
+#user-page .up-kopf[data-stufe] .up-actions .btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+@media (hover: hover) {
+  #user-page .up-kopf[data-stufe] .up-actions .btn-ghost:hover { background: rgba(255, 255, 255, .3); }
+}
+body:is(.sparsam, .ohne-anim) .up-kopf[data-stufe] .up-ava-rahmen::before, body:is(.sparsam, .ohne-anim) .up-funken .wk-f { animation: none; }
+body:is(.sparsam, .ohne-anim) .up-funken .wk-f { opacity: .9; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .up-kopf[data-stufe] .up-ava-rahmen::before { animation: none; }
+  .up-funken .wk-f { animation: none; opacity: .9; }
+}
 
 /* ---- Antippen: nur transform */
 #view-profile .pf-bearbeiten:active, #gifts-page .gift-row:active { transform: scale(.97); }

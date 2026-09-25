@@ -1214,6 +1214,22 @@ function namensfarbe(user) {
   return typeof f === 'string' && FARBE_OK.test(f) ? f.toLowerCase() : null;
 }
 
+// Rang-Stufe 1..7 nach dem Wallet-Guthaben — genau wie im Client (RANKS,
+// rankFor und rangGuthaben in app.js): Restguthaben aller Gutscheine ohne
+// Rabattcodes, auf den Cent gerundet; Stufe N beginnt beim N-ten Betrag (in
+// Cent: "ueber 10 €" heisst ab 10,01 €). Nach aussen geht nur diese Zahl
+// (Farbe fremder Profile), nie das Guthaben.
+const RANG_AB_CENT = [0, 1001, 5001, 15001, 30001, 60001, 100001];
+function rangStufe(user) {
+  const vs = (wallets[user] && wallets[user].vouchers) || [];
+  const aktiv = vs.filter(v => v && v.art !== 'rabatt' && (v.balance == null || v.balance > 0));
+  const total = Math.round(aktiv.reduce((s, v) => s + (Number(v.balance) || 0), 0) * 100) / 100;
+  const cent = Math.round(total * 100);
+  let stufe = 1;
+  RANG_AB_CENT.forEach((ab, i) => { if (cent >= ab) stufe = i + 1; });
+  return stufe;
+}
+
 // Login-Serie: aufeinanderfolgende Kalendertage (Europe/Berlin), an denen man
 // angemeldet in der App war. Gezaehlt wird beim Abruf von /api/me und
 // /api/profile; es gibt dafuer nichts, sie steht nur im eigenen Profil.
@@ -3102,18 +3118,22 @@ const server = http.createServer(async (req, res) => {
       const name = String(url.searchParams.get('name') || '');
       if (!users[name]) return send(res, 404, { error: 'Nutzer nicht gefunden.' });
       const prof = profileOf(name);
-      const modInfo = isModUser(authUser(req)) ? {
+      const wer = authUser(req);
+      const modInfo = isModUser(wer) ? {
         banned: !!chat.bans[name],
         mutedUntil: (chat.mutes[name] || 0) > Date.now() ? chat.mutes[name] : 0,
       } : {};
       // Die Namensfarbe steht ohnehin an jeder Nachricht, sie ist nicht privat.
-      // Der Rang dagegen schon: er geht nie an andere.
+      // Vom Rang geht nur die Stufe (1..7) raus, damit das Profil in der
+      // Rang-Farbe erscheint (Wunsch des Nutzers, Runde 122) — nie Guthaben,
+      // Betrag oder Abstand, bei privaten Profilen gar nichts und nur an
+      // Angemeldete (sonst liesse sich ohne Konto die Stufe aller abfragen).
       if (prof.publicProfile === false) {
         return send(res, 200, { user: name, private: true, role: roleOf(name), activePaint: namensfarbe(name), ...modInfo });
       }
       return send(res, 200, {
         user: name, role: roleOf(name), bio: prof.bio || '', avatar: prof.avatar || '',
-        favs: prof.favs || {}, activePaint: namensfarbe(name), ...modInfo,
+        favs: prof.favs || {}, activePaint: namensfarbe(name), ...(wer ? { stufe: rangStufe(name) } : {}), ...modInfo,
       });
     }
 

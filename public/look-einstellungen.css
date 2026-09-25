@@ -163,19 +163,153 @@
   padding: calc(env(safe-area-inset-top, 0px) + 66px) 14px calc(env(safe-area-inset-bottom, 0px) + 24px) calc(env(safe-area-inset-left, 0px) + 14px);
 }
 
-/* Profil-Kopf als weisse Karte */
-#top-menu .tm-head {
-  gap: 12px; padding: 14px 12px 14px 14px;
-  background: var(--karte); border: 0; border-radius: 18px; box-shadow: var(--schatten-1);
+/* Profil-Kopf als Rang-Karte (.tm-rang, tmKopfHtml in app.js): derselbe
+   Verlauf, dieselbe Glas-Pille und dieselben Strahlen wie das Rang-Fenster
+   (.rf, look-profil.css), nur kleiner. Rechts schaut das Maskottchen des Rangs
+   oben aus der Karte; Farbe ueber data-stufe, gesperrt 0 = App-Farbe.
+   Die Lage der Figur ist die des Rang-Fensters, auf --sb verkleinert:
+   --hoch = wie weit die alte Leinwand (1139 x 1204) ueber der Karte beginnt
+   (36 px bei 256 px), --rechts = Abstand ihrer Bezugskante zum rechten Rand,
+   --luft = so weit darf die Figur rechts ueber die Karte (genau der Rand der
+   Leiste: mehr gaebe seitliches Scrollen, weniger schnitte Umhang und
+   Schwanz ab).
+   --sb waechst mit der Leiste (86vw), aber nur so weit, dass jede Rang-Figur
+   neben Name und "Profil ansehen" mindestens 5 px Luft laesst — Umhang,
+   Zepter und Pokal ragen links weit hinaus (fuer alle Figuren von 360 bis
+   430 px nachgemessen; die Leiste ist ab 396 px 340 px breit). */
+#top-menu .tm-rang {
+  --sb: clamp(128px, 120vw - 303px, 170px);
+  --hoch: calc(var(--sb) * .1406);
+  --rechts: 3px;
+  --luft: 14px;
+  --rf-radius: 18px;
+  position: relative; isolation: isolate; display: block;
+  min-height: 146px; margin-top: 26px; padding: 16px 16px 16px 16px;
+  border: 0; border-radius: var(--rf-radius); color: #fff; text-align: left;
+  background:
+    radial-gradient(circle at 84% 6%, rgba(255, 255, 255, .17), transparent 46%),
+    linear-gradient(172deg, var(--r1) 0%, var(--r2) 62%, color-mix(in srgb, var(--r2) 55%, var(--r3)) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .22),
+    0 12px 26px -12px color-mix(in srgb, var(--r1) 75%, transparent);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .2s var(--spring);
 }
-#top-menu .tm-head:focus-visible { border-radius: 18px; }
-#top-menu .tm-head .avatar-big { width: 52px; height: 52px; font-size: 1.2rem; }
-#top-menu .tm-head > div { min-width: 0; }
-#top-menu .tm-name { font-size: 1.08rem; font-weight: 850; letter-spacing: -.01em; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#top-menu .tm-head .tm-sub { margin-top: 3px; font-size: .8rem; font-weight: 550; line-height: 1.35; color: var(--muted); opacity: 1; }
-#top-menu .tm-head > .icon { flex: none; width: 16px; height: 16px; color: var(--muted); }
-/* "Profil ansehen": der klare erste Eintrag der Leiste */
-#top-menu .tm-head .tm-profil { font-size: .84rem; font-weight: 700; color: var(--akzent-text); }
+:root[data-theme="dark"] #top-menu .tm-rang { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), 0 12px 26px -12px rgba(0, 0, 0, .6); }
+#top-menu .tm-rang:active { transform: scale(.985); }
+#top-menu .tm-rang:focus-visible { outline: 2px solid var(--akzent-text); outline-offset: 3px; border-radius: var(--rf-radius); }
+/* Strahlen hinter dem Kopf, nur in der Karte (eigene Ebene mit den Ecken) */
+.tm-rang-licht {
+  position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  border-radius: inherit; overflow: hidden;
+}
+.tm-rang-licht::before {
+  content: ""; position: absolute;
+  left: calc(100% - var(--rechts) - var(--sb) * var(--licht-x, .268)); top: calc(var(--sb) * var(--licht-y, .369) - var(--hoch));
+  width: calc(var(--sb) * .98); aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  background: repeating-conic-gradient(from 4deg,
+    color-mix(in srgb, var(--r3) 55%, #fff) 0deg 5deg, transparent 5deg 18deg);
+  -webkit-mask-image: radial-gradient(closest-side, rgba(0, 0, 0, .55) 0%, rgba(0, 0, 0, .3) 38%, transparent 82%);
+          mask-image: radial-gradient(closest-side, rgba(0, 0, 0, .55) 0%, rgba(0, 0, 0, .3) 38%, transparent 82%);
+  opacity: .6;
+  animation: wkStrahlen 70s linear infinite;
+}
+/* Rahmen: oben offen (der Kopf schaut heraus), rechts --luft fuer Pokal,
+   Zepter und Umhang, unten schneidet die Kartenkante weich */
+.tm-rang-rahmen {
+  --oben: 70px;
+  position: absolute; z-index: 1; pointer-events: none; isolation: isolate;
+  top: calc(-1 * var(--oben)); bottom: 0; left: 0; right: calc(-1 * var(--luft));
+  overflow: hidden; border-radius: 0 0 0 var(--rf-radius);
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), rgba(0, 0, 0, .35) calc(100% - 5px), rgba(0, 0, 0, .15) 100%);
+          mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), rgba(0, 0, 0, .35) calc(100% - 5px), rgba(0, 0, 0, .15) 100%);
+}
+.tm-rang-sprite {
+  position: absolute; top: calc(var(--oben) - var(--hoch) - var(--sb) * .1756);
+  left: calc(100% - var(--luft) - var(--rechts) - var(--sb) * 1.0536);
+  width: calc(var(--sb) * 1.2195); max-width: none; height: auto;
+  filter: drop-shadow(0 5px 8px rgba(0, 0, 0, .16));
+}
+.tm-rang-funken {
+  position: absolute; top: calc(var(--oben) - var(--hoch)); left: calc(100% - var(--luft) - var(--rechts) - var(--sb) * .8341);
+  width: var(--sb); aspect-ratio: 1139 / 1204; pointer-events: none;
+}
+.tm-rang-funken .wk-f1 { width: 12px; height: 12px; }
+.tm-rang-funken .wk-f2 { width: 8px; height: 8px; }
+.tm-rang-funken .wk-f3 { width: 10px; height: 10px; }
+/* Links: wer (Bild, Name, "Profil ansehen"), darunter Rang und Stufe */
+.tm-rang-text {
+  position: relative; z-index: 2;
+  display: flex; flex-direction: column; align-items: flex-start;
+  max-width: 57%; min-width: 0;
+}
+/* Gesperrt: das universelle Maskottchen zeigt den Daumen weiter links, es
+   steht kleiner, damit der Daumen neben "Profil ansehen" Platz hat. Sein
+   Schwanz ragt am weitesten nach rechts (12,5 % von --sb ueber die
+   Bezugskante): die Figur rueckt so weit herein, dass er ganz bleibt */
+#top-menu .tm-rang.zu {
+  --sb: clamp(120px, 92vw - 204.5px, 159px);
+  --rechts: calc(var(--sb) * .128 - var(--luft) + 1px);
+}
+.tm-rang-ich { display: flex; align-items: center; gap: 10px; max-width: 100%; min-width: 0; }
+#top-menu .tm-rang .avatar-big {
+  width: 42px; height: 42px; font-size: 1.05rem;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, .34), 0 6px 14px -6px rgba(0, 0, 0, .4);
+}
+/* Bilder mit Transparenz: fester Grund, sonst scheint der Verlauf durch */
+#top-menu .tm-rang img.avatar-big { background: #fff; object-fit: cover; }
+.tm-rang-wer { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+/* Der Name ist nie breiter als "Profil ansehen" (width 0 + min-width 100 %:
+   die Zeile darunter gibt die Breite vor) — lange Namen enden mit "…",
+   bevor sie an die Figur stossen */
+#top-menu .tm-rang .tm-name {
+  width: 0; min-width: 100%; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 1rem; font-weight: 850; letter-spacing: -.01em; line-height: 1.25;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, .16);
+}
+/* Admin-Krone als Plakette unten rechts am Bild, im hellen Funken-Gold (auf
+   jeder Stufe sichtbar); der Ring in der Kartenfarbe trennt sie vom Bild */
+.tm-rang-ava { position: relative; flex: none; display: grid; }
+.tm-rang-krone {
+  position: absolute; right: -4px; bottom: -3px;
+  display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%;
+  background: #FFD23F; color: #7A5406; box-shadow: 0 0 0 2px var(--r2);
+}
+.tm-rang-krone .icon { width: 11px; height: 11px; stroke-width: 2.6; }
+.tm-rang-profil {
+  display: inline-flex; align-items: center; gap: 1px; margin-top: 1px;
+  font-size: .8rem; font-weight: 700; line-height: 1.3; color: rgba(255, 255, 255, .9); white-space: nowrap;
+}
+.tm-rang-profil .icon { width: 14px; height: 14px; stroke-width: 2.6; }
+.tm-rang-name {
+  margin-top: 14px; max-width: 100%;
+  font-size: 1.5rem; font-weight: 850; letter-spacing: -.03em; line-height: 1.08;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, .16); overflow-wrap: anywhere;
+}
+.tm-rang-stufe {
+  display: inline-flex; align-items: center; gap: 5px;
+  margin-top: 8px; padding: 3px 8px; border-radius: 8px;
+  background: rgba(255, 255, 255, .2); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3);
+  font-size: .74rem; font-weight: 750; line-height: 1.35; white-space: nowrap;
+}
+.tm-rang-stufe .icon { width: 13px; height: 13px; stroke-width: 2.4; }
+body:is(.sparsam, .ohne-anim) .tm-rang-licht::before, body:is(.sparsam, .ohne-anim) .tm-rang .wk-f { animation: none; }
+body:is(.sparsam, .ohne-anim) .tm-rang .wk-f { opacity: .9; transform: none; }
+body.sparsam #top-menu .tm-rang { transition: none; }
+/* Schmale Handys: Bild und Figur etwas kleiner, damit "Profil ansehen"
+   neben dem Maskottchen frei bleibt (die Leiste hat hier 12 px Rand) */
+@media (max-width: 370px) {
+  #top-menu .tm-rang { --sb: clamp(120px, 125vw - 306px, 157px); --luft: 12px; padding-inline: 14px; }
+  #top-menu .tm-rang.zu { --sb: clamp(116px, 95vw - 206px, 146px); }
+  #top-menu .tm-rang .avatar-big { width: 38px; height: 38px; font-size: .95rem; }
+  .tm-rang-ich { gap: 9px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tm-rang-licht::before { animation: none; }
+  .tm-rang .wk-f { animation: none; opacity: .9; }
+  #top-menu .tm-rang { transition: none; }
+}
 
 /* Abschnittstitel in normaler Schreibweise */
 #top-menu .tm-section {
