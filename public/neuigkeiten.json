@@ -1,9 +1,38 @@
 [
   {
-    "v": "2026-09-25-profilbilder",
+    "v": "2026-09-25.2",
     "datum": "25. September 2026",
-    "titel": "Dein Kumulio als Profilbild",
+    "titel": "Lio, Shop und dein Kumulio",
     "punkte": [
+      {
+        "icon": "star",
+        "titel": "Lio: deine neue Währung",
+        "text": "Für jeden Tag in kumulio gibt es 1 Lio, für 7 Tage in Folge +3 und für 30 Tage in Folge +10. Die Boni holst du im Menü ab. 1 Lio ist 1 Cent wert.",
+        "bild": "/brand/neu/2026-09-25-lio-hell.webp",
+        "bildDunkel": "/brand/neu/2026-09-25-lio-dunkel.webp",
+        "bildAlt": "Die Lio-Karte im Menü mit Wochen- und Monats-Bonus",
+        "bildGroesse": [
+          654,
+          452
+        ]
+      },
+      {
+        "icon": "shop",
+        "titel": "Gutscheine gegen Lios",
+        "text": "Oben rechts in der Wallet geht es in den Shop: Amazon- und PEEPOPLUSH-Gutscheine gegen Lios. Der Code landet direkt in deiner Wallet. Ausverkauftes kannst du trotzdem schon ansehen.",
+        "bild": "/brand/neu/2026-09-25-shop-hell.webp",
+        "bildDunkel": "/brand/neu/2026-09-25-shop-dunkel.webp",
+        "bildAlt": "Der Gutschein-Shop mit Amazon und PEEPOPLUSH",
+        "bildGroesse": [
+          764,
+          966
+        ]
+      },
+      {
+        "icon": "gift",
+        "titel": "Freunde einladen lohnt sich",
+        "text": "Für jeden Freund gibt es 10 Lios, sobald er seine E-Mail-Adresse bestätigt hat und 3 Tage in Folge reingeschaut hat."
+      },
       {
         "icon": "user",
         "titel": "Sechs Kumulios zur Wahl",
@@ -11,7 +40,27 @@
         "bild": "/brand/neu/2026-09-25-profilbilder-hell.webp",
         "bildDunkel": "/brand/neu/2026-09-25-profilbilder-dunkel.webp",
         "bildAlt": "Die sechs Kumulios in ihren runden Rahmen",
-        "bildGroesse": [1008, 618]
+        "bildGroesse": [
+          1008,
+          618
+        ]
+      },
+      {
+        "icon": "sparkle",
+        "titel": "Dein Anzeigename",
+        "text": "Unter „Profil bearbeiten“ wählst du deinen Anzeigenamen, änderbar alle 7 Tage. Dein @Name bleibt fest."
+      },
+      {
+        "icon": "trophy",
+        "titel": "Alle Ränge ansehen",
+        "text": "Tipp auf deinen Kumulio in der Wallet: Auf der Rang-Seite siehst du jeden Rang als Vorschau, mit Farbe, Kumulio und wie viel noch fehlt.",
+        "bild": "/brand/neu/2026-09-25-rang-hell.webp",
+        "bildDunkel": "/brand/neu/2026-09-25-rang-dunkel.webp",
+        "bildAlt": "Die Rang-Seite mit der Vorschau auf den Rang Legende",
+        "bildGroesse": [
+          764,
+          456
+        ]
       },
       {
         "icon": "lock",
