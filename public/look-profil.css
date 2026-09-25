@@ -376,6 +376,9 @@ body.sparsam .rf-balken > span { transition: none; }
 .name-doppelt > b { font-weight: inherit; line-height: 1.25; }
 .name-doppelt > small { font-size: .78rem; font-weight: 600; line-height: 1.25; color: var(--muted); }
 .tm-req-name { flex: 1; font-weight: 700; }
+/* Knopf "An <Name> verschenken/schicken": eine Zeile, den Namen kuerzt
+   knopfAnName() in app.js, bis er passt */
+.gd-los.gp-senden, .gd-los.ccs-senden { white-space: nowrap; }
 #friends-list .btn-small { flex: none; }
 
 /* ---- Geschenke: wartende als weisse Karten, leer eine blasse Figur mittig */

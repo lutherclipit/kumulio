@@ -1223,11 +1223,17 @@ const ANZEIGENAME_TAGE = 7;
 // Polnisch …), Ziffern, Leerzeichen und ._- — keine Emojis, keine
 // Steuerzeichen und keine fremden Schriften, die wie lateinische aussehen
 const ANZEIGENAME_OK = /^[A-Za-z0-9\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u017F ._-]{2,24}$/;
-// Woerter, die nach dem kumulio-Team klingen, gibt es nur fuer das Team
-const ANZEIGENAME_RESERVIERT = /^(admin|administrator|mod|moderator|moderation|support|team|offiziell|official)$/;
 // Vergleichsform gegen Verwechslung: klein, ohne Akzente, ohne Leer- und
-// Trennzeichen ("Anna B." ~ "anna_b", "Lüther" ~ "luther")
-const nameSkelett = s => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[\s._-]+/g, '');
+// Trennzeichen ("Anna B." ~ "anna_b", "Lüther" ~ "luther"). Dazu die Zeichen,
+// die in der App-Schrift gleich aussehen: grosses I, kleines l und 1 ("Iuther"
+// ~ "luther"), 0 und o, rn und m.
+const nameSkelett = s => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  .replace(/[\s._-]+/g, '').replace(/[il1]/g, 'l').replace(/0/g, 'o').replace(/rn/g, 'm');
+// Woerter, die nach dem kumulio-Team klingen, gibt es nur fuer das Team
+// (verglichen in der Vergleichsform, also auch "Adm1n" oder "Supp0rt")
+const ANZEIGENAME_RESERVIERT = new Set(['admin', 'administrator', 'mod', 'moderator', 'moderation', 'support', 'team', 'offiziell', 'official'].map(nameSkelett));
+// Fuer den Wortfilter: Ziffern, die fuer Buchstaben stehen ("H1tler")
+const ohneZiffernTrick = s => s.toLowerCase().replace(/[013457]/g, z => ({ 0: 'o', 1: 'i', 3: 'e', 4: 'a', 5: 's', 7: 't' })[z]);
 const anzeigenameVon = user => {
   const a = users[user] && users[user].profile && users[user].profile.anzeigename;
   return typeof a === 'string' ? a : '';
@@ -1249,14 +1255,15 @@ function anzeigenamePruefen(user, roh) {
   const name = String(roh || '').normalize('NFC').replace(/\s+/g, ' ').trim();
   if (!name) return { name: '' };
   if (!ANZEIGENAME_OK.test(name)) return { error: 'Anzeigename: 2 bis 24 Zeichen, nur Buchstaben, Zahlen, Leerzeichen und ._-' };
-  if (censor(name) !== name) return { error: 'Diesen Anzeigenamen können wir leider nicht nehmen.' };
+  const lesart = ohneZiffernTrick(name);
+  if (censor(name) !== name || censor(lesart) !== lesart) return { error: 'Diesen Anzeigenamen können wir leider nicht nehmen.' };
   const sk = nameSkelett(name);
   if (sk.length < 2) return { error: 'Anzeigename: bitte mindestens zwei Buchstaben oder Zahlen.' };
   // Niemand soll wie ein anderes Konto aussehen: der Anzeigename darf keinem
   // fremden @Namen gleichen (der eigene geht)
   if (Object.keys(users).some(k => k !== user && nameSkelett(k) === sk))
     return { error: 'So heißt schon jemand mit @Namen. Bitte wähl einen anderen Anzeigenamen.' };
-  if (roleOf(user) !== 'admin' && (sk.includes('kumulio') || name.toLowerCase().split(/[\s._-]+/).some(w => ANZEIGENAME_RESERVIERT.test(w))))
+  if (roleOf(user) !== 'admin' && (sk.includes(nameSkelett('kumulio')) || name.split(/[\s._-]+/).some(w => ANZEIGENAME_RESERVIERT.has(nameSkelett(w)))))
     return { error: 'Namen, die nach dem kumulio-Team klingen, sind reserviert.' };
   return { name };
 }
@@ -2668,11 +2675,13 @@ function kontoUmbenennen(me, neu) {
     if (r && r.by && Object.hasOwn(r.by, me)) { r.by[neu] = r.by[me]; delete r.by[me]; }
   }
   for (const r of reports) { if (r.user === me) r.user = neu; if (r.by === me) r.by = neu; }
+  // Eigene Beitraege in den Community-Kanaelen
+  for (const liste of Object.values(posts)) for (const x of liste || []) if (x && x.user === me) x.user = neu;
   saveJson('users.json', users); saveJson('sessions.json', sessions);
   saveJson('wallets.json', wallets); saveJson('chat.json', chat);
   saveJson('dms.json', dms); saveJson('comments.json', comments);
   saveJson('profile-comments.json', profComments); saveJson('ratings.json', ratings);
-  saveJson('reports.json', reports);
+  saveJson('reports.json', reports); saveJson('posts.json', posts);
   return '';
 }
 
@@ -3387,21 +3396,20 @@ const server = http.createServer(async (req, res) => {
       if (typeof b.nameColor === 'string' && b.nameColor !== '' && !FARBE_OK.test(b.nameColor))
         return send(res, 400, { error: 'Bitte eine Farbe im Format #RRGGBB wählen.' });
       const prof = profileOf(user);
-      // Anzeigename: nur pruefen, wenn er sich wirklich aendert (das Formular
-      // schickt ihn bei jedem Speichern mit). Das erste Mal geht sofort, danach
-      // alle 7 Tage — auch das Zuruecksetzen auf den @Namen zaehlt als Aenderung.
+      // Anzeigename: nur pruefen, wenn er sich wirklich aendert (ein inzwischen
+      // strengerer Filter blockiert so nicht jedes Speichern mit dem alten).
+      // Das erste Mal geht sofort, danach alle 7 Tage — auch das Zuruecksetzen
+      // auf den @Namen zaehlt als Aenderung.
       let neuerAnzeigename = null;
-      if (typeof b.anzeigename === 'string') {
+      if (typeof b.anzeigename === 'string' && b.anzeigename.normalize('NFC').replace(/\s+/g, ' ').trim() !== anzeigenameVon(user)) {
+        const ab = anzeigenameAb(prof);
+        if (ab) {
+          const tage = Math.ceil((ab - Date.now()) / 864e5);
+          return send(res, 409, { error: `Du kannst deinen Anzeigenamen erst in ${tage} ${tage === 1 ? 'Tag' : 'Tagen'} wieder ändern.` });
+        }
         const pr = anzeigenamePruefen(user, b.anzeigename);
         if (pr.error) return send(res, 400, { error: pr.error });
-        if (pr.name !== anzeigenameVon(user)) {
-          const ab = anzeigenameAb(prof);
-          if (ab) {
-            const tage = Math.ceil((ab - Date.now()) / 864e5);
-            return send(res, 409, { error: `Du kannst deinen Anzeigenamen erst in ${tage} ${tage === 1 ? 'Tag' : 'Tagen'} wieder ändern.` });
-          }
-          neuerAnzeigename = pr.name;
-        }
+        neuerAnzeigename = pr.name;
       }
       if (typeof b.bio === 'string') prof.bio = censor(b.bio.trim().slice(0, 160));
       if (typeof b.publicProfile === 'boolean') prof.publicProfile = b.publicProfile;
@@ -3566,7 +3574,7 @@ const server = http.createServer(async (req, res) => {
       // Volle Wallet beim Freund: lieber gleich sagen, als dass das Geschenk
       // unausgepackt liegen bleibt
       if (((wallets[to] && wallets[to].vouchers) || []).length + (gifts[to] || []).length >= WALLET_LIMIT_GUTSCHEINE) {
-        return send(res, 409, { error: `Die Wallet von @${to} ist voll (${WALLET_LIMIT_GUTSCHEINE} Gutscheine).` });
+        return send(res, 409, { error: `Die Wallet von ${nameFuerAndere(to)} ist voll (${WALLET_LIMIT_GUTSCHEINE} Gutscheine).` });
       }
       const idx = w.vouchers.findIndex(v => v.id === gid);
       const tot = (w.deleted || []).some(t => t && t.id === gid);
@@ -3581,7 +3589,7 @@ const server = http.createServer(async (req, res) => {
         const grund = rabattNichtVerschenkbar(kandidat);
         if (grund) return send(res, 400, { error: grund });
         // Hat der Freund genau diesen Code schon, ginge er hier nur verloren
-        if (rabattSchonDa(to, kandidat)) return send(res, 409, { error: `@${to} hat diesen Rabattcode schon.` });
+        if (rabattSchonDa(to, kandidat)) return send(res, 409, { error: `${nameFuerAndere(to)} hat diesen Rabattcode schon.` });
       }
       let v;
       if (idx >= 0) [v] = w.vouchers.splice(idx, 1);

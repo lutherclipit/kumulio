@@ -346,6 +346,21 @@ function nameMitHandleHtml(handle, cls, { at = true } = {}) {
     ? `<span class="${cls} name-doppelt"><b>${esc(anzeigeName(handle))}</b><small>@${esc(handle)}</small></span>`
     : `<span class="${cls}">${at ? '@' : ''}${esc(handle)}</span>`;
 }
+// Knopf "An <Name> verschenken/schicken" bleibt einzeilig (Anzeigenamen sind
+// oft laenger als @Namen): passt es nicht, kuerzt sich nur der Name von
+// hinten, das Verb bleibt stehen
+function knopfAnName(btn, name, verb) {
+  const zeichen = [...name];
+  btn.textContent = `An ${name} ${verb}`;
+  // Platz innen (ohne Polster) gegen die Breite des Textes
+  const cs = getComputedStyle(btn);
+  const platz = btn.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const bereich = document.createRange();
+  const zuBreit = () => { bereich.selectNodeContents(btn); return bereich.getBoundingClientRect().width > platz + .5; };
+  for (let n = zeichen.length - 1; n > 1 && platz > 0 && zuBreit(); n--) {
+    btn.textContent = `An ${zeichen.slice(0, n).join('').trimEnd()}… ${verb}`;
+  }
+}
 
 function icon(name, cls = 'icon') {
   return `<svg class="${cls}"><use href="#i-${esc(name)}"/></svg>`;
@@ -3339,7 +3354,8 @@ function namensHinweis(fehler = '') {
   return tage;
 }
 $('#g-anzeigename').addEventListener('input', e => {
-  if (e.target.classList.contains('err')) namensHinweis();
+  // Neu getippt: die Ablehnung unter dem Feld und unter "Speichern" ist erledigt
+  if (e.target.classList.contains('err')) { namensHinweis(); $('#g-bio-msg').textContent = ''; }
   zeigeFarbVorschau();
 });
 
@@ -7167,7 +7183,7 @@ function zeigeSchenkSchritt(v) {
       x.classList.toggle('gewaehlt', an);
       x.setAttribute('aria-pressed', String(an));
     });
-    if (senden) { senden.disabled = false; senden.textContent = `An ${anzeigeOderAt(anWen)} verschenken`; }
+    if (senden) { senden.disabled = false; knopfAnName(senden, anzeigeOderAt(anWen), 'verschenken'); }
     buzz(8);
   });
   verdrahteFreunde();
@@ -7244,7 +7260,7 @@ function zeigeSchenkSchritt(v) {
       seite.sendet = false;
       if (pfeil) pfeil.disabled = false;
       senden.disabled = false;
-      senden.textContent = `An ${anzeigeOderAt(anWen)} verschenken`;
+      knopfAnName(senden, anzeigeOderAt(anWen), 'verschenken');
       island(err.message || 'Hat nicht geklappt');
       wseitenAbgleichen();
       return;
@@ -9316,7 +9332,7 @@ function couponSchickenSchritt(wrap, it, brand, key, offen) {
       x.setAttribute('aria-pressed', String(an));
     });
     senden.disabled = false;
-    senden.textContent = `An ${anzeigeName(anWen)} schicken`;
+    knopfAnName(senden, anzeigeName(anWen), 'schicken');
     buzz(8);
   });
   if (senden) senden.onclick = async () => {
@@ -9329,7 +9345,7 @@ function couponSchickenSchritt(wrap, it, brand, key, offen) {
     } catch (err) {
       delete wrap.dataset.sendet;
       senden.disabled = false;
-      senden.textContent = `An ${anzeigeName(anWen)} schicken`;
+      knopfAnName(senden, anzeigeName(anWen), 'schicken');
       island(err.message || 'Hat nicht geklappt');
       return;
     }
