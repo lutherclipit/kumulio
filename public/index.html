@@ -127,19 +127,19 @@
         aria-haspopup="dialog" aria-expanded="false" aria-controls="top-menu">
         <svg class="icon"><use href="#i-user"/></svg>
       </button>
+      <!-- In der Wallet (nur angemeldet) haengt am Profilbild der Lio-Stand und
+           fuehrt in den Gutschein-Shop. Rechts oben ragt der Kopf des Kumulios
+           aus der Wallet-Karte — dort war kein Platz. Aussehen in look-lio.css -->
+      <button class="lio-knopf" id="btn-lio-top" type="button" aria-label="Gutschein-Shop öffnen" data-lio-aria>
+        <img class="lio-stern" src="/brand/lio-stern-48.webp" width="20" height="20" alt="" draggable="false" decoding="async">
+        <b data-lio-stand="zahl">0</b>
+      </button>
     </div>
     <button class="brand brand-center" id="btn-home" aria-label="kumulio — zur Startseite">
       <span id="brand-wordmark"></span>
     </button>
     <button class="iconbtn" id="btn-search-top" aria-label="Suche">
       <svg class="icon"><use href="#i-search"/></svg>
-    </button>
-    <!-- In der Wallet (nur angemeldet) sitzt rechts der Lio-Stand: fuehrt in
-         den Gutschein-Shop. Aussehen in look-lio.css, Stand per data-lio-stand -->
-    <button class="lio-knopf" id="btn-lio-top" type="button" aria-label="Gutschein-Shop öffnen" data-lio-aria>
-      <img class="lio-stern" src="/brand/lio-stern-48.webp" width="24" height="24" alt="" draggable="false" decoding="async">
-      <b data-lio-stand="zahl">0</b>
-      <svg class="icon lio-knopf-tasche" aria-hidden="true"><use href="#i-shop"/></svg>
     </button>
   </header>
 

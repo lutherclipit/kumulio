@@ -35,7 +35,6 @@
   --lio-mitte: 36px;      /* Mitte des Sterns (Polster + halber Stern): dort sitzen Schein und Strahlen */
   position: relative; isolation: isolate; overflow: hidden; color: #fff;
   background:
-    radial-gradient(circle at var(--lio-mitte) var(--lio-mitte), rgba(255, 196, 56, .42) 0, rgba(255, 176, 40, .16) 42px, transparent 96px),
     radial-gradient(120% 90% at 100% 100%, rgba(140, 92, 226, .26), transparent 60%),
     linear-gradient(155deg, var(--lio-n1) 0%, var(--lio-n2) 52%, var(--lio-n3) 100%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16), 0 12px 26px -12px rgba(35, 38, 112, .75);
@@ -45,14 +44,12 @@
 }
 #top-menu .tm-lio { margin-top: 12px; padding: 0; border-radius: 18px; }
 #top-menu .tm-lio.hidden { display: none; }
-/* Strahlen hinter dem Stern (Mitte = Mitte des Sterns), nur in der Karte */
+/* Nur ein weiches Leuchten, das vom Stern ausgeht (keine Strahlen, kein
+   Schleier ueber die Karte — Wunsch des Nutzers: "nur einen Glow vom Stern") */
 .tm-lio-glanz {
-  position: absolute; z-index: 0; left: var(--lio-mitte); top: var(--lio-mitte); width: 200px; aspect-ratio: 1;
+  position: absolute; z-index: 0; left: var(--lio-mitte); top: var(--lio-mitte); width: 92px; aspect-ratio: 1;
   transform: translate(-50%, -50%); pointer-events: none;
-  background: repeating-conic-gradient(from 4deg, rgba(255, 214, 110, .9) 0deg 5deg, transparent 5deg 18deg);
-  -webkit-mask-image: radial-gradient(closest-side, rgba(0, 0, 0, .5) 0%, rgba(0, 0, 0, .22) 42%, transparent 80%);
-          mask-image: radial-gradient(closest-side, rgba(0, 0, 0, .5) 0%, rgba(0, 0, 0, .22) 42%, transparent 80%);
-  opacity: .5;
+  background: radial-gradient(closest-side, rgba(255, 196, 60, .38), rgba(255, 176, 40, .12) 58%, transparent 100%);
 }
 
 .tm-lio-kopf {
@@ -66,7 +63,7 @@
 .tm-lio-kopf:active { transform: scale(.98); }
 .tm-lio-kopf:focus-visible { outline: 2px solid #fff; outline-offset: -4px; }
 .tm-lio-stern { flex: none; display: grid; place-items: center; width: 44px; height: 44px; }
-.tm-lio-stern .lio-stern { width: 44px; height: 44px; filter: drop-shadow(0 4px 10px rgba(255, 166, 0, .42)); }
+.tm-lio-stern .lio-stern { width: 44px; height: 44px; filter: drop-shadow(0 0 8px rgba(255, 190, 50, .55)) drop-shadow(0 3px 6px rgba(0, 0, 0, .25)); }
 .tm-lio-stand { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
 .tm-lio-stand b {
   font-size: 1.22rem; font-weight: 850; letter-spacing: -.02em; line-height: 1.15; white-space: nowrap;
@@ -139,51 +136,43 @@
 #top-menu .tm-item .tm-lio-pille .lio-stern { width: 14px; height: 14px; }
 #top-menu .tm-item:has(.tm-lio-pille)::after { margin-left: 0; }
 
-/* ---- Wallet oben rechts: Stern und Stand, fuehrt in den Shop ----
-   Sitzt in derselben Zelle wie die Suche (die gibt es nur im Feed) und ist
-   gebaut wie die runden Knoepfe der Kopfzeile: 42 px hoch, weiss (dunkel:
-   dunkles Glas), Ecken wie das Mini-Guthaben in der Mitte. Zu sehen nur in
-   der Wallet und angemeldet (body.wallet-farbe) und erst mit dem Profil
-   (.bereit, lioKnopfZeigen in app.js). */
-#btn-search-top, #btn-lio-top { grid-column: 3; grid-row: 1; }
+/* ---- Wallet oben links: der Lio-Stand haengt am Profilbild ----
+   Eine Kapsel, die halb hinter dem Profilbild hervorkommt (wie die Waehrung
+   neben dem Profil in Spielen): Stern und Stand, fuehrt in den Shop. Rechts
+   oben ragt der Kopf des Kumulios aus der Wallet-Karte, dort ist kein Platz.
+   Zu sehen nur in der Wallet und angemeldet (body.wallet-farbe) und erst mit
+   dem Profil (.bereit, lioKnopfZeigen in app.js). Beim Ein- und Ausblenden
+   gleitet sie hinter dem Bild hervor bzw. zurueck. */
+.topbar-actions:has(#btn-lio-top) { align-items: center; gap: 0; }
+.topbar-actions #btn-profile-top { position: relative; z-index: 2; }
 .lio-knopf {
-  justify-self: end;
-  display: inline-flex; align-items: center; gap: 6px;
-  height: 42px; padding: 0 11px 0 9px; border: 0; border-radius: 13px;
+  position: relative; z-index: 1;
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 32px; margin-left: -20px; padding: 0 10px 0 24px; border: 0; border-radius: 16px;
   background: rgba(255, 255, 255, .94); color: #1B2430;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, .1);
-  font: inherit; font-size: .98rem; font-weight: 850; letter-spacing: -.01em; line-height: 1;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .12);
+  font: inherit; font-size: .9rem; font-weight: 850; letter-spacing: -.01em; line-height: 1;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
   cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation;
-  transition: transform .2s var(--spring), opacity .2s ease, visibility 0s;
+  transform-origin: left center;
+  transition: transform .28s var(--spring), opacity .2s ease, visibility 0s;
 }
-.lio-knopf .lio-stern { width: 24px; height: 24px; filter: drop-shadow(0 2px 3px rgba(214, 140, 0, .3)); }
+/* Groessere Trefferflaeche nach oben und unten (die Kapsel ist nur 32 px hoch) */
+.lio-knopf::before { content: ""; position: absolute; inset: -6px -4px; }
+.lio-knopf .lio-stern { width: 19px; height: 19px; filter: drop-shadow(0 0 5px rgba(255, 190, 50, .55)); }
 .lio-knopf b { font-weight: inherit; }
-/* Die Tasche hat im Symbol je 3,7 px Luft links und rechts: negative Raender
-   holen sie optisch auf dieselben Abstaende wie Stern und Zahl */
-.lio-knopf-tasche { flex: none; width: 17px; height: 17px; margin: 0 -4px 0 -2px; color: #8A5800; stroke-width: 2; }
 .lio-knopf:active { transform: scale(.94); }
 .lio-knopf:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
-:root[data-theme="dark"] .lio-knopf { background: rgba(23, 28, 34, .9); color: #fff; box-shadow: 0 4px 14px rgba(0, 0, 0, .25); }
-:root[data-theme="dark"] .lio-knopf-tasche { color: #FFCF5C; }
+:root[data-theme="dark"] .lio-knopf { background: rgba(23, 28, 34, .9); color: #fff; box-shadow: 0 4px 12px rgba(0, 0, 0, .28); }
 body:not(.wallet-farbe) #btn-lio-top, #btn-lio-top:not(.bereit) {
-  visibility: hidden; opacity: 0; pointer-events: none;
-  transition: opacity .2s ease, visibility 0s linear .2s;
+  visibility: hidden; opacity: 0; pointer-events: none; transform: translateX(-24px) scale(.9);
+  transition: transform .2s ease, opacity .2s ease, visibility 0s linear .2s;
 }
-@media (prefers-reduced-motion: reduce) { .lio-knopf { transition: none; } }
-/* Die Tasche ist nur ein Hinweis: sie faellt weg, sobald es neben dem Logo
-   eng wird — ab vier Stellen, bei schmalen Handys (bis 370 px) schon ab drei.
-   Das haengt nur am Stand, nie am Scrollen: der Knopf aendert beim Scrollen
-   seine Breite nicht (auch neben dem Mini-Guthaben bleibt genug Luft).
-   Ohne Tasche endet der Knopf mit der Zahl: rechts dann dieselbe Luft wie
-   links am Stern (die Tasche hat im Symbol selbst 3 px Rand). */
-.lio-knopf.lang { padding-right: 9.5px; }
-.lio-knopf.lang .lio-knopf-tasche { display: none; }
+@media (prefers-reduced-motion: reduce) { .lio-knopf, body:not(.wallet-farbe) #btn-lio-top, #btn-lio-top:not(.bereit) { transition: none; } }
+body.sparsam .lio-knopf { transition: none; }
 @media (max-width: 370px) {
-  .lio-knopf.mittel { padding-right: 9.5px; }
-  .lio-knopf.mittel .lio-knopf-tasche { display: none; }
-  /* Ab vier Stellen etwas kompakter, sonst kaeme er dem Logo zu nahe */
-  .lio-knopf.lang { gap: 5px; padding: 0 8px; font-size: .94rem; }
-  .lio-knopf.lang .lio-stern { width: 22px; height: 22px; }
+  .lio-knopf { gap: 3px; padding-right: 8px; font-size: .86rem; }
+  .lio-knopf .lio-stern { width: 17px; height: 17px; }
 }
 
 /* ---- Tour fuer neue Nutzer: die Lio-Karte (Flaeche wie im Menue, oben) ----
@@ -264,7 +253,6 @@ body:not(.wallet-farbe) #btn-lio-top, #btn-lio-top:not(.bereit) {
   display: flex; align-items: center; gap: 14px; margin-top: 4px; padding: 16px 18px 16px 12px;
   border-radius: 18px; color: #fff;
   background:
-    radial-gradient(circle at 14% 42%, rgba(255, 255, 255, .2), transparent 44%),
     linear-gradient(172deg, var(--kopf-k1, #0A8452) 0%, var(--kopf-k2, #0FA86B) 62%, color-mix(in srgb, var(--kopf-k2, #0FA86B) 55%, var(--kopf-k3, #2FE09C)) 100%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), 0 12px 28px -10px color-mix(in srgb, var(--kopf-k1, #0A8452) 70%, transparent);
 }
@@ -272,16 +260,11 @@ body:not(.wallet-farbe) #btn-lio-top, #btn-lio-top:not(.bereit) {
 .lsh-kopf-stern { position: relative; flex: none; display: grid; place-items: center; width: 84px; height: 84px; }
 .lsh-kopf-stern::before {
   content: ""; position: absolute; z-index: -1; left: 50%; top: 50%;
-  width: 230px; aspect-ratio: 1; pointer-events: none;
+  width: 130px; aspect-ratio: 1; pointer-events: none;
   transform: translate(-50%, -50%);
-  background: repeating-conic-gradient(from 4deg,
-    color-mix(in srgb, var(--kopf-k3, #2FE09C) 55%, #fff) 0deg 5deg, transparent 5deg 18deg);
-  -webkit-mask-image: radial-gradient(closest-side, rgba(0, 0, 0, .55) 0%, rgba(0, 0, 0, .3) 38%, transparent 82%);
-          mask-image: radial-gradient(closest-side, rgba(0, 0, 0, .55) 0%, rgba(0, 0, 0, .3) 38%, transparent 82%);
-  opacity: .6;
-  animation: wkStrahlen 70s linear infinite;
+  background: radial-gradient(closest-side, rgba(255, 200, 70, .42), rgba(255, 180, 40, .14) 58%, transparent 100%);
 }
-.lsh-kopf-stern .lio-stern { width: 72px; height: 72px; filter: drop-shadow(0 8px 14px rgba(0, 0, 0, .22)); }
+.lsh-kopf-stern .lio-stern { width: 72px; height: 72px; filter: drop-shadow(0 0 12px rgba(255, 190, 50, .55)) drop-shadow(0 6px 10px rgba(0, 0, 0, .22)); }
 .lsh-kopf-text { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
 .lsh-kopf-text > small { font-size: .95rem; font-weight: 750; line-height: 1.2; color: rgba(255, 255, 255, .96); }
 .lsh-kopf-text > b {
@@ -295,8 +278,6 @@ body:not(.wallet-farbe) #btn-lio-top, #btn-lio-top:not(.bereit) {
   font-size: .74rem; font-weight: 750; line-height: 1.35; white-space: nowrap;
 }
 .lsh-wert { font-size: .82rem; font-weight: 650; line-height: 1.3; color: rgba(255, 255, 255, .94); white-space: nowrap; }
-body.sparsam .lsh-kopf-stern::before { animation: none; }
-@media (prefers-reduced-motion: reduce) { .lsh-kopf-stern::before { animation: none; } }
 
 /* Gutscheine: weisse Karte, darin die Gutscheinkarte im Markenton, darunter der Preis */
 .lsh-liste { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }

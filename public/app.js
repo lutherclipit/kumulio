@@ -3010,7 +3010,7 @@ function refreshProfileTab() {
   }
   renderWallet(); // Wallet-Sperre folgt dem Login-Status
   updateChatGate();
-  lioKnopfZeigen(); // Lio-Stand oben rechts in der Wallet: erst mit dem Profil dieses Kontos
+  lioKnopfZeigen(); // Lio-Stand am Profilbild in der Wallet: erst mit dem Profil dieses Kontos
 }
 
 // ---- Profilbilder: die sechs Kumulios (Runde 123) ----
@@ -4284,11 +4284,11 @@ function startTour() {
   const steps = [
     { view: 'feed', tab: 'feed', title: 'Deals, die sich lohnen', text: 'Oben die Highlights, darunter die Top Deals für dich. Preisfehler meldet kumulio auf Wunsch sofort aufs Handy.', visual: feedDemo },
     { view: 'wallet', tab: 'wallet', title: 'Deine Wallet', text: 'Gutschein abfotografieren, den Rest füllt kumulio aus. Karten & Coupons deiner Läden liegen gleich daneben.', visual: walletDemo },
-    // Lios: mit Konto zeigt das Lichtfeld auf den Knopf oben rechts in der
+    // Lios: mit Konto zeigt das Lichtfeld auf den Lio-Stand am Profilbild in der
     // Wallet, ohne Konto (den Knopf gibt es dann nicht) steht die Karte mittig
     { view: 'wallet', sel: '#btn-lio-top', nurWenn: lioKnopfSichtbar, title: 'Lios sammeln', text: (state.token
-      ? 'Für jeden Tag in kumulio gibt es Lios. Oben rechts in der Wallet tauschst du sie im Shop gegen Gutscheine.'
-      : 'Mit Konto gibt es für jeden Tag in kumulio Lios. Oben rechts in der Wallet tauschst du sie im Shop gegen Gutscheine.'),
+      ? 'Für jeden Tag in kumulio gibt es Lios. Tipp in der Wallet auf deinen Lio-Stand neben dem Profilbild: Im Shop tauschst du sie gegen Gutscheine.'
+      : 'Mit Konto gibt es für jeden Tag in kumulio Lios. In der Wallet steht dein Lio-Stand neben dem Profilbild: Im Shop tauschst du sie gegen Gutscheine.'),
       visual: lioTourHtml() },
     { view: 'chat', tab: 'chat', title: 'Mit Freunden', text: 'Schick Deals direkt an Freunde und schreibt zusammen.', visual: chatDemo },
     { sel: '#btn-profile-top', title: 'Dein Profil', text: state.token
@@ -5384,7 +5384,7 @@ function openGiftReveal(gift) {
     }
   });
 }
-// Mit Tausenderpunkt: ab 1000 € (Rang Mythisch) sonst "1215,00 €"
+// Mit Tausenderpunkt: ab 1000 € (Rang Majestät) sonst "1215,00 €"
 function euroFmt(n) { return n == null ? '' : n.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ' €'; }
 
 // ---- Spielgefühl: Sounds, Vibration, Aufleuchten, Geldscheine, Zähl-Animation ----
@@ -5529,7 +5529,7 @@ const RANKS = [
   { tier: 4, slug: 'champion', name: 'Champion', min: 150.01, bis: 300 },
   { tier: 5, slug: 'meister', name: 'Meister', min: 300.01, bis: 600 },
   { tier: 6, slug: 'legende', name: 'Legende', min: 600.01, bis: 1000 },
-  { tier: 7, slug: 'mythos', name: 'Mythisch', min: 1000.01, bis: Infinity },
+  { tier: 7, slug: 'mythos', name: 'Majestät', min: 1000.01, bis: Infinity },
 ];
 function rankFor(total) {
   // In Cent vergleichen: 10,01 ist als Kommazahl nicht exakt
@@ -13137,7 +13137,13 @@ let lioVerlauf = null;          // letzte Buchungen aus /api/lio
 
 function lioAnzeige() { return lioGehalten ?? lioStand(); }
 // data-lio-stand="zahl": nur die Zahl (der Knopf oben in der Wallet), sonst "12 Lios"
-const lioStandText = (el, n) => el.dataset.lioStand === 'zahl' ? Number(n || 0).toLocaleString('de-DE') : lioText(n);
+// Im Knopf am Profilbild ist wenig Platz bis zum Logo: ab 1.000 kurz
+// ("1,2k"). Die genaue Zahl steht im Shop und im aria-label des Knopfs.
+function lioKurz(n) {
+  if (n < 1000) return Number(n || 0).toLocaleString('de-DE');
+  return (Math.floor(n / 100) / 10).toLocaleString('de-DE', { maximumFractionDigits: n >= 100000 ? 0 : 1 }) + 'k';
+}
+const lioStandText = (el, n) => el.dataset.lioStand === 'zahl' ? lioKurz(n) : lioText(n);
 // Alle sichtbaren Staende nachziehen. von: der Wert davor, dann zaehlt die Zahl hoch
 function lioStandZeigen({ von = null } = {}) {
   const ziel = lioAnzeige();
@@ -13165,8 +13171,6 @@ function lioStandZeigen({ von = null } = {}) {
   // Mit mehr Stellen wird der Knopf oben breiter: dann faellt die Tasche weg
   // (look-lio.css; ab drei Stellen bei 360 px, ab vier immer), sonst kaeme er
   // dem Logo zu nahe
-  $('#btn-lio-top')?.classList.toggle('mittel', ziel >= 100);
-  $('#btn-lio-top')?.classList.toggle('lang', ziel >= 1000);
 }
 
 // ---- Oben rechts in der Wallet: Stern und Stand, fuehrt in den Shop. Nur
