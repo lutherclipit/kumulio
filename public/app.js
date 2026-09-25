@@ -3036,8 +3036,10 @@ const rangAbstand = (r, total) => r.next ? `Noch ${euroFmt(r.next.min - total)} 
 // Rang-Seite. zu = gesperrte Wallet: die Figur ja, aber weder Rang noch Balken
 // noch Betrag — aus Stufe und "Noch X €" liesse sich das Guthaben sonst auf den
 // Cent zurueckrechnen. Dann steht das universelle Maskottchen da.
-const RF_FUNKEN = '<span class="rf-funken" aria-hidden="true">' + [1, 2, 3].map(n =>
+// Goldene Funken (.wk-f aus look.css) in einer Huelle mit eigener Lage
+const funkenHtml = (cls, anzahl = 3) => `<span class="${cls}" aria-hidden="true">` + [1, 2, 3].slice(0, anzahl).map(n =>
   `<svg class="wk-f wk-f${n}" viewBox="-1.2 -1.2 2.4 2.4"><path d="M0-1Q.13-.13 1 0Q.13 .13 0 1Q-.13 .13-1 0Q-.13-.13 0-1Z"/></svg>`).join('') + '</span>';
+const RF_FUNKEN = funkenHtml('rf-funken');
 function rangFensterHtml({ r = null, total = 0, zu = false, mehr = false } = {}) {
   const m = (!zu && WALLET_MASKOTTCHEN[r.slug]) || WALLET_MASKOTTCHEN.standard;
   const figur = `
@@ -3069,6 +3071,7 @@ function rangFensterHtml({ r = null, total = 0, zu = false, mehr = false } = {})
 
 // Rang-Karte im Profil: nur hier und in der Wallet, nie bei anderen
 function renderRangKarte() {
+  aktualisiereTmKopf(); // der Kopf der Seitenleiste traegt den Rang auch
   const el = $('#pf-rang');
   if (!el) return;
   const zu = walletGesperrt();
@@ -3304,6 +3307,55 @@ function schliesseTopMenu({ fokus = true } = {}) {
   tmZuUhr = setTimeout(() => { menu.inert = true; bd.classList.add('hidden'); }, sperrRuhig() ? 0 : 440);
   if (fokus) $('#btn-profile-top')?.focus({ preventScroll: true });
 }
+// Kopf der Seitenleiste: das eigene Profil als Karte in der Rang-Farbe, im
+// Stil des Rang-Fensters (.rf) — links Bild, Name, Rang und Stufe, rechts
+// schaut das Maskottchen des Rangs oben aus der Karte. Gesperrte Wallet: die
+// App-Farbe (Stufe 0) und das universelle Maskottchen, weder Rang noch Stufe
+// (aus der Stufe liesse sich das Guthaben eingrenzen, siehe rangFensterHtml).
+function tmKopfHtml() {
+  const zu = walletGesperrt();
+  const r = zu ? null : rankFor(rangGuthaben());
+  const m = (!zu && WALLET_MASKOTTCHEN[r.slug]) || WALLET_MASKOTTCHEN.standard;
+  const name = state.userName || '?';
+  // Der Name steht weiss auf dem Verlauf (wie im Profil-Kopf): die freie
+  // Namensfarbe waere darauf oft nicht lesbar. Die Admin-Krone sitzt als
+  // Plakette am Bild — neben dem Namen fehlte ihr in der schmalen Leiste der Platz
+  return `
+    <button class="tm-head tm-rang${zu ? ' zu' : ''}" type="button" data-stufe="${zu ? 0 : r.tier}"
+      style="--licht-x:${m.licht[0]}; --licht-y:${m.licht[1]}"
+      aria-label="${zu ? 'Profil ansehen. Wallet gesperrt' : `Profil ansehen. Rang ${esc(r.name)}, Stufe ${r.tier} von ${RANKS.length}`}">
+      <span class="tm-rang-licht" aria-hidden="true"></span>
+      <span class="tm-rang-rahmen" aria-hidden="true"><img class="tm-rang-sprite" src="${m.basis}-480.webp"
+        srcset="${m.basis}-480.webp 480w, ${m.basis}-960.webp 960w" sizes="230px" width="230" height="232"
+        alt="" decoding="async" draggable="false">${funkenHtml('tm-rang-funken')}</span>
+      <span class="tm-rang-text">
+        <span class="tm-rang-ich">
+          <span class="tm-rang-ava">${avatarHtml(name, myProfile?.avatar, 'avatar-big')}${state.role === 'admin' ? `<span class="tm-rang-krone">${icon('crown', 'icon')}</span>` : ''}</span>
+          <span class="tm-rang-wer">
+            <span class="tm-name">${esc(name)}</span>
+            <span class="tm-rang-profil">Profil ansehen${icon('chevron', 'icon')}</span>
+          </span>
+        </span>
+        <b class="tm-rang-name">${zu ? 'Gesperrt' : esc(r.name)}</b>
+        <span class="tm-rang-stufe">${zu ? `${icon('lock', 'icon')}Rang verborgen` : `Stufe ${r.tier} von ${RANKS.length}`}</span>
+      </span>
+    </button>`;
+}
+// Sperrt oder entsperrt sich die Wallet, waehrend die Leiste offen ist (zurueck
+// aus dem Hintergrund), zieht der Kopf mit — ein Rang bleibt nie stehen
+function aktualisiereTmKopf() {
+  const alt = $('#tm-scroll > .tm-head');
+  if (!alt || !topMenuOffen()) return;
+  const zu = walletGesperrt();
+  if (alt.classList.contains('zu') === zu && (zu || alt.dataset.stufe === String(rankFor(rangGuthaben()).tier))) return;
+  const vorlage = document.createElement('template');
+  vorlage.innerHTML = tmKopfHtml().trim();
+  const neu = vorlage.content.firstElementChild;
+  neu.style.setProperty('--i', 0);
+  neu.style.animation = 'none'; // nicht noch einmal hereingleiten
+  neu.onclick = alt.onclick;
+  alt.replaceWith(neu);
+}
 function oeffneTopMenu() {
   const menu = $('#top-menu');
   const bd = $('#top-menu-backdrop');
@@ -3311,18 +3363,10 @@ function oeffneTopMenu() {
   clearTimeout(tmZuUhr);
   bd.classList.remove('hidden');
   const reqs = myProfile?.friendRequests || [];
-  const ns = nameStyleOf(state.userName || '?', myProfile?.nameColor);
   // Oben das Profil als klarer erster Eintrag, darunter Anfragen, Freunde,
   // Einladen/Geschenke/Favoriten und die Einstellungen
   host.innerHTML = `
-    <button class="tm-head" type="button" aria-label="Profil ansehen">
-      ${avatarHtml(state.userName, myProfile?.avatar, 'avatar-big')}
-      <div style="flex:1">
-        <div class="tm-name"><span class="${ns.cls.trim()}" style="${ns.style}">${esc(state.userName)}</span> ${state.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : ''}</div>
-        <div class="tm-sub tm-profil">Profil ansehen</div>
-      </div>
-      <svg class="icon icon-sm" style="opacity:.5"><use href="#i-chevron"/></svg>
-    </button>
+    ${tmKopfHtml()}
     ${reqs.length ? `<div class="tm-section">Freundschaftsanfragen</div>
     ${reqs.map(u => `<div class="tm-req">
       <span class="avatar-mini" style="background:${chatColor(u)}">${esc(u[0].toUpperCase())}</span>
@@ -5120,7 +5164,9 @@ function animateNumber(el, from, to, ms = 700) {
 }
 
 // ---- Ränge nach dem Guthaben in der Wallet, wie beim Chamäleon ----
-// Privat: der Rang steht nur in der eigenen Wallet und im eigenen Profil.
+// Privat: Rang-Name, Stufe und Abstand stehen nur in der eigenen Wallet, im
+// eigenen Profil und in der Seitenleiste. Andere sehen oeffentliche Profile
+// nur in der Farbe der Stufe (server.js rangStufe — dort dieselben Grenzen).
 // bis = Obergrenze in Euro (inklusive), min = erster Cent-Betrag der Stufe
 // ("über 10 €" heisst ab 10,01 €). slug ist der Schluessel fuer Farben
 // (.wallet-kopf.tier-N in style.css) und die Maskottchen-Modelle je Rang.
@@ -12060,22 +12106,33 @@ async function openUserPop(user, msgId) {
   try { u = await api('/api/user?name=' + encodeURIComponent(user)); } catch { }
   const isFriend = (myProfile?.friends || []).includes(user);
   const ns = nameStyleOf(user, u.activePaint);
-  // Wie das eigene Profil, nur ohne Privates: kein Rang, keine Serie
+  // Wie das eigene Profil, nur ohne Privates: keine Serie. Vom Rang kommt nur
+  // die Stufe (oeffentliche Profile), und die zeigt sich nur als Farbe der
+  // Karte — Rang-Name, Stufe und Maskottchen bleiben dem Nutzer selbst.
+  // Privat oder ohne Stufe: die ruhige weisse Karte.
+  const stufe = !u.private && Number.isInteger(u.stufe) && u.stufe >= 1 && u.stufe <= RANKS.length ? u.stufe : 0;
   const marken = !u.private && u.favs ? Object.keys(FAV_OPTIONS).map(k => u.favs[k]).filter(Boolean) : [];
   pop.innerHTML = `
-    <div class="up-hero">
-      ${avatarHtml(user, u.avatar, 'avatar-big up-ava')}
-      <div class="up-name"><span class="${ns.cls.trim()}" style="${ns.style}">${esc(user)}</span> ${u.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : u.role === 'mod' ? icon('check', 'icon icon-sm role-mod') : ''}</div>
-      <div class="up-handle">@${esc(user)}</div>
-      <div class="up-bio${u.private || !u.bio ? ' leer' : ''}">${u.private ? 'Dieses Profil ist privat.' : esc(u.bio || 'Noch keine Bio.')}</div>
+    <div class="up-kopf"${stufe ? ` data-stufe="${stufe}"` : ''}>
+      <div class="up-hero">
+        <span class="up-ava-rahmen">
+          ${avatarHtml(user, u.avatar, 'avatar-big up-ava')}
+          ${stufe ? funkenHtml('up-funken', 2) : ''}
+        </span>
+        <div class="up-name"><span class="${ns.cls.trim()}" style="${ns.style}">${esc(user)}</span> ${u.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : u.role === 'mod' ? icon('check', 'icon icon-sm role-mod') : ''}</div>
+        <div class="up-handle">@${esc(user)}</div>
+        <div class="up-bio${u.private || !u.bio ? ' leer' : ''}">${u.private ? 'Dieses Profil ist privat.' : esc(u.bio || 'Noch keine Bio.')}</div>
+      </div>
+      ${marken.length ? `<div class="up-marken">${marken.map(favChipHtml).join('')}</div>` : ''}
+      <div class="up-actions">
+        <button class="btn" id="up-whisper" type="button">${icon('message', 'icon icon-sm')} Schreiben</button>
+        <button class="btn btn-ghost" id="up-friend" type="button">${isFriend ? 'Freund entfernen' : 'Als Freund anfragen'}</button>
+      </div>
     </div>
-    ${marken.length ? `<div class="up-marken">${marken.map(favChipHtml).join('')}</div>` : ''}
-    <div class="up-actions">
-      <button class="btn" id="up-whisper" type="button">${icon('message', 'icon icon-sm')} Schreiben</button>
-      <button class="btn btn-ghost" id="up-friend" type="button">${isFriend ? 'Freund entfernen' : 'Als Freund anfragen'}</button>
-    </div>
-    <div id="up-ratings"></div>
-    <button class="link-knopf up-melden" id="up-report" type="button">Profil melden</button>`;
+    <div class="up-karte">
+      <div id="up-ratings"></div>
+      <button class="link-knopf up-melden" id="up-report" type="button">Profil melden</button>
+    </div>`;
   renderProfileRatings(user);
   // Bewusst KEINE Mod-Buttons hier: die Profilseite zeigt das Profil, wie es der
   // Nutzer gestaltet hat. Wer etwas sieht, meldet es ueber "Melden".
