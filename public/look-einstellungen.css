@@ -253,9 +253,11 @@
   --rechts: calc(var(--sb) * .128 - var(--luft) + 1px);
 }
 .tm-rang-ich { display: flex; align-items: center; gap: 10px; max-width: 100%; min-width: 0; }
+/* Derselbe Ring wie im Profil-Kopf: duenn, helle Rang-Farbe, etwas Luft */
+#top-menu .tm-rang-ava { padding: 3px; border-radius: 50%; box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--r3) 70%, #fff); }
 #top-menu .tm-rang .avatar-big {
-  width: 42px; height: 42px; font-size: 1.05rem;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, .34), 0 6px 14px -6px rgba(0, 0, 0, .4);
+  width: 40px; height: 40px; font-size: 1.02rem;
+  box-shadow: 0 6px 14px -6px rgba(0, 0, 0, .4);
 }
 /* Bilder mit Transparenz: fester Grund, sonst scheint der Verlauf durch */
 #top-menu .tm-rang img.avatar-big { background: #fff; object-fit: cover; }
@@ -302,7 +304,7 @@ body.sparsam #top-menu .tm-rang { transition: none; }
 @media (max-width: 370px) {
   #top-menu .tm-rang { --sb: clamp(120px, 125vw - 306px, 157px); --luft: 12px; padding-inline: 14px; }
   #top-menu .tm-rang.zu { --sb: clamp(116px, 95vw - 206px, 146px); }
-  #top-menu .tm-rang .avatar-big { width: 38px; height: 38px; font-size: .95rem; }
+  #top-menu .tm-rang .avatar-big { width: 36px; height: 36px; font-size: .92rem; }
   .tm-rang-ich { gap: 9px; }
 }
 @media (prefers-reduced-motion: reduce) {

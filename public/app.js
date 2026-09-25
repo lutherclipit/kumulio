@@ -3068,7 +3068,7 @@ async function ladeProfil() {
 function renderMyName() {
   const me = $('#me-name');
   if (!me || !state.userName) return;
-  me.textContent = state.userName;
+  me.textContent = myProfile?.anzeigename || state.userName;   // '' = der @Name
   const ns = nameStyleOf(state.userName, myProfile?.nameColor);
   me.className = 'pf-name' + ns.cls;
   me.setAttribute('style', ns.style);
@@ -3490,7 +3490,7 @@ function tmKopfHtml() {
         <span class="tm-rang-ich">
           <span class="tm-rang-ava">${avatarHtml(name, myProfile?.avatar, 'avatar-big')}${state.role === 'admin' ? `<span class="tm-rang-krone">${icon('crown', 'icon')}</span>` : ''}</span>
           <span class="tm-rang-wer">
-            <span class="tm-name">${esc(name)}</span>
+            <span class="tm-name">${esc(myProfile?.anzeigename || anzeigeName(name))}</span>
             <span class="tm-rang-profil">Profil ansehen${icon('chevron', 'icon')}</span>
           </span>
         </span>
@@ -12322,6 +12322,7 @@ async function openUserPop(user, msgId) {
   switchView('user', 'enter-drop');
   let u = { user };
   try { u = await api('/api/user?name=' + encodeURIComponent(user)); } catch { }
+  if ('anzeigename' in u) merkeAnzeigename(user, u.anzeigename || '');
   const isFriend = (myProfile?.friends || []).includes(user);
   const ns = nameStyleOf(user, u.activePaint);
   // Wie das eigene Profil, nur ohne Privates: keine Serie. Vom Rang kommt nur
@@ -12337,7 +12338,7 @@ async function openUserPop(user, msgId) {
           ${avatarHtml(user, u.avatar, 'avatar-big up-ava')}
           ${stufe ? funkenHtml('up-funken', 2) : ''}
         </span>
-        <div class="up-name"><span class="${ns.cls.trim()}" style="${ns.style}">${esc(user)}</span> ${u.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : u.role === 'mod' ? icon('check', 'icon icon-sm role-mod') : ''}</div>
+        <div class="up-name"><span class="${ns.cls.trim()}" style="${ns.style}">${esc(anzeigeName(user))}</span> ${u.role === 'admin' ? icon('crown', 'icon icon-sm role-admin') : u.role === 'mod' ? icon('check', 'icon icon-sm role-mod') : ''}</div>
         <div class="up-handle">@${esc(user)}</div>
         <div class="up-bio${u.private || !u.bio ? ' leer' : ''}">${u.private ? 'Dieses Profil ist privat.' : esc(u.bio || 'Noch keine Bio.')}</div>
       </div>
