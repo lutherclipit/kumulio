@@ -5751,7 +5751,7 @@ function waKachelName(n) {
 }
 
 // Vorschau: dieselbe Karte wie in der Wallet. Leere Felder zeigen Platzhalter
-// (grau, "Shop", "0,00 €", "Ohne Code") statt geratener Werte.
+// (grau, "Shop", "0,00 €") statt geratener Werte.
 const WA_LEER_FARBE = '#7B8794';
 const waLeerChip = () => `<span class="brand-chip wa-chip-leer">${icon('tag')}</span>`;
 function waTag(iso) {
@@ -5773,7 +5773,6 @@ function waGutscheinKarteHtml(d) {
       <div class="vk-text">
         <b class="wallet-card-name${leer ? ' wa-platzhalter' : ''}">${esc(d.vendor || 'Shop')}</b>
         <span class="vk-art">Gutschein</span>
-        <span class="vk-code${d.code ? '' : ' wa-platzhalter'}">${esc(d.code || 'Ohne Code')}</span>
         ${d.pin ? `<span class="vk-pin">PIN ${esc(d.pin)}</span>` : ''}
       </div>
       <div class="vk-rechts"><span class="wallet-card-balance${d.amount == null ? ' wa-platzhalter' : ''}">${euroFmt(d.amount ?? 0)}</span></div>
@@ -9643,7 +9642,6 @@ function voucherCardHtml(v, { mehr = false } = {}) {
       <div class="vk-text">
         <b class="wallet-card-name">${esc(v.vendor)}</b>
         <span class="vk-art">${v.giftFrom ? `Geschenk von @${esc(v.giftFrom)}` : 'Gutschein'}</span>
-        <span class="vk-code">${esc(v.code || 'Ohne Code')}</span>
         ${v.pin ? `<span class="vk-pin">PIN ${esc(v.pin)}</span>` : ''}
       </div>
       <div class="vk-rechts">

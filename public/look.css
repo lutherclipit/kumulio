@@ -517,7 +517,8 @@ body.marken-modus #view-wallet { --wk-schein: var(--marke-k3, var(--kopf-k3, #2F
   font-variant-numeric: tabular-nums; opacity: .96;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.vk-code { margin-top: 1px; }
+/* Auf der Karte steht nur die PIN — den Code zeigt die Gutschein-Seite */
+.vk-pin { margin-top: 1px; }
 .vk-rechts { grid-column: 3; grid-row: 1; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .vk .wallet-card-balance {
   font-size: 1.28rem; font-weight: 850; letter-spacing: -.02em; line-height: 1.2; white-space: nowrap;
