@@ -579,6 +579,8 @@ function switchView(next, animClass) {
   state.activeView = next;
   // Die Suche oben rechts gehoert nur zum Feed (look.css blendet sie sonst aus)
   document.body.dataset.ansicht = next;
+  // In der Wallet zeigt der Shop-Knopf oben rechts kurz den Lio-Stand
+  if (next === 'wallet') lioFahneZeigen({ spaeter: 520 });
 
   markiereTab(next);
 
@@ -3010,7 +3012,7 @@ function refreshProfileTab() {
   }
   renderWallet(); // Wallet-Sperre folgt dem Login-Status
   updateChatGate();
-  lioKnopfZeigen(); // Lio-Stand am Profilbild in der Wallet: erst mit dem Profil dieses Kontos
+  lioKnopfZeigen(); // Shop-Knopf mit Lio-Stand in der Wallet: erst mit dem Profil dieses Kontos
 }
 
 // ---- Profilbilder: die sechs Kumulios (Runde 123) ----
@@ -4284,11 +4286,11 @@ function startTour() {
   const steps = [
     { view: 'feed', tab: 'feed', title: 'Deals, die sich lohnen', text: 'Oben die Highlights, darunter die Top Deals für dich. Preisfehler meldet kumulio auf Wunsch sofort aufs Handy.', visual: feedDemo },
     { view: 'wallet', tab: 'wallet', title: 'Deine Wallet', text: 'Gutschein abfotografieren, den Rest füllt kumulio aus. Karten & Coupons deiner Läden liegen gleich daneben.', visual: walletDemo },
-    // Lios: mit Konto zeigt das Lichtfeld auf den Lio-Stand am Profilbild in der
+    // Lios: mit Konto zeigt das Lichtfeld auf den runden Shop-Knopf oben rechts in der
     // Wallet, ohne Konto (den Knopf gibt es dann nicht) steht die Karte mittig
     { view: 'wallet', sel: '#btn-lio-top', nurWenn: lioKnopfSichtbar, title: 'Lios sammeln', text: (state.token
-      ? 'Für jeden Tag in kumulio gibt es Lios. Tipp in der Wallet auf deinen Lio-Stand neben dem Profilbild: Im Shop tauschst du sie gegen Gutscheine.'
-      : 'Mit Konto gibt es für jeden Tag in kumulio Lios. In der Wallet steht dein Lio-Stand neben dem Profilbild: Im Shop tauschst du sie gegen Gutscheine.'),
+      ? 'Für jeden Tag in kumulio gibt es Lios. Oben rechts in der Wallet geht es in den Shop: Dort tauschst du sie gegen Gutscheine.'
+      : 'Mit Konto gibt es für jeden Tag in kumulio Lios. Oben rechts in der Wallet geht es in den Shop: Dort tauschst du sie gegen Gutscheine.'),
       visual: lioTourHtml() },
     { view: 'chat', tab: 'chat', title: 'Mit Freunden', text: 'Schick Deals direkt an Freunde und schreibt zusammen.', visual: chatDemo },
     { sel: '#btn-profile-top', title: 'Dein Profil', text: state.token
@@ -13137,7 +13139,7 @@ let lioVerlauf = null;          // letzte Buchungen aus /api/lio
 
 function lioAnzeige() { return lioGehalten ?? lioStand(); }
 // data-lio-stand="zahl": nur die Zahl (der Knopf oben in der Wallet), sonst "12 Lios"
-// Im Knopf am Profilbild ist wenig Platz bis zum Logo: ab 1.000 kurz
+// In der Fahne am Shop-Knopf ist wenig Platz bis zum Logo: ab 1.000 kurz
 // ("1,2k"). Die genaue Zahl steht im Shop und im aria-label des Knopfs.
 function lioKurz(n) {
   if (n < 1000) return Number(n || 0).toLocaleString('de-DE');
@@ -13179,17 +13181,37 @@ function lioStandZeigen({ von = null } = {}) {
 // entscheidet look-lio.css (nur in der Wallet, body.wallet-farbe).
 let lioProfilVon = '';          // zu welchem Konto myProfile gehoert
 function lioKnopfZeigen() {
-  const k = $('#btn-lio-top');
-  if (!k) return;
+  const k = $('#btn-lio-top'), ecke = $('#lio-ecke');
+  if (!k || !ecke) return;
   const bereit = !!(state.token && myProfile && lioProfilVon && lioProfilVon === state.userName);
+  const vorher = ecke.classList.contains('bereit');
   k.classList.toggle('bereit', bereit);
+  ecke.classList.toggle('bereit', bereit);
   k.tabIndex = bereit ? 0 : -1;
+  // Erscheint der Knopf in der offenen Wallet, zeigt er einmal den Stand
+  if (bereit && !vorher && state.activeView === 'wallet') lioFahneZeigen({ spaeter: 450 });
 }
 $('#btn-lio-top')?.addEventListener('click', () => oeffneLioShop());
+$('[data-lio-fahne]')?.addEventListener('click', () => oeffneLioShop());
+// Die Fahne mit dem Lio-Stand gleitet links aus dem runden Shop-Knopf heraus
+// und nach halten ms wieder hinein (nur transform). Beim Oeffnen der Wallet
+// und wenn neue Lios ankommen. Ruhige Darstellung: sie bleibt drin.
+let lioFahneUhr = 0, lioFahneStart = 0;
+function lioFahneZeigen({ halten = 2400, spaeter = 0 } = {}) {
+  const ecke = $('#lio-ecke');
+  if (!ecke || reducedMotion() || document.body.classList.contains('sparsam')) return;
+  clearTimeout(lioFahneStart);
+  lioFahneStart = setTimeout(() => {
+    if (!lioKnopfSichtbar()) return;
+    ecke.classList.add('offen');
+    clearTimeout(lioFahneUhr);
+    lioFahneUhr = setTimeout(() => ecke.classList.remove('offen'), halten);
+  }, spaeter);
+}
 // Ist der Knopf gerade zu sehen? (Wallet, angemeldet, nicht gesperrt, keine
 // Seite darueber)
 function lioKnopfSichtbar() {
-  const k = $('#btn-lio-top');
+  const k = $('#lio-ecke');
   return !!k && k.classList.contains('bereit') && document.body.classList.contains('wallet-farbe')
     && !document.body.classList.contains('wallet-zu')
     && state.activeView === 'wallet' && !wseiteOben() && !topMenuOffen();
@@ -13418,12 +13440,12 @@ function lioZiel() {
   }
   const oben = wseiteOben();
   if (oben) return nimm(oben.el.querySelector('[data-lio-ziel]'));
-  // In der Wallet: in den Stern des Lio-Knopfs oben rechts, dort zaehlt die
-  // Zahl gleich mit hoch. "+N" steht dann unter dem Knopf (unter).
+  // In der Wallet: in den runden Shop-Knopf oben rechts; bei der Ankunft
+  // gleitet die Fahne mit dem Stand heraus (ecke). "+N" steht unter dem Knopf.
   if (lioKnopfSichtbar()) {
     const k = $('#btn-lio-top');
-    const z = nimm(k.querySelector('.lio-stern'));
-    if (z) return { ...z, unter: k.getBoundingClientRect() };
+    const z = nimm(k);
+    if (z) return { ...z, unter: k.getBoundingClientRect(), ecke: true };
   }
   return nimm($('#btn-profile-top'));
 }
@@ -13447,6 +13469,8 @@ function lioSternFlug(menge, { von = null, text = '', beiAnkunft = null } = {}) 
   };
   if (!menge) { ankunft(); return Promise.resolve(); }
   const ziel = lioZiel();
+  // Ziel ist der Shop-Knopf der Wallet: dort zeigt die Fahne den neuen Stand
+  if (ziel && ziel.ecke) { const vorher = beiAnkunft; beiAnkunft = () => { vorher?.(); lioFahneZeigen({ halten: 2600 }); }; }
   const ruhig = reducedMotion() || document.body.classList.contains('sparsam') || !document.body.animate;
   if (!ziel) { ankunft(); if (text) island(text); return Promise.resolve(); }
   const ebene = lioFlugEbene();

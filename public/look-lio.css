@@ -136,43 +136,53 @@
 #top-menu .tm-item .tm-lio-pille .lio-stern { width: 14px; height: 14px; }
 #top-menu .tm-item:has(.tm-lio-pille)::after { margin-left: 0; }
 
-/* ---- Wallet oben links: der Lio-Stand haengt am Profilbild ----
-   Eine Kapsel, die halb hinter dem Profilbild hervorkommt (wie die Waehrung
-   neben dem Profil in Spielen): Stern und Stand, fuehrt in den Shop. Rechts
-   oben ragt der Kopf des Kumulios aus der Wallet-Karte, dort ist kein Platz.
+/* ---- Wallet oben rechts: runder Shop-Knopf mit ausfahrender Lio-Fahne ----
+   Der Kreis (42 px wie die Lupe im Feed) passt neben das Logo, ohne den Kopf
+   des Kumulios zu beruehren, der aus der Wallet-Karte ragt. Links davon liegt
+   die Fahne mit Stern und Stand in einer Huelle, deren rechtes Ende genau die
+   Rundung des Kreises hat: gleitet die Fahne nach rechts, verschwindet sie
+   sauber hinter dem Kreis. .offen (lioFahneZeigen in app.js) faehrt sie aus.
    Zu sehen nur in der Wallet und angemeldet (body.wallet-farbe) und erst mit
-   dem Profil (.bereit, lioKnopfZeigen in app.js). Beim Ein- und Ausblenden
-   gleitet sie hinter dem Bild hervor bzw. zurueck. */
-.topbar-actions:has(#btn-lio-top) { align-items: center; gap: 0; }
-.topbar-actions #btn-profile-top { position: relative; z-index: 2; }
-.lio-knopf {
-  position: relative; z-index: 1;
-  display: inline-flex; align-items: center; gap: 4px;
-  height: 32px; margin-left: -20px; padding: 0 10px 0 24px; border: 0; border-radius: 16px;
+   dem Profil (.bereit). */
+#btn-search-top, .lio-ecke { grid-column: 3; grid-row: 1; }
+.lio-ecke { position: relative; justify-self: end; width: 42px; height: 42px; }
+.lio-ecke .lio-rund {
+  position: relative; z-index: 2; width: 42px; height: 42px; border-radius: 50%;
+  background: rgba(255, 255, 255, .94); color: #8A5800;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .12);
+}
+.lio-ecke .lio-rund .icon { width: 21px; height: 21px; stroke-width: 2; }
+.lio-ecke .lio-rund:active { transform: scale(.92); }
+.lio-ecke .lio-rund:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.lio-fahne-huelle {
+  position: absolute; z-index: 1; top: 0; right: 0; width: 170px; height: 42px;
+  overflow: hidden; border-radius: 21px; pointer-events: none;
+}
+.lio-fahne {
+  position: absolute; top: 0; right: 0; height: 42px;
+  display: inline-flex; align-items: center; gap: 5px; padding: 0 47px 0 11px; border-radius: 21px;
   background: rgba(255, 255, 255, .94); color: #1B2430;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, .12);
-  font: inherit; font-size: .9rem; font-weight: 850; letter-spacing: -.01em; line-height: 1;
-  font-variant-numeric: tabular-nums; white-space: nowrap;
-  cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation;
-  transform-origin: left center;
-  transition: transform .28s var(--spring), opacity .2s ease, visibility 0s;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .04);
+  font-size: .95rem; font-weight: 850; letter-spacing: -.01em; line-height: 1;
+  font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer;
+  transform: translate3d(100%, 0, 0);
+  transition: transform .5s cubic-bezier(.6, 0, .3, 1);
 }
-/* Groessere Trefferflaeche nach oben und unten (die Kapsel ist nur 32 px hoch) */
-.lio-knopf::before { content: ""; position: absolute; inset: -6px -4px; }
-.lio-knopf .lio-stern { width: 19px; height: 19px; filter: drop-shadow(0 0 5px rgba(255, 190, 50, .55)); }
-.lio-knopf b { font-weight: inherit; }
-.lio-knopf:active { transform: scale(.94); }
-.lio-knopf:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
-:root[data-theme="dark"] .lio-knopf { background: rgba(23, 28, 34, .9); color: #fff; box-shadow: 0 4px 12px rgba(0, 0, 0, .28); }
-body:not(.wallet-farbe) #btn-lio-top, #btn-lio-top:not(.bereit) {
-  visibility: hidden; opacity: 0; pointer-events: none; transform: translateX(-24px) scale(.9);
-  transition: transform .2s ease, opacity .2s ease, visibility 0s linear .2s;
+.lio-fahne .lio-stern { width: 20px; height: 20px; filter: drop-shadow(0 0 5px rgba(255, 190, 50, .55)); }
+.lio-fahne b { font-weight: inherit; }
+.lio-ecke.offen .lio-fahne-huelle { pointer-events: auto; }
+.lio-ecke.offen .lio-fahne { transform: translate3d(0, 0, 0); transition-timing-function: cubic-bezier(.22, 1, .32, 1); transition-duration: .55s; }
+:root[data-theme="dark"] .lio-ecke .lio-rund { background: rgba(23, 28, 34, .9); color: #FFCF5C; box-shadow: 0 4px 14px rgba(0, 0, 0, .28); }
+:root[data-theme="dark"] .lio-fahne { background: rgba(23, 28, 34, .9); color: #fff; box-shadow: none; }
+body:not(.wallet-farbe) .lio-ecke, .lio-ecke:not(.bereit) {
+  visibility: hidden; opacity: 0; pointer-events: none;
+  transition: opacity .2s ease, visibility 0s linear .2s;
 }
-@media (prefers-reduced-motion: reduce) { .lio-knopf, body:not(.wallet-farbe) #btn-lio-top, #btn-lio-top:not(.bereit) { transition: none; } }
-body.sparsam .lio-knopf { transition: none; }
+.lio-ecke { transition: opacity .2s ease, visibility 0s; }
+@media (prefers-reduced-motion: reduce) { .lio-fahne, .lio-ecke { transition: none; } }
 @media (max-width: 370px) {
-  .lio-knopf { gap: 3px; padding-right: 8px; font-size: .86rem; }
-  .lio-knopf .lio-stern { width: 17px; height: 17px; }
+  .lio-fahne { gap: 4px; padding-left: 9px; padding-right: 46px; font-size: .88rem; }
+  .lio-fahne .lio-stern { width: 18px; height: 18px; }
 }
 
 /* ---- Tour fuer neue Nutzer: die Lio-Karte (Flaeche wie im Menue, oben) ----
