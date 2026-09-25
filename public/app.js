@@ -580,7 +580,7 @@ function switchView(next, animClass) {
   // Die Suche oben rechts gehoert nur zum Feed (look.css blendet sie sonst aus)
   document.body.dataset.ansicht = next;
   // In der Wallet zeigt der Shop-Knopf oben rechts kurz den Lio-Stand
-  if (next === 'wallet') lioFahneZeigen({ spaeter: 520 });
+  if (next === 'wallet' && !lioWartetNoch()) lioFahneZeigen({ spaeter: 520 });
 
   markiereTab(next);
 
@@ -13197,16 +13197,25 @@ $('[data-lio-fahne]')?.addEventListener('click', () => oeffneLioShop());
 // und nach halten ms wieder hinein (nur transform). Beim Oeffnen der Wallet
 // und wenn neue Lios ankommen. Ruhige Darstellung: sie bleibt drin.
 let lioFahneUhr = 0, lioFahneStart = 0;
-function lioFahneZeigen({ halten = 2400, spaeter = 0 } = {}) {
+function lioFahneZeigen({ halten = 2400, spaeter = 0, versuch = 0 } = {}) {
   const ecke = $('#lio-ecke');
   if (!ecke || reducedMotion() || document.body.classList.contains('sparsam')) return;
   clearTimeout(lioFahneStart);
   lioFahneStart = setTimeout(() => {
-    if (!lioKnopfSichtbar()) return;
+    // Liegt noch etwas darueber (Sperre, Face-ID-Angebot, Update-Log), kurz
+    // warten — sonst liefe die Fahne unsichtbar dahinter ab
+    if (!lioBuehneFrei() && versuch < 40) { lioFahneZeigen({ halten, spaeter: 500, versuch: versuch + 1 }); return; }
+    // Wartet noch ein Stern, oeffnet der die Fahne bei seiner Ankunft
+    if (!lioKnopfSichtbar() || lioWartetNoch()) return;
     ecke.classList.add('offen');
     clearTimeout(lioFahneUhr);
     lioFahneUhr = setTimeout(() => ecke.classList.remove('offen'), halten);
   }, spaeter);
+}
+// Gibt es Gutschriften, die noch nicht geflogen sind? (Dann oeffnet der
+// ankommende Stern die Fahne, ein eigenes Ausfahren waere doppelt)
+function lioWartetNoch() {
+  return (Array.isArray(myProfile?.lioNeu) ? myProfile.lioNeu : []).some(x => x && x.id && !lioGeflogen.has(x.id));
 }
 // Ist der Knopf gerade zu sehen? (Wallet, angemeldet, nicht gesperrt, keine
 // Seite darueber)
@@ -13376,7 +13385,9 @@ function lioNeuPruefen(versuch = 0) {
   if (!neu.length) return;
   // Das Update-Log darf zuerst (es kommt kurz nach dem Start), danach der Stern
   if (!lioBuehneFrei() || (!neuGeprueft && versuch < 6)) {
-    if (versuch < 120) lioNeuPruefen.uhr = setTimeout(() => lioNeuPruefen(versuch + 1), 1000);
+    // So lange etwas wartet, weiter schauen (Sperre, Dialoge koennen dauern);
+    // nach zwei Minuten nur noch alle paar Sekunden
+    lioNeuPruefen.uhr = setTimeout(() => lioNeuPruefen(versuch + 1), versuch < 120 ? 1000 : 4000);
     return;
   }
   // Kurz Luft, damit die Seite erst steht
@@ -14373,6 +14384,12 @@ function entsperreWallet() {
   const el = $('#wallet-sperre');
   const sichtbar = el && !el.classList.contains('hidden') && !el.classList.contains('geht');
   setTimeout(() => pruefeNeuigkeiten(), 1000); // Update-Log wartete auf das Entsperren
+  // Lios: wartende Gutschriften fliegen jetzt (der Stern oeffnet die Fahne),
+  // sonst zeigt der Shop-Knopf einmal den Stand — wie beim Oeffnen der Wallet
+  setTimeout(() => {
+    if (state.activeView !== 'wallet') return;
+    if (lioWartetNoch()) lioNeuPruefen(); else lioFahneZeigen();
+  }, 900);
   setTimeout(verarbeiteGeteiltes, 700);          // geteiltes Bild wartete auch
   playSfx('anmelden', 1);   // Anmeldeton (vom Nutzer, in der Datei leiser), auch nach Face ID
   setTimeout(() => {                               // "Karte zeigen" aus dem Laden-Banner

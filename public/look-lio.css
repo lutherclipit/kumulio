@@ -27,7 +27,7 @@
    Schrift, Glas-Pillen, Fortschritt und "Abholen" in Gold. Oben die ganze
    Zeile ist ein Knopf in den Shop (rechts die Pille "Shop").
    Dieselbe Flaeche traegt die Lio-Karte in der Tour (.tour-lio). */
-#top-menu .tm-lio, .tour-lio {
+#top-menu .tm-lio, .tour-lio, .pf-lio {
   --lio-n1: #111945;
   --lio-n2: #1F266C;
   --lio-n3: #3A2A84;
@@ -148,7 +148,7 @@
 .lio-ecke { position: relative; justify-self: end; width: 42px; height: 42px; }
 .lio-ecke .lio-rund {
   position: relative; z-index: 2; width: 42px; height: 42px; border-radius: 50%;
-  background: rgba(255, 255, 255, .94); color: #8A5800;
+  background: #fff; color: #8A5800;
   box-shadow: 0 4px 14px rgba(0, 0, 0, .12);
 }
 .lio-ecke .lio-rund .icon { width: 21px; height: 21px; stroke-width: 2; }
@@ -161,7 +161,7 @@
 .lio-fahne {
   position: absolute; top: 0; right: 0; height: 42px;
   display: inline-flex; align-items: center; gap: 5px; padding: 0 47px 0 11px; border-radius: 21px;
-  background: rgba(255, 255, 255, .94); color: #1B2430;
+  background: #fff; color: #1B2430;
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .04);
   font-size: .95rem; font-weight: 850; letter-spacing: -.01em; line-height: 1;
   font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer;
@@ -172,8 +172,8 @@
 .lio-fahne b { font-weight: inherit; }
 .lio-ecke.offen .lio-fahne-huelle { pointer-events: auto; }
 .lio-ecke.offen .lio-fahne { transform: translate3d(0, 0, 0); transition-timing-function: cubic-bezier(.22, 1, .32, 1); transition-duration: .55s; }
-:root[data-theme="dark"] .lio-ecke .lio-rund { background: rgba(23, 28, 34, .9); color: #FFCF5C; box-shadow: 0 4px 14px rgba(0, 0, 0, .28); }
-:root[data-theme="dark"] .lio-fahne { background: rgba(23, 28, 34, .9); color: #fff; box-shadow: none; }
+:root[data-theme="dark"] .lio-ecke .lio-rund { background: #171C22; color: #FFCF5C; box-shadow: 0 4px 14px rgba(0, 0, 0, .28); }
+:root[data-theme="dark"] .lio-fahne { background: #171C22; color: #fff; box-shadow: none; }
 body:not(.wallet-farbe) .lio-ecke, .lio-ecke:not(.bereit) {
   visibility: hidden; opacity: 0; pointer-events: none;
   transition: opacity .2s ease, visibility 0s linear .2s;
@@ -233,19 +233,19 @@ body:not(.wallet-farbe) .lio-ecke, .lio-ecke:not(.bereit) {
 
 /* ---- Profil: unter der Login-Serie der Lio-Stand, fuehrt in den Shop ---- */
 .pf-lio {
-  display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 14px; padding: 9px 10px;
-  border: 0; border-radius: 13px; background: var(--lio-weich); color: var(--text);
+  display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 14px; padding: 10px 12px 10px 10px;
+  border: 0; border-radius: 13px;
   font: inherit; text-align: left; cursor: pointer;
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
   transition: transform .2s var(--spring);
 }
 .pf-lio:active { transform: scale(.98); }
 .pf-lio:focus-visible { outline: 2px solid var(--akzent-text); outline-offset: 2px; }
-.pf-lio .lio-stern { width: 30px; height: 30px; }
-.pf-lio-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.pf-lio .lio-stern { position: relative; z-index: 1; width: 30px; height: 30px; filter: drop-shadow(0 0 6px rgba(255, 190, 50, .55)) drop-shadow(0 2px 4px rgba(0, 0, 0, .25)); }
+.pf-lio-text { position: relative; z-index: 1; flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .pf-lio-text b { font-size: .95rem; font-weight: 850; line-height: 1.25; }
-.pf-lio-text small { font-size: .76rem; font-weight: 650; line-height: 1.3; color: var(--lio-text); }
-.pf-lio > .icon { flex: none; color: var(--muted); }
+.pf-lio-text small { font-size: .76rem; font-weight: 650; line-height: 1.3; color: var(--lio-gold); }
+.pf-lio > .icon { position: relative; z-index: 1; flex: none; color: rgba(255, 255, 255, .75); }
 
 /* ---- Freunde einladen: die Belohnung in Lios ---- */
 .inv-vorgemerkt.inv-lio { background: var(--lio-weich); color: var(--lio-text); }
