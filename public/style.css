@@ -3354,9 +3354,9 @@ a.app-quest .app-quest-txt { flex: 1; min-width: 0; }
    Weiss, und der Auslauf nach unten. Damit beisst sich nichts mehr, wenn
    jemand Gold statt Gruen hat. */
 .wallet-kopf {
-  --k1: #0E9C64;        /* dunkel: Text auf hellem Grund */
-  --k2: #12C77E;        /* Hauptton */
-  --k3: #23D992;        /* hell: Lichtseite des Verlaufs */
+  --k1: #405A7C;        /* dunkel: Text auf hellem Grund (Stufe 1, bis die Stufe feststeht) */
+  --k2: #6081A9;        /* Hauptton */
+  --k3: #B6C9DF;        /* hell: Lichtseite des Verlaufs */
   position: relative;
   /* Der Kopf reicht bis unter die Kopfzeile und traegt nur den Inhalt —
      gemalt wird der Grund von #wallet-farbfeld ausserhalb von main. */
@@ -3447,7 +3447,7 @@ body.wallet-farbe #wallet-farbfeld { opacity: 1; }
   content: ''; position: absolute; inset: 0;
   background:
     radial-gradient(circle at 84% 6%, rgba(255, 255, 255, .17), transparent 46%),
-    linear-gradient(172deg, var(--kopf-k1, #0E9C64) 0%, var(--kopf-k2, #12C77E) 52%, var(--kopf-k3, #23D992) 100%);
+    linear-gradient(172deg, var(--kopf-k1, #405A7C) 0%, var(--kopf-k2, #6081A9) 52%, var(--kopf-k3, #B6C9DF) 100%);
   /* Gegenbewegung: die Flaeche faehrt hoch, die Farbe bleibt stehen */
   transform: translate3d(0, var(--ff-versatz, 0px), 0);
   transition: transform .32s cubic-bezier(.22, 1, .32, 1), background .6s ease;
@@ -3482,7 +3482,7 @@ body.wallet-farbe .topbar .brand-name { color: #fff; }
 body.wallet-farbe .topbar .k-wordmark { color: #fff; }
 /* Der Punkt bleibt das Markenzeichen — in der hellsten Stufenfarbe hebt er
    sich vom dunkleren oberen Verlauf ab, egal ob Gruen, Tuerkis oder Gold */
-body.wallet-farbe .topbar .k-wordmark .k-dot { fill: var(--kopf-k3, #23D992); }
+body.wallet-farbe .topbar .k-wordmark .k-dot { fill: var(--kopf-k3, #B6C9DF); }
 body.wallet-farbe .topbar .iconbtn {
   color: #fff; background: rgba(255, 255, 255, .18);
   border-color: rgba(255, 255, 255, .28);
@@ -3552,18 +3552,23 @@ body.wallet-farbe .topbar .iconbtn {
 .wa-kreis .icon { width: 22px; height: 22px; color: #fff; }
 
 /* Rang-Stufen setzen alle drei Farben — Text und Chips ziehen automatisch mit.
-   Sieben Stufen nach dem Chamaeleon (Runde 119), von Gruen ueber Petrol, Blau,
-   Violett, Beere und Kupfer bis Gold (ab 1000 €). k1 dunkel (weisse Schrift darauf, Text auf
-   Weiss), k2 Hauptton (weisse Schrift noch lesbar), k3 hell (Lichtseite des
-   Verlaufs, Akzent-Text im Dunkelmodus). Gaeste sehen die Farben der Stufe 1. */
-:root { --kopf-k1: #0A8452; --kopf-k2: #0FA86B; --kopf-k3: #2FE09C; }
-.wallet-kopf.tier-1 { --k1: #0A8452; --k2: #0FA86B; --k3: #2FE09C; }
-.wallet-kopf.tier-2 { --k1: #0A6E78; --k2: #0E95A3; --k3: #3DD3DE; }
-.wallet-kopf.tier-3 { --k1: #1C4FB0; --k2: #2D6BDB; --k3: #79A9FF; }
-.wallet-kopf.tier-4 { --k1: #4B2FA6; --k2: #6B4CD9; --k3: #AE96FF; }
-.wallet-kopf.tier-5 { --k1: #8C1D5E; --k2: #BB2F7E; --k3: #F58CC4; }
-.wallet-kopf.tier-6 { --k1: #9A3412; --k2: #C2410C; --k3: #FDA56B; }
-.wallet-kopf.tier-7 { --k1: #7A5406; --k2: #A87A0C; --k3: #F2CE5E; }
+   Sieben Stufen nach dem Chamaeleon (Runde 119), Farben seit Runde 125 nach den
+   Skin-Seltenheiten aus Counter-Strike: Consumer (Stahlgrau), Industrial
+   (Hellblau), Mil-Spec (Blau), Restricted (Lila), Classified (Pink), Covert
+   (Rot) und Contraband (Gold, ab 1000 €). Abgeleitet aus #b0c3d9 #5e98d9
+   #4b69ff #8847ff #d32ce6 #eb4b4b #e4ae39: k1 dunkel (weisse Schrift darauf,
+   Text auf Weiss, >= 4,5:1), k2 Hauptton (weisse fette Schrift >= 3,4:1), k3
+   hell (Lichtseite des Verlaufs, Akzent-Text im Dunkelmodus). Consumer ist in
+   CS fast weiss — hier ein Stahlgrau, damit weisse Schrift traegt; Covert ein
+   Rubinrot statt Signalrot (kein Fehler-Look). Gaeste sehen die Farben der Stufe 1. */
+:root { --kopf-k1: #405A7C; --kopf-k2: #6081A9; --kopf-k3: #B6C9DF; }
+.wallet-kopf.tier-1 { --k1: #405A7C; --k2: #6081A9; --k3: #B6C9DF; }
+.wallet-kopf.tier-2 { --k1: #2F6DB5; --k2: #4A8AD4; --k3: #8CC0F5; }
+.wallet-kopf.tier-3 { --k1: #2B45D6; --k2: #4B69FF; --k3: #93A6FF; }
+.wallet-kopf.tier-4 { --k1: #6331D8; --k2: #8847FF; --k3: #B996FF; }
+.wallet-kopf.tier-5 { --k1: #9A1FAE; --k2: #C62AD9; --k3: #EE8AF8; }
+.wallet-kopf.tier-6 { --k1: #A81E33; --k2: #D63A4A; --k3: #FF9590; }
+.wallet-kopf.tier-7 { --k1: #9C5A05; --k2: #C07A0E; --k3: #F2BE4B; }
 
 /* Sobald der Kopf weggescrollt ist, wird die Kopfzeile wieder Glas —
    sonst stuende dort ein Farbblock ohne Anschluss */
@@ -3862,7 +3867,7 @@ body.gescrollt:not(.wallet-farbe) .topbar { border-bottom-color: transparent; }
 }
 .ik-balken-fill {
   height: 100%; border-radius: 999px; width: 0;
-  background: linear-gradient(90deg, var(--kopf-k1, #0E9C64), var(--kopf-k3, #23D992));
+  background: linear-gradient(90deg, var(--kopf-k1, #405A7C), var(--kopf-k3, #B6C9DF));
   transition: width .7s cubic-bezier(.22, 1, .32, 1);
 }
 .ik-skala {
@@ -3880,13 +3885,13 @@ body.gescrollt:not(.wallet-farbe) .topbar { border-bottom-color: transparent; }
 .rang-stufe.erreicht { opacity: 1; }
 .rang-stufe.aktuell { opacity: 1; }
 .rang-punkt { width: 11px; height: 11px; border-radius: 50%; flex: none; background: var(--muted); }
-.rang-punkt.tier-1 { background: #0FA86B; }
-.rang-punkt.tier-2 { background: #0E95A3; }
-.rang-punkt.tier-3 { background: #2D6BDB; }
-.rang-punkt.tier-4 { background: #6B4CD9; }
-.rang-punkt.tier-5 { background: #BB2F7E; }
-.rang-punkt.tier-6 { background: #C2410C; }
-.rang-punkt.tier-7 { background: #A87A0C; }
+.rang-punkt.tier-1 { background: #6081A9; }
+.rang-punkt.tier-2 { background: #4A8AD4; }
+.rang-punkt.tier-3 { background: #4B69FF; }
+.rang-punkt.tier-4 { background: #8847FF; }
+.rang-punkt.tier-5 { background: #C62AD9; }
+.rang-punkt.tier-6 { background: #D63A4A; }
+.rang-punkt.tier-7 { background: #C07A0E; }
 .rang-text { flex: 1; display: flex; flex-direction: column; }
 .rang-text b { font-size: .9rem; }
 .rang-text small { font-size: .74rem; color: var(--muted); }
@@ -3933,7 +3938,7 @@ body.gescrollt:not(.wallet-farbe) .topbar { border-bottom-color: transparent; }
 
 /* Das Mini-Guthaben bleibt neutral — die Menueleiste soll nicht mitfaerben.
    Nur der Betrag selbst traegt einen Hauch der Rangfarbe. */
-#wallet-mini.rangfarbe #wallet-mini-total { color: var(--kopf-k1, #0E9C64); }
+#wallet-mini.rangfarbe #wallet-mini-total { color: var(--kopf-k1, #405A7C); }
 
 /* --- Verschenken: gebuendelt wie in der Wallet --- */
 .schenk-gruppe { margin-bottom: 10px; }
@@ -4789,8 +4794,8 @@ body.sparsam .wm-flaeche, body.sparsam .filter-pille {
   /* Traegt die Farbe des Spar-Rangs — derselbe Verlauf wie der Wallet-Kopf */
   background:
     radial-gradient(circle at 84% 6%, rgba(255, 255, 255, .17), transparent 46%),
-    linear-gradient(172deg, var(--kopf-k1, #0E9C64) 0%, var(--kopf-k2, #12C77E) 52%, var(--kopf-k3, #23D992) 100%);
-  background-color: var(--kopf-k2, #12C77E);
+    linear-gradient(172deg, var(--kopf-k1, #405A7C) 0%, var(--kopf-k2, #6081A9) 52%, var(--kopf-k3, #B6C9DF) 100%);
+  background-color: var(--kopf-k2, #6081A9);
   color: #fff;
   display: flex; justify-content: center;
   padding: calc(env(safe-area-inset-top, 0px) + 20px) 16px calc(env(safe-area-inset-bottom, 0px) + 20px);
@@ -5142,7 +5147,7 @@ body.sparsam .wa-modus-flaeche { transition-duration: .2s; }
   flex: 0 1 auto; max-width: 54%; min-height: 40px;
   display: inline-flex; align-items: center; gap: 6px;
   padding: 6px 10px 6px 12px; border: 0; border-radius: 12px;
-  background: #fff; color: var(--kopf-k1, #0E9C64);
+  background: #fff; color: var(--kopf-k1, #405A7C);
   font: inherit; font-size: .88rem; font-weight: 800; letter-spacing: -.01em;
   cursor: pointer; touch-action: manipulation;
   box-shadow: 0 3px 12px rgba(10, 14, 18, .2);
@@ -5184,11 +5189,11 @@ body.sparsam .wa-modus-flaeche { transition-duration: .2s; }
 }
 .mm-name { flex: 1; min-width: 0; font-weight: 750; font-size: .92rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mm-zeile small { font-size: .76rem; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.mm-haken { color: var(--kopf-k1, #0E9C64); opacity: 0; transform: scale(.6); transition: opacity .2s ease, transform .25s var(--spring); }
+.mm-haken { color: var(--kopf-k1, #405A7C); opacity: 0; transform: scale(.6); transition: opacity .2s ease, transform .25s var(--spring); }
 .mm-zeile.an { background: var(--surface); }
-.mm-zeile.an .mm-name { color: var(--kopf-k1, #0E9C64); }
+.mm-zeile.an .mm-name { color: var(--kopf-k1, #405A7C); }
 .mm-zeile.an .mm-haken { opacity: 1; transform: none; }
-:root[data-theme="dark"] .mm-zeile.an .mm-name, :root[data-theme="dark"] .mm-haken { color: var(--kopf-k3, #23D992); }
+:root[data-theme="dark"] .mm-zeile.an .mm-name, :root[data-theme="dark"] .mm-haken { color: var(--kopf-k3, #B6C9DF); }
 @keyframes mmAuf { from { opacity: 0; transform: translateY(-6px) scale(.96); } }
 @media (prefers-reduced-motion: reduce) {
   .wallet-marken-menue, .mm-zeile, .wsl-marke.gewechselt { animation: none; }
@@ -5217,7 +5222,7 @@ body.sparsam .wa-modus-flaeche { transition-duration: .2s; }
   padding: 22px 20px 18px; text-align: center; color: #fff;
   background:
     radial-gradient(circle at 84% 6%, rgba(255, 255, 255, .17), transparent 46%),
-    linear-gradient(160deg, var(--kopf-k1, #0E9C64), var(--kopf-k2, #12C77E) 60%, var(--kopf-k3, #23D992));
+    linear-gradient(160deg, var(--kopf-k1, #405A7C), var(--kopf-k2, #6081A9) 60%, var(--kopf-k3, #B6C9DF));
 }
 .neu-logo { display: flex; justify-content: center; height: 26px; margin-bottom: 10px; }
 .neu-logo .k-wordmark { color: #fff; height: 26px; width: auto; }
@@ -5234,9 +5239,9 @@ body.sparsam .wa-modus-flaeche { transition-duration: .2s; }
 .neu-liste li + li { border-top: 1px solid var(--stroke-light); }
 .neu-icon {
   flex: 0 0 36px; height: 36px; border-radius: 11px; display: grid; place-items: center;
-  background: color-mix(in srgb, var(--kopf-k2, #12C77E) 16%, transparent); color: var(--kopf-k1, #0E9C64);
+  background: color-mix(in srgb, var(--kopf-k2, #6081A9) 16%, transparent); color: var(--kopf-k1, #405A7C);
 }
-:root[data-theme="dark"] .neu-icon { color: var(--kopf-k3, #23D992); }
+:root[data-theme="dark"] .neu-icon { color: var(--kopf-k3, #B6C9DF); }
 .neu-icon .icon { width: 20px; height: 20px; }
 .neu-txt { display: flex; flex-direction: column; gap: 2px; font-size: .86rem; line-height: 1.4; }
 .neu-txt b { font-size: .94rem; }
@@ -5293,7 +5298,7 @@ body.marken-modus .wallet-kopf-inner { --k1: var(--marke-k1); --k2: var(--marke-
 body.marken-modus .wallet-kopf .rang-trenner, body.marken-modus #wallet-rank { display: none; }
 body.marken-modus.wallet-farbe .topbar .k-wordmark .k-dot { fill: var(--marke-k3); }
 body.marken-modus #wallet-mini.rangfarbe #wallet-mini-total { color: var(--marke-k1); }
-.wsl-marke { color: var(--k1, var(--kopf-k1, #0E9C64)); }
+.wsl-marke { color: var(--k1, var(--kopf-k1, #405A7C)); }
 body.marken-modus .wsl-marke { color: var(--marke-k1); }
 
 /* Laden-Erkennung: Frage gleitet von oben herein (wie eine Mitteilung) */

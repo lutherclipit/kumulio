@@ -76,7 +76,7 @@ function setzeLeistenfarbe() {
   const markenfarbe = document.body.classList.contains('marken-modus') && !document.body.classList.contains('wallet-zu')
     ? st.getPropertyValue('--marke-k1').trim() : '';
   const farbe = inWallet
-    ? (markenfarbe || st.getPropertyValue('--kopf-k1').trim() || '#0E9C64')
+    ? (markenfarbe || st.getPropertyValue('--kopf-k1').trim() || '#405A7C')
     : (getComputedStyle(document.body).backgroundColor || '#EEF1F5');
   if (meta.content !== farbe) meta.content = farbe;
 }
@@ -5522,6 +5522,7 @@ function animateNumber(el, from, to, ms = 700) {
 // ("über 10 €" heisst ab 10,01 €). slug ist der Schluessel fuer Farben
 // (.wallet-kopf.tier-N in style.css) und die Maskottchen-Modelle je Rang.
 // Runde 119: neue Namen vom Nutzer, dazu Stufe 7 ab 1000 € (Gold).
+// Runde 125: Farben nach den CS-Skin-Seltenheiten (Consumer … Contraband).
 const RANKS = [
   { tier: 1, slug: 'scout', name: 'Scout', min: 0, bis: 10 },
   { tier: 2, slug: 'sammler', name: 'Sammler', min: 10.01, bis: 50 },

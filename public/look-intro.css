@@ -17,14 +17,14 @@
   padding: 18px calc(var(--figur-b) * .86 + 4px) 18px 18px;
   border-radius: 18px; color: #fff; text-align: left;
   background:
-    radial-gradient(110% 90% at 100% 0%, color-mix(in srgb, var(--kopf-k3, #2FE09C) 55%, transparent) 0%, transparent 62%),
-    linear-gradient(150deg, var(--kopf-k1, #0E9C64) 0%, var(--kopf-k2, #12C77E) 100%);
+    radial-gradient(110% 90% at 100% 0%, color-mix(in srgb, var(--kopf-k3, #B6C9DF) 55%, transparent) 0%, transparent 62%),
+    linear-gradient(150deg, var(--kopf-k1, #405A7C) 0%, var(--kopf-k2, #6081A9) 100%);
   box-shadow: 0 10px 26px color-mix(in srgb, var(--akzent) 26%, transparent), inset 0 1px 0 rgba(255, 255, 255, .22);
 }
 :root[data-theme="dark"] .intro-fenster {
   background:
-    radial-gradient(110% 90% at 100% 0%, color-mix(in srgb, var(--kopf-k3, #2FE09C) 34%, transparent) 0%, transparent 62%),
-    linear-gradient(150deg, color-mix(in srgb, var(--kopf-k1, #0E9C64) 82%, #0B0E11) 0%, color-mix(in srgb, var(--kopf-k2, #12C77E) 72%, #0B0E11) 100%);
+    radial-gradient(110% 90% at 100% 0%, color-mix(in srgb, var(--kopf-k3, #B6C9DF) 34%, transparent) 0%, transparent 62%),
+    linear-gradient(150deg, color-mix(in srgb, var(--kopf-k1, #405A7C) 82%, #0B0E11) 0%, color-mix(in srgb, var(--kopf-k2, #6081A9) 72%, #0B0E11) 100%);
   box-shadow: 0 10px 26px rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .12);
 }
 .intro-fenster-text { position: relative; z-index: 2; }
