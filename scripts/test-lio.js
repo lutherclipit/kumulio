@@ -105,6 +105,9 @@ pruefe('dritter Tag (nicht in Folge): +10', S.lioStand(P('olga')) === 20 && P('o
   a = await api(null, '/api/shop');
   const amz = a.j.produkte[0];
   pruefe('Shop: Amazon 5 €, 500 Lios, ausverkauft', amz.id === 'amazon-5' && amz.wert === 5 && amz.preisLio === 500 && amz.ausverkauft === true && a.j.echtgeld === false);
+  const pp = a.j.produkte.find(x => x.id === 'peepoplush-10');
+  pruefe('Shop: PEEPOPLUSH 10 €, 1000 Lios, 5 % = 50 Lios Cashback, Kartenbild', pp && pp.wert === 10 && pp.preisLio === 1000 && pp.cashbackProzent === 5 && pp.cashbackLio === 50 && pp.bild === 'peepoplush-geschenkkarte');
+  pruefe('Shop: Amazon 1 % = 5 Lios Cashback', amz.cashbackProzent === 1 && amz.cashbackLio === 5);
   a = await api('tokAnna', '/api/shop/kaufen', { produkt: 'amazon-5', zahlung: 'lio' });
   pruefe('Kauf ausverkauft: 409', a.status === 409 && a.j.ausverkauft === true);
   a = await api('tokAnna', '/api/shop/kaufen', { produkt: 'amazon-5', zahlung: 'euro' });
@@ -134,19 +137,24 @@ pruefe('dritter Tag (nicht in Folge): +10', S.lioStand(P('olga')) === 20 && P('o
   pruefe('Admin: Bestand 0, 2 verkauft, Codes maskiert', a.j.produkte[0].bestand === 0 && a.j.produkte[0].verkauft === 2 && !JSON.stringify(a.j).includes('BBBBBB'));
   a = await admin('/api/admin/shop/codes', { produkt: 'amazon-5', codes: 'AAAA BBBBBB CCCC' });
   pruefe('Admin: verkaufter Code kommt nicht wieder rein', a.j.hinzu === 0 && a.j.doppelt === 1);
-  a = await admin('/api/admin/shop/produkt', { produkt: 'amazon-5', cashbackLio: 25 });
-  pruefe('Admin: Cashback 25', a.status === 200 && a.j.produkt.cashbackLio === 25);
+  a = await admin('/api/admin/shop/produkt', { produkt: 'amazon-5', cashbackProzent: 5 });
+  pruefe('Admin: Cashback 5 % = 25 Lios', a.status === 200 && a.j.produkt.cashbackLio === 25);
+  a = await admin('/api/admin/shop/produkt', { produkt: 'amazon-5', cashbackProzent: 51 });
+  pruefe('Admin: Cashback ueber 50 %: 400', a.status === 400);
   await admin('/api/admin/shop/codes', { produkt: 'amazon-5', codes: 'GGGG-HHHHHH-IIII' });
   P('anna').lio = 500;
-  a = await api('tokAnna', '/api/shop/kaufen', { produkt: 'amazon-5', zahlung: 'lio' });
-  pruefe('Kauf mit Cashback: 500 - 500 + 25', a.status === 200 && a.j.lio === 25 && a.j.cashback === 25);
+  a = await api('tokAnna', '/api/shop/kaufen', { produkt: 'amazon-5', zahlung: 'lio', schluessel: 'kauf-test-0001' });
+  pruefe('Kauf mit Lios: kein Cashback (500 - 500)', a.status === 200 && a.j.lio === 0 && a.j.cashback === 0);
+  const ersterKauf = a.j.kauf;
+  a = await api('tokAnna', '/api/shop/kaufen', { produkt: 'amazon-5', zahlung: 'lio', schluessel: 'kauf-test-0001' });
+  pruefe('derselbe Kauf-Schluessel nochmal: derselbe Kauf, kein zweiter', a.status === 200 && a.j.wiederholt === true && a.j.kauf === ersterKauf && a.j.lio === 0);
   a = await admin('/api/admin/shop/produkt', { produkt: 'amazon-5', aktiv: false });
-  pruefe('Admin: deaktiviert, Shop leer', (await api(null, '/api/shop')).j.produkte.length === 0);
-  await admin('/api/admin/shop/produkt', { produkt: 'amazon-5', aktiv: true, cashbackLio: 0 });
-  a = await admin('/api/admin/lio', { user: 'anna', delta: -26 });
+  pruefe('Admin: deaktiviert, nicht mehr im Shop', !(await api(null, '/api/shop')).j.produkte.some(x => x.id === 'amazon-5'));
+  await admin('/api/admin/shop/produkt', { produkt: 'amazon-5', aktiv: true, cashbackProzent: 1 });
+  a = await admin('/api/admin/lio', { user: 'anna', delta: -1 });
   pruefe('Admin: nicht unter 0', a.status === 409);
   a = await admin('/api/admin/lio', { user: 'anna', delta: 12, grund: 'Erstattung <b>' });
-  pruefe('Admin: +12 mit Stern', a.j.lio === 37 && P('anna').lioNeu.slice(-1)[0].text === 'Erstattung b');
+  pruefe('Admin: +12 mit Stern', a.j.lio === 12 && P('anna').lioNeu.slice(-1)[0].text === 'Erstattung b');
 
   // --- Einladung ueber die Registrierung, Konto loeschen und neu: einmal
   const echtesFetch = global.fetch;

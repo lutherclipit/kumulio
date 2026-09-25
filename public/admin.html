@@ -109,7 +109,7 @@
       <button class="ghost" id="btn-shop-weg">Diese Codes entfernen</button>
     </div>
     <div class="row">
-      <div style="flex:1"><label>Cashback (Lios je Kauf)</label><input id="shop-cashback" type="number" min="0" step="1"></div>
+      <div style="flex:1"><label>Cashback in % (nur beim Kauf mit Echtgeld)</label><input id="shop-cashback" type="number" min="0" max="50" step="0.1"></div>
       <label style="display:flex; align-items:center; gap:8px; margin-top:26px; font-size:.88rem; color:#e8ecef">
         <input type="checkbox" id="shop-aktiv" style="width:auto"> im Shop sichtbar
       </label>
@@ -378,7 +378,7 @@
       const zeile = el('div'); zeile.className = 'item';
       const info = el('div'); info.className = 'info';
       const t = el('div', `${x.name} · ${euro(x.wert)}`); t.className = 't';
-      const p = el('div', `${x.bestand} auf Lager · ${x.verkauft} verkauft · ${x.preisLio} Lios oder ${euro(x.preisEuro)} · Cashback ${x.cashbackLio} Lios${x.aktiv ? '' : ' · ausgeblendet'}`);
+      const p = el('div', `${x.bestand} auf Lager · ${x.verkauft} verkauft · ${x.preisLio} Lios oder ${euro(x.preisEuro)} · Cashback ${x.cashbackProzent} % (${x.cashbackLio} Lios, nur Echtgeld)${x.aktiv ? '' : ' · ausgeblendet'}`);
       p.className = 'p'; p.style.color = x.bestand ? '#39d980' : '#8b96a0';
       info.append(t, p); zeile.append(info);
       return zeile;
@@ -404,7 +404,7 @@
   function produktFelder() {
     const x = (shopDaten && shopDaten.produkte || []).find(p => p.id === $('#shop-produkt').value);
     if (!x) return;
-    $('#shop-cashback').value = x.cashbackLio;
+    $('#shop-cashback').value = x.cashbackProzent;
     $('#shop-aktiv').checked = !!x.aktiv;
   }
   $('#shop-produkt').onchange = produktFelder;
@@ -427,7 +427,7 @@
   };
   $('#btn-shop-produkt').onclick = async () => {
     const r = await adminFetch('/api/admin/shop/produkt', { method: 'POST',
-      body: JSON.stringify({ produkt: $('#shop-produkt').value, cashbackLio: Number($('#shop-cashback').value), aktiv: $('#shop-aktiv').checked }) });
+      body: JSON.stringify({ produkt: $('#shop-produkt').value, cashbackProzent: Number($('#shop-cashback').value), aktiv: $('#shop-aktiv').checked }) });
     const j = await r.json();
     shopMsg(r.ok ? 'Gespeichert.' : (j.error || 'Fehler'), r.ok ? 'ok' : 'err');
     loadShop();

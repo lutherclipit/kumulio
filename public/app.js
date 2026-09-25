@@ -232,6 +232,7 @@ const BRAND_COLORS = {
   'müller': '#e85d00', mueller: '#e85d00', subway: '#008c15', 'lidl plus': '#0050aa',
   'uber eats': '#06c167', "mcdonald's": '#ffbc0d', "domino's": '#006491', dominos: '#006491',
   'about you': '#1f1f1f', temu: '#fb7701', shein: '#222222', nike: '#111111', 'peter pane': '#ffd400',
+  peepoplush: '#1f3d14',
 };
 function brandColor(name) {
   const key = (name || '').toLowerCase().trim();
@@ -5974,6 +5975,7 @@ const MARKEN_LOGOS = {
   kaufland: 'kaufland', mcdonalds: 'mcdonalds', "mcdonald's": 'mcdonalds', 'burger king': 'burger-king',
   netto: 'netto', edeka: 'edeka', dm: 'dm', lidl: 'lidl', 'lidl plus': 'lidl', 'müller': 'mueller',
   mueller: 'mueller', wolt: 'wolt', 'peter pane': 'peter-pane', amazon: 'amazon', 'amazon.de': 'amazon',
+  peepoplush: 'peepoplush',
 };
 // Maskottchen der Marken fuer das Feed-Banner: ragt oben aus dem Fenster wie
 // Kumulio in der Wallet. Schluessel wie die Dateinamen in MARKEN_LOGOS
@@ -13053,23 +13055,37 @@ function lioMotivHtml(p, cls) {
     ? `<span class="vk-motiv ${cls}" aria-hidden="true">${vkMotivHtml({ vendor: p.marke })}</span>` : '';
 }
 
-// Die kleine Gutscheinkarte im Markenton (wie in der Wallet)
+// Das echte Kartenbild des Gutscheins (vom Nutzer), sonst ''
+function lioKartenBildHtml(p, cls, breite) {
+  const b = /^[a-z0-9-]{1,40}$/.test(p?.bild || '') ? '/brand/shop/' + p.bild : '';
+  return b ? `<img class="${cls}" src="${b}-320.webp" srcset="${b}-320.webp 320w, ${b}-640.webp 640w" sizes="${breite}px"
+    alt="" decoding="async" draggable="false">` : '';
+}
+// "Dein Gutschein" / "Deine Geschenkkarte"
+const lioArtikel = name => /karte$/i.test(String(name || '').trim()) ? 'Deine' : 'Dein';
+
+// In der Liste: das Kartenbild (sonst die kleine Karte im Markenton wie in
+// der Wallet), daneben Name und Wert, darunter der Preis
 function lioProduktKarteHtml(p) {
   const aus = lioAusverkauft(p);
   const farbe = brandColor(p.marke);
+  const bild = lioKartenBildHtml(p, 'lsh-bild', 112);
   return `
     <button class="gd-block lsh-produkt${aus ? ' aus' : ''}" type="button" data-lsh-produkt="${esc(p.id)}"
       aria-label="${esc(p.name)}, ${euroFmt(p.wert)}, ${lioText(p.preisLio)}${aus ? ', ausverkauft' : ''}">
-      <span class="lsh-karte${brandHelligkeit(farbe) > 0.62 ? ' hell' : ''}" style="--bc:${farbe}; --tc:${brandTextColor(p.marke)}">
+      ${bild ? `<span class="lsh-karte mit-bild">
+        <span class="lsh-bild-rahmen">${bild}</span>
+        <span class="lsh-karte-namen"><b>${esc(p.marke)}</b><small>${esc(p.name)}</small></span>
+        <b class="lsh-karte-wert">${euroFmt(p.wert)}</b>
+      </span>` : `<span class="lsh-karte${brandHelligkeit(farbe) > 0.62 ? ' hell' : ''}" style="--bc:${farbe}; --tc:${brandTextColor(p.marke)}">
         ${lioMotivHtml(p, 'lsh-motiv')}
         <span class="vk-logo">${brandChipHtml(p.marke)}</span>
         <span class="lsh-karte-namen"><b>${esc(p.marke)}</b><small>Gutschein</small></span>
         <b class="lsh-karte-wert">${euroFmt(p.wert)}</b>
-      </span>
+      </span>`}
       <span class="lsh-fuss">
         <span class="lsh-preis">${lioSternImg(22)}<b>${lioText(p.preisLio)}</b>${p.preisEuro ? `<small>oder ${euroFmt(p.preisEuro)}</small>` : ''}</span>
-        ${aus ? '<span class="lsh-status">Ausverkauft</span>'
-          : p.cashbackLio > 0 ? `<span class="lsh-status cashback">+${lioText(p.cashbackLio)} Cashback</span>` : ''}
+        ${aus ? '<span class="lsh-status">Ausverkauft</span>' : ''}
         ${icon('chevron', 'icon icon-sm lsh-pfeil')}
       </span>
     </button>`;
@@ -13100,7 +13116,7 @@ function zeichneLioShop(seite) {
     weg('sun', 'Jeden Tag reinschauen', 'einmal pro Tag, von selbst', Number(s.proTag) || 0),
     weg('flame', '7 Tage in Folge', 'im Menü abholen', Number(s.woche) || 0),
     weg('trophy', '30 Tage in Folge', 'im Menü abholen', Number(s.monat) || 0),
-    weg('user', 'Freund einladen', `sobald er an ${Number(f.tageNoetig) || 3} Tagen reinschaut`, Number(f.proFreund) || 0, ' data-lsh-einladen'),
+    weg('user', 'Freund einladen', `sobald er seine E-Mail bestätigt und an ${Number(f.tageNoetig) || 3} Tagen reinschaut`, Number(f.proFreund) || 0, ' data-lsh-einladen'),
   ].join('');
   const zeit = ts => new Date(ts).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const verlauf = (lioVerlauf || []).slice(0, 5).map(e => {
@@ -13150,6 +13166,14 @@ function lioKaufStand(p) {
 function lioGrosseKarteHtml(p, { gekauft = false } = {}) {
   const farbe = brandColor(p.marke);
   const aus = !gekauft && lioAusverkauft(p);
+  const status = gekauft ? 'In deiner Wallet' : aus ? 'Ausverkauft' : 'Sofort verfügbar';
+  // Mit Kartenbild: die Karte selbst, darunter Wert und Stand
+  const bild = lioKartenBildHtml(p, 'lsh-gross-img', 340);
+  if (bild) return `
+    <div class="lsh-gross-bild${aus ? ' aus' : ''}">
+      <span class="lsh-gross-rahmen">${bild}</span>
+      <div class="lsh-gross-zeile"><b>${euroFmt(p.wert)}</b><span>Guthaben</span><span class="pill">${status}</span></div>
+    </div>`;
   return `
     <div class="gd-karte lsh-gross${brandHelligkeit(farbe) > 0.62 ? ' hell' : ''}${aus ? ' aus' : ''}" style="--bc:${farbe}; --tc:${brandTextColor(p.marke)}">
       ${lioMotivHtml(p, 'gd-motiv')}
@@ -13158,7 +13182,7 @@ function lioGrosseKarteHtml(p, { gekauft = false } = {}) {
         <span class="gd-karte-namen"><b>${esc(p.marke)}</b><span>${esc(p.name)}</span></span>
       </div>
       <div class="gd-guthaben"><b>${euroFmt(p.wert)}</b><span>Guthaben</span></div>
-      <div class="gd-karte-fuss"><span class="pill">${gekauft ? 'In deiner Wallet' : aus ? 'Ausverkauft' : 'Sofort verfügbar'}</span></div>
+      <div class="gd-karte-fuss"><span class="pill">${status}</span></div>
     </div>`;
 }
 function zeichneLioProdukt(seite, { nurWennNeu = false } = {}) {
@@ -13188,8 +13212,6 @@ function zeichneLioProdukt(seite, { nurWennNeu = false } = {}) {
         <span class="lsh-info-text"><b>${esc(p.name)} über ${euroFmt(p.wert)}</b>${p.hinweis ? `<small>${esc(p.hinweis)}</small>` : ''}</span></div>
       <div class="lsh-info-zeile"><span class="lsh-info-ico">${icon('wallet', 'icon')}</span>
         <span class="lsh-info-text"><b>Landet direkt in deiner Wallet</b><small>Mit Code, gleich nach dem Kauf und auf all deinen Geräten</small></span></div>
-      ${p.cashbackLio > 0 ? `<div class="lsh-info-zeile"><span class="lsh-info-ico lio">${lioSternImg(24)}</span>
-        <span class="lsh-info-text"><b>+${lioText(p.cashbackLio)} Cashback</b><small>kommen nach dem Kauf auf dein Lio-Konto</small></span></div>` : ''}
     </div>
     <h3 class="gd-h">Bezahlen</h3>
     ${seite.fehlerText ? `<p class="lsh-fehler" role="alert">${icon('warning', 'icon icon-sm')}<span>${esc(seite.fehlerText)}</span></p>` : ''}
@@ -13201,7 +13223,8 @@ function zeichneLioProdukt(seite, { nurWennNeu = false } = {}) {
     ${k.email ? '<button class="lsh-email" type="button" data-lsh-email>Zur E-Mail-Adresse in den Einstellungen</button>' : ''}
     <button class="gd-block lsh-zahl euro" type="button" disabled>
       <span class="lsh-zahl-ico euro">${icon('banknote', 'icon')}</span>
-      <span class="lsh-zahl-text"><b>Mit Echtgeld bezahlen</b><small><span class="lsh-bald">Bald verfügbar</span></small></span>
+      <span class="lsh-zahl-text"><b>Mit Echtgeld bezahlen</b><small><span class="lsh-bald">Bald verfügbar</span>${p.cashbackLio > 0
+        ? `<span class="lsh-cashback">${lioSternImg(16)}+${lioText(p.cashbackLio)} Cashback (${String(p.cashbackProzent).replace('.', ',')} %)</span>` : ''}</small></span>
       <span class="lsh-zahl-preis">${euroFmt(p.preisEuro)}</span>
     </button>`;
   inhalt.querySelector('[data-lsh-zahl="lio"]').onclick = () => lioKaufFragen(seite, p);
@@ -13217,6 +13240,7 @@ async function lioKaufFragen(seite, p) {
     if (!ok || wseiteOben() !== seite) return;
   }
   seite.fragt = true;
+  if (!seite.kaufSchluessel) seite.kaufSchluessel = 'k' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
   const stand = lioStand();
   const leiste = document.createElement('div');
   leiste.className = 'wseite-leiste lsh-leiste';
@@ -13224,7 +13248,7 @@ async function lioKaufFragen(seite, p) {
   leiste.setAttribute('aria-label', 'Kauf bestätigen');
   leiste.innerHTML = `
     <div class="lsh-leiste-text"><b>${esc(p.name)} für ${lioText(p.preisLio)} kaufen?</b>
-      <small>Danach hast du noch ${lioText(stand - p.preisLio)}. Der Gutschein landet sofort in deiner Wallet.</small></div>
+      <small>Danach hast du noch ${lioText(stand - p.preisLio)}. Landet sofort in deiner Wallet.</small></div>
     <div class="gd-knoepfe">
       <button class="gd-knopf lsh-nein" type="button">Abbrechen</button>
       <button class="gd-knopf lsh-ja" type="button">Jetzt kaufen</button>
@@ -13256,8 +13280,11 @@ async function lioKaufen(seite, p, leiste) {
   leiste.querySelector('.lsh-nein').disabled = true;
   let r = null, fehler = null;
   try {
-    r = await api('/api/shop/kaufen', { method: 'POST', body: JSON.stringify({ produkt: p.id, zahlung: 'lio' }) });
+    r = await api('/api/shop/kaufen', { method: 'POST', body: JSON.stringify({ produkt: p.id, zahlung: 'lio', schluessel: seite.kaufSchluessel }) });
   } catch (e) { fehler = e; }
+  // Der Server hat geantwortet (Erfolg oder klare Absage): der naechste Kauf
+  // bekommt einen neuen Schluessel. Ohne Antwort bleibt er fuer den neuen Versuch.
+  if (r || fehler?.data) seite.kaufSchluessel = '';
   seite.kauft = false;
   seite.fest = false;
   seite.fragt = false;
@@ -13308,7 +13335,7 @@ function lioErfolgHtml(r, p) {
     <div class="lsh-erfolg">
       <span class="lsh-haken">${icon('check', 'icon')}</span>
       <h3>Gekauft!</h3>
-      <p>Dein ${esc(name)}${p ? ` über ${euroFmt(p.wert)}` : ''} liegt jetzt in deiner Wallet.</p>
+      <p>${lioArtikel(name)} ${esc(name)}${p ? ` über ${euroFmt(p.wert)}` : ''} liegt jetzt in deiner Wallet.</p>
       <p class="lsh-erfolg-stand"><span class="lsh-erfolg-stern" data-lio-ziel>${lioSternImg(22)}</span><span>Du hast noch <b data-lio-stand>${lioText(lioAnzeige())}</b></span></p>
     </div>
     <button class="gd-los" type="button" data-lsh-ansehen>Gutschein ansehen</button>

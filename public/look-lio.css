@@ -330,3 +330,62 @@ button.lsh-weg:focus-visible { outline: 2px solid var(--akzent-text); outline-of
   .lsh-kopf-stern { width: 72px; height: 72px; }
   .lsh-kopf-stern .lio-stern { width: 62px; height: 62px; }
 }
+
+/* ---- Gutscheine mit echtem Kartenbild (Amazon, PEEPOPLUSH) ----
+   Liste: die Karte links, daneben Marke, Name und Wert; ausverkauft wird
+   nur die Karte grau, der Text bleibt lesbar (blasser) */
+.lsh-karte.mit-bild {
+  grid-template-columns: 112px minmax(0, 1fr) auto; column-gap: 14px;
+  min-height: 0; padding: 4px 8px 4px 4px; color: var(--text);
+  background: none; box-shadow: none; overflow: visible;
+}
+.lsh-bild-rahmen { display: block; width: 112px; aspect-ratio: 1.6; }
+.lsh-bild {
+  display: block; width: 100%; height: 100%; object-fit: contain;
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, .22));
+}
+.lsh-karte.mit-bild .lsh-karte-namen small { color: var(--muted); opacity: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lsh-karte.mit-bild .lsh-karte-wert { text-shadow: none; }
+.lsh-produkt.aus .lsh-karte.mit-bild, :root[data-theme="dark"] .lsh-produkt.aus .lsh-karte.mit-bild { filter: none; opacity: 1; }
+.lsh-produkt.aus .lsh-bild { filter: grayscale(1) drop-shadow(0 4px 8px rgba(0, 0, 0, .14)); opacity: .5; }
+.lsh-produkt.aus .lsh-karte.mit-bild .lsh-karte-namen, .lsh-produkt.aus .lsh-karte.mit-bild .lsh-karte-wert { opacity: .6; }
+
+/* Detail: die Karte gross, leicht schraeg wie ein Schaustueck (statisch),
+   darunter Wert und Stand */
+.lsh-gross-bild { display: flex; flex-direction: column; align-items: center; margin-top: 4px; }
+.lsh-gross-rahmen { display: block; width: min(100%, 340px); padding: 10px 0 14px; perspective: 900px; }
+.lsh-gross-img {
+  display: block; width: 100%; height: auto;
+  transform: rotateX(4deg) rotateY(-6deg);
+  filter: drop-shadow(0 16px 22px rgba(0, 0, 0, .28));
+}
+.lsh-gross-bild.aus .lsh-gross-img { filter: grayscale(1) drop-shadow(0 12px 18px rgba(0, 0, 0, .16)); opacity: .5; }
+.lsh-gross-zeile {
+  display: flex; align-items: baseline; gap: 6px; width: 100%; padding: 2px 4px 0;
+}
+.lsh-gross-zeile b { font-size: 1.55rem; font-weight: 850; letter-spacing: -.02em; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.lsh-gross-zeile > span:not(.pill) { font-size: .9rem; font-weight: 650; color: var(--muted); }
+.lsh-gross-zeile .pill {
+  margin-left: auto; align-self: center; padding: 4px 9px; border-radius: 8px;
+  background: var(--akzent-weich); color: var(--akzent-text); font-size: .76rem; font-weight: 800;
+}
+.lsh-gross-bild.aus .lsh-gross-zeile .pill { background: var(--karte-2); color: var(--muted); }
+.lsh-gross-bild.aus .lsh-gross-zeile b { opacity: .6; }
+/* Dunkel: schwarze Karten (Amazon) brauchen eine feine helle Kante */
+:root[data-theme="dark"] .lsh-bild { filter: drop-shadow(0 0 .6px rgba(255, 255, 255, .55)) drop-shadow(0 6px 10px rgba(0, 0, 0, .5)); }
+:root[data-theme="dark"] .lsh-gross-img { filter: drop-shadow(0 0 .8px rgba(255, 255, 255, .5)) drop-shadow(0 16px 22px rgba(0, 0, 0, .55)); }
+:root[data-theme="dark"] .lsh-produkt.aus .lsh-bild { filter: grayscale(1) drop-shadow(0 0 .6px rgba(255, 255, 255, .6)); opacity: .6; }
+:root[data-theme="dark"] .lsh-gross-bild.aus .lsh-gross-img { filter: grayscale(1) drop-shadow(0 0 .8px rgba(255, 255, 255, .6)); opacity: .6; }
+@media (max-width: 370px) {
+  .lsh-karte.mit-bild { grid-template-columns: 88px minmax(0, 1fr) auto; column-gap: 11px; }
+  .lsh-bild-rahmen { width: 88px; }
+  .lsh-karte.mit-bild .lsh-karte-namen b { font-size: .98rem; }
+  .lsh-karte.mit-bild .lsh-karte-wert { font-size: 1.18rem; }
+  .lsh-preis small { display: none; }
+}
+/* Cashback steht nur beim Echtgeld: gibt es nur dort */
+.lsh-cashback {
+  display: inline-flex; align-items: center; gap: 3px; margin-left: 8px;
+  color: var(--lio-text); font-weight: 750; white-space: nowrap;
+}
+.lsh-cashback .lio-stern { width: 14px; height: 14px; }

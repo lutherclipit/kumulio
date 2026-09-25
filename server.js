@@ -1503,7 +1503,7 @@ function lioWerbungPruefen(user, { jetzt = Date.now(), leise = false } = {}) {
   }
   eintrag.lio = jetzt;
   wp.lioFreunde = (Number(wp.lioFreunde) || 0) + 1;
-  lioBuchen(wp, LIO.freund, 'freund', `@${user} ist dabei`, { neu: true, jetzt });
+  lioBuchen(wp, LIO.freund, 'freund', `${anzeigenameVon(user) || '@' + user} ist dabei`, { neu: true, jetzt });
   lioDaten.geworbenMails[h] = jetzt;
   // Erst die Gutschrift samt Merker am Eintrag, dann die Adressliste
   saveJson('users.json', users);
@@ -1555,13 +1555,36 @@ const lioNeuListe = prof => (Array.isArray(prof.lioNeu) ? prof.lioNeu : []).filt
 // Clients, ausser der eine, den ein Kaeufer bekommt. Leerer Bestand =
 // ausverkauft (die App zeigt den Gutschein ausgegraut, aber ansehbar).
 // Echtgeld gibt es noch nicht (kein Zahlungsanbieter): 501.
+// Cashback in Prozent vom Gutscheinwert, NUR beim Kauf mit Echtgeld (Wunsch
+// des Nutzers: wer mit Lios zahlt, bekommt keine Lios zurueck). Abgerundet
+// auf ganze Lios. bild = Kartenbild unter /brand/shop/<bild>-320/-640.webp.
 const SHOP_STANDARD = [{
   id: 'amazon-5', marke: 'Amazon', name: 'Amazon.de Gutschein', wert: 5,
-  preisLio: 500, preisEuro: 5, cashbackLio: 0, aktiv: true,
+  preisLio: 500, preisEuro: 5, cashbackProzent: 1, aktiv: true, bild: 'amazon-gutschein',
   hinweis: 'Einlösbar auf amazon.de. Der Code liegt nach dem Kauf direkt in deiner Wallet.',
+}, {
+  id: 'peepoplush-10', marke: 'PEEPOPLUSH', name: 'PEEPOPLUSH Geschenkkarte', wert: 10,
+  preisLio: 1000, preisEuro: 10, cashbackProzent: 5, aktiv: true, bild: 'peepoplush-geschenkkarte',
+  hinweis: 'Einlösbar im Shop auf peepoplush.com. Der Code liegt nach dem Kauf direkt in deiner Wallet.',
 }];
 let shop = loadJson('shop.json', null);
-if (!shop || !Array.isArray(shop.produkte)) { shop = { produkte: SHOP_STANDARD.map(x => ({ ...x })) }; saveJson('shop.json', shop); }
+if (!shop || !Array.isArray(shop.produkte)) shop = { produkte: [] };
+// Neue Standard-Produkte kommen dazu, alte Kataloge bekommen die neuen Felder
+// (cashbackProzent ersetzt das fruehere feste cashbackLio, dazu das Kartenbild).
+// Was im Admin eingestellt wurde (aktiv, Cashback), bleibt.
+{
+  let geaendert = false;
+  for (const std of SHOP_STANDARD) {
+    const pr = shop.produkte.find(x => x && x.id === std.id);
+    if (!pr) { shop.produkte.push({ ...std }); geaendert = true; continue; }
+    if (pr.cashbackProzent === undefined) { pr.cashbackProzent = std.cashbackProzent; geaendert = true; }
+    if ('cashbackLio' in pr) { delete pr.cashbackLio; geaendert = true; }
+    if (!pr.bild && std.bild) { pr.bild = std.bild; geaendert = true; }
+  }
+  if (geaendert) saveJson('shop.json', shop);
+}
+// Cashback eines Produkts in Lios (1 Lio = 1 Cent), abgerundet
+const shopCashbackLio = pr => Math.max(0, Math.floor(Math.round((Number(pr.wert) || 0) * 100) * (Number(pr.cashbackProzent) || 0) / 100));
 let shopBestand = loadJson('shop-bestand.json', null);
 if (!shopBestand || typeof shopBestand !== 'object') shopBestand = {};
 if (!shopBestand.codes || typeof shopBestand.codes !== 'object') shopBestand.codes = {};
@@ -1573,7 +1596,10 @@ function shopOeffentlich(pr) {
   const bestand = shopCodes(pr.id).length;
   return {
     id: pr.id, marke: pr.marke, name: pr.name, wert: pr.wert,
-    preisLio: pr.preisLio, preisEuro: pr.preisEuro, cashbackLio: Number(pr.cashbackLio) || 0,
+    preisLio: pr.preisLio, preisEuro: pr.preisEuro,
+    // Cashback gilt nur beim Kauf mit Echtgeld
+    cashbackProzent: Number(pr.cashbackProzent) || 0, cashbackLio: shopCashbackLio(pr),
+    bild: /^[a-z0-9-]{1,40}$/.test(pr.bild || '') ? pr.bild : '',
     hinweis: pr.hinweis || '', verfuegbar: bestand > 0, ausverkauft: bestand === 0,
   };
 }
@@ -3739,6 +3765,18 @@ const server = http.createServer(async (req, res) => {
       if (!pr || pr.aktiv === false) return send(res, 404, { error: 'Diesen Gutschein gibt es nicht (mehr).' });
       if (b.zahlung !== 'lio' && b.zahlung !== 'euro') return send(res, 400, { error: 'Bitte eine Zahlart wählen.' });
       if (b.zahlung === 'euro') return send(res, 501, { error: 'Bezahlen mit Echtgeld kommt bald.' });
+      // Kauf-Schluessel vom Geraet: kommt derselbe noch einmal (Antwort ging
+      // verloren, doppelt getippt), gibt es den schon erledigten Kauf zurueck
+      // statt eines zweiten Gutscheins
+      const schluessel = typeof b.schluessel === 'string' && /^[A-Za-z0-9-]{8,64}$/.test(b.schluessel) ? b.schluessel : '';
+      if (schluessel) {
+        const frueher = shopBestand.verkauft.find(x => x && x.user === me && x.schluessel === schluessel);
+        if (frueher) {
+          const fp = shopProdukt(frueher.produkt) || pr;
+          const gv = ((wallets[me] && wallets[me].vouchers) || []).find(v => v && v.id === frueher.gutschein) || null;
+          return send(res, 200, { ok: true, wiederholt: true, lio: lioStand(profileOf(me)), cashback: 0, gutschein: gv, produkt: shopOeffentlich(fp), kauf: frueher.id });
+        }
+      }
       // Ab hier kein await mehr: pruefen, abbuchen, Code nehmen und einbuchen
       // passieren am Stueck — zwei gleichzeitige Kaeufe koennen sich nicht
       // denselben Code oder dieselben Lios teilen
@@ -3764,6 +3802,7 @@ const server = http.createServer(async (req, res) => {
       const posten = codes.shift();
       shopBestand.verkauft = [...shopBestand.verkauft, {
         id: kaufId, ts: jetzt, user: me, produkt: pr.id, zahlung: 'lio', preisLio: preis, code: posten.code, pin: posten.pin || '', gutschein: vid,
+        ...(schluessel ? { schluessel } : {}),
       }].slice(-SHOP_VERKAUFT_MAX);
       // Erst den Bestand sichern (ein Code wird so nie zweimal verkauft).
       // Klappt das nicht, bleibt alles, wie es war.
@@ -3774,8 +3813,9 @@ const server = http.createServer(async (req, res) => {
       }
       const titel = `${pr.name} ${String(pr.wert).replace('.', ',')} €`;
       lioBuchen(prof, -preis, 'kauf', titel, { jetzt });
-      const cashback = Math.max(0, Math.trunc(Number(pr.cashbackLio) || 0));
-      if (cashback) lioBuchen(prof, cashback, 'cashback', 'Cashback: ' + titel, { jetzt });
+      // Mit Lios bezahlt: kein Cashback (das gibt es nur beim Echtgeld-Kauf,
+      // shopCashbackLio, sobald ein Zahlungsanbieter eingerichtet ist)
+      const cashback = 0;
       const v = {
         id: vid, vendor: pr.marke, amount: pr.wert, balance: pr.wert, code: posten.code, pin: posten.pin || '',
         tx: [], img: '', codeImg: '', added: jetzt, mt: jetzt, herkunft: 'shop', shopKauf: kaufId,
@@ -4402,10 +4442,10 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req);
       const pr = shopProdukt(String(b.produkt || ''));
       if (!pr) return send(res, 404, { error: 'Produkt nicht gefunden.' });
-      if (b.cashbackLio !== undefined) {
-        const n = Number(b.cashbackLio);
-        if (!Number.isInteger(n) || n < 0 || n > 10000) return send(res, 400, { error: 'Cashback: ganze Zahl von 0 bis 10000 Lios.' });
-        pr.cashbackLio = n;
+      if (b.cashbackProzent !== undefined) {
+        const n = Number(b.cashbackProzent);
+        if (!Number.isFinite(n) || n < 0 || n > 50 || Math.round(n * 10) !== n * 10) return send(res, 400, { error: 'Cashback: 0 bis 50 Prozent, höchstens eine Nachkommastelle.' });
+        pr.cashbackProzent = n;
       }
       if (typeof b.aktiv === 'boolean') pr.aktiv = b.aktiv;
       saveJson('shop.json', shop);
