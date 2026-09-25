@@ -1232,7 +1232,7 @@ function rangStufe(user) {
 
 // Anzeigename: steht vorne, wo andere einen sehen (Chat, Freunde, Kommentare,
 // Geschenke). Der @Name bleibt der feste Schluessel des Kontos — ab der
-// Registrierung, geaendert wird er nur auf Anfrage vom Team (kontoUmbenennen).
+// Registrierung und wird derzeit gar nicht geaendert (auch nicht vom Team).
 // Leer = es steht der @Name da. Aendern geht alle 7 Tage, das erste Mal sofort.
 const ANZEIGENAME_TAGE = 7;
 // Lateinische Buchstaben samt Umlauten, ß und Akzenten (auch Tuerkisch,
@@ -2621,8 +2621,9 @@ function readBody(req, maxBytes = 50_000) {
   });
 }
 
-// @Name eines Kontos aendern — nur noch auf Anfrage, vom Team ueber
-// /api/admin/rename (frueher konnte das jeder selbst einmal im Monat).
+// @Name eines Kontos aendern. Zur Zeit ohne Aufruf: das Aendern ist erstmal
+// ganz raus (Wunsch des Nutzers, 25.09.2026 — frueher ging es selbst einmal im
+// Monat, danach kurz ueber /api/admin/rename). Bleibt fuer spaeter bereit.
 // Liefert eine Fehlermeldung oder '' bei Erfolg. Zieht ueberall mit um:
 // Konto, Sessions, Wallet, Geschenke, Chats, DMs, Freunde, Kommentare,
 // Profil-Bewertungen, Deal-Bewertungen und Meldungen.
@@ -3289,11 +3290,10 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // Der @Name ist ab der Registrierung fest: selbst aendern geht nicht mehr,
-    // nur auf Anfrage ueber das Team (/api/admin/rename). Frei aenderbar ist
-    // der Anzeigename (POST /api/profile, Feld "anzeigename").
+    // Der @Name ist ab der Registrierung fest und laesst sich nicht aendern.
+    // Frei aenderbar ist der Anzeigename (POST /api/profile, Feld "anzeigename").
     if (p === '/api/handle' && req.method === 'POST') {
-      return send(res, 403, { error: 'Dein @Name ist seit der Registrierung fest. Ändern können wir ihn nur auf Anfrage, schreib uns dafür (Kontakt im Impressum). Deinen Anzeigenamen kannst du selbst ändern.' });
+      return send(res, 403, { error: 'Dein @Name ist fest und lässt sich nicht ändern. Deinen Anzeigenamen kannst du selbst ändern.' });
     }
 
     // Konto löschen (aus den Einstellungen, mit Bestätigung im Client)
@@ -4014,16 +4014,6 @@ const server = http.createServer(async (req, res) => {
         anzeigename: anzeigenameVon(name), lastRename: (u.profile && u.profile.lastRename) || 0,
       })));
     }
-    // Support: @Name eines Kontos aendern (der Nutzer hat darum gebeten)
-    if (p === '/api/admin/rename' && req.method === 'POST') {
-      if (!isAdmin(req)) return send(res, 403, { error: 'Admin-Key falsch.' });
-      const b = await readBody(req);
-      const von = String(b.from || ''), zu = String(b.to || '').trim();
-      const fehler = kontoUmbenennen(von, zu);
-      if (fehler) return send(res, fehler === 'Nutzer nicht gefunden.' ? 404 : /vergeben|trägt schon/.test(fehler) ? 409 : 400, { error: fehler });
-      return send(res, 200, { ok: true, user: zu });
-    }
-
     if (p === '/api/admin/newsletter.csv' && req.method === 'GET') {
       if (!isAdmin(req)) return send(res, 403, { error: 'Admin-Key falsch.' });
       const rows = Object.entries(users).filter(([, u]) => u.newsletter && u.email)

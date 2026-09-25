@@ -214,20 +214,7 @@
             ${u.newsletter ? ' · <span style="color:#39d980">Newsletter</span>' : ''}
             ${u.lastRename ? ` · umbenannt ${esc(new Date(u.lastRename).toLocaleDateString('de-DE'))}` : ''}</div>
         </div>
-        <button class="ghost small" type="button" data-user-rename="${esc(u.user)}">@Name ändern</button>
       </div>`).join('') || '<div class="msg">Noch keine Nutzer.</div>';
-    // @Name aendern nur auf Anfrage der Person (Nutzer koennen es nicht selbst).
-    // Zieht ueberall mit um; die App des Nutzers uebernimmt den neuen Namen beim naechsten Start.
-    document.querySelectorAll('[data-user-rename]').forEach(b => b.onclick = async () => {
-      const von = b.dataset.userRename;
-      const zu = (prompt(`Neuer @Name für @${von} (3 bis 24 Zeichen, Buchstaben, Zahlen und ._-):`, von) || '').trim();
-      if (!zu || zu === von) return;
-      if (!confirm(`@${von} wirklich in @${zu} umbenennen?`)) return;
-      const r = await adminFetch('/api/admin/rename', { method: 'POST', body: JSON.stringify({ from: von, to: zu }) });
-      const j = await r.json().catch(() => ({}));
-      msg(r.ok ? `@${von} heißt jetzt @${j.user}.` : (j.error || 'Umbenennen fehlgeschlagen.'), r.ok ? 'ok' : 'err');
-      if (r.ok) loadUsers();
-    });
   }
 
   $('#btn-news-csv').onclick = async () => {

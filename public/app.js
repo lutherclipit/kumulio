@@ -3386,7 +3386,7 @@ $('#g-bio-save').addEventListener('click', async () => {
 
 // Name: der Anzeigename ist alle 7 Tage aenderbar (das erste Mal sofort),
 // der @Name steht nur zum Ansehen da — er ist ab der Registrierung fest und
-// wird nur auf Anfrage geaendert. Wann es wieder geht, sagt der Server
+// laesst sich nicht aendern. Wann der Anzeigename wieder geht, sagt der Server
 // (anzeigenameAb, 0 = jetzt).
 function renderNamensFelder() {
   const feld = $('#g-anzeigename');
@@ -3788,7 +3788,8 @@ function setBtnLoading(btn, on) {
   }
 }
 
-// Das Team hat den @Namen auf Anfrage geaendert (/api/admin/rename): gleiches
+// Der Server meldet einen anderen @Namen (derzeit gibt es keinen Weg dazu —
+// frueher ueber /api/admin/rename, das Aendern ist erstmal raus): gleiches
 // Konto — die Sitzung zog mit um —, gleiche Wallet, kein Kontowechsel. Was auf
 // dem Geraet am alten Namen hing (PIN, Face ID, Update-Log …), zieht mit.
 function neuerKontoname(neu) {
@@ -5959,7 +5960,7 @@ const MARKEN_LOGOS = {
   rossmann: 'rossmann', ikea: 'ikea', 'ikea family': 'ikea', subway: 'subway', lieferando: 'lieferando',
   kaufland: 'kaufland', mcdonalds: 'mcdonalds', "mcdonald's": 'mcdonalds', 'burger king': 'burger-king',
   netto: 'netto', edeka: 'edeka', dm: 'dm', lidl: 'lidl', 'lidl plus': 'lidl', 'müller': 'mueller',
-  mueller: 'mueller', wolt: 'wolt', 'peter pane': 'peter-pane',
+  mueller: 'mueller', wolt: 'wolt', 'peter pane': 'peter-pane', amazon: 'amazon', 'amazon.de': 'amazon',
 };
 // Maskottchen der Marken fuer das Feed-Banner: ragt oben aus dem Fenster wie
 // Kumulio in der Wallet. Schluessel wie die Dateinamen in MARKEN_LOGOS

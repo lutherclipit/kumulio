@@ -284,7 +284,7 @@
         <h1 style="margin:0">Profil bearbeiten</h1>
       </div>
       <!-- Bild, Name und Bio. Der Anzeigename ist alle 7 Tage aenderbar, der
-           @Name steht fest (aendern nur auf Anfrage) -->
+           @Name steht fest (aendern geht gar nicht) -->
       <div class="card pe-karte">
         <div class="pe-bild">
           <span class="avatar-big" id="g-avatar-preview"></span>
@@ -302,8 +302,7 @@
           <input id="g-handle-fest" class="input pe-fest" readonly aria-describedby="g-handle-hinweis">
           <svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg>
         </span>
-        <p class="pe-feld-hinweis" id="g-handle-hinweis">Fest seit der Registrierung. Ändern geht nur auf Anfrage über den
-          <a href="/impressum.html" target="_blank" rel="noopener">Kontakt im Impressum</a>.</p>
+        <p class="pe-feld-hinweis" id="g-handle-hinweis">Fest seit der Registrierung, er lässt sich nicht ändern.</p>
         <label class="f-label" for="g-bio">Über dich</label>
         <textarea id="g-bio" class="input" rows="2" maxlength="160" placeholder="Kurze Bio, höchstens 160 Zeichen"></textarea>
       </div>
