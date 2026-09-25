@@ -519,7 +519,7 @@ body.marken-modus #view-wallet { --wk-schein: var(--marke-k3, var(--kopf-k3, #2F
 .vk-motiv i { font-style: normal; font-weight: 900; font-size: 3.2rem; color: #fff; }
 .vk-logo { grid-column: 1; grid-row: 1 / 3; align-self: center; }
 .brand-chip.hat-logo,
-.vk-logo .brand-chip.hat-logo, .dk-ersatz .brand-chip.hat-logo, .fh-bild.logo .brand-chip.hat-logo { color: transparent; }
+.vk-logo .brand-chip.hat-logo, .dk-ersatz .brand-chip.hat-logo, .fh-kachel .brand-chip.hat-logo { color: transparent; }
 .vk-logo .brand-chip {
   width: 50px; height: 50px; border-radius: 14px; font-size: .82rem;
   background: #fff; color: var(--bc); box-shadow: 0 3px 10px rgba(0, 0, 0, .12);
@@ -723,70 +723,184 @@ body.marken-modus.wallet-farbe.kopf-weg .topbar .k-wordmark .k-dot { fill: var(-
 .deck::before, .deck::after { border-radius: 14px; }
 
 /* =============================================================================
-   Feed (erster Entwurf): Banner-Karussell, Filter-Pillen, "Top Deals für dich"
+   Feed (erster Entwurf): Banner-Karussell (Fenster), Filter-Pillen, "Top Deals für dich"
    als Reihe, "Weitere starke Angebote" als Raster. Ecken bewusst nur maessig
    gerundet (Wunsch des Nutzers).
    ========================================================================== */
 #feed-hero:empty { display: none; }
-.fh { position: relative; margin: 0 0 12px; }
+/* Banner als Fenster wie die Wallet-Karte: die Flaeche liegt etwas tiefer als
+   der Grund, der Schatten faellt oben nach innen, unten faengt eine helle Kante
+   das Licht. Rechts ragt das Maskottchen der Marke oben heraus (Kopf vor der
+   Kante, Strahlen dahinter), sonst eine dicke, schraeg gestellte Kachel mit
+   Logo oder Foto. Die Spur laeuft bis an den Bildschirmrand und haelt oben
+   Luft fuer den Kopf frei — overflow-x schneidet sonst auch nach oben ab. */
+.fh {
+  --fh-rand: 16px;                        /* = Seitenpolster von main */
+  --fh-luft: 46px;                        /* so weit darf etwas herausragen */
+  --fh-radius: 18px;
+  --fh-fig: clamp(226px, 62vw, 244px);    /* Bildhoehe des Maskottchens */
+  --fh-kachel: clamp(98px, 28vw, 110px);  /* Kachel mit Logo oder Foto */
+  --k-rechts: 26px;
+  --k-oben: -30px;
+  /* oben 8 px naeher an die Kopfzeile: links ist die Luft ohnehin leer */
+  position: relative; margin: -8px calc(-1 * var(--fh-rand)) 12px;
+}
+@media (max-width: 560px) { .fh { --fh-rand: 12px; } }
 .fh-track {
-  display: grid; grid-auto-flow: column; grid-auto-columns: 100%; gap: 12px;
-  overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory;
-  scrollbar-width: none; border-radius: 20px;
+  /* Abstand etwas breiter als der Rand: was rechts herausragt (Zauberstab),
+     blitzt nicht am Bildschirmrand der Nachbarfolie auf */
+  display: grid; grid-auto-flow: column; grid-auto-columns: 100%; gap: calc(var(--fh-rand) + 12px);
+  padding: var(--fh-luft) var(--fh-rand) 2px; scroll-padding-inline: var(--fh-rand);
+  overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scroll-snap-type: x mandatory;
+  scrollbar-width: none;
 }
 .fh-track::-webkit-scrollbar { display: none; }
-.fh-track:focus-visible { outline: 2px solid var(--akzent); outline-offset: 3px; }
+.fh-track:focus-visible { outline: 2px solid var(--akzent); outline-offset: -2px; border-radius: 20px; }
 .fh-slide {
-  position: relative; overflow: hidden; scroll-snap-align: center; scroll-snap-stop: always;
-  display: grid; grid-template-columns: minmax(0, 1fr) 40%; min-height: 196px;
-  padding: 18px 0 18px 18px; border-radius: 20px; color: #fff; cursor: pointer;
+  /* f1 dunkel, f2 Hauptton, f3 hell (Strahlen, Schein) — wie r1..r3 der Rang-Karte.
+     Die Schwarz-Anteile kommen fertig aus app.js (--tiefe, --tiefe-oben): kein
+     calc() in color-mix, das kann nicht jedes Safari — sonst fiele die ganze
+     Flaeche weg und die weisse Schrift stuende auf dem hellen Grund */
+  --f1: color-mix(in srgb, var(--bc), #000 var(--tiefe-oben, 28%));
+  --f2: color-mix(in srgb, var(--bc), #000 var(--tiefe, 0%));
+  --f3: color-mix(in srgb, var(--bc) 52%, #fff);
+  --fig-rechts: -8px;                     /* < 0: Zauberstab & Co. duerfen ueber den Rand */
+  position: relative; isolation: isolate; scroll-snap-align: center; scroll-snap-stop: always;
+  display: flex; min-height: 184px; padding: 16px 18px 17px;
+  border-radius: var(--fh-radius); color: #fff; cursor: pointer;
   background:
-    radial-gradient(90% 80% at 88% 18%, color-mix(in srgb, var(--bc) 45%, #fff) 0%, transparent 60%),
-    linear-gradient(150deg, color-mix(in srgb, var(--bc) 90%, #fff), color-mix(in srgb, var(--bc) 76%, #000));
+    linear-gradient(180deg, rgba(0, 0, 0, .12) 0%, rgba(0, 0, 0, .03) 38%, transparent 60%),
+    radial-gradient(70% 85% at 84% 22%, color-mix(in srgb, var(--f3) 34%, transparent), transparent 72%),
+    linear-gradient(172deg, var(--f1) 0%, var(--f2) 62%, color-mix(in srgb, var(--f2) 58%, var(--f3)) 100%);
+  box-shadow:
+    inset 0 6px 14px rgba(0, 0, 0, .2),
+    inset 0 1px 3px rgba(0, 0, 0, .24),
+    inset 0 -1px 0 rgba(255, 255, 255, .26),
+    0 1px 0 rgba(255, 255, 255, .95);
   -webkit-tap-highlight-color: transparent;
 }
-.fh-slide.hell { color: #14151A; }
-.fh-text { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; }
+:root[data-theme="dark"] .fh-slide {
+  box-shadow:
+    inset 0 6px 14px rgba(0, 0, 0, .3),
+    inset 0 1px 3px rgba(0, 0, 0, .34),
+    inset 0 -1px 0 rgba(255, 255, 255, .2),
+    0 1px 0 rgba(255, 255, 255, .08);
+}
+/* Helle Marken (Gelb) nur leicht abdunkeln — mit 28 % Schwarz wird Gelb oliv */
+.fh-slide.hell { --tiefe-oben: 12%; color: #14151A; }
+/* Strahlen hinter Kopf oder Kachel, nur im Fenster (eigene Ebene mit den
+   runden Ecken). Es dreht nur die sichtbare Folie — beim Wischen steht der
+   Rest still, damit nichts ruckelt. */
+.fh-licht {
+  position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  border-radius: inherit; overflow: hidden;
+}
+.fh-licht::before {
+  content: ""; position: absolute;
+  left: calc(100% - var(--k-rechts) - var(--fh-kachel) / 2); top: calc(var(--k-oben) + var(--fh-kachel) / 2);
+  width: calc(var(--fh-kachel) * 2.5); aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  background: repeating-conic-gradient(from 4deg,
+    color-mix(in srgb, var(--f3) 55%, #fff) 0deg 5deg, transparent 5deg 18deg);
+  -webkit-mask-image: radial-gradient(closest-side, rgba(0, 0, 0, .55) 0%, rgba(0, 0, 0, .3) 38%, transparent 82%);
+          mask-image: radial-gradient(closest-side, rgba(0, 0, 0, .55) 0%, rgba(0, 0, 0, .3) 38%, transparent 82%);
+  opacity: .6;
+  animation: wkStrahlen 70s linear infinite paused;
+}
+.fh-slide.aktiv .fh-licht::before { animation-play-state: running; }
+.fh-slide.hell .fh-licht::before { opacity: .75; }
+.fh-slide.mit-figur .fh-licht::before {
+  left: calc(100% - var(--fig-rechts) - var(--fh-fig) * var(--fig-ar) * (1 - var(--licht-x)));
+  top: calc(var(--fh-fig) * (var(--licht-y) - var(--fig-oben)));
+  width: calc(var(--fh-fig) * 1.02);
+}
+/* Rahmen fuer das Maskottchen: nur oben offen (der Kopf schaut heraus), rechts
+   darf etwas ueber den Rand ragen, unten schneidet die Fensterkante mit der
+   runden Ecke und laeuft weich aus. Der Auslauf ist kuerzer als in der Wallet
+   (14 statt 30 px): Yuho steht mit ganzem Koerper im Fenster, die Fuesse enden
+   meist knapp ueber der Kante und waeren sonst halb durchsichtig */
+.fh-rahmen {
+  position: absolute; z-index: 1; pointer-events: none;
+  top: calc(-1 * var(--fh-luft)); bottom: 0; left: 0; right: -10px;
+  overflow: hidden; border-radius: 0 0 0 var(--fh-radius);
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 14px), rgba(0, 0, 0, .35) calc(100% - 3px), rgba(0, 0, 0, .15) 100%);
+          mask-image: linear-gradient(to bottom, #000 calc(100% - 14px), rgba(0, 0, 0, .35) calc(100% - 3px), rgba(0, 0, 0, .15) 100%);
+}
+.fh-figur {
+  position: absolute; right: calc(10px + var(--fig-rechts));
+  top: calc(var(--fh-luft) - var(--fh-fig) * var(--fig-oben));
+  width: auto; max-width: none; height: var(--fh-fig);
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, .2));
+}
+/* Kachel in 3D: fest geneigt (kein Kippen beim Beruehren), die Dicke entsteht
+   aus gestaffelten Kanten nach rechts unten, darunter ein weicher Schatten */
+.fh-kachel {
+  --kante: color-mix(in srgb, var(--bc) 14%, #D3D8DF);
+  --kante-2: color-mix(in srgb, var(--bc) 18%, #BCC3CC);
+  position: absolute; z-index: 1; right: var(--k-rechts); top: var(--k-oben);
+  width: var(--fh-kachel); height: var(--fh-kachel);
+  display: grid; place-items: center; overflow: hidden;
+  border-radius: 24px; background: linear-gradient(160deg, #fff 55%, #F1F3F6);
+  transform: perspective(520px) rotateY(-16deg) rotateX(10deg) rotate(-6deg);
+  box-shadow:
+    inset 0 2px 0 #fff,
+    inset 0 -2px 5px rgba(16, 24, 32, .07),
+    1px 1px 0 var(--kante), 2px 2px 0 var(--kante), 3px 3px 0 var(--kante),
+    4px 4px 0 var(--kante-2), 5px 5px 0 var(--kante-2), 6px 6px 0 var(--kante-2),
+    10px 16px 22px rgba(0, 0, 0, .3);
+}
+/* Glanz oben links, liegt ueber Logo und Foto */
+.fh-kachel::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(150deg, rgba(255, 255, 255, .55) 0%, rgba(255, 255, 255, 0) 38%);
+}
+.fh-kachel .brand-chip {
+  width: 100%; height: 100%; border-radius: 0; font-size: 1.9rem;
+  background: none; color: var(--bc); box-shadow: none;
+}
+.fh-slide.hell .fh-kachel .brand-chip:not(.hat-logo) { color: #14151A; }  /* gelbe Initialen auf Weiss waeren kaum lesbar */
+.fh-kachel .brand-chip .brand-logo { inset: 8%; width: 84%; height: 84%; padding: 0; background: none; border-radius: 18px; }
+/* Foto des Deals: etwas groessere Kachel, das Foto liegt ganz darin */
+.fh-slide.mit-foto { --fh-kachel: clamp(106px, 30vw, 118px); --k-rechts: 22px; --k-oben: -26px; }
+.fh-kachel.foto img { width: 88%; height: 88%; object-fit: contain; }
+.fh-text {
+  position: relative; z-index: 2; display: flex; flex-direction: column; align-items: flex-start; gap: 5px;
+  flex: 0 1 auto; width: 100%; max-width: calc(100% - var(--fh-kachel) - 24px); min-width: 0;
+}
+/* Neben dem Maskottchen: endet gut 8 px vor der Figur (das Bild hat links
+   etwa 4 px durchsichtigen Rand; 18 px = rechtes Polster der Folie) */
+.fh-slide.mit-figur .fh-text { max-width: calc(100% + 18px - 4px - var(--fig-rechts) - var(--fh-fig) * var(--fig-ar)); }
 .fh-marke {
-  font-size: 1.6rem; font-weight: 900; font-style: italic; letter-spacing: -.02em; line-height: 1.05;
+  font-size: 1.5rem; font-weight: 900; font-style: italic; letter-spacing: -.02em; line-height: 1.05;
   max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, .14);
 }
 .fh-text .dk-pill { position: static; }
 .fh-titel {
-  font-size: 1.12rem; font-weight: 850; line-height: 1.2; letter-spacing: -.01em;
+  font-size: 1.06rem; font-weight: 850; line-height: 1.22; letter-spacing: -.01em;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  overflow-wrap: anywhere;  /* lange Woerter ("Neukundenrabatt") nicht ueber das Maskottchen */
 }
 .fh-sub {
   font-size: .8rem; line-height: 1.35; opacity: .92;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  overflow-wrap: anywhere;
 }
+.fh-slide.hell .fh-marke { text-shadow: none; }
 .fh-cta {
   margin-top: auto; display: inline-flex; align-items: center; gap: 6px;
-  padding: 9px 15px; border: 0; border-radius: 12px; cursor: pointer;
-  background: #fff; color: color-mix(in srgb, var(--bc) 78%, #000);
+  padding: 9px 14px; border: 0; border-radius: 12px; cursor: pointer;
+  background: #fff; color: color-mix(in srgb, var(--f2) 82%, #000);
   font: inherit; font-size: .88rem; font-weight: 800; text-decoration: none;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, .14);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .16);
 }
 .fh-slide.hell .fh-cta { background: #14151A; color: #fff; }
 .fh-cta .icon { width: 16px; height: 16px; }
-.fh-bild { position: relative; z-index: 1; align-self: end; justify-self: end; width: 118%; margin: -10px -12px -30px 0; }
-.fh-bild img { display: block; width: 100%; height: auto; filter: drop-shadow(0 12px 18px rgba(0, 0, 0, .22)); }
-.fh-bild.foto {
-  align-self: center; justify-self: center; width: 124px; height: 124px; margin: 0 12px 0 0;
-  border-radius: 18px; background: #fff; overflow: hidden; display: grid; place-items: center;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, .18);
-}
-.fh-bild.foto img { width: 86%; height: 86%; object-fit: contain; filter: none; }
-.fh-bild.logo { align-self: center; justify-self: center; width: auto; margin: 0 16px 0 0; }
-.fh-bild.logo .brand-chip {
-  width: 112px; height: 112px; border-radius: 26px; font-size: 1.9rem;
-  background: #fff; color: var(--bc); transform: rotate(-7deg);
-  box-shadow: 0 14px 30px rgba(0, 0, 0, .22), 0 0 0 6px rgba(255, 255, 255, .18);
-}
-.fh-bild.logo .brand-chip .brand-logo { inset: 7%; width: 86%; height: 86%; padding: 0; background: none; border-radius: 20px; }
-.fh-dots { position: absolute; left: 0; right: 0; bottom: 9px; z-index: 3; display: flex; justify-content: center; gap: 6px; pointer-events: none; }
-.fh-dots i { width: 7px; height: 7px; border-radius: 50%; background: rgba(255, 255, 255, .5); transition: transform .25s ease, background .25s ease; }
+.fh-dots { position: absolute; left: 0; right: 0; bottom: 11px; z-index: 3; display: flex; justify-content: center; gap: 6px; pointer-events: none; }
+.fh-dots i { width: 7px; height: 7px; border-radius: 50%; background: rgba(255, 255, 255, .5); box-shadow: 0 0 0 .5px rgba(0, 0, 0, .08); transition: transform .25s ease, background .25s ease; }
 .fh-dots i.on { background: #fff; transform: scale(1.3); }
+body.sparsam .fh-licht::before { animation: none; }
+@media (prefers-reduced-motion: reduce) { .fh-licht::before { animation: none; } }
 
 /* Filter: schlichte Pillen, seitwaerts wischbar */
 #chipbar {
