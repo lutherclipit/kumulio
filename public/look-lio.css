@@ -264,11 +264,16 @@ body:not(.wallet-farbe) .lio-ecke, .lio-ecke:not(.bereit) {
   display: flex; align-items: center; gap: 14px; margin-top: 4px; padding: 16px 18px 16px 12px;
   border-radius: 18px; color: #fff;
   background:
-    linear-gradient(172deg, var(--kopf-k1, #0A8452) 0%, var(--kopf-k2, #0FA86B) 62%, color-mix(in srgb, var(--kopf-k2, #0FA86B) 55%, var(--kopf-k3, #2FE09C)) 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), 0 12px 28px -10px color-mix(in srgb, var(--kopf-k1, #0A8452) 70%, transparent);
+    linear-gradient(172deg, var(--kopf-k1, #405A7C) 0%, var(--kopf-k2, #6081A9) 62%, color-mix(in srgb, var(--kopf-k2, #6081A9) 55%, var(--kopf-k3, #B6C9DF)) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), 0 12px 28px -10px color-mix(in srgb, var(--kopf-k1, #405A7C) 70%, transparent);
 }
 :root[data-theme="dark"] .lsh-kopf { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), 0 12px 28px -10px rgba(0, 0, 0, .6); }
-.lsh-kopf-stern { position: relative; flex: none; display: grid; place-items: center; width: 84px; height: 84px; }
+.lsh-kopf-stern {
+  position: relative; flex: none; display: grid; place-items: center; width: 84px; height: 84px;
+  margin: 0; padding: 0; border: 0; border-radius: 50%; background: none; color: inherit; font: inherit;
+  cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+.lsh-kopf-stern:focus-visible { outline: 2px solid rgba(255, 255, 255, .9); outline-offset: 2px; }
 .lsh-kopf-stern::before {
   content: ""; position: absolute; z-index: -1; left: 50%; top: 50%;
   width: 130px; aspect-ratio: 1; pointer-events: none;
@@ -276,19 +281,27 @@ body:not(.wallet-farbe) .lio-ecke, .lio-ecke:not(.bereit) {
   background: radial-gradient(closest-side, rgba(255, 200, 70, .42), rgba(255, 180, 40, .14) 58%, transparent 100%);
 }
 .lsh-kopf-stern .lio-stern { width: 72px; height: 72px; filter: drop-shadow(0 0 12px rgba(255, 190, 50, .55)) drop-shadow(0 6px 10px rgba(0, 0, 0, .22)); }
+/* Antippen: .lsh-huepf huepft, darin dreht sich der Stern (app.js
+   lioSternDrehen); dahinter Schein und Funken */
+.lsh-huepf { position: relative; z-index: 1; display: grid; place-items: center; perspective: 320px; }
+.lsh-funken { position: absolute; inset: 0; pointer-events: none; }
+.lsh-schein {
+  position: absolute; left: 50%; top: 50%; width: 112px; height: 112px; margin: -56px 0 0 -56px; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(255, 246, 200, .95), rgba(255, 214, 90, .45) 45%, transparent);
+  opacity: 0;
+}
+.lsh-funke {
+  position: absolute; left: 50%; top: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px; opacity: 0;
+  filter: drop-shadow(0 0 2.5px rgba(255, 255, 255, .85));
+}
+.lsh-funke svg { display: block; width: 100%; height: 100%; fill: #fff; }
 .lsh-kopf-text { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
 .lsh-kopf-text > small { font-size: .95rem; font-weight: 750; line-height: 1.2; color: rgba(255, 255, 255, .96); }
 .lsh-kopf-text > b {
   margin-top: 4px; font-size: clamp(1.6rem, 7.6vw, 2rem); font-weight: 850; letter-spacing: -.03em; line-height: 1.08;
   text-shadow: 0 2px 12px rgba(0, 0, 0, .16); white-space: nowrap;
 }
-.lsh-kopf-zeile { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin-top: 10px; }
-.lsh-pille {
-  padding: 3px 8px; border-radius: 8px;
-  background: rgba(255, 255, 255, .2); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3);
-  font-size: .74rem; font-weight: 750; line-height: 1.35; white-space: nowrap;
-}
-.lsh-wert { font-size: .82rem; font-weight: 650; line-height: 1.3; color: rgba(255, 255, 255, .94); white-space: nowrap; }
+.lsh-wert { margin-top: 6px; font-size: .86rem; font-weight: 650; line-height: 1.3; color: rgba(255, 255, 255, .94); white-space: nowrap; }
 
 /* Gutscheine: weisse Karte, darin die Gutscheinkarte im Markenton, darunter der Preis */
 .lsh-liste { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
@@ -334,26 +347,79 @@ body:not(.wallet-farbe) .lio-ecke, .lio-ecke:not(.bereit) {
 .lsh-produkt.aus .lsh-preis { opacity: .55; }
 :root[data-theme="dark"] .lsh-produkt.aus .lsh-karte { opacity: .42; }
 
-/* So sammelst du Lios */
+/* So sammelst du Lios: links die Sterne (so viele, wie es gibt), rechts der
+   echte Stand — abgeholt und Countdown, Serie, wartender Bonus */
 .lsh-wege { overflow: hidden; }
 .lsh-weg {
-  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 62px; padding: 10px 14px 10px 12px;
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 64px; padding: 10px 14px 10px 12px;
   border: 0; background: none; color: var(--text); font: inherit; text-align: left;
 }
-.lsh-weg + .lsh-weg { background: linear-gradient(var(--linie), var(--linie)) no-repeat 60px 0 / calc(100% - 60px) 1px; }
+.lsh-weg + .lsh-weg { background: linear-gradient(var(--linie), var(--linie)) no-repeat 64px 0 / calc(100% - 64px) 1px; }
 button.lsh-weg { cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 button.lsh-weg:active { background-color: var(--karte-2); }
 button.lsh-weg:focus-visible { outline: 2px solid var(--akzent-text); outline-offset: -2px; }
+.lsh-weg > span[aria-hidden] { flex: none; display: block; }
 .lsh-weg-ico {
-  flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px;
-  background: var(--akzent-weich); color: var(--akzent-text);
+  position: relative; display: block; width: 40px; height: 40px; border-radius: 12px;
+  background: var(--lio-weich);
 }
-.lsh-weg-ico .icon { width: 19px; height: 19px; stroke-width: 1.9; }
+.lsh-weg-ico .lio-stern { filter: drop-shadow(0 1.5px 1.5px rgba(150, 90, 0, .26)); }
+:root[data-theme="dark"] .lsh-weg-ico .lio-stern { filter: drop-shadow(0 1.5px 2px rgba(0, 0, 0, .45)); }
+.lsh-weg-ico i { position: absolute; display: block; }
+.lsh-weg-ico.eins .lio-stern { position: absolute; left: 6px; top: 6px; width: 28px; height: 28px; }
+/* Faecher: der mittlere (20 px) oben, die anderen (16 px) tiefer und schraeg */
+.lsh-weg-ico.faecher i { left: 50%; top: 50%; transform: translate(calc(-50% + var(--x) * 12px), calc(-50% + 5px)) rotate(calc(var(--x) * 20deg)); }
+.lsh-weg-ico.faecher .lio-stern { width: 16px; height: 16px; }
+.lsh-weg-ico.faecher i.oben { z-index: 1; transform: translate(-50%, calc(-50% - 4px)); }
+.lsh-weg-ico.faecher i.oben .lio-stern { width: 20px; height: 20px; }
+.lsh-weg-ico.faecher.n4 i { transform: translate(calc(-50% + var(--x) * 8.5px), calc(-50% + 6px)) rotate(calc(var(--x) * 14deg)); }
+.lsh-weg-ico.faecher.n4 i.oben { transform: translate(calc(-50% + var(--x) * 12px), calc(-50% - 5px)) rotate(calc(var(--x) * 10deg)); }
+.lsh-weg-ico.faecher.n4 i.oben .lio-stern { width: 17px; height: 17px; }
+/* Haufen aus zehn: vier Reihen (4-3-2-1), 11 px je Stern */
+.lsh-weg-ico.haufen i { left: calc(50% - 5.5px + var(--x) * 8.6px); top: calc(25px - var(--y) * 7.4px); }
+.lsh-weg-ico.haufen .lio-stern { width: 11px; height: 11px; filter: drop-shadow(0 1px 1px rgba(150, 90, 0, .3)); }
+:root[data-theme="dark"] .lsh-weg-ico.haufen .lio-stern { filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .5)); }
+.lsh-weg-zahl {
+  position: absolute; right: -5px; top: -5px; z-index: 1; min-width: 18px; padding: 0 4px; border-radius: 8px;
+  background: #16191E; color: #fff; box-shadow: 0 0 0 2px var(--karte);
+  font-size: .64rem; font-weight: 850; line-height: 16px; text-align: center; font-variant-numeric: tabular-nums;
+}
+:root[data-theme="dark"] .lsh-weg-zahl { background: #EEF1F5; color: #14171B; }
 .lsh-weg-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .lsh-weg-text b { font-size: .92rem; font-weight: 800; line-height: 1.25; }
 .lsh-weg-text small { font-size: .76rem; line-height: 1.35; color: var(--muted); }
-.lsh-weg-plus { flex: none; display: inline-flex; align-items: center; gap: 3px; font-size: .9rem; font-weight: 850; font-variant-numeric: tabular-nums; }
-.lsh-weg-plus .lio-stern { width: 16px; height: 16px; }
+/* Rechts: zwei Zeilen, rechtsbuendig */
+.lsh-weg-stand { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; text-align: right; }
+.lsh-weg-stand small { font-size: .74rem; font-weight: 600; line-height: 1.3; color: var(--muted); white-space: nowrap; }
+.lsh-weg-stand small b { color: var(--text); font-weight: 800; font-variant-numeric: tabular-nums; }
+/* Countdown: jede Ziffer in einer festen Zelle (app.js lioUhrHtml) — auch
+   Schriften ohne tabular-nums wackeln so nicht */
+.lsh-weg-stand small b i { display: inline-block; width: 1ch; font-style: normal; text-align: center; }
+.lsh-abgeholt, .lsh-offen {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: .8rem; font-weight: 800; line-height: 1.25; white-space: nowrap;
+}
+.lsh-abgeholt { color: #137F42; }   /* 5:1 auf Weiss (#178A47 waren 4,4:1) */
+:root[data-theme="dark"] .lsh-abgeholt { color: #3FD68B; }
+.lsh-abgeholt .icon { width: 15px; height: 15px; stroke-width: 2.8; }
+.lsh-offen { color: var(--lio-text); }
+.lsh-bereit {
+  padding: 3px 8px; border-radius: 8px; background: var(--lio-weich); color: var(--lio-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #FFC21A 34%, transparent);
+  font-size: .78rem; font-weight: 850; line-height: 1.3; white-space: nowrap;
+}
+.lsh-weg-tage { font-size: .86rem; font-weight: 850; line-height: 1.2; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.lsh-weg-tage.voll { color: var(--lio-text); }
+/* Fortschritt: die Woche in sieben Stuecken, der Monat als Linie (wie im Menue) */
+.lsh-balken { display: block; width: 56px; height: 5px; }
+.lsh-balken.woche { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
+.lsh-balken.woche i { display: block; border-radius: 3px; background: var(--karte-2); }
+.lsh-balken.woche i.an { background: #FFB800; }
+.lsh-balken.monat { position: relative; overflow: hidden; border-radius: 3px; background: var(--karte-2); }
+.lsh-balken.monat i { position: absolute; inset: 0; background: #FFB800; transform-origin: left center; }
+:root[data-theme="dark"] .lsh-balken.woche i:not(.an), :root[data-theme="dark"] .lsh-balken.monat { background: rgba(255, 255, 255, .12); }
+/* Nur fuer den Screenreader */
+.lsh-vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 /* Verlauf: wie am Gutschein, Gutschriften mit dem Stern */
 .lsh-verlauf .gd-tx-zeichen.lio { background: var(--lio-weich); }
 .lsh-verlauf .gd-tx-zeichen .lio-stern { width: 20px; height: 20px; }
