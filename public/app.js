@@ -80,6 +80,13 @@ function setzeLeistenfarbe() {
     : (getComputedStyle(document.body).backgroundColor || '#EEF1F5');
   if (meta.content !== farbe) meta.content = farbe;
 }
+// Der Seitengrund blendet beim Verlassen der Wallet .35 s lang aus der
+// Rangfarbe ueber (look.css, body transition) — beim Umschalten steht darum
+// noch die Wallet-Farbe im Grund. Am Ende des Uebergangs nachziehen, sonst
+// bliebe die Leiste im Feed/Profil in der Rangfarbe stehen.
+document.addEventListener('transitionend', e => {
+  if (e.target === document.body && e.propertyName === 'background-color') setzeLeistenfarbe();
+});
 applyTheme(localStorage.getItem('ra.theme')
   || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
 

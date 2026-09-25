@@ -3481,7 +3481,7 @@ body.wallet-farbe .topbar .brand,
 body.wallet-farbe .topbar .brand-name { color: #fff; }
 body.wallet-farbe .topbar .k-wordmark { color: #fff; }
 /* Der Punkt bleibt das Markenzeichen — in der hellsten Stufenfarbe hebt er
-   sich vom dunkleren oberen Verlauf ab, egal ob Gruen, Tuerkis oder Gold */
+   sich vom dunkleren oberen Verlauf ab, egal ob Stahlgrau, Blau oder Gold */
 body.wallet-farbe .topbar .k-wordmark .k-dot { fill: var(--kopf-k3, #B6C9DF); }
 body.wallet-farbe .topbar .iconbtn {
   color: #fff; background: rgba(255, 255, 255, .18);
