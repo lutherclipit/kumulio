@@ -1250,15 +1250,62 @@ body.sparsam #sheet-content #btn-sheet-fav .icon, body.sparsam #sheet-content .a
    ganzen Figur in der Stufenfarbe. Erreichte normal, die eigene mit Ring und
    "Du", noch offene blass und grau mit dem Abstand vom Guthaben.
    ========================================================================== */
-/* Oben Luft fuer den Kopf, der aus dem Fenster ragt */
-.rs .rs-oben { padding-top: 34px; }
-.rs .rf-sprite { animation: spriteRein .7s var(--spring) .12s backwards; }
-.rs .rs-h { margin: 24px 2px 0; }
-.rs-liste { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 0; padding: 0; list-style: none; }
-.rs-stufe {
-  display: flex; align-items: center; gap: 14px; min-height: 74px; padding: 9px 14px 9px 10px;
-  border-radius: 16px; background: var(--karte); box-shadow: var(--schatten-1);
+/* Oben Luft fuer den Kopf, der aus dem Fenster ragt. Die Karte wischt man
+   selbst (Vorschau blaettern) — senkrecht scrollt die Seite weiter. */
+.rs .rs-oben { position: relative; padding-top: 34px; touch-action: pan-y; }
+.rs .rs-oben:not(.ruhig) .rf-sprite { animation: spriteRein .7s var(--spring) .12s backwards; }
+/* Wechsel wie ein Karussell (rfGleiten in app.js): die kommende Karte liegt
+   deckungsgleich daneben (Lage per style), die Seite schneidet waagerecht am
+   Bildschirmrand ab — senkrecht bleibt alles frei (Kopf des Maskottchens) */
+.rs .wseite-inhalt { overflow-x: hidden; }
+/* Breiter Bildschirm (Seitenrand > 16 px): dort schneidet die Karte selbst ab,
+   16 px neben der Spalte (= RF_LUECKE), oben mit Luft fuer den Kopf, unten
+   fuer den Schatten */
+.rs .rs-oben { clip-path: inset(-120px -16px -48px -16px); }
+.rs-oben > .rf.rf-neben { position: absolute; z-index: 1; pointer-events: none; }
+/* Alle Karten gleich hoch (rfHoeheAngleichen misst an unsichtbaren Abzuegen
+   in .rs-mass): sonst sprang die Liste, wenn die eigene Karte umbricht */
+.rs-oben > .rf { min-height: var(--rf-h, 168px); }
+.rs-mass { position: absolute; top: 0; left: 0; right: 0; visibility: hidden; pointer-events: none; }
+/* Ueberschrift, rechts daneben (nur in der Vorschau) der Weg zurueck */
+/* Links 2 px wie bisher (Schriftkante), rechts keiner: die Pille schliesst
+   buendig mit Karte und Liste ab */
+.rs-h-zeile { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 24px 0 0 2px; }
+.rs .rs-h-zeile .rs-h { margin: 0; }
+.rs-zurueck {
+  flex: none; display: inline-flex; align-items: center; gap: 5px;
+  height: 30px; margin-block: -5px; padding: 0 11px 0 9px;
+  border: 0; border-radius: 10px;
+  background: color-mix(in srgb, var(--r2) 14%, var(--karte)); color: var(--r1);
+  font: inherit; font-size: .8rem; font-weight: 750; line-height: 1; white-space: nowrap; cursor: pointer;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  opacity: 0; transform: scale(.9); pointer-events: none;
+  transition: opacity .18s ease, transform .3s var(--spring);
 }
+.rs-zurueck.an { opacity: 1; transform: none; pointer-events: auto; }
+.rs-zurueck.an:active { transform: scale(.94); }
+.rs-zurueck .icon { width: 15px; height: 15px; stroke-width: 2.4; }
+.rs-zurueck:focus-visible { outline: 2px solid var(--r2); outline-offset: 2px; }
+:root[data-theme="dark"] .rs-zurueck { background: color-mix(in srgb, var(--r2) 26%, var(--karte)); color: var(--r3); }
+.rs-liste { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 0; padding: 0; list-style: none; }
+.rs-liste > li { display: block; }
+/* Jede Zeile ist ein Knopf: antippen zeigt die Stufe oben als Vorschau. Der
+   Ring (::after, blendet nur ueber opacity) markiert, was oben steht. */
+.rs-stufe {
+  position: relative; display: flex; align-items: center; gap: 14px; width: 100%; min-height: 74px; padding: 9px 14px 9px 10px;
+  border: 0; border-radius: 16px; background: var(--karte); box-shadow: var(--schatten-1);
+  font: inherit; color: var(--text); text-align: left; cursor: pointer;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: transform .22s var(--spring);
+}
+.rs-stufe:active { transform: scale(.98); }
+.rs-stufe::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  box-shadow: 0 0 0 2px var(--r2); opacity: 0; transition: opacity .2s ease;
+}
+:root[data-theme="dark"] .rs-stufe::after { box-shadow: 0 0 0 2px var(--r3); }
+.rs-stufe.gewaehlt::after { opacity: 1; }
+.rs-stufe:focus-visible { outline: 2px solid var(--r2); outline-offset: 3px; }
 /* Kachel in der Stufenfarbe; die Figur steht darin und ragt oben etwas heraus */
 .rs-bild {
   position: relative; flex: none; width: 58px; height: 54px; border-radius: 13px;
@@ -1291,8 +1338,6 @@ body.sparsam #sheet-content #btn-sheet-fav .icon, body.sparsam #sheet-content .a
   flex: none; font-size: .8rem; font-weight: 650; color: var(--muted);
   white-space: nowrap; font-variant-numeric: tabular-nums;
 }
-.rs-stufe.aktuell { box-shadow: 0 0 0 2px var(--r2), var(--schatten-1); }
-:root[data-theme="dark"] .rs-stufe.aktuell { box-shadow: 0 0 0 2px var(--r3), var(--schatten-1); }
 /* Noch nicht erreicht: Kachel neutral, Figur grau und blass */
 .rs-stufe.offen .rs-bild { background: var(--karte-2); }
 .rs-stufe.offen .rs-bild img { filter: grayscale(1); opacity: .42; }
@@ -1301,7 +1346,11 @@ body.sparsam #sheet-content #btn-sheet-fav .icon, body.sparsam #sheet-content .a
 @media (max-width: 370px) {
   .rs-stufe { gap: 12px; padding-right: 12px; }
 }
-@media (prefers-reduced-motion: reduce) { .rs .rf-sprite { animation: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .rs .rs-oben:not(.ruhig) .rf-sprite { animation: none; }
+  .rs-stufe, .rs-zurueck { transition: none; }
+  .rs-stufe:active, .rs-zurueck.an:active { transform: none; }
+}
 
 /* =============================================================================
    Deal-Seite (Runde 120): eigene Seite statt Blatt, gebaut wie die

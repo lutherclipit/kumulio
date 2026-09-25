@@ -349,7 +349,32 @@ body.sparsam .wk-f { opacity: .9; transform: none; }
 body.marken-modus #view-wallet { --wk-schein: var(--marke-k3, var(--kopf-k3, #2FE09C)); }
 
 .wk-sprite.auftritt { animation: spriteRein .7s var(--spring) backwards; animation-delay: var(--ad, 0ms); }
+
 @keyframes spriteRein { from { opacity: 0; transform: translate3d(0, 30px, 0) scale(.92); } }
+
+/* Das Maskottchen ist ein Knopf zum Rang (wie der Betrag). Die Flaeche liegt
+   ueber seinem Koerper im Fenster: links endet sie kurz hinter Betrag und
+   Griffen (48 % der Innenbreite), oben reicht sie ueber die Kartenkante bis
+   an die Kopfzeile (der Kopf ragt heraus; 14 px = Polster des Kopfes unter
+   der Leiste). Gedrueckt sinkt die Figur leicht ein und federt zurueck. */
+.wk-figur {
+  position: absolute; z-index: 2; top: -14px; right: 0; bottom: 0;
+  left: calc(var(--wk-rand) + (100% - 2 * var(--wk-rand)) * .48 + 8px);
+  padding: 0; border: 0; border-radius: 12px var(--wk-radius) var(--wk-radius) 12px;
+  background: none; cursor: pointer;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+.wk-figur:focus-visible { outline: 2px solid rgba(255, 255, 255, .8); outline-offset: -4px; }
+.wk-sprite { transition: transform .55s cubic-bezier(.3, 1.5, .5, 1); }
+.wk-glas:has(> .wk-figur:active) .wk-sprite {
+  transform: translate3d(0, 3px, 0) scale(.955);
+  transition: transform .12s cubic-bezier(.3, 0, .5, 1);
+}
+body.ohne-anim .wk-glas:has(> .wk-figur:active) .wk-sprite { transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .wk-sprite { transition: none; }
+  .wk-glas:has(> .wk-figur:active) .wk-sprite { transform: none; }
+}
 
 .wk-glas .balance-flip-btn { position: relative; z-index: 2; display: block; width: auto; max-width: 48%; text-align: left; }
 .wk-glas .balance-big { text-shadow: 0 2px 12px rgba(0, 0, 0, .16); }

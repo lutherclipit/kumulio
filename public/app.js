@@ -3162,18 +3162,26 @@ const rangAbstand = (r, total) => r.next ? `Noch ${euroFmt(r.next.min - total)} 
 // Rang-Seite. zu = gesperrte Wallet: die Figur ja, aber weder Rang noch Balken
 // noch Betrag — aus Stufe und "Noch X €" liesse sich das Guthaben sonst auf den
 // Cent zurueckrechnen. Dann steht das universelle Maskottchen da.
+// eigen = der eigene Rang (nur auf der Rang-Seite): ist r eine andere Stufe,
+// ist die Karte eine Vorschau — Farbe, Maskottchen und Name dieser Stufe,
+// oben "Vorschau" statt "Dein Rang", statt "Stufe N von 7" ihre Spanne. Der
+// Balken zeigt, wie weit das jetzige Guthaben schon dorthin reicht, darunter
+// der ehrliche Abstand (erreichte Stufen: voll, "Schon erreicht"). Kurz
+// ("Noch 965,01 €"), damit er auch bei 360 px in einer Zeile bleibt — sonst
+// wuerde die Karte beim Blaettern hoeher und die Liste darunter springen.
 // Goldene Funken (.wk-f aus look.css) in einer Huelle mit eigener Lage
 const funkenHtml = (cls, anzahl = 3) => `<span class="${cls}" aria-hidden="true">` + [1, 2, 3].slice(0, anzahl).map(n =>
   `<svg class="wk-f wk-f${n}" viewBox="-1.2 -1.2 2.4 2.4"><path d="M0-1Q.13-.13 1 0Q.13 .13 0 1Q-.13 .13-1 0Q-.13-.13 0-1Z"/></svg>`).join('') + '</span>';
 const RF_FUNKEN = funkenHtml('rf-funken');
-function rangFensterHtml({ r = null, total = 0, zu = false, mehr = false } = {}) {
+function rangFensterHtml({ r = null, total = 0, zu = false, mehr = false, eigen = null } = {}) {
   const m = (!zu && WALLET_MASKOTTCHEN[r.slug]) || WALLET_MASKOTTCHEN.standard;
+  const vorschau = !zu && !!eigen && eigen.tier !== r.tier;
   const figur = `
     <span class="rf-licht" aria-hidden="true"></span>
     <span class="rf-rahmen" aria-hidden="true"><img class="rf-sprite" src="${m.basis}-480.webp"
       srcset="${m.basis}-480.webp 480w, ${m.basis}-960.webp 960w" sizes="312px" width="295" height="298"
       alt="" decoding="async" draggable="false">${RF_FUNKEN}</span>`;
-  const titel = `<span class="rf-titel">Dein Rang${mehr ? icon('chevron', 'icon') : ''}</span>`;
+  const titel = `<span class="rf-titel">${vorschau ? 'Vorschau' : 'Dein Rang'}${mehr ? icon('chevron', 'icon') : ''}</span>`;
   const stil = `--licht-x:${m.licht[0]}; --licht-y:${m.licht[1]}`;
   if (zu) return `
     <span class="rf zu" data-stufe="0" style="${stil}">${figur}
@@ -3183,6 +3191,19 @@ function rangFensterHtml({ r = null, total = 0, zu = false, mehr = false } = {})
         <span class="rf-knopf">${icon('lock', 'icon')}Entsperren</span>
       </span>
     </span>`;
+  if (vorschau) {
+    const erreicht = r.tier < eigen.tier;
+    const weg = erreicht ? 1 : Math.max(0, Math.min(1, total / r.min));
+    return `
+    <span class="rf vorschau" data-stufe="${r.tier}" style="${stil}">${figur}
+      <span class="rf-text">${titel}
+        <b class="rf-name">${esc(r.name)}</b>
+        <span class="rf-stufe">${rangSpanne(r)}</span>
+        <span class="rf-balken" role="img" aria-label="${erreicht ? 'Schon erreicht' : `${Math.round(weg * 100)} Prozent bis ${esc(r.name)}`}"><span style="transform:translateX(${((weg - 1) * 100).toFixed(1)}%)"></span></span>
+        <span class="rf-abstand">${erreicht ? 'Schon erreicht' : `Noch ${euroFmt(r.min - total)}`}</span>
+      </span>
+    </span>`;
+  }
   const anteil = rangAnteil(r, total);
   return `
     <span class="rf" data-stufe="${r.tier}" style="${stil}">${figur}
@@ -8255,6 +8276,8 @@ function wseitenZu({ sanft = false } = {}) {
   }, 230);
 }
 
+// Breite des linken Rands, an dem der Wisch zurueck immer greift (px)
+const WISCH_RAND = 28;
 // Wisch nach rechts = zurueck. Nur Finger (am Rechner gibt es den Pfeil), und
 // nur waagerecht: senkrecht scrollt die Seite wie gewohnt. Die Seite folgt dem
 // Finger; losgelassen faehrt sie ganz raus oder federt zurueck.
@@ -8265,7 +8288,10 @@ function wischZurueck(seite) {
     if (w && w.lauf) return;             // ein zweiter Finger stoert den laufenden Wisch nicht
     w = null;
     if (e.pointerType === 'mouse' || wseiteOben() !== seite || seite.fest || el.classList.contains('panel-offen')) return;
-    if (e.target.closest('input, textarea, select, [data-kein-wisch]')) return;
+    // data-kein-wisch="rand": die Flaeche hat einen eigenen Wisch (Rang-Karte),
+    // nur ganz am linken Rand bleibt es der Wisch zurueck
+    const kein = e.target.closest('input, textarea, select, [data-kein-wisch]');
+    if (kein && !(kein.dataset.keinWisch === 'rand' && e.clientX - el.getBoundingClientRect().left < WISCH_RAND)) return;
     w = { x: e.clientX, y: e.clientY, id: e.pointerId, lauf: false, dx: 0, b: 1, v: 0, lx: e.clientX, lt: e.timeStamp };
   }, { passive: true });
   el.addEventListener('pointermove', e => {
@@ -8405,6 +8431,10 @@ function wseitenAbgleichen() {
         return;
       }
       if (seite.stand !== rpStand(r) && !seite.el.querySelector('.gd-leiste.auf')) zeichneRabattSeite(seite);
+      continue;
+    }
+    if (seite.art === 'rang') {
+      if (seite.stand !== rangSeitenStand()) zeichneRangSeite(seite);
       continue;
     }
     if (seite.art !== 'gutschein' && seite.art !== 'schenken') continue;
@@ -11249,31 +11279,334 @@ function zeigeRang() {
 }
 // Rang-Seite: oben das Rang-Fenster mit dem Maskottchen, darunter alle sieben
 // Stufen mit ihrer ganzen Figur in der Stufenfarbe. Erreichte stehen normal da,
-// die eigene ist hervorgehoben, die noch offenen sind blass und grau — mit dem
+// die eigene traegt "Du", die noch offenen sind blass und grau — mit dem
 // ehrlichen Abstand vom jetzigen Guthaben.
+// Jede Stufe laesst sich antippen: oben steht sie dann als Vorschau (Farbe,
+// Maskottchen, Name, Abstand), ihre Zeile traegt den Ring. Zurueck zum eigenen
+// Rang: die gezeigte Zeile nochmal, die eigene Zeile oder "Zurück zu deinem
+// Rang". Auf der Karte blaettert ein Wisch nach links/rechts durch die Stufen.
+// seite.zeigt = die Stufe, die oben steht (bleibt beim Abgleich erhalten)
+function rangSeitenStand() { const t = rangGuthaben(); return `${rankFor(t).tier}|${t}`; }
 function zeichneRangSeite(seite) {
   if (walletGesperrt()) return;
   const total = rangGuthaben();
   const jetzt = rankFor(total);
+  seite.stand = rangSeitenStand();
+  // Die eigene Stufe immer aus rankFor (nur sie kennt die naechste Stufe)
+  const zeigt = (seite.zeigt !== jetzt.tier && RANKS.find(r => r.tier === seite.zeigt)) || jetzt;
+  seite.zeigt = zeigt.tier;
   const bild = r => `/brand/kumulio-rang-${r.slug}`;
   const zeilen = RANKS.map(r => {
     const art = r.tier < jetzt.tier ? 'erreicht' : r.tier === jetzt.tier ? 'aktuell' : 'offen';
     const rechts = art === 'aktuell' ? '<span class="rs-du">Du</span>'
       : art === 'erreicht' ? `<span class="rs-haken" role="img" aria-label="erreicht">${icon('check', 'icon')}</span>`
       : `<span class="rs-noch">noch ${euroFmt(r.min - total)}</span>`;
+    const an = r.tier === zeigt.tier;
     return `
-      <li class="rs-stufe ${art}" data-stufe="${r.tier}"${art === 'aktuell' ? ' aria-current="true"' : ''}>
+      <li><button class="rs-stufe ${art}${an ? ' gewaehlt' : ''}" type="button" data-stufe="${r.tier}" aria-pressed="${an}"${art === 'aktuell' ? ' aria-current="true"' : ''}>
         <span class="rs-bild"><img src="${bild(r)}-240.webp" srcset="${bild(r)}-240.webp 240w, ${bild(r)}-480.webp 480w"
           sizes="72px" width="72" height="72" alt="" loading="lazy" decoding="async" draggable="false"></span>
         <span class="rs-text"><b>${esc(r.name)}</b><small>${rangSpanne(r)}</small></span>
         ${rechts}
-      </li>`;
+      </button></li>`;
   }).join('');
-  seite.el.querySelector('.wseite-inhalt').innerHTML = `
-    <div class="rs-oben">${rangFensterHtml({ r: jetzt, total })}</div>
-    <h3 class="gd-h rs-h">Alle Ränge</h3>
+  const eigene = zeigt === jetzt;
+  const inhalt = seite.el.querySelector('.wseite-inhalt');
+  // Beim Neuzeichnen (Abgleich) kommt das Maskottchen nicht noch einmal herein
+  inhalt.innerHTML = `
+    <div class="rs-oben${seite.gebaut ? ' ruhig' : ''}" data-kein-wisch="rand" aria-live="polite">${rangFensterHtml({ r: zeigt, total, eigen: jetzt })}</div>
+    <div class="rs-h-zeile">
+      <h3 class="gd-h rs-h">Alle Ränge</h3>
+      <button class="rs-zurueck${eigene ? '' : ' an'}" type="button" data-stufe="${jetzt.tier}"${eigene ? ' inert' : ''}>${icon('arrow-back', 'icon')}Zurück zu deinem Rang</button>
+    </div>
     <ol class="rs-liste" aria-label="Alle Ränge">${zeilen}</ol>
     <p class="rang-hinweis rs-hinweis">${icon('lock', 'icon icon-sm')}<span>Nur du siehst deinen Rang. Er richtet sich nach dem Guthaben in deiner Wallet und ändert nichts an Gutscheinen oder Coupons.</span></p>`;
+  seite.gebaut = true;
+  const eigenerRang = () => rankFor(rangGuthaben()).tier;
+  inhalt.querySelector('.rs-liste').addEventListener('click', e => {
+    const b = e.target.closest('.rs-stufe');
+    if (!b) return;
+    const t = +b.dataset.stufe;
+    // Die gezeigte Vorschau nochmal antippen: zurueck zum eigenen Rang
+    rangVorschau(seite, t === seite.zeigt ? eigenerRang() : t, { hinsehen: true });
+  });
+  inhalt.querySelector('.rs-zurueck').addEventListener('click', () => rangVorschau(seite, eigenerRang()));
+  rfHoeheAngleichen(inhalt.querySelector('.rs-oben'));
+  rangKarteWisch(seite, inhalt.querySelector('.rs-oben'));
+  rangBilderVorladen();
+}
+// Alle sieben Karten gleich hoch (--rf-h, look-blaetter.css): die eigene hat
+// den laengeren Abstand ("Noch 200,01 € bis Legende") und bricht schon bei
+// 390 px um — ohne Angleich waere sie hoeher als die Vorschauen, und die
+// Liste darunter spraenge beim Blaettern. Gemessen an unsichtbaren Abzuegen
+// ohne Bild (die Figur liegt absolut und zaehlt nicht zur Hoehe).
+function rfHoeheAngleichen(host) {
+  if (!host?.isConnected || !host.clientWidth) return;
+  host._rfB = host.clientWidth;
+  const probe = document.createElement('div');
+  probe.className = 'rs-mass';
+  probe.setAttribute('aria-hidden', 'true');
+  probe.innerHTML = RANKS.map(r => rangFensterFuer(r.tier).replace(/<img[^>]*>/g, '')).join('');
+  host.appendChild(probe);
+  const h = Math.max(...[...probe.children].map(k => k.offsetHeight));
+  probe.remove();
+  if (h > 0) host.style.setProperty('--rf-h', h + 'px');
+}
+// Handy gedreht (neue Breite): neu messen
+addEventListener('resize', () => {
+  const host = wseiten().find(s => s.art === 'rang')?.el.querySelector('.rs-oben');
+  if (host && host._rfB !== host.clientWidth) rfHoeheAngleichen(host);
+});
+
+// Eine Stufe oben zeigen (Vorschau, oder wieder die eigene). richtung: aus
+// welcher Seite die neue Karte kommt (1 von rechts, -1 von links). karte:
+// false, wenn der Wisch die Karte schon selbst hereinzieht (nur Liste/Pille)
+function rangVorschau(seite, tier, { richtung = null, hinsehen = false, karte = true } = {}) {
+  if (walletGesperrt() || !seite?.el.isConnected) return false;
+  const inhalt = seite.el.querySelector('.wseite-inhalt');
+  const oben = inhalt?.querySelector('.rs-oben');
+  const total = rangGuthaben();
+  const jetzt = rankFor(total);
+  // Die eigene Stufe aus rankFor: nur sie kennt die naechste (Balken, Abstand)
+  const r = tier === jetzt.tier ? jetzt : RANKS.find(x => x.tier === tier);
+  if (!oben || !r || r.tier === seite.zeigt) return false;
+  const dir = richtung ?? Math.sign(r.tier - seite.zeigt);
+  seite.zeigt = r.tier;
+  let ziel = null;
+  inhalt.querySelectorAll('.rs-stufe').forEach(b => {
+    const an = +b.dataset.stufe === r.tier;
+    b.classList.toggle('gewaehlt', an);
+    b.setAttribute('aria-pressed', String(an));
+    if (+b.dataset.stufe === jetzt.tier) ziel = b;
+  });
+  const zurueck = inhalt.querySelector('.rs-zurueck');
+  if (zurueck) {
+    const an = r.tier !== jetzt.tier;
+    // Hatte der Knopf den Fokus, geht er an die eigene Zeile (nicht ins Leere)
+    if (!an && document.activeElement === zurueck) ziel?.focus({ preventScroll: true });
+    zurueck.classList.toggle('an', an);
+    zurueck.inert = !an;
+  }
+  if (karte) rfTauschen(oben, rangFensterHtml({ r, total, eigen: jetzt }), dir);
+  buzz(4);
+  // Weit unten angetippt: die Karte kommt ins Bild, sonst sieht man nichts
+  if (hinsehen) {
+    const k = oben.querySelector('.rf')?.getBoundingClientRect(), f = inhalt.getBoundingClientRect();
+    if (k && k.top < f.top) inhalt.scrollTo({ top: 0, behavior: weich() ? 'smooth' : 'auto' });
+  }
+  return true;
+}
+
+// Rang-Fenster wechseln wie ein Karussell: die Karten liegen nebeneinander
+// (Abstand = Seitenrand), die alte gleitet hinaus, die neue herein — beide
+// voll deckend, bewegt wird nur transform. (Ueberblenden mischte die Farben,
+// etwa Blau und Orange, kurz zu einem trueben Grau.) Die Seite schneidet
+// waagerecht am Bildschirmrand ab (.rs .wseite-inhalt, overflow-x: hidden).
+const RF_LUECKE = 16;
+function rfKarte(html) {
+  const box = document.createElement('div');
+  box.innerHTML = html.trim();
+  return box.firstElementChild;
+}
+// Rang-Fenster fuer eine Stufe (die eigene aus rankFor: nur sie kennt die naechste)
+function rangFensterFuer(tier) {
+  const total = rangGuthaben();
+  const jetzt = rankFor(total);
+  return rangFensterHtml({ r: tier === jetzt.tier ? jetzt : RANKS[tier - 1], total, eigen: jetzt });
+}
+const rfJetzt = host => host.querySelector('.rf:not(.rf-neben)');
+function rfSchritt(host) { return (rfJetzt(host)?.offsetWidth || host.clientWidth) + RF_LUECKE; }
+// Karte deckungsgleich neben die jetzige legen (absolut), um x verschoben.
+// still: noch nicht vorlesen (Nachbar beim Ziehen, vielleicht kommt er nicht)
+function rfDaneben(host, neu, x, still = false) {
+  const alt = rfJetzt(host);
+  neu.classList.add('rf-neben');
+  neu.style.top = alt.offsetTop + 'px';
+  neu.style.left = alt.offsetLeft + 'px';
+  neu.style.width = alt.offsetWidth + 'px';
+  neu.style.transform = `translate3d(${x}px, 0, 0)`;
+  if (still) neu.setAttribute('aria-hidden', 'true');
+  host.appendChild(neu);
+  return neu;
+}
+// Waagerechte Lage einer Karte, wie sie gerade gezeichnet wird (samt Bewegung)
+function rfLage(el) {
+  try { return new DOMMatrixReadOnly(getComputedStyle(el).transform).m41 || 0; } catch { return 0; }  // alter Browser
+}
+// Laufenden Wechsel sofort abschliessen; liefert, wo die neue Karte gerade
+// stand — von dort geht der naechste Wechsel weiter (schnelle Tipps). Federt
+// die Karte nach einem zu kurzen Wisch noch zurueck, wird auch das beendet:
+// sonst liefe die Feder weiter, waehrend der Finger schon wieder zieht, und
+// Karte und Nachbar liefen auseinander.
+function rfFertig(host) {
+  let x = 0;
+  if (host._rfEnde) {
+    const neu = host.querySelector('.rf.rf-neben');
+    x = neu ? rfLage(neu) : 0;
+    host._rfEnde();
+  }
+  const karte = rfJetzt(host), feder = karte?.getAnimations?.() || [];
+  if (feder.length) {
+    x += rfLage(karte);
+    feder.forEach(a => a.cancel());
+  }
+  return x;
+}
+// alt gleitet von altX aus hinaus, neu (liegt schon daneben) folgt im festen
+// Abstand an ihren Platz. Danach ist neu die Karte im Fluss, alt ist weg.
+function rfGleiten(host, alt, neu, dir, altX, dauer) {
+  const b = rfSchritt(host);
+  const kurve = 'cubic-bezier(.22, 1, .36, 1)';
+  alt.style.transform = '';
+  neu.style.transform = '';
+  neu.removeAttribute('aria-hidden');
+  alt.setAttribute('aria-hidden', 'true');
+  alt.animate([{ transform: `translate3d(${altX}px, 0, 0)` }, { transform: `translate3d(${altX - dir * b}px, 0, 0)` }],
+    { duration: dauer, easing: kurve, fill: 'forwards' });
+  const rein = neu.animate([{ transform: `translate3d(${altX + dir * b}px, 0, 0)` }, { transform: 'translate3d(0, 0, 0)' }],
+    { duration: dauer, easing: kurve, fill: 'forwards' });
+  let fertig = false;
+  const ende = () => {
+    if (fertig) return;
+    fertig = true;
+    if (host._rfEnde === ende) host._rfEnde = null;
+    alt.remove();
+    rein.cancel();
+    neu.classList.remove('rf-neben');
+    ['top', 'left', 'width', 'transform'].forEach(p => neu.style.removeProperty(p));
+  };
+  host._rfEnde = ende;
+  rein.onfinish = ende;
+  setTimeout(ende, dauer + 120);   // falls onfinish ausbleibt (Tab im Hintergrund)
+}
+// Nach Antippen (Liste, Pille): erst das Bild dekodieren (die sieben sind beim
+// Oeffnen vorgeladen) — so gleitet keine leere Karte herein
+function rfTauschen(host, html, dir) {
+  const lauf = (host._rfLauf || 0) + 1;
+  host._rfLauf = lauf;
+  host._rfWartet = true;
+  const neu = rfKarte(html);
+  const bild = neu.querySelector('.rf-sprite');
+  const los = () => {
+    if (host._rfLauf !== lauf || !host.isConnected) return;
+    host._rfWartet = false;
+    host.classList.add('ruhig');   // kein erneuter Auftritt per CSS
+    const x = rfFertig(host);
+    host.querySelectorAll('.rf.rf-neben').forEach(n => n.remove());
+    const alt = rfJetzt(host);
+    if (!alt) { host.appendChild(neu); return; }
+    if (!weich() || !alt.animate) { alt.replaceWith(neu); return; }
+    rfDaneben(host, neu, x + dir * rfSchritt(host));
+    rfGleiten(host, alt, neu, dir, x, 460);
+  };
+  if (!bild?.decode) return los();
+  // Hoechstens kurz warten: lieber ein spaetes Bild als ein haengender Tipp
+  Promise.race([bild.decode().catch(() => {}), new Promise(r => setTimeout(r, 260))]).then(los);
+}
+
+// Wisch auf der Karte: nach links die naechste Stufe, nach rechts die vorige.
+// Die Karte folgt dem Finger, die naechste schaut von der Seite herein; am
+// Ende der Liste gibt es keine, dann zieht sie zaeh und federt zurueck. Nur
+// waagerecht — senkrecht scrollt die Seite; am linken Rand bleibt der Wisch
+// zurueck der Seite (data-kein-wisch="rand", siehe wischZurueck).
+function rangKarteWisch(seite, oben) {
+  if (!oben) return;
+  let w = null;
+  const gibtEs = t => t >= 1 && t <= RANKS.length;
+  const federn = 'cubic-bezier(.3, 1.25, .5, 1)';
+  oben.addEventListener('pointerdown', e => {
+    if (w && w.lauf) return;
+    w = null;
+    if (e.pointerType === 'mouse' || wseiteOben() !== seite || walletGesperrt() || oben._rfWartet) return;
+    if (e.clientX - seite.el.getBoundingClientRect().left < WISCH_RAND) return;
+    w = { x: e.clientX, y: e.clientY, id: e.pointerId, lauf: false, dx: 0, zx: 0, v: 0, lx: e.clientX, lt: e.timeStamp, nachbar: null };
+  }, { passive: true });
+  oben.addEventListener('pointermove', e => {
+    if (!w || e.pointerId !== w.id) return;
+    const dx = e.clientX - w.x, dy = e.clientY - w.y;
+    if (!w.lauf) {
+      if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { w = null; return; }
+      if (Math.abs(dx) < 12 || Math.abs(dx) < Math.abs(dy) * 1.3) return;
+      w.lauf = true;
+      try { oben.setPointerCapture(e.pointerId); } catch { /* synthetische Pointer */ }
+      // Ein laufender Wechsel wird fertig, der Finger greift die neue Karte
+      w.x0 = rfFertig(oben);
+      oben.querySelectorAll('.rf.rf-neben').forEach(n => n.remove());
+      oben.classList.add('ruhig');
+    }
+    const dt = e.timeStamp - w.lt;
+    if (dt > 0) { w.v = (e.clientX - w.lx) / dt; w.lx = e.clientX; w.lt = e.timeStamp; }
+    w.dx = dx;
+    if (!weich()) return;
+    const s = Math.sign(dx), ziel = seite.zeigt - s;
+    // Nachbar in Zugrichtung: einmal gebaut, bei Richtungswechsel getauscht
+    if (s && gibtEs(ziel)) {
+      if (w.nachbar?.stufe !== ziel) {
+        w.nachbar?.el.remove();
+        w.nachbar = { stufe: ziel, el: rfDaneben(oben, rfKarte(rangFensterFuer(ziel)), -s * rfSchritt(oben), true) };
+      }
+    } else if (w.nachbar) { w.nachbar.el.remove(); w.nachbar = null; }
+    const x = (w.x0 || 0) + (w.nachbar ? dx : s * Math.min(Math.abs(dx) * .22, 44));
+    w.zx = x;
+    const karte = rfJetzt(oben);
+    if (karte) karte.style.transform = `translate3d(${x.toFixed(1)}px, 0, 0)`;
+    if (w.nachbar) w.nachbar.el.style.transform = `translate3d(${(x - s * rfSchritt(oben)).toFixed(1)}px, 0, 0)`;
+  });
+  const ende = e => {
+    if (!w || e.pointerId !== w.id) return;
+    const war = w;
+    w = null;
+    if (!war.lauf) return;
+    const s = Math.sign(war.dx), ziel = seite.zeigt - s;
+    const weit = Math.abs(war.dx) > 64 || (Math.abs(war.dx) > 18 && Math.abs(war.v) > .4 && Math.sign(war.v) === s);
+    const karte = rfJetzt(oben);
+    if (e.type !== 'pointercancel' && weit && gibtEs(ziel)) {
+      const n = war.nachbar?.el;
+      rangVorschau(seite, ziel, { richtung: -s, karte: !n });
+      if (n && karte) rfGleiten(oben, karte, n, -s, war.zx, 340);
+      return;
+    }
+    // Zu kurz, abgebrochen oder keine Stufe mehr: federt zurueck
+    const x = war.zx || 0;
+    if (karte) {
+      karte.style.transform = '';
+      if (x && weich() && karte.animate) karte.animate([{ transform: `translate3d(${x}px, 0, 0)` }, { transform: 'translate3d(0, 0, 0)' }],
+        { duration: 380, easing: federn });
+    }
+    const n = war.nachbar?.el;
+    if (n) {
+      const b = rfSchritt(oben);
+      n.style.transform = '';
+      const a = n.animate([{ transform: `translate3d(${x - s * b}px, 0, 0)` }, { transform: `translate3d(${-s * b}px, 0, 0)` }],
+        { duration: 380, easing: federn, fill: 'forwards' });
+      a.onfinish = () => n.remove();
+      setTimeout(() => n.remove(), 500);
+    }
+    if (weit && !gibtEs(ziel)) buzz(6);
+  };
+  oben.addEventListener('pointerup', ende);
+  oben.addEventListener('pointercancel', ende);
+  oben.addEventListener('lostpointercapture', e => { if (e.target === oben) ende(e); });
+}
+
+// Die sieben Maskottchen vorladen und dekodieren, sobald die Rang-Seite
+// aufgeht — erst nach dem Hereinschieben, damit die Bewegung frei bleibt.
+// Gleiche srcset/sizes wie im Rang-Fenster, damit der Browser dieselbe Datei
+// waehlt. Die Bilder bleiben gemerkt (dekodiert im Speicher).
+function rangBilderVorladen() {
+  if (rangBilderVorladen.bilder) return;
+  rangBilderVorladen.bilder = [];
+  setTimeout(() => RANKS.forEach(r => {
+    const m = WALLET_MASKOTTCHEN[r.slug];
+    if (!m) return;
+    const i = new Image();
+    i.decoding = 'async';
+    i.sizes = '312px';
+    i.srcset = `${m.basis}-480.webp 480w, ${m.basis}-960.webp 960w`;
+    i.src = `${m.basis}-480.webp`;
+    i.decode?.().catch(() => { /* naechster Versuch beim Tausch */ });
+    rangBilderVorladen.bilder.push(i);
+  }), 420);
 }
 
 // Farbige Kopfzeile nur, solange der Kopf darunter noch steht. Sonst haengt
@@ -11543,6 +11876,9 @@ addEventListener('load', messeKopfzeile);
 
 // Antippen des Guthabens zeigt die Rang-Uebersicht, "Analyse" oeffnet ihre Seite
 $('#balance-flip')?.addEventListener('click', () => zeigeRang());
+// ... und das Maskottchen daneben auch (unsichtbare Flaeche ueber seinem
+// Koerper, siehe look.css .wk-figur — Druck-Feedback dort per CSS)
+$('#wk-figur')?.addEventListener('click', () => zeigeRang());
 $('#wa-statistik')?.addEventListener('click', () => oeffneAnalyse());
 // Verschenken: erst waehlen, welcher Gutschein — auf einer eigenen Seite, nach
 // Marke gebuendelt, mit Filter und Sortierung. Danach schiebt der Schritt
