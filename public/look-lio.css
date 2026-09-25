@@ -400,11 +400,14 @@ button.lsh-weg:focus-visible { outline: 2px solid var(--akzent-text); outline-of
 .lsh-weg-stand { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; text-align: right; }
 .lsh-weg-stand small { font-size: .74rem; font-weight: 600; line-height: 1.3; color: var(--muted); white-space: nowrap; }
 .lsh-weg-stand small b { color: var(--text); font-weight: 800; font-variant-numeric: tabular-nums; }
+/* Countdown: jede Ziffer in einer festen Zelle (app.js lioUhrHtml) — auch
+   Schriften ohne tabular-nums wackeln so nicht */
+.lsh-weg-stand small b i { display: inline-block; width: 1ch; font-style: normal; text-align: center; }
 .lsh-abgeholt, .lsh-offen {
   display: inline-flex; align-items: center; gap: 4px;
   font-size: .8rem; font-weight: 800; line-height: 1.25; white-space: nowrap;
 }
-.lsh-abgeholt { color: #178A47; }
+.lsh-abgeholt { color: #137F42; }   /* 5:1 auf Weiss (#178A47 waren 4,4:1) */
 :root[data-theme="dark"] .lsh-abgeholt { color: #3FD68B; }
 .lsh-abgeholt .icon { width: 15px; height: 15px; stroke-width: 2.8; }
 .lsh-offen { color: var(--lio-text); }

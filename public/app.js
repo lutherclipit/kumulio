@@ -13702,6 +13702,10 @@ function lioUhrText(ms) {
   const zz = n => String(n).padStart(2, '0');
   return `${zz(Math.floor(s / 3600))}:${zz(Math.floor(s / 60) % 60)}:${zz(s % 60)}`;
 }
+// Jede Ziffer in einer festen Zelle (1ch): nicht jede Schrift kennt
+// tabular-nums (Segoe UI Variable am Windows-Rechner), sonst wackelt die
+// Zeile jede Sekunde ein Stueck hin und her
+function lioUhrHtml(txt) { return String(txt).replace(/\d/g, d => `<i>${d}</i>`); }
 // Der taegliche Lio heute: gebucht (laut Server, fuer den heutigen Berliner
 // Tag)? rest = ms bis zum naechsten
 function lioTagStand() {
@@ -13713,12 +13717,17 @@ function lioTagStand() {
 }
 // Noch nicht gebucht (die App war ueber Mitternacht offen): das Profil neu
 // holen — der Server bucht den Lio beim Abruf, der Stern fliegt dann in den
-// Kopf des Shops. Einmal je Tag; klappt es nicht, kommt er beim naechsten Oeffnen.
+// Kopf des Shops. Bis zu drei Versuche je Tag, ab dem zweiten mit 2,5 s
+// Abstand: geht die Handy-Uhr ein, zwei Sekunden vor (unter der Schwelle von
+// lioZeitMerken), ist beim Server um Mitternacht noch gestern. Klappt es gar
+// nicht, kommt er beim naechsten Oeffnen.
 function lioTagNachholen(heute) {
-  if (!state.token || lioTagNachholen.tag === heute) return;
-  lioTagNachholen.tag = heute;
+  if (!state.token || lioTagNachholen.laeuft) return;
+  if (lioTagNachholen.tag !== heute) { lioTagNachholen.tag = heute; lioTagNachholen.versuche = 0; }
+  if (lioTagNachholen.versuche >= 3) return;
+  const pause = lioTagNachholen.versuche++ ? 2500 : 0;
   lioTagNachholen.laeuft = true;
-  Promise.resolve(ladeProfil()).catch(() => { }).finally(() => {
+  new Promise(r => setTimeout(r, pause)).then(() => ladeProfil()).catch(() => { }).finally(() => {
     lioTagNachholen.laeuft = false;
     for (const s of wseiten()) if (s.art === 'lio-shop') lioWegeZeigen(s);
   });
@@ -13747,7 +13756,8 @@ function lioWegSerieHtml(art, alle, s, boni) {
   const offen = boni.filter(b => b && b.art === art);
   if (offen.length) {
     const summe = offen.reduce((x, b) => x + (Number(b.menge) || 0), 0);
-    return `<span class="lsh-weg-stand"><span class="lsh-bereit">+${summe.toLocaleString('de-DE')} bereit</span><small>im Menü abholen</small></span>`;
+    // Kurz: "im Menü abholen" drueckte bei 360 px "30 Tage in Folge" in zwei Zeilen
+    return `<span class="lsh-weg-stand"><span class="lsh-bereit">+${summe.toLocaleString('de-DE')} bereit</span><small>im Menü</small></span>`;
   }
   const tage = Math.max(0, Math.round(Number(s.tage) || 0));
   // Am Tag, an dem die Woche voll wird, steht sie voll da (morgen geht es mit 1 weiter)
@@ -13762,7 +13772,7 @@ function lioWegTagHtml() {
   if (t.abgeholt) return `
     <span class="lsh-weg-stand tag">
       <span class="lsh-abgeholt">${icon('check', 'icon')}Abgeholt</span>
-      <small>Nächster in <b data-lio-uhr>${lioUhrText(t.rest)}</b></small>
+      <small>Nächster in <b data-lio-uhr>${lioUhrHtml(lioUhrText(t.rest))}</b></small>
     </span>`;
   return `
     <span class="lsh-weg-stand tag">
@@ -13795,7 +13805,7 @@ function lioWegeHtml() {
   ].join('');
 }
 // Nur neu zeichnen, wenn sich etwas geaendert hat (der Countdown selbst
-// tickt in lioUhrTick nur als Text)
+// tickt in lioUhrStart nur als Text)
 function lioWegeZeigen(seite) {
   const host = seite?.el.querySelector('.lsh-wege');
   if (!host) return;
@@ -13821,7 +13831,7 @@ function lioUhrStart(seite) {
     if (!seite.el.classList.contains('verdeckt')) {
       const t = lioTagStand();
       const el = seite.el.querySelector('[data-lio-uhr]');
-      if (el && t.abgeholt) { const txt = lioUhrText(t.rest); if (el.textContent !== txt) el.textContent = txt; }
+      if (el && t.abgeholt) { const txt = lioUhrText(t.rest); if (el.textContent !== txt) el.innerHTML = lioUhrHtml(txt); }
       else lioWegeZeigen(seite);
     }
     seite.uhr = setTimeout(tick, 1000 - (lioJetzt() % 1000) + 20);
@@ -13863,15 +13873,17 @@ function lioSternDrehen(knopf) {
       von = (Math.atan2(-m.m13, m.m11) * 180 / Math.PI + 360) % 360;
     } catch { von = 0; }
   }
-  // Drei Umdrehungen, beim Nachtippen etwas mehr — immer bis wieder vorn
-  const bis = Math.ceil((von + (laeuft ? 1260 : 1080)) / 360) * 360;
+  // Zwei Umdrehungen, beim Nachtippen von der aktuellen Stellung aus
+  // mindestens zwei weitere — immer bis wieder vorn. Hoechstens gut 30 Grad
+  // je Bild (60 Hz) am Anfang: schneller sah es nach Flackern statt Drehen aus
+  const bis = Math.ceil((von + 720) / 360) * 360;
   knopf._dreh?.cancel();
   knopf._dreh = stern.animate([
-    { transform: `rotateY(${von}deg)`, easing: 'cubic-bezier(.16, .74, .28, 1)' },
+    { transform: `rotateY(${von}deg)`, easing: 'cubic-bezier(.24, .76, .3, 1)' },
     { transform: `rotateY(${bis + 14}deg)`, offset: .84, easing: 'cubic-bezier(.45, 0, .55, 1)' },
     { transform: `rotateY(${bis - 5}deg)`, offset: .93, easing: 'ease-in-out' },
     { transform: `rotateY(${bis}deg)` },
-  ], { duration: laeuft ? 1500 : 1650 });
+  ], { duration: laeuft ? 1600 : 1550 });
   // Huepfer: addiert sich zu einem laufenden (zweimal tippen = etwas hoeher)
   const hoch = laeuft ? 4 : 7;
   huepf.animate([
@@ -13937,7 +13949,25 @@ function zeichneLioShop(seite) {
         <span class="gd-tx-betrag ${plus ? 'plus' : 'minus'}">${plus ? '+' : '−'}${Math.abs(Number(e.delta) || 0).toLocaleString('de-DE')}</span>
       </div>`;
   }).join('');
-  inhalt.innerHTML = `
+  const rest = `
+    <h3 class="gd-h">Gutscheine</h3>
+    <div class="lsh-liste">${liste}</div>
+    ${wege ? '<h3 class="gd-h">So sammelst du Lios</h3><div class="gd-block lsh-wege"></div>' : ''}
+    ${verlauf ? `<h3 class="gd-h">Zuletzt</h3><div class="gd-block gd-verlauf lsh-verlauf">${verlauf}</div>` : ''}`;
+  // Steht der Kopf schon, bleibt er stehen und bekommt nur Stand und Wert neu:
+  // die Daten kommen kurz nach dem Oeffnen, ein Neuzeichnen braeche eine
+  // laufende Drehung des Sterns (oder sein Federn bei der Ankunft eines
+  // Lio-Sterns) mittendrin ab
+  const alterKopf = inhalt.querySelector(':scope > .lsh-kopf');
+  if (alterKopf) {
+    while (alterKopf.nextSibling) alterKopf.nextSibling.remove();
+    alterKopf.insertAdjacentHTML('afterend', rest);
+    const zahl = alterKopf.querySelector('[data-lio-stand]');
+    if (zahl) zahl.textContent = lioText(stand);
+    const euro = alterKopf.querySelector('[data-lio-euro]');
+    if (euro) euro.textContent = euroFmt(stand / 100);
+  } else {
+    inhalt.innerHTML = `
     <div class="lsh-kopf">
       <button class="lsh-kopf-stern" type="button" data-lio-ziel data-lsh-stern aria-label="Stern drehen">
         <span class="lsh-funken" aria-hidden="true"></span>
@@ -13948,14 +13978,11 @@ function zeichneLioShop(seite) {
         <b data-lio-stand>${lioText(stand)}</b>
         <span class="lsh-wert">Wert <span data-lio-euro>${euroFmt(stand / 100)}</span></span>
       </span>
-    </div>
-    <h3 class="gd-h">Gutscheine</h3>
-    <div class="lsh-liste">${liste}</div>
-    ${wege ? '<h3 class="gd-h">So sammelst du Lios</h3><div class="gd-block lsh-wege"></div>' : ''}
-    ${verlauf ? `<h3 class="gd-h">Zuletzt</h3><div class="gd-block gd-verlauf lsh-verlauf">${verlauf}</div>` : ''}`;
+    </div>${rest}`;
+    inhalt.querySelector('[data-lsh-stern]').onclick = e => lioSternDrehen(e.currentTarget);
+  }
   inhalt.querySelectorAll('[data-lsh-produkt]').forEach(b => { b.onclick = () => oeffneLioProdukt(b.dataset.lshProdukt); });
   inhalt.querySelector('[data-lsh-neu]')?.addEventListener('click', () => { lioShopLaden.fehler = false; zeichneLioShop(seite); lioShopLaden(); });
-  inhalt.querySelector('[data-lsh-stern]').onclick = e => lioSternDrehen(e.currentTarget);
   lioWegeZeigen(seite);
 }
 
