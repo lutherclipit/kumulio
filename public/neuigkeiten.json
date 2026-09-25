@@ -1,5 +1,40 @@
 [
   {
+    "v": "2026-09-25.3",
+    "datum": "25. September 2026",
+    "titel": "Neue Rang-Farben und Lio-Uhr",
+    "punkte": [
+      {
+        "icon": "sparkle",
+        "titel": "Deine Ränge in neuen Farben",
+        "text": "Von Grau über Hellblau, Blau, Lila und Pink bis Rot und Gold: Jeder Rang hat jetzt eine eigene, klare Farbe. Der höchste Rang heißt jetzt Majestät.",
+        "bild": "/brand/neu/2026-09-25-raenge.webp",
+        "bildAlt": "Die Wallet in den Farben aller sieben Ränge",
+        "bildGroesse": [
+          800,
+          298
+        ]
+      },
+      {
+        "icon": "shop",
+        "titel": "Shop oben rechts",
+        "text": "Der runde Knopf oben rechts in der Wallet führt in den Gutschein-Shop. Beim Öffnen zeigt er kurz deinen Lio-Stand."
+      },
+      {
+        "icon": "star",
+        "titel": "Wann kommt das nächste Lio?",
+        "text": "Im Shop siehst du, ob du heute schon abgeholt hast und wie lange es bis zum nächsten Lio um Mitternacht dauert. Tipp ruhig mal auf den großen Stern.",
+        "bild": "/brand/neu/2026-09-25-lio-wege-hell.webp",
+        "bildDunkel": "/brand/neu/2026-09-25-lio-wege-dunkel.webp",
+        "bildAlt": "So sammelst du Lios: mit Uhr bis zum nächsten Lio",
+        "bildGroesse": [
+          756,
+          570
+        ]
+      }
+    ]
+  },
+  {
     "v": "2026-09-25.2",
     "datum": "25. September 2026",
     "titel": "Lio, Shop und dein Kumulio",
