@@ -149,7 +149,7 @@
 .lio-knopf {
   justify-self: end;
   display: inline-flex; align-items: center; gap: 6px;
-  height: 42px; padding: 0 12px 0 9px; border: 0; border-radius: 13px;
+  height: 42px; padding: 0 11px 0 9px; border: 0; border-radius: 13px;
   background: rgba(255, 255, 255, .94); color: #1B2430;
   box-shadow: 0 4px 14px rgba(0, 0, 0, .1);
   font: inherit; font-size: .98rem; font-weight: 850; letter-spacing: -.01em; line-height: 1;
@@ -170,10 +170,21 @@ body:not(.wallet-farbe) #btn-lio-top, #btn-lio-top:not(.bereit) {
   transition: opacity .2s ease, visibility 0s linear .2s;
 }
 @media (prefers-reduced-motion: reduce) { .lio-knopf { transition: none; } }
-/* Die Tasche ist nur ein Hinweis: sie faellt weg, sobald es eng wird — ab
-   vier Stellen (sonst stiesse der Knopf bei 360 px ans Logo) und beim Scrollen,
-   wenn in der Mitte das Mini-Guthaben steht (die Leiste rueckt ohnehin zusammen) */
-.lio-knopf.lang .lio-knopf-tasche, body:has(#wallet-mini.show) .lio-knopf-tasche { display: none; }
+/* Die Tasche ist nur ein Hinweis: sie faellt weg, sobald es neben dem Logo
+   eng wird — ab vier Stellen, bei schmalen Handys (bis 370 px) schon ab drei.
+   Das haengt nur am Stand, nie am Scrollen: der Knopf aendert beim Scrollen
+   seine Breite nicht (auch neben dem Mini-Guthaben bleibt genug Luft).
+   Ohne Tasche endet der Knopf mit der Zahl: rechts dann dieselbe Luft wie
+   links am Stern (die Tasche hat im Symbol selbst 3 px Rand). */
+.lio-knopf.lang { padding-right: 9.5px; }
+.lio-knopf.lang .lio-knopf-tasche { display: none; }
+@media (max-width: 370px) {
+  .lio-knopf.mittel { padding-right: 9.5px; }
+  .lio-knopf.mittel .lio-knopf-tasche { display: none; }
+  /* Ab vier Stellen etwas kompakter, sonst kaeme er dem Logo zu nahe */
+  .lio-knopf.lang { gap: 5px; padding: 0 8px; font-size: .94rem; }
+  .lio-knopf.lang .lio-stern { width: 22px; height: 22px; }
+}
 
 /* ---- Tour fuer neue Nutzer: die Lio-Karte (Flaeche wie im Menue, oben) ----
    Oben Stern und "1 Lio = 1 Cent", darunter die vier Wege zu Lios */

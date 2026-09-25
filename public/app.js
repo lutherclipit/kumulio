@@ -13035,8 +13035,10 @@ function lioStandZeigen({ von = null } = {}) {
   document.querySelectorAll('[data-lio-aria]').forEach(el => {
     el.setAttribute('aria-label', `Gutschein-Shop öffnen. Du hast ${lioText(ziel)}`);
   });
-  // Ab vier Stellen wird der Knopf oben breiter: dann faellt die Tasche weg
-  // (look-lio.css), sonst kaeme er bei 360 px dem Logo zu nahe
+  // Mit mehr Stellen wird der Knopf oben breiter: dann faellt die Tasche weg
+  // (look-lio.css; ab drei Stellen bei 360 px, ab vier immer), sonst kaeme er
+  // dem Logo zu nahe
+  $('#btn-lio-top')?.classList.toggle('mittel', ziel >= 100);
   $('#btn-lio-top')?.classList.toggle('lang', ziel >= 1000);
 }
 
@@ -13053,10 +13055,12 @@ function lioKnopfZeigen() {
   k.tabIndex = bereit ? 0 : -1;
 }
 $('#btn-lio-top')?.addEventListener('click', () => oeffneLioShop());
-// Ist der Knopf gerade zu sehen? (Wallet, angemeldet, keine Seite darueber)
+// Ist der Knopf gerade zu sehen? (Wallet, angemeldet, nicht gesperrt, keine
+// Seite darueber)
 function lioKnopfSichtbar() {
   const k = $('#btn-lio-top');
   return !!k && k.classList.contains('bereit') && document.body.classList.contains('wallet-farbe')
+    && !document.body.classList.contains('wallet-zu')
     && state.activeView === 'wallet' && !wseiteOben() && !topMenuOffen();
 }
 
@@ -13157,7 +13161,7 @@ function lioTourHtml() {
         ${weg('Jeden Tag reinschauen', 'einmal pro Tag, von selbst', wert(s.proTag, LIO_REGELN.tag))}
         ${weg('7 Tage in Folge', 'im Menü abholen', wert(s.woche, LIO_REGELN.woche))}
         ${weg('30 Tage in Folge', 'im Menü abholen', wert(s.monat, LIO_REGELN.monat))}
-        ${weg('Freund einladen', `sobald er seine E-Mail bestätigt und ${wert(f.tageNoetig, LIO_REGELN.freundTage)} Tage in Folge reinschaut`, wert(f.proFreund, LIO_REGELN.freund))}
+        ${weg('Freund einladen', `sobald er seine E-Mail bestätigt und ${wert(f.tageNoetig, LIO_REGELN.freundTage)}&nbsp;Tage in Folge reinschaut`, wert(f.proFreund, LIO_REGELN.freund))}
       </ul>
     </div>`;
 }
@@ -13321,9 +13325,12 @@ function lioSternFlug(menge, { von = null, text = '', beiAnkunft = null } = {}) 
   plus.className = 'lio-plus';
   plus.textContent = '+' + menge.toLocaleString('de-DE');
   ebene.appendChild(plus);
-  // Am Lio-Knopf rechtsbuendig darunter (die Zahl zaehlt dort sichtbar hoch)
+  // Am Lio-Knopf rechtsbuendig darunter (die Zahl zaehlt dort sichtbar hoch):
+  // buendig mit dem weissen Ring (2 px, box-shadow) und von rechts aus
+  // skaliert, damit "+N" beim Federn nicht ueber die Kante hinaus waechst
   const ku = ziel.unter;
-  const lx = ku ? ku.right - plus.offsetWidth : Math.min(innerWidth - 60, zr.right - 14);
+  if (ku) plus.style.transformOrigin = 'right center';
+  const lx = ku ? ku.right - 2 - plus.offsetWidth : Math.min(innerWidth - 60, zr.right - 14);
   const ly = ku ? ku.bottom + 6 : zr.bottom - 20;
   const lt = (dy, s) => `translate3d(${lx.toFixed(1)}px, ${(ly + dy).toFixed(1)}px, 0) scale(${s})`;
   const weg = [plus];
