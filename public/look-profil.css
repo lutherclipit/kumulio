@@ -599,20 +599,17 @@ body.sparsam .rf-balken > span { transition: none; }
     0 12px 28px -10px color-mix(in srgb, var(--r1) 70%, transparent);
 }
 :root[data-theme="dark"] #user-page > .up-kopf[data-stufe] { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), 0 12px 28px -10px rgba(0, 0, 0, .6); }
-/* Strahlen mittig hinter dem Bild; die Karte (isolation + overflow) schneidet
-   sie an den runden Ecken ab */
+/* Hinter dem Bild ein sanfter, ruhender Schein wie im eigenen Profil-Kopf
+   (keine drehenden Strahlen mehr) */
 .up-kopf[data-stufe] .up-ava-rahmen::before {
   content: ""; position: absolute; z-index: -1; left: 50%; top: 50%;
-  width: 156px; aspect-ratio: 1; pointer-events: none;   /* kurz, wie im eigenen Profil-Kopf */
+  width: 168px; aspect-ratio: 1; pointer-events: none;
   transform: translate(-50%, -50%);
-  background: repeating-conic-gradient(from 4deg,
-    color-mix(in srgb, var(--r3) 55%, #fff) 0deg 5deg, transparent 5deg 18deg);
-  -webkit-mask-image: radial-gradient(closest-side, rgba(0, 0, 0, .55) 0%, rgba(0, 0, 0, .3) 38%, transparent 82%);
-          mask-image: radial-gradient(closest-side, rgba(0, 0, 0, .55) 0%, rgba(0, 0, 0, .3) 38%, transparent 82%);
-  opacity: .6;
-  animation: wkStrahlen 70s linear infinite;
+  background: radial-gradient(closest-side,
+    color-mix(in srgb, var(--r3) 45%, rgba(255, 255, 255, .5)) 0%,
+    color-mix(in srgb, var(--r3) 22%, transparent) 55%, transparent 100%);
+  opacity: .55;
 }
-/* Glas-Ring statt eines harten weissen Rands */
 /* Ring wie im eigenen Profil-Kopf: helle Rang-Farbe mit etwas Luft zum Bild */
 .up-kopf[data-stufe] .up-ava-rahmen { padding: 5px; border-radius: 50%; box-shadow: inset 0 0 0 2.5px color-mix(in srgb, var(--r3) 70%, #fff); }
 .up-kopf[data-stufe] .up-ava { box-shadow: 0 10px 22px -8px rgba(0, 0, 0, .4); }
@@ -651,10 +648,9 @@ body.sparsam .rf-balken > span { transition: none; }
 @media (hover: hover) {
   #user-page .up-kopf[data-stufe] .up-actions .btn-ghost:hover { background: rgba(255, 255, 255, .3); }
 }
-body:is(.sparsam, .ohne-anim) .up-kopf[data-stufe] .up-ava-rahmen::before, body:is(.sparsam, .ohne-anim) .up-funken .wk-f { animation: none; }
+body:is(.sparsam, .ohne-anim) .up-funken .wk-f { animation: none; }
 body:is(.sparsam, .ohne-anim) .up-funken .wk-f { opacity: .9; transform: none; }
 @media (prefers-reduced-motion: reduce) {
-  .up-kopf[data-stufe] .up-ava-rahmen::before { animation: none; }
   .up-funken .wk-f { animation: none; opacity: .9; }
 }
 
