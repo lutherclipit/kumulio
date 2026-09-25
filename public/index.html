@@ -278,7 +278,8 @@
         </button>
         <h1 style="margin:0">Profil bearbeiten</h1>
       </div>
-      <!-- Bild und Bio -->
+      <!-- Bild, Name und Bio. Der Anzeigename ist alle 7 Tage aenderbar, der
+           @Name steht fest (aendern nur auf Anfrage) -->
       <div class="card pe-karte">
         <div class="pe-bild">
           <span class="avatar-big" id="g-avatar-preview"></span>
@@ -288,6 +289,16 @@
             <button id="g-avatar-del" class="btn btn-small btn-ghost hidden" type="button">Entfernen</button>
           </div>
         </div>
+        <label class="f-label" for="g-anzeigename">Anzeigename</label>
+        <input id="g-anzeigename" class="input" maxlength="24" autocomplete="nickname" spellcheck="false" aria-describedby="g-anzeigename-hinweis">
+        <p class="pe-feld-hinweis" id="g-anzeigename-hinweis">Alle 7 Tage änderbar</p>
+        <label class="f-label" for="g-handle-fest">@Name</label>
+        <span class="pe-fest-feld">
+          <input id="g-handle-fest" class="input pe-fest" readonly aria-describedby="g-handle-hinweis">
+          <svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg>
+        </span>
+        <p class="pe-feld-hinweis" id="g-handle-hinweis">Fest seit der Registrierung. Ändern geht nur auf Anfrage über den
+          <a href="/impressum.html" target="_blank" rel="noopener">Kontakt im Impressum</a>.</p>
         <label class="f-label" for="g-bio">Über dich</label>
         <textarea id="g-bio" class="input" rows="2" maxlength="160" placeholder="Kurze Bio, höchstens 160 Zeichen"></textarea>
       </div>
@@ -304,14 +315,9 @@
         <h2 class="pe-h">Lieblingsmarken</h2>
         <div id="fav-pickers"></div>
       </div>
-      <!-- Name und Sichtbarkeit -->
+      <!-- Sichtbarkeit -->
       <div class="card pe-karte">
-        <h2 class="pe-h">Konto</h2>
-        <label class="f-label" for="g-handle">Dein @Name <span class="opt">(einmal pro Monat änderbar)</span></label>
-        <div class="form-row pe-handle">
-          <input id="g-handle" class="input" maxlength="24" placeholder="neuer Name">
-          <button id="g-handle-save" class="btn btn-small btn-ghost" type="button">Ändern</button>
-        </div>
+        <h2 class="pe-h">Sichtbarkeit</h2>
         <label class="pe-check">
           <input type="checkbox" id="g-public"> <span>Profil öffentlich zeigen (Bild, Bio und Lieblingsmarken)</span>
         </label>
@@ -581,7 +587,7 @@
           <span id="dm-partner-ava"></span>
           <span class="dm-partner-text">
             <span class="dm-partner-zeile"><span id="dm-partner-name"></span><span id="dm-partner-rolle"></span></span>
-            <span class="dm-partner-hinweis">Profil ansehen</span>
+            <span class="dm-partner-hinweis" id="dm-partner-hinweis">Profil ansehen</span>
           </span>
         </button>
       </div>
@@ -689,7 +695,8 @@
       <div id="reg-ref-note" class="reg-ref-note hidden"></div>
       <p class="muted" style="font-size:.84rem; margin-top:4px">Mit Profil kannst du kommentieren,
         bewerten und dir Beschreibungen entwerfen lassen.</p>
-      <input id="reg-user" class="input" maxlength="24" placeholder="Benutzername" autocomplete="username">
+      <input id="reg-user" class="input" maxlength="24" placeholder="Benutzername" autocomplete="username" aria-describedby="reg-user-hinweis">
+      <p class="muted" id="reg-user-hinweis" style="font-size:.78rem; line-height:1.4; margin:6px 2px 0">Wird dein @Name und bleibt fest. Deinen Anzeigenamen wählst du später im Profil.</p>
       <input id="reg-email" class="input" type="email" maxlength="80" placeholder="E-Mail-Adresse" autocomplete="email">
       <input id="reg-pass" class="input" type="password" maxlength="64" placeholder="Passwort (min. 6 Zeichen)" autocomplete="new-password">
       <label class="check-row">

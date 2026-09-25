@@ -313,6 +313,40 @@ function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ESC_MAP[c]);
 }
 
+// Anzeigenamen: vorne steht, wie jemand heissen will; der @Name bleibt intern
+// der Schluessel fuer alles (Links, Chats, Freunde, Suche). Der Server schickt
+// die Namen mit (Feld "anzeigename" am Eintrag oder eine Liste "namen"), hier
+// liegen sie fuer alle Stellen bereit. Kein Eintrag = es steht der @Name da.
+const anzeigeNamen = new Map();
+// true, wenn sich etwas geaendert hat (dann lohnt neu Zeichnen)
+function merkeAnzeigename(handle, name) {
+  if (!handle || anzeigeNamen.get(handle) === (name || undefined)) return false;
+  if (name) anzeigeNamen.set(handle, name); else anzeigeNamen.delete(handle);
+  return true;
+}
+// Eine Liste { "@Name": "Anzeigename" } nennt nur die gesetzten; fuer die
+// uebrigen Namen, die sie abdeckt (handles), gilt dann wieder der @Name
+function merkeNamen(liste, handles = []) {
+  const map = liste && typeof liste === 'object' ? liste : {};
+  let neu = false;
+  for (const h of new Set([...handles, ...Object.keys(map)])) {
+    if (merkeAnzeigename(h, typeof map[h] === 'string' ? map[h] : '')) neu = true;
+  }
+  return neu;
+}
+function anzeigeName(handle) { return anzeigeNamen.get(handle) || handle || ''; }
+// Zweite Zeile, wo Platz ist: der @Name — nur, wenn vorne etwas anderes steht
+function hatAnzeigename(handle) { return anzeigeNamen.has(handle); }
+// Wo sonst "@Name" stand (Geschenke): der Anzeigename, sonst wie bisher "@Name"
+function anzeigeOderAt(handle) { return hatAnzeigename(handle) ? anzeigeName(handle) : '@' + (handle || ''); }
+// Name in Listen (Freunde, Anfragen): Anzeigename, darunter klein der @Name.
+// Ohne Anzeigename steht nur der Name da, wie bisher (mit "@", wo es schon so war).
+function nameMitHandleHtml(handle, cls, { at = true } = {}) {
+  return hatAnzeigename(handle)
+    ? `<span class="${cls} name-doppelt"><b>${esc(anzeigeName(handle))}</b><small>@${esc(handle)}</small></span>`
+    : `<span class="${cls}">${at ? '@' : ''}${esc(handle)}</span>`;
+}
+
 function icon(name, cls = 'icon') {
   return `<svg class="${cls}"><use href="#i-${esc(name)}"/></svg>`;
 }
@@ -619,6 +653,7 @@ async function renderFriendsView() {
   host.innerHTML = '<div class="status">Lade …</div>';
   try {
     const r = await api('/api/dm/list');
+    dmListeNamenMerken(r);
     const friends = myProfile?.friends || [];
     const meta = {};
     r.list.forEach(l => { meta[l.partner] = { avatar: l.avatar, ts: l.lastTs }; });
@@ -626,9 +661,9 @@ async function renderFriendsView() {
     const sorted = [...friends].sort((a, b) => (meta[b]?.ts || 0) - (meta[a]?.ts || 0));
     host.innerHTML = sorted.length ? sorted.map(f => `
       <div class="friend-row">
-        <button class="friend-open" type="button" data-fr-profile="${esc(f)}" aria-label="Profil von @${esc(f)}">
+        <button class="friend-open" type="button" data-fr-profile="${esc(f)}" aria-label="Profil von ${esc(anzeigeName(f))} (@${esc(f)})">
           ${avatarHtml(f, meta[f]?.avatar, 'avatar-big')}
-          <span class="friend-name">@${esc(f)}</span>
+          ${nameMitHandleHtml(f, 'friend-name')}
         </button>
         <button class="btn btn-small" data-fr-write="${esc(f)}">Schreiben</button>
       </div>`).join('')
@@ -646,6 +681,7 @@ $('#fr-add-send').addEventListener('click', async () => {
   await api('/api/friend', { method: 'POST', body: JSON.stringify({ user: name, action: 'add' }) })
     .then(r => {
       if (myProfile) { myProfile.friends = r.friends; myProfile.friendRequests = r.friendRequests; }
+      profilNamenMerken(r);
       island(r.friends.includes(name) ? 'Ihr seid jetzt Freunde!' : 'Anfrage gesendet');
       $('#fr-add-name').value = '';
       renderFriendsView();
@@ -1306,8 +1342,8 @@ function sendDealToFriend(d) {
     </div>
     <p class="dl-schicken-deal">${esc(d.title)}</p>
     <div class="dl-schicken-liste">${friends.map(f => `
-      <button class="dl-schicken-freund" type="button" data-send-to="${esc(f)}">
-        ${avatarHtml(f, '', 'avatar-mini dl-schicken-ava')}<span>${esc(f)}</span>${icon('send', 'icon')}
+      <button class="dl-schicken-freund" type="button" data-send-to="${esc(f)}" title="@${esc(f)}">
+        ${avatarHtml(f, '', 'avatar-mini dl-schicken-ava')}<span>${esc(anzeigeName(f))}</span>${icon('send', 'icon')}
       </button>`).join('')}</div>
   </div>`;
   document.body.appendChild(wrap);
@@ -1321,7 +1357,7 @@ function sendDealToFriend(d) {
     zu();
     try {
       await api('/api/dm/send', { method: 'POST', body: JSON.stringify({ to: b.dataset.sendTo, text: `[deal:${d.id}] ${d.title.slice(0, 90)}` }) });
-      island(`An ${b.dataset.sendTo} geschickt`); playSfx('plop');
+      island(`An ${anzeigeName(b.dataset.sendTo)} geschickt`); playSfx('plop');
     } catch (err) { island(err.message); }
   });
 }
@@ -2740,17 +2776,18 @@ function commentHtml(c, replies) {
   // Reaktionen mit Emotes, die es nicht mehr gibt, fallen weg
   const emoteRx = Object.keys(rx).filter(k => k !== 'like' && k !== 'helpful' && emoteOwned(k));
   const canDelete = state.userName === c.user || ['admin', 'mod'].includes(state.role);
-  // Jeder Kommentar traegt Profilbild und Namensfarbe seines Autors — der
-  // Server liefert den jeweils AKTUELLEN Stand mit
+  // Jeder Kommentar traegt Profilbild, Namensfarbe und Anzeigenamen seines
+  // Autors — der Server liefert den jeweils AKTUELLEN Stand mit
   const ns = nameStyleOf(c.user, c.paint);
+  merkeAnzeigename(c.user, c.anzeigename || '');
   const ava = c.avatar
     ? `<img class="avatar-mini avatar-img c-ava" src="${sichereBildUrl(c.avatar)}" alt="">`
-    : `<span class="avatar-mini c-ava" style="background:${chatColor(c.user)}">${esc(c.user[0].toUpperCase())}</span>`;
+    : `<span class="avatar-mini c-ava" style="background:${chatColor(c.user)}">${esc(anfangsBuchstabe(c.user))}</span>`;
   return `
     <div class="comment" data-cid="${esc(c.id)}">
       <div class="comment-head">
         ${ava}
-        <span class="comment-user${ns.cls}" style="${ns.style}">${esc(c.user)}</span>
+        <span class="comment-user${ns.cls}" style="${ns.style}" title="@${esc(c.user)}">${esc(anzeigeName(c.user))}</span>
         ${role}
         <span class="comment-time">${esc(timeAgo(c.ts))}</span>
         ${(c.flags || []).map(f => `<span class="pill pill-warn">${icon('warning', 'icon icon-sm')} ${esc(f)}</span>`).join('')}
@@ -2827,7 +2864,7 @@ function dealKommentarKlick(seite, e, cm) {
     // Antwort wuerde sonst nirgends angezeigt
     seite.antwortAuf = cm.parentElement?.closest('.comment[data-cid]')?.dataset.cid || cid;
     const hint = seite.el.querySelector('.dl-antwort');
-    if (hint) { hint.hidden = false; hint.querySelector('span').textContent = `Antwort an ${b.dataset.creply}`; }
+    if (hint) { hint.hidden = false; hint.querySelector('span').textContent = `Antwort an ${anzeigeName(b.dataset.creply)}`; }
     const feld = seite.el.querySelector('.dl-feld');
     feld?.focus({ preventScroll: true });
     dealHinScrollen(seite, feld?.closest('.dl-schreiben'));
@@ -2922,7 +2959,7 @@ function refreshProfileTab() {
   if (!state.token) schliesseTopMenu({ fokus: false });
   if (state.token && state.userName) {
     btn.className = 'iconbtn';
-    btn.innerHTML = `<span class="avatar-mini">${esc(state.userName[0].toUpperCase())}</span>`;
+    btn.innerHTML = `<span class="avatar-mini">${esc(anfangsBuchstabe(state.userName))}</span>`;
     btn.setAttribute('aria-label', 'Profil: ' + state.userName);
     updateGiftBadges(); // innerHTML-Tausch wirft den Geschenk-Punkt sonst raus
   } else {
@@ -2942,13 +2979,24 @@ function refreshProfileTab() {
   updateChatGate();
 }
 
-// Profilbild oder Anfangsbuchstabe auf der festen Farbe des Namens
+// Profilbild oder Anfangsbuchstabe auf der festen Farbe des Namens. Die Farbe
+// haengt am @Name, der Buchstabe ist der des Anzeigenamens (so steht er daneben).
 function avatarHtml(name, bild, cls, id = '') {
   const n = name || '?';
   const idAttr = id ? ` id="${id}"` : '';
   return bild
     ? `<img class="${cls}"${idAttr} src="${sichereBildUrl(bild)}" alt="">`
-    : `<span class="${cls}"${idAttr} style="background:${chatColor(n)}">${esc(n[0].toUpperCase())}</span>`;
+    : `<span class="${cls}"${idAttr} style="background:${chatColor(n)}">${esc(anfangsBuchstabe(n))}</span>`;
+}
+function anfangsBuchstabe(handle) { return ([...anzeigeName(handle || '?')][0] || '?').toUpperCase(); }
+
+// Anzeigenamen aus dem eigenen Profil (auch aus der Antwort von /api/friend):
+// der eigene und die der Freunde und Anfragenden
+function profilNamenMerken(p) {
+  if (!p) return false;
+  const eigen = 'anzeigename' in p && merkeAnzeigename(state.userName, p.anzeigename || '');
+  const andere = merkeNamen(p.namen, [...(p.friends || []), ...(p.friendRequests || [])]);
+  return eigen || andere;
 }
 
 // Eigenes Profil vom Server holen und alles zeichnen, was daran haengt
@@ -2959,6 +3007,9 @@ async function ladeProfil() {
   try { frisch = await api('/api/profile'); } catch { return; }
   if (pseq !== profSeq) return; // veraltet: eine lokale Änderung kam dazwischen
   myProfile = frisch;
+  profilNamenMerken(frisch);
+  // Namensfelder frisch halten — nicht, waehrend jemand darin tippt
+  if (state.activeView !== 'editprofile') renderNamensFelder();
   // Profil bearbeiten: Vorschau des Bildes
   $('#g-avatar-preview').outerHTML = avatarHtml(state.userName, myProfile.avatar, 'avatar-big', 'g-avatar-preview');
   $('#g-avatar-del').classList.toggle('hidden', !myProfile.avatar);
@@ -2967,6 +3018,10 @@ async function ladeProfil() {
   if (myProfile.avatar && state.token) {
     $('#btn-profile-top').innerHTML = `<img class="avatar-mini avatar-img" src="${sichereBildUrl(myProfile.avatar)}" alt="">`;
     updateGiftBadges(); // der Avatar-Tausch wirft den Geschenk-Punkt sonst raus
+  } else {
+    // Ohne Bild: der Anfangsbuchstabe des Anzeigenamens (jetzt bekannt)
+    const ini = $('#btn-profile-top .avatar-mini:not(.avatar-img)');
+    if (ini) ini.textContent = anfangsBuchstabe(state.userName);
   }
   updateReqDot();
 }
@@ -3193,7 +3248,8 @@ function renderFarbwahl() {
 function zeigeFarbVorschau() {
   const el = $('#pe-farbe-name');
   if (!el) return;
-  el.textContent = state.userName || 'Dein Name';
+  // Vorschau mit dem Anzeigenamen, wie er gerade im Feld steht
+  el.textContent = $('#g-anzeigename')?.value.replace(/\s+/g, ' ').trim() || state.userName || 'Dein Name';
   const ns = nameStyleOf(state.userName, peFarbe);
   el.className = ns.cls.trim();
   el.setAttribute('style', ns.style);
@@ -3203,6 +3259,7 @@ function zeigeFarbVorschau() {
 // gespeicherten Stand, nach dem Speichern geht es automatisch zurueck.
 function oeffneProfilBearbeiten() {
   if (!state.token) return;
+  renderNamensFelder();
   $('#g-bio').value = myProfile?.bio || '';
   $('#g-public').checked = myProfile?.publicProfile !== false;
   $('#g-bio-msg').textContent = '';
@@ -3217,6 +3274,18 @@ $('#btn-edit-profile').addEventListener('click', oeffneProfilBearbeiten);
 $('#g-bio-save').addEventListener('click', async () => {
   const m = $('#g-bio-msg');
   m.className = 'form-msg'; m.textContent = '';
+  // Der Anzeigename geht nur mit, wenn er sich aendert (und aenderbar ist).
+  // Vorher fragen: danach ist er 7 Tage fest.
+  const feld = $('#g-anzeigename');
+  const bisher = myProfile?.anzeigename || '';
+  const name = !myProfile || feld.disabled ? bisher : feld.value.replace(/\s+/g, ' ').trim();
+  const nameNeu = name !== bisher;
+  if (nameNeu) {
+    const frage = name
+      ? `Anzeigename „${esc(name)}“ speichern? Ändern geht danach erst wieder in 7 Tagen.`
+      : `Anzeigenamen entfernen? Dann steht dort dein @Name, und ändern geht erst wieder in 7 Tagen.`;
+    if (!await askConfirm(frage, { okLabel: 'Speichern' })) return;
+  }
   setBtnLoading($('#g-bio-save'), true);
   try {
     const r = await api('/api/profile', {
@@ -3224,34 +3293,54 @@ $('#g-bio-save').addEventListener('click', async () => {
       body: JSON.stringify({
         bio: $('#g-bio').value, publicProfile: $('#g-public').checked,
         favs: { ...favPick }, nameColor: peFarbe || '',
+        ...(nameNeu ? { anzeigename: name } : {}),
       }),
     });
     profSeq++; // ein laufender Ladevorgang darf den neuen Stand nicht zurueckrollen
     myProfile = { ...myProfile, ...r };
+    profilNamenMerken(r);
     $('#g-bio').value = r.bio; // Server-Fassung (ggf. zensiert) zurückspiegeln
+    renderNamensFelder();
     island('Profil gespeichert');
     renderProfil();
     switchView('profile', 'enter-drop'); // direkt zurück
-  } catch (e) { m.className = 'form-msg error'; m.textContent = e.message; }
+  } catch (e) {
+    m.className = 'form-msg error'; m.textContent = e.message;
+    // Ging es um den Anzeigenamen (das Einzige, was der Server hier ablehnt),
+    // steht es auch direkt unter dem Feld
+    if (nameNeu) namensHinweis(e.message);
+  }
   finally { setBtnLoading($('#g-bio-save'), false); }
 });
 
-// @Handle ändern (einmal pro Monat, Server zieht überall mit um)
-$('#g-handle-save').addEventListener('click', async () => {
-  const neu = $('#g-handle').value.trim();
-  if (!neu) return;
-  if (!await askConfirm(`Deinen Namen zu @${esc(neu)} ändern? Das geht dann erst in 30 Tagen wieder.`, { okLabel: 'Ja, ändern' })) return;
-  try {
-    const r = await api('/api/handle', { method: 'POST', body: JSON.stringify({ name: neu }) });
-    state.userName = r.user;
-    walletBesitzer = r.user; // gleiche Wallet, neuer Name — kein Kontowechsel
-    speichereWallet(true);
-    lsSetzen('ra.user', r.user);
-    $('#g-handle').value = '';
-    island(`Du heißt jetzt @${r.user}`);
-    refreshProfileTab();
-    zeigeFarbVorschau();
-  } catch (e) { island(e.message); }
+// Name: der Anzeigename ist alle 7 Tage aenderbar (das erste Mal sofort),
+// der @Name steht nur zum Ansehen da — er ist ab der Registrierung fest und
+// wird nur auf Anfrage geaendert. Wann es wieder geht, sagt der Server
+// (anzeigenameAb, 0 = jetzt).
+function renderNamensFelder() {
+  const feld = $('#g-anzeigename');
+  if (!feld) return;
+  feld.value = myProfile?.anzeigename || '';
+  feld.placeholder = state.userName || '';
+  feld.disabled = !!namensHinweis();
+  $('#g-handle-fest').value = '@' + (state.userName || '');
+}
+// Unter dem Feld: wann es wieder geht, oder die Ablehnung vom Server (rot,
+// das Feld dazu mit rotem Rand, bis man darin tippt). Liefert die Resttage.
+function namensHinweis(fehler = '') {
+  const hinweis = $('#g-anzeigename-hinweis');
+  const ab = Number(myProfile?.anzeigenameAb) || 0;
+  const tage = ab > Date.now() ? Math.ceil((ab - Date.now()) / 864e5) : 0;
+  $('#g-anzeigename')?.classList.toggle('err', !!fehler);
+  if (hinweis) {
+    hinweis.classList.toggle('fehler', !!fehler);
+    hinweis.textContent = fehler || (tage ? `Wieder änderbar in ${tage} ${tage === 1 ? 'Tag' : 'Tagen'}` : 'Alle 7 Tage änderbar');
+  }
+  return tage;
+}
+$('#g-anzeigename').addEventListener('input', e => {
+  if (e.target.classList.contains('err')) namensHinweis();
+  zeigeFarbVorschau();
 });
 
 // Profilbild: quadratisch auf 96px verkleinert, als kleines JPEG gespeichert
@@ -3325,8 +3414,8 @@ function oeffneTopMenu() {
     </button>
     ${reqs.length ? `<div class="tm-section">Freundschaftsanfragen</div>
     ${reqs.map(u => `<div class="tm-req">
-      <span class="avatar-mini" style="background:${chatColor(u)}">${esc(u[0].toUpperCase())}</span>
-      <span style="flex:1; font-weight:700">${esc(u)}</span>
+      <span class="avatar-mini" style="background:${chatColor(u)}">${esc(anfangsBuchstabe(u))}</span>
+      ${nameMitHandleHtml(u, 'tm-req-name', { at: false })}
       <button class="btn btn-small" data-freq-ok="${esc(u)}">Annehmen</button>
       <button class="btn btn-small btn-ghost" data-freq-no="${esc(u)}">Ablehnen</button>
     </div>`).join('')}` : ''}
@@ -3360,6 +3449,7 @@ function oeffneTopMenu() {
   $('#tm-all-friends').onclick = () => { done(); switchView('friends', 'enter-drop'); };
   // Die letzten 3 Freunde (nach letzter Interaktion), mit Profilbild
   api('/api/dm/list').then(r => {
+    dmListeNamenMerken(r);
     const rows = [
       ...r.list.map(l => ({ name: l.partner, avatar: l.avatar, ts: l.lastTs })),
       ...(r.friends || []).map(f => ({ name: f.name, avatar: f.avatar, ts: 0 })),
@@ -3368,8 +3458,8 @@ function oeffneTopMenu() {
       <div class="tm-req">
         <span class="tm-friend-open" data-tm-user="${esc(f.name)}" style="display:flex; align-items:center; gap:8px; flex:1; cursor:pointer">
           ${f.avatar ? `<img class="avatar-mini avatar-img" src="${sichereBildUrl(f.avatar)}" alt="">`
-        : `<span class="avatar-mini" style="background:${chatColor(f.name)}">${esc(f.name[0].toUpperCase())}</span>`}
-          <span style="font-weight:700">${esc(f.name)}</span>
+        : `<span class="avatar-mini" style="background:${chatColor(f.name)}">${esc(anfangsBuchstabe(f.name))}</span>`}
+          <span style="font-weight:700" title="@${esc(f.name)}">${esc(anzeigeName(f.name))}</span>
         </span>
         <button class="btn btn-small btn-ghost" data-tm-whisper="${esc(f.name)}">Schreiben</button>
       </div>`).join('')
@@ -3383,7 +3473,7 @@ function oeffneTopMenu() {
   }).catch(() => { $('#tm-friends').innerHTML = ''; });
   menu.querySelectorAll('[data-freq-ok]').forEach(b => b.onclick = async () => {
     const r = await api('/api/friend', { method: 'POST', body: JSON.stringify({ user: b.dataset.freqOk, action: 'accept' }) }).catch(e => { island(e.message); });
-    if (r && myProfile) { myProfile.friends = r.friends; myProfile.friendRequests = r.friendRequests; }
+    if (r && myProfile) { myProfile.friends = r.friends; myProfile.friendRequests = r.friendRequests; profilNamenMerken(r); }
     island('Ihr seid jetzt Freunde!');
     done(); updateReqDot(); renderProfil();
   });
@@ -3465,8 +3555,8 @@ let knownReqs = null;
 function showReqToast(user) {
   const t = $('#req-toast');
   t.innerHTML = `
-    <span class="avatar-mini" style="background:${chatColor(user)}">${esc(user[0].toUpperCase())}</span>
-    <span style="flex:1"><b>@${esc(user)}</b> möchte dein Freund sein</span>
+    <span class="avatar-mini" style="background:${chatColor(user)}">${esc(anfangsBuchstabe(user))}</span>
+    <span style="flex:1">${hatAnzeigename(user) ? `<b>${esc(anzeigeName(user))}</b> (@${esc(user)})` : `<b>@${esc(user)}</b>`} möchte dein Freund sein</span>
     <button class="btn btn-small" id="rt-ok">Annehmen</button>
     <button class="btn btn-small btn-ghost" id="rt-no">Ablehnen</button>`;
   t.classList.remove('hidden');
@@ -3474,7 +3564,7 @@ function showReqToast(user) {
   const hide = () => { t.classList.remove('show'); setTimeout(() => t.classList.add('hidden'), 350); };
   $('#rt-ok').onclick = async () => {
     const r = await api('/api/friend', { method: 'POST', body: JSON.stringify({ user, action: 'accept' }) }).catch(() => null);
-    if (r && myProfile) { myProfile.friends = r.friends; myProfile.friendRequests = r.friendRequests; }
+    if (r && myProfile) { myProfile.friends = r.friends; myProfile.friendRequests = r.friendRequests; profilNamenMerken(r); }
     island('Ihr seid jetzt Freunde!'); playSfx('kaching');
     hide(); updateReqDot();
   };
@@ -3490,6 +3580,7 @@ async function checkFriendReqs() {
   try {
     const p = await api('/api/profile');
     const reqs = p.friendRequests || [];
+    profilNamenMerken(p); // Anzeigenamen fuer das Anfrage-Popup
     if (knownReqs !== null) {
       const fresh = reqs.filter(u => !knownReqs.includes(u));
       if (fresh.length) { buzz(25); showReqToast(fresh[0]); }
@@ -3582,6 +3673,25 @@ function setBtnLoading(btn, on) {
     btn.textContent = btn.dataset.label || btn.textContent;
     btn.style.minWidth = '';
   }
+}
+
+// Das Team hat den @Namen auf Anfrage geaendert (/api/admin/rename): gleiches
+// Konto — die Sitzung zog mit um —, gleiche Wallet, kein Kontowechsel. Was auf
+// dem Geraet am alten Namen hing (PIN, Face ID, Update-Log …), zieht mit.
+function neuerKontoname(neu) {
+  const alt = state.userName;
+  // Nur, wenn die Wallet hier wirklich dem alten Namen gehoert
+  if (!neu || !alt || alt === neu || (walletBesitzer && walletBesitzer !== alt)) return;
+  for (const k of ['ra.walletPin:', 'ra.walletBio:', 'ra.bioAngebot:', 'ra.ladenErkennung:', 'ra.neuGesehen:']) {
+    try {
+      const v = localStorage.getItem(k + alt);
+      if (v != null && localStorage.getItem(k + neu) == null) { localStorage.setItem(k + neu, v); localStorage.removeItem(k + alt); }
+    } catch { }
+  }
+  state.userName = neu;
+  walletBesitzer = neu;
+  speichereWallet(true);
+  lsSetzen('ra.user', neu);
 }
 
 function authOk(r, { welcome = false } = {}) {
@@ -4766,6 +4876,10 @@ async function pullWallet() {
     const remote = await api('/api/wallet?nur=index');
     if (state.token !== konto) return; // Kontowechsel unterwegs
     if (remote.statistik) state.wallet.statistik = remote.statistik;
+    // Anzeigenamen der Schenkenden ("Geschenk von …"); aendert sich einer,
+    // wird die Wallet unten neu gezeichnet
+    const schenker = [...state.wallet.vouchers, ...(remote.gifts || [])].map(v => v && v.giftFrom).filter(Boolean);
+    const namenNeu = merkeNamen(remote.namen, schenker);
     // Der Abgleich per Inhaltsverzeichnis speichert und zeichnet selbst — hier
     // nicht noch einmal (vorher lief renderWallet dafuer zweimal direkt hintereinander)
     if (remote.index) await gleicheMitIndexAb(remote.index, remote.deleted, konto);
@@ -4775,7 +4889,7 @@ async function pullWallet() {
       ensureWalletDates(); // auch vom Konto gezogene Alt-Gutscheine kriegen ein Datum
       save('wallet', state.wallet, true);
       renderWallet();
-    }
+    } else if (namenNeu) renderWallet();
     // Nur hochladen, wenn dieses Geraet etwas beisteuert
     if (walletBrauchtUpload()) syncWalletNow();
     // Jetzt ist der Stand frisch: einmal pro Sitzung alte Bilder nachkomprimieren
@@ -4795,7 +4909,7 @@ async function pullWallet() {
       playSfx('plop'); buzz([30, 30]);
       const g = fresh[0];
       showToast({
-        title: fresh.length === 1 ? `Geschenk von @${g.giftFrom}!` : `${fresh.length} neue Geschenke!`,
+        title: fresh.length === 1 ? `Geschenk von ${anzeigeOderAt(g.giftFrom)}!` : `${fresh.length} neue Geschenke!`,
         text: 'Es wartet auf der Geschenkseite auf dich.',
         iconName: 'gift', success: true,
         actions: [{ label: 'Auspacken', fn: () => switchView('gifts', 'enter-drop') }],
@@ -4850,7 +4964,7 @@ function renderGiftsPage() {
     <button class="gift-row" type="button" data-gift-open="${esc(g.id)}">
       <span class="gift-row-bild" aria-hidden="true">${icon('gift', 'icon')}</span>
       <span class="gift-row-info">
-        <b>Von @${esc(g.giftFrom)}</b>
+        <b>Von ${esc(anzeigeOderAt(g.giftFrom))}</b>
         <span class="muted">${wann(g.giftTs)}</span>
       </span>
       <span class="btn btn-small">Auspacken</span>
@@ -4869,13 +4983,13 @@ function openGiftReveal(gift) {
   wrap.innerHTML = `
     <div class="modal case-modal gift-stage">
       <button class="fav-remove" id="gr-close" aria-label="Später auspacken">${icon('x', 'icon icon-sm')}</button>
-      <img class="gift-box${reducedMotion() ? '' : ' wiggling'}" src="/gamification/gift.svg" width="110" height="110" alt="Geschenk von @${esc(gift.giftFrom)}">
+      <img class="gift-box${reducedMotion() ? '' : ' wiggling'}" src="/gamification/gift.svg" width="110" height="110" alt="Geschenk von ${esc(anzeigeOderAt(gift.giftFrom))}">
       <div class="gift-flash" aria-hidden="true"></div>
-      <p class="gift-hint">Ein Geschenk von <b>@${esc(gift.giftFrom)}</b>. Antippen zum Auspacken!</p>
+      <p class="gift-hint">Ein Geschenk von <b>${esc(anzeigeOderAt(gift.giftFrom))}</b>. Antippen zum Auspacken!</p>
       <div class="gift-result hidden">
-        <div class="offer-cat">Geschenk von @${esc(gift.giftFrom)}</div>
+        <div class="offer-cat">Geschenk von ${esc(anzeigeOderAt(gift.giftFrom))}</div>
         <div class="schenk-karte auspack-karte" id="auspack-karte">${istRabatt(gift) ? rabattCardHtml(gift, { schau: true }) : voucherCardHtml(gift)}</div>
-        ${gift.giftMsg ? `<div class="gift-bubble">${withEmotes(esc(gift.giftMsg))}<span class="gift-by">— @${esc(gift.giftFrom)}</span></div>` : ''}
+        ${gift.giftMsg ? `<div class="gift-bubble">${withEmotes(esc(gift.giftMsg))}<span class="gift-by">— ${esc(anzeigeOderAt(gift.giftFrom))}</span></div>` : ''}
         <button class="btn btn-big" id="gr-done" style="margin-top:14px">In die Wallet</button>
       </div>
     </div>`;
@@ -6984,11 +7098,13 @@ function zeigeSchenkSchritt(v) {
   let anWen = '', suche = '', nachricht = '';
 
   const freundeHtml = () => {
-    const gefiltert = suche ? freunde.filter(f => f.toLowerCase().includes(suche.toLowerCase())) : freunde;
+    // Gesucht wird im Anzeigenamen und im @Namen
+    const s = suche.toLowerCase();
+    const gefiltert = s ? freunde.filter(f => f.toLowerCase().includes(s) || anzeigeName(f).toLowerCase().includes(s)) : freunde;
     return gefiltert.map(f => `
       <button class="gp-freund${anWen === f ? ' gewaehlt' : ''}" type="button" data-gp-an="${esc(f)}" aria-pressed="${anWen === f}">
-        <span class="gp-ava" style="--fc:${chatColor(f)}">${esc(f.slice(0, 1).toUpperCase())}</span>
-        <span class="gp-name">@${esc(f)}</span>
+        <span class="gp-ava" style="--fc:${chatColor(f)}">${esc(anfangsBuchstabe(f))}</span>
+        ${nameMitHandleHtml(f, 'gp-name')}
         <span class="gp-haken">${icon('check', 'icon icon-sm')}</span>
       </button>`).join('') || '<p class="gp-leer">Niemand gefunden.</p>';
   };
@@ -7051,7 +7167,7 @@ function zeigeSchenkSchritt(v) {
       x.classList.toggle('gewaehlt', an);
       x.setAttribute('aria-pressed', String(an));
     });
-    if (senden) { senden.disabled = false; senden.textContent = `An @${anWen} verschenken`; }
+    if (senden) { senden.disabled = false; senden.textContent = `An ${anzeigeOderAt(anWen)} verschenken`; }
     buzz(8);
   });
   verdrahteFreunde();
@@ -7128,7 +7244,7 @@ function zeigeSchenkSchritt(v) {
       seite.sendet = false;
       if (pfeil) pfeil.disabled = false;
       senden.disabled = false;
-      senden.textContent = `An @${anWen} verschenken`;
+      senden.textContent = `An ${anzeigeOderAt(anWen)} verschenken`;
       island(err.message || 'Hat nicht geklappt');
       wseitenAbgleichen();
       return;
@@ -7142,7 +7258,7 @@ function zeigeSchenkSchritt(v) {
     // Inzwischen gesperrt (Seiten sind dann schon zu): nur noch Bescheid geben
     if (!wseiten().includes(seite)) {
       renderWallet();
-      island(`An @${anWen} verschenkt`);
+      island(`An ${anzeigeOderAt(anWen)} verschenkt`);
       return;
     }
     // Erst raeumt sich die Seite ab, dann faehrt die Karte in die Schachtel
@@ -7150,7 +7266,7 @@ function zeigeSchenkSchritt(v) {
     await packAnimation($('#schenk-karte'), 'ein');
     if (wseiten().includes(seite)) wseitenZu({ sanft: true });
     renderWallet();
-    island(`An @${anWen} verschenkt`); playSfx('plop'); buzz([12, 40, 18]);
+    island(`An ${anzeigeOderAt(anWen)} verschenkt`); playSfx('plop'); buzz([12, 40, 18]);
   };
 }
 // Gutscheine, die gerade verschenkt werden: bis zur Antwort des Servers tabu
@@ -8273,7 +8389,7 @@ function gutscheinSeiteHtml(v, karte) {
   const anfang = v.added ? `
       <div class="gd-tx anfang">
         <span class="gd-tx-zeichen anfang">${icon(v.giftFrom ? 'gift' : 'wallet')}</span>
-        <span class="gd-tx-text"><b>${v.giftFrom ? `Geschenk von @${esc(v.giftFrom)}` : 'Hinzugefügt'}</b><small>${zeit(v.added)}</small></span>
+        <span class="gd-tx-text"><b>${v.giftFrom ? `Geschenk von ${esc(anzeigeOderAt(v.giftFrom))}` : 'Hinzugefügt'}</b><small>${zeit(v.added)}</small></span>
         <span class="gd-tx-betrag">${v.amount != null ? euroFmt(v.amount) : ''}</span>
         <span class="gd-tx-platz"></span>
       </div>` : '';
@@ -8284,7 +8400,7 @@ function gutscheinSeiteHtml(v, karte) {
       <span class="vk-motiv gd-motiv" aria-hidden="true">${vkMotivHtml(v)}</span>
       <div class="gd-karte-kopf">
         <span class="vk-logo">${brandChipHtml(v.vendor)}</span>
-        <span class="gd-karte-namen"><b>${esc(v.vendor)}</b><span>${v.giftFrom ? `Geschenk von @${esc(v.giftFrom)}` : 'Gutschein'}</span></span>
+        <span class="gd-karte-namen"><b>${esc(v.vendor)}</b><span>${v.giftFrom ? `Geschenk von ${esc(anzeigeOderAt(v.giftFrom))}` : 'Gutschein'}</span></span>
       </div>
       ${hatBetrag ? `
       <div class="gd-guthaben"><b id="gd-guthaben">${euroFmt(v.balance)}</b>
@@ -9154,8 +9270,8 @@ function couponSchickenSchritt(wrap, it, brand, key, offen) {
       ${freunde.length ? `
         <div class="ccs-freunde">${freunde.map(f => `
           <button class="gp-freund" type="button" data-ccs-an="${esc(f)}" aria-pressed="false">
-            <span class="gp-ava" style="--fc:${chatColor(f)}">${esc(f.slice(0, 1).toUpperCase())}</span>
-            <span class="gp-name">${esc(f)}</span>
+            <span class="gp-ava" style="--fc:${chatColor(f)}">${esc(anfangsBuchstabe(f))}</span>
+            ${nameMitHandleHtml(f, 'gp-name', { at: false })}
             <span class="gp-haken">${icon('check', 'icon icon-sm')}</span>
           </button>`).join('')}</div>
         <p class="ccs-hinweis">Kommt als Nachricht im Chat an.${offen ? '' : ` Sehen kann den Coupon nur, wer die ${esc(brand)}-Karte in der Wallet hat.`}</p>
@@ -9200,7 +9316,7 @@ function couponSchickenSchritt(wrap, it, brand, key, offen) {
       x.setAttribute('aria-pressed', String(an));
     });
     senden.disabled = false;
-    senden.textContent = `An ${anWen} schicken`;
+    senden.textContent = `An ${anzeigeName(anWen)} schicken`;
     buzz(8);
   });
   if (senden) senden.onclick = async () => {
@@ -9213,12 +9329,12 @@ function couponSchickenSchritt(wrap, it, brand, key, offen) {
     } catch (err) {
       delete wrap.dataset.sendet;
       senden.disabled = false;
-      senden.textContent = `An ${anWen} schicken`;
+      senden.textContent = `An ${anzeigeName(anWen)} schicken`;
       island(err.message || 'Hat nicht geklappt');
       return;
     }
     delete wrap.dataset.sendet;
-    island(`An ${anWen} geschickt`); playSfx('plop'); buzz([10, 30, 14]);
+    island(`An ${anzeigeName(anWen)} geschickt`); playSfx('plop'); buzz([10, 30, 14]);
     zurueck();
   };
 }
@@ -9682,7 +9798,7 @@ function voucherCardHtml(v, { mehr = false } = {}) {
       <span class="vk-logo">${brandChipHtml(v.vendor)}</span>
       <div class="vk-text">
         <b class="wallet-card-name">${esc(v.vendor)}</b>
-        <span class="vk-art">${v.giftFrom ? `Geschenk von @${esc(v.giftFrom)}` : 'Gutschein'}</span>
+        <span class="vk-art">${v.giftFrom ? `Geschenk von ${esc(anzeigeOderAt(v.giftFrom))}` : 'Gutschein'}</span>
         ${v.pin ? `<span class="vk-pin">PIN ${esc(v.pin)}</span>` : ''}
       </div>
       <div class="vk-rechts">
@@ -9690,7 +9806,7 @@ function voucherCardHtml(v, { mehr = false } = {}) {
         ${mehr ? `<button class="vk-mehr" type="button" data-wv-mehr="${esc(v.id)}" aria-label="Aktionen für ${esc(v.vendor)}">${icon('mehr', 'icon')}</button>` : ''}
       </div>
       <div class="vk-fuss">${entferntAmHtml(v)}${fuss ? `<span>${fuss}</span>` : ''}</div>
-      ${v.giftFrom ? `<span class="gift-corner${v.giftSeen ? '' : ' unopened'}" role="img" aria-label="Geschenk von @${esc(v.giftFrom)}"><img src="/gamification/gift-tag.svg" alt=""></span>` : ''}
+      ${v.giftFrom ? `<span class="gift-corner${v.giftSeen ? '' : ' unopened'}" role="img" aria-label="Geschenk von ${esc(anzeigeOderAt(v.giftFrom))}"><img src="/gamification/gift-tag.svg" alt=""></span>` : ''}
     </div>`;
 }
 // Maskottchen in der Wallet-Karte. Je Rang kommt ein eigenes Modell,
@@ -9813,7 +9929,7 @@ function rabattCardHtml(v, { schau = false } = {}) {
       <div class="wallet-card-head">
         ${brandChipHtml(v.vendor)}
         ${v.giftFrom ? `<span class="rc-namen"><span class="wallet-card-name">${esc(v.vendor)}</span>
-          <span class="rc-von">Geschenk von @${esc(v.giftFrom)}</span></span>`
+          <span class="rc-von">Geschenk von ${esc(anzeigeOderAt(v.giftFrom))}</span></span>`
           : `<span class="wallet-card-name">${esc(v.vendor)}</span>`}
         ${wert ? `<span class="wallet-card-balance">−${wert}</span>` : ''}
       </div>
@@ -9913,7 +10029,7 @@ function rabattSeiteHtml(v) {
       <span class="vk-motiv gd-motiv" aria-hidden="true">${vkMotivHtml(v)}</span>
       <div class="gd-karte-kopf">
         <span class="vk-logo">${brandChipHtml(v.vendor)}</span>
-        <span class="gd-karte-namen"><b>${esc(v.vendor)}</b><span>${v.giftFrom ? `Geschenk von @${esc(v.giftFrom)}` : 'Rabattcode'}</span></span>
+        <span class="gd-karte-namen"><b>${esc(v.vendor)}</b><span>${v.giftFrom ? `Geschenk von ${esc(anzeigeOderAt(v.giftFrom))}` : 'Rabattcode'}</span></span>
       </div>
       <div class="gd-guthaben"><b>${wert ? '−' + wert : 'Rabatt'}</b>
         <span>${mbw ? `ab ${esc(euroFmt(mbw))} Bestellwert` : 'ohne Mindestbestellwert'}</span></div>
@@ -9953,7 +10069,7 @@ function rabattSeiteHtml(v) {
     </div>` : `
     <label class="gd-block gd-leer">${wIcon('bild')}<span>Bild zum Rabattcode hinzufügen</span>
       <input type="file" id="wv-img-file" accept="image/*" style="display:none"></label>`}
-    ${v.added ? `<p class="rp-fuss">${v.giftFrom ? `Geschenk von @${esc(v.giftFrom)}, angekommen am` : 'Hinzugefügt am'} ${tag(v.added)}</p>` : ''}`;
+    ${v.added ? `<p class="rp-fuss">${v.giftFrom ? `Geschenk von ${esc(anzeigeOderAt(v.giftFrom))}, angekommen am` : 'Hinzugefügt am'} ${tag(v.added)}</p>` : ''}`;
 }
 // Verschenken geht nur, solange der Code noch etwas wert ist
 function rabattVerschenkbar(v) { return !!state.token && istRabatt(v) && !v.eingeloest && !rabattAbgelaufen(v); }
@@ -11778,16 +11894,23 @@ function setChatMode(mode, partner) {
   $('#chat-titel')?.classList.toggle('hidden', mode === 'dm');
   $('#chat-input-row').style.display = mode === 'dmlist' ? 'none' : 'flex';
   if (mode === 'dm') {
-    // Kopf: Profilbild, Name in seiner Namensfarbe, bei Admin/Mod das Zeichen
+    // Kopf: Profilbild, Anzeigename in seiner Namensfarbe, bei Admin/Mod das
+    // Zeichen. Darunter der @Name, sobald vorne ein Anzeigename steht — so
+    // sieht man immer, wer es wirklich ist.
     const el = $('#dm-partner-name');
-    el.textContent = dmPartner;
     el.className = '';
     el.removeAttribute('style');
     $('#dm-partner-rolle').innerHTML = '';
-    $('#dm-partner-ava').innerHTML = `<span class="avatar-mini" style="background:${chatColor(dmPartner)}">${esc(dmPartner[0].toUpperCase())}</span>`;
+    const nameZeigen = () => {
+      el.textContent = anzeigeName(dmPartner);
+      $('#dm-partner-hinweis').textContent = hatAnzeigename(dmPartner) ? '@' + dmPartner : 'Profil ansehen';
+    };
+    nameZeigen();
+    $('#dm-partner-ava').innerHTML = `<span class="avatar-mini" style="background:${chatColor(dmPartner)}">${esc(anfangsBuchstabe(dmPartner))}</span>`;
     const fuer = dmPartner;
     api('/api/user?name=' + encodeURIComponent(dmPartner)).then(u => {
       if (fuer !== dmPartner) return; // inzwischen ein anderer Chat offen
+      if ('anzeigename' in u && merkeAnzeigename(dmPartner, u.anzeigename)) nameZeigen();
       if (u.avatar) $('#dm-partner-ava').innerHTML = `<img class="avatar-mini avatar-img" src="${sichereBildUrl(u.avatar)}" alt="">`;
       const ns = nameStyleOf(dmPartner, u.activePaint);
       el.className = ns.cls.trim();
@@ -11818,7 +11941,9 @@ function dmMsgHtml(m) {
   // aufeinanderfolgende Nachrichten derselben Person zusammen
   const daten = `data-mid="${esc(m.id)}" data-from="${esc(m.from)}" data-ts="${Number(m.ts) || 0}"`;
   const ns = nameStyleOf(m.from, m.paint);
-  const kopf = `<span class="chat-kopf"><span class="chat-user${ns.cls}" style="${ns.style}">${esc(m.from)}</span></span>`;
+  // Ueber der Blase der Anzeigename (der Server schickt ihn an jeder Nachricht mit)
+  merkeAnzeigename(m.from, m.anzeigename || '');
+  const kopf = `<span class="chat-kopf"><span class="chat-user${ns.cls}" style="${ns.style}" title="@${esc(m.from)}">${esc(anzeigeName(m.from))}</span></span>`;
   if (m.deleted) {
     return `<div class="chat-msg dm-${own ? 'me' : 'them'}" ${daten}>
       ${kopf}
@@ -11883,6 +12008,12 @@ function chatListenZeit(ts) {
   return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', ...(d.getFullYear() !== jetzt.getFullYear() ? { year: '2-digit' } : {}) });
 }
 
+// /api/dm/list: Anzeigenamen der Gespraechspartner und der Freunde ohne Chat
+function dmListeNamenMerken(r) {
+  (r?.list || []).forEach(c => merkeAnzeigename(c.partner, c.anzeigename || ''));
+  (r?.friends || []).forEach(f => merkeAnzeigename(f.name, f.anzeigename || ''));
+}
+
 async function pollChat(force) {
   // Ausserhalb des Chats wird nur noch die Zahl ungelesener Nachrichten
   // nachgesehen. Frueher lief hier alle vier Sekunden der ganze Global-Chat
@@ -11897,10 +12028,11 @@ async function pollChat(force) {
       if (!state.token) { $('#chat-list').innerHTML = '<div class="status">Zum Flüstern bitte anmelden.</div>'; return; }
       const r = await api('/api/dm/list');
       if (veraltet()) return;
+      dmListeNamenMerken(r);
       // Profilbild, sonst der Anfangsbuchstabe auf der Chat-Farbe
       const ava = (name, avatar) => avatar
         ? `<img class="avatar-mini avatar-img" src="${sichereBildUrl(avatar)}" alt="">`
-        : `<span class="avatar-mini" style="background:${chatColor(name)}">${esc(name[0].toUpperCase())}</span>`;
+        : `<span class="avatar-mini" style="background:${chatColor(name)}">${esc(anfangsBuchstabe(name))}</span>`;
       // Letzte Nachricht als Vorschau: Emotes als kleine Bilder, ein geteilter
       // Deal ohne das [deal:…]-Kuerzel, eigene mit "Du:" davor
       const vorschau = c => {
@@ -11917,7 +12049,7 @@ async function pollChat(force) {
           ${ava(c.partner, c.avatar)}
           <span class="dm-row-main">
             <span class="dm-row-oben">
-              <span class="dm-row-name">${esc(c.partner)}</span>
+              <span class="dm-row-name" title="@${esc(c.partner)}">${esc(anzeigeName(c.partner))}</span>
               ${c.lastTs ? `<span class="dm-row-zeit">${esc(chatListenZeit(c.lastTs))}</span>` : ''}
             </span>
             <span class="dm-row-unten">
@@ -11930,7 +12062,7 @@ async function pollChat(force) {
         <button class="dm-row" data-dm-open="${esc(f.name)}">
           ${ava(f.name, f.avatar)}
           <span class="dm-row-main">
-            <span class="dm-row-oben"><span class="dm-row-name">${esc(f.name)}</span></span>
+            <span class="dm-row-oben"><span class="dm-row-name" title="@${esc(f.name)}">${esc(anzeigeName(f.name))}</span></span>
             <span class="dm-row-unten"><span class="dm-row-last">Noch keine Nachrichten</span></span>
           </span>
           ${icon('chevron', 'icon dm-row-pfeil')}
@@ -11979,6 +12111,7 @@ async function refreshDmBadge() {
   dmBadgeLast = Date.now();
   try {
     const r = await api('/api/dm/list');
+    dmListeNamenMerken(r);
     const unread = r.list.reduce((s, c) => s + c.unread, 0);
     const pill = $('#dm-unread');
     pill.textContent = unread;
@@ -11992,7 +12125,7 @@ async function refreshDmBadge() {
       if (conv) {
         playSfx('plop'); buzz(25);
         // Geteilte Deals und Coupons ohne ihr [deal:…]/[coupon:…]-Kuerzel
-        showNoteBanner(`<b>@${esc(conv.partner)}</b>: ${esc(String(conv.lastText || '').replace(/^\[(?:deal|coupon):[^\]]*\]\s*/i, ''))}`, () => {
+        showNoteBanner(`<b>${esc(anzeigeOderAt(conv.partner))}</b>: ${esc(String(conv.lastText || '').replace(/^\[(?:deal|coupon):[^\]]*\]\s*/i, ''))}`, () => {
           if (state.activeView !== 'chat') switchView('chat');
           setChatMode('dm', conv.partner);
         });
@@ -12130,12 +12263,13 @@ async function renderProfileRatings(user) {
     </div>` : ''}
     ${r.list.length ? r.list.map(c => {
     const cns = nameStyleOf(c.from, c.paint);
+    merkeAnzeigename(c.from, c.anzeigename || '');
     return `
     <div class="up-rate-row">
       ${c.avatar ? `<img class="avatar-mini avatar-img" src="${sichereBildUrl(c.avatar)}" alt="">`
-      : `<span class="avatar-mini" style="background:${chatColor(c.from)}">${esc(c.from[0].toUpperCase())}</span>`}
+      : `<span class="avatar-mini" style="background:${chatColor(c.from)}">${esc(anfangsBuchstabe(c.from))}</span>`}
       <div class="up-rate-body">
-        <div><span class="chat-user${cns.cls}" style="${cns.style}">${esc(c.from)}</span> ${starRow(c.stars, false)} <span class="comment-time">${esc(timeAgo(c.ts))}</span></div>
+        <div><span class="chat-user${cns.cls}" style="${cns.style}" title="@${esc(c.from)}">${esc(anzeigeName(c.from))}</span> ${starRow(c.stars, false)} <span class="comment-time">${esc(timeAgo(c.ts))}</span></div>
         ${c.text ? `<div class="up-rate-text">${withEmotes(esc(c.text))}</div>` : ''}
       </div>
     </div>`;
@@ -13961,7 +14095,7 @@ window.addEventListener('online', () => { if ($('#conn-screen')) location.reload
   }).catch(() => { });
   if (state.token) {
     pullWallet(); // parallel statt hinter /api/me: Guthaben ist schneller aktuell
-    api('/api/me').then(r => { kontoInfo = r; state.userName = r.user; state.role = r.role || ''; refreshProfileTab(); refreshAdminUi(); pinKontoUebernehmen(r); renderWallet(); pruefeNeuigkeiten(); })
+    api('/api/me').then(r => { kontoInfo = r; neuerKontoname(r.user); state.userName = r.user; state.role = r.role || ''; refreshProfileTab(); refreshAdminUi(); pinKontoUebernehmen(r); renderWallet(); pruefeNeuigkeiten(); })
       .catch(e => {
         // Nur bei ECHTEM 401 abmelden; ist der Server kurz weg, bleibt der Login stehen
         if (/401|anmelden/i.test(String(e.message))) {

@@ -369,6 +369,13 @@ body.sparsam .rf-balken > span { transition: none; }
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: .95rem; font-weight: 750;
 }
+/* Anzeigename, darunter klein der @Name (Freunde, Anfragen, Auswahl beim
+   Verschenken und Schicken) — jede Zeile kuerzt fuer sich */
+.name-doppelt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.name-doppelt > b, .name-doppelt > small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.name-doppelt > b { font-weight: inherit; line-height: 1.25; }
+.name-doppelt > small { font-size: .78rem; font-weight: 600; line-height: 1.25; color: var(--muted); }
+.tm-req-name { flex: 1; font-weight: 700; }
 #friends-list .btn-small { flex: none; }
 
 /* ---- Geschenke: wartende als weisse Karten, leer eine blasse Figur mittig */
@@ -495,10 +502,25 @@ body.sparsam .rf-balken > span { transition: none; }
 #fav-pickers .fav-opt .brand-chip { flex: none; width: 24px; height: 24px; border-radius: 7px; margin-left: -4px; }
 #fav-pickers .fav-custom { flex-basis: 100%; margin-top: 2px; }
 
-/* Konto: @Name und Sichtbarkeit */
-.pe-handle { flex-wrap: nowrap; gap: 8px; }
-.pe-handle .input { flex: 1; min-width: 0; margin-top: 0; min-height: 44px; }
-#view-editprofile .pe-handle .btn-small { flex: none; min-height: 44px; padding: 0 16px; font-size: .86rem; }
+/* Name: der Anzeigename ist ein normales Feld (gesperrt, solange die 7 Tage
+   laufen), der @Name steht fest — ohne Flaeche, mit Schloss, nur zum Ansehen */
+#view-editprofile #g-anzeigename, #view-editprofile .pe-fest { margin-top: 0; min-height: 46px; }
+#view-editprofile #g-anzeigename:disabled { opacity: 1; color: var(--muted); -webkit-text-fill-color: var(--muted); cursor: not-allowed; }
+.pe-feld-hinweis { margin: 6px 2px 0; font-size: .8rem; line-height: 1.45; color: var(--muted); }
+.pe-feld-hinweis.fehler { color: var(--danger); font-weight: 600; }
+.pe-feld-hinweis a { color: var(--akzent-text); font-weight: 650; text-decoration: underline; text-underline-offset: 2px; }
+.pe-fest-feld { position: relative; display: block; }
+.pe-fest-feld .icon {
+  position: absolute; top: 50%; right: 14px; width: 16px; height: 16px;
+  transform: translateY(-50%); color: var(--muted); pointer-events: none;
+}
+#view-editprofile .pe-fest,
+#view-editprofile .pe-fest:focus {
+  padding-right: 42px; background: transparent; border: 1px solid var(--linie);
+  color: var(--muted); cursor: default;
+}
+#view-editprofile .pe-fest:focus-visible { outline: 2px solid var(--akzent-text); outline-offset: 2px; }
+/* Sichtbarkeit */
 .pe-check { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; font-size: .86rem; line-height: 1.4; cursor: pointer; }
 .pe-check input { flex: none; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--akzent-tief); }
 .pe-speichern { display: flex; flex-direction: column; align-items: stretch; gap: 8px; margin: 4px 0 20px; }

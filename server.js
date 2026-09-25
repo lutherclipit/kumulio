@@ -1214,6 +1214,58 @@ function namensfarbe(user) {
   return typeof f === 'string' && FARBE_OK.test(f) ? f.toLowerCase() : null;
 }
 
+// Anzeigename: steht vorne, wo andere einen sehen (Chat, Freunde, Kommentare,
+// Geschenke). Der @Name bleibt der feste Schluessel des Kontos — ab der
+// Registrierung, geaendert wird er nur auf Anfrage vom Team (kontoUmbenennen).
+// Leer = es steht der @Name da. Aendern geht alle 7 Tage, das erste Mal sofort.
+const ANZEIGENAME_TAGE = 7;
+// Lateinische Buchstaben samt Umlauten, ß und Akzenten (auch Tuerkisch,
+// Polnisch …), Ziffern, Leerzeichen und ._- — keine Emojis, keine
+// Steuerzeichen und keine fremden Schriften, die wie lateinische aussehen
+const ANZEIGENAME_OK = /^[A-Za-z0-9\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u017F ._-]{2,24}$/;
+// Woerter, die nach dem kumulio-Team klingen, gibt es nur fuer das Team
+const ANZEIGENAME_RESERVIERT = /^(admin|administrator|mod|moderator|moderation|support|team|offiziell|official)$/;
+// Vergleichsform gegen Verwechslung: klein, ohne Akzente, ohne Leer- und
+// Trennzeichen ("Anna B." ~ "anna_b", "Lüther" ~ "luther")
+const nameSkelett = s => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[\s._-]+/g, '');
+const anzeigenameVon = user => {
+  const a = users[user] && users[user].profile && users[user].profile.anzeigename;
+  return typeof a === 'string' ? a : '';
+};
+// Fuer einzelne Eintraege (Nachricht, Kommentar): nur, wenn einer gesetzt ist
+const mitAnzeigename = user => { const a = anzeigenameVon(user); return a ? { anzeigename: a } : {}; };
+// Fuer Namenslisten (Freunde, Anfragen, Geschenke): { "@Name": "Anzeigename" },
+// ebenfalls nur die gesetzten — das haelt die Antworten klein
+function anzeigeNamen(namen) {
+  const m = {};
+  for (const n of new Set(namen)) { const a = anzeigenameVon(n); if (a) m[n] = a; }
+  return m;
+}
+// Push-Titel und Aehnliches: Anzeigename mit @Name dahinter, sonst der @Name
+const nameFuerAndere = user => { const a = anzeigenameVon(user); return a ? `${a} (@${user})` : `@${user}`; };
+// Prueft einen neuen Anzeigenamen. Liefert { name } (bereinigt, '' = zurueck
+// auf den @Namen) oder { error }.
+function anzeigenamePruefen(user, roh) {
+  const name = String(roh || '').normalize('NFC').replace(/\s+/g, ' ').trim();
+  if (!name) return { name: '' };
+  if (!ANZEIGENAME_OK.test(name)) return { error: 'Anzeigename: 2 bis 24 Zeichen, nur Buchstaben, Zahlen, Leerzeichen und ._-' };
+  if (censor(name) !== name) return { error: 'Diesen Anzeigenamen können wir leider nicht nehmen.' };
+  const sk = nameSkelett(name);
+  if (sk.length < 2) return { error: 'Anzeigename: bitte mindestens zwei Buchstaben oder Zahlen.' };
+  // Niemand soll wie ein anderes Konto aussehen: der Anzeigename darf keinem
+  // fremden @Namen gleichen (der eigene geht)
+  if (Object.keys(users).some(k => k !== user && nameSkelett(k) === sk))
+    return { error: 'So heißt schon jemand mit @Namen. Bitte wähl einen anderen Anzeigenamen.' };
+  if (roleOf(user) !== 'admin' && (sk.includes('kumulio') || name.toLowerCase().split(/[\s._-]+/).some(w => ANZEIGENAME_RESERVIERT.test(w))))
+    return { error: 'Namen, die nach dem kumulio-Team klingen, sind reserviert.' };
+  return { name };
+}
+// Ab wann der Anzeigename wieder geaendert werden darf (0 = jetzt)
+function anzeigenameAb(prof, jetzt = Date.now()) {
+  const ab = (Number(prof.anzeigenameTs) || 0) + ANZEIGENAME_TAGE * 864e5;
+  return prof.anzeigenameTs && ab > jetzt ? ab : 0;
+}
+
 // Login-Serie: aufeinanderfolgende Kalendertage (Europe/Berlin), an denen man
 // angemeldet in der App war. Gezaehlt wird beim Abruf von /api/me und
 // /api/profile; es gibt dafuer nichts, sie steht nur im eigenen Profil.
@@ -1291,6 +1343,10 @@ function eigenesProfil(user) {
     friends: prof.friends || [], friendRequests: prof.friendRequests || [],
     nameColor: namensfarbe(user), loginStreak: loginSerie(prof),
     eingeladen: eingeladenZahl(prof),
+    // Anzeigename ('' = der @Name), wann er wieder aenderbar ist (0 = jetzt),
+    // und die Anzeigenamen der Freunde und Anfragenden
+    anzeigename: anzeigenameVon(user), anzeigenameAb: anzeigenameAb(prof),
+    namen: anzeigeNamen([...(prof.friends || []), ...(prof.friendRequests || [])]),
   };
 }
 // Abgeschaltete Endpunkte (Kisten, Funken, Quests, Shop, Paints, Rahmen):
@@ -1305,12 +1361,14 @@ const markLegacy = obj => Object.fromEntries(Object.entries(obj).map(([k, v]) =>
 // Autors angereichert (Feld "paint", #rrggbb oder null): ein Farbwechsel wirkt
 // damit sofort auf alle alten Nachrichten, gespeichert wird nichts um. Was
 // alte Nachrichten noch an Badge, Rang oder Rahmen tragen, geht nicht mit raus
-// — Raenge sind privat.
+// — Raenge sind privat. Ebenso frisch: der Anzeigename (Feld "anzeigename",
+// nur wenn gesetzt), er steht auch ueber geloeschten Nachrichten.
 function withLiveLook(msgs, field) {
   return msgs.map(m => {
-    const { badge, rank, border, paint, ...rest } = m;
+    const { badge, rank, border, paint, anzeigename, ...rest } = m;
     const name = m[field];
-    return { ...rest, paint: !m.deleted && name && users[name] ? namensfarbe(name) : null };
+    const lebt = !!(name && users[name]);
+    return { ...rest, paint: !m.deleted && lebt ? namensfarbe(name) : null, ...(lebt ? mitAnzeigename(name) : {}) };
   });
 }
 
@@ -2538,6 +2596,86 @@ function readBody(req, maxBytes = 50_000) {
   });
 }
 
+// @Name eines Kontos aendern — nur noch auf Anfrage, vom Team ueber
+// /api/admin/rename (frueher konnte das jeder selbst einmal im Monat).
+// Liefert eine Fehlermeldung oder '' bei Erfolg. Zieht ueberall mit um:
+// Konto, Sessions, Wallet, Geschenke, Chats, DMs, Freunde, Kommentare,
+// Profil-Bewertungen, Deal-Bewertungen und Meldungen.
+function kontoUmbenennen(me, neu) {
+  if (!users[me]) return 'Nutzer nicht gefunden.';
+  if (!/^[a-zA-Z0-9_.-]{3,24}$/.test(neu)) return 'Name: 3 bis 24 Zeichen, nur Buchstaben, Zahlen und ._-';
+  if (neu === me) return 'So heißt das Konto schon.';
+  if (Object.keys(users).some(k => k !== me && k.toLowerCase() === neu.toLowerCase())) return 'Name ist schon vergeben.';
+  // Auch kein @Name, der wie der Anzeigename eines anderen aussieht
+  if (Object.keys(users).some(k => k !== me && anzeigenameVon(k) && nameSkelett(anzeigenameVon(k)) === nameSkelett(neu)))
+    return 'Den Namen trägt schon jemand als Anzeigenamen.';
+  const wasAdmin = roleOf(me) === 'admin';
+  users[neu] = users[me]; delete users[me];
+  if (wasAdmin && !DEFAULT_ADMINS.includes(neu.toLowerCase())) users[neu].role = 'admin';
+  profileOf(neu).lastRename = Date.now();
+  for (const [t, u] of Object.entries(sessions)) if (u === me) sessions[t] = neu;
+  for (const r of Object.values(resets)) if (r.user === me) r.user = neu;
+  for (const t of loginTickets.values()) if (t.user === me) t.user = neu;
+  // Push-Abos ziehen mit um (sonst bekaeme ein spaeterer Traeger des alten
+  // Namens die DMs aufs Geraet)
+  for (const x of pushSubs) if (x.user === me) x.user = neu;
+  saveJson('push-subs.json', pushSubs);
+  for (const c of sseClients) if (c.user === me) c.user = neu;
+  saveJson('resets.json', resets);
+  if (wallets[me]) { wallets[neu] = wallets[me]; delete wallets[me]; }
+  // Wartende Geschenke, Originalfotos und Papierkorb ziehen mit um — sonst
+  // waeren sie unter dem neuen Namen unsichtbar (und ein spaeterer
+  // Nutzer des alten Namens erbte sie)
+  if (gifts[me]) { gifts[neu] = [...(gifts[neu] || []), ...gifts[me]]; delete gifts[me]; }
+  for (const liste of Object.values(gifts)) for (const g of liste || []) if (g && g.giftFrom === me) g.giftFrom = neu;
+  saveJson('gifts.json', gifts);
+  try { if (fs.existsSync(origOrdner(me))) fs.renameSync(origOrdner(me), origOrdner(neu)); } catch (e) { console.error('Originalfotos umziehen:', e.message); }
+  archivUmbenennen(me, neu);
+  chat.messages.forEach(m => { if (m.user === me) m.user = neu; });
+  if (chat.pinned && chat.pinned.user === me) chat.pinned.user = neu;
+  if (chat.bans[me]) { chat.bans[neu] = true; delete chat.bans[me]; }
+  if (chat.mutes[me]) { chat.mutes[neu] = chat.mutes[me]; delete chat.mutes[me]; }
+  const newDms = {};
+  for (const [key, convo] of Object.entries(dms)) {
+    const parts = key.split('|').map(x => x === me ? neu : x);
+    convo.msgs.forEach(m => { if (m.from === me) m.from = neu; });
+    if (convo.reads && convo.reads[me] != null) { convo.reads[neu] = convo.reads[me]; delete convo.reads[me]; }
+    newDms[parts.sort().join('|')] = convo;
+  }
+  dms = newDms;
+  for (const u of Object.values(users)) {
+    const pr = u.profile;
+    if (!pr) continue;
+    if (pr.friends) pr.friends = pr.friends.map(f => f === me ? neu : f);
+    if (pr.friendRequests) pr.friendRequests = pr.friendRequests.map(f => f === me ? neu : f);
+    // Vorgemerkte Einladungen ziehen mit
+    if (pr.invitedBy === me) pr.invitedBy = neu;
+    for (const g of pr.geworben || []) if (g && g.user === me) g.user = neu;
+  }
+  for (const list of Object.values(comments)) {
+    list.forEach(c => {
+      if (c.user === me) c.user = neu;
+      for (const arr of Object.values(c.reactions || {})) {
+        const i = arr.indexOf(me); if (i >= 0) arr[i] = neu;
+      }
+    });
+  }
+  // Profil-Bewertungen: die ueber das Konto und die, die es geschrieben hat
+  if (profComments[me]) { profComments[neu] = profComments[me]; delete profComments[me]; }
+  for (const list of Object.values(profComments)) for (const c of list || []) if (c && c.from === me) c.from = neu;
+  // Sterne an Deals (je Nutzer eine) und Meldungen
+  for (const r of Object.values(ratings)) {
+    if (r && r.by && Object.hasOwn(r.by, me)) { r.by[neu] = r.by[me]; delete r.by[me]; }
+  }
+  for (const r of reports) { if (r.user === me) r.user = neu; if (r.by === me) r.by = neu; }
+  saveJson('users.json', users); saveJson('sessions.json', sessions);
+  saveJson('wallets.json', wallets); saveJson('chat.json', chat);
+  saveJson('dms.json', dms); saveJson('comments.json', comments);
+  saveJson('profile-comments.json', profComments); saveJson('ratings.json', ratings);
+  saveJson('reports.json', reports);
+  return '';
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   const p = url.pathname;
@@ -2633,6 +2771,9 @@ const server = http.createServer(async (req, res) => {
       if (pass.length < 6) return send(res, 400, { error: 'Passwort: mindestens 6 Zeichen.' });
       // Namen sind ohne Groß/Klein-Unterscheidung eindeutig ("Luther" = "luther")
       if (Object.keys(users).some(k => k.toLowerCase() === user.toLowerCase()))
+        return send(res, 409, { error: 'Name ist schon vergeben.' });
+      // … auch als Anzeigename eines anderen (sonst saehe der wie dieses Konto aus)
+      if (Object.keys(users).some(k => anzeigenameVon(k) && nameSkelett(anzeigenameVon(k)) === nameSkelett(user)))
         return send(res, 409, { error: 'Name ist schon vergeben.' });
       if (Object.values(users).some(u => u.email === email)) return send(res, 409, { error: 'E-Mail wird schon verwendet.' });
       const salt = crypto.randomBytes(12).toString('hex');
@@ -2986,13 +3127,14 @@ const server = http.createServer(async (req, res) => {
         const lp = users[l.partner] ? profileOf(l.partner) : null;
         l.avatar = lp ? lp.avatar || '' : '';
         l.paint = namensfarbe(l.partner);
+        if (lp && lp.anzeigename) l.anzeigename = anzeigenameVon(l.partner);
       });
       // Freunde ohne bisherigen Chat mit anbieten
       const friends = (profileOf(me).friends || [])
         .filter(f => !list.some(l => l.partner === f))
         .map(f => {
           const fp = users[f] ? profileOf(f) : null;
-          return { name: f, avatar: fp ? fp.avatar || '' : '', paint: namensfarbe(f) };
+          return { name: f, avatar: fp ? fp.avatar || '' : '', paint: namensfarbe(f), ...mitAnzeigename(f) };
         });
       return send(res, 200, { list, friends });
     }
@@ -3057,8 +3199,8 @@ const server = http.createServer(async (req, res) => {
       // Aufs Handy, auch wenn die App zu ist; der Client blendet es im offenen Chat selbst aus
       // Geteilte Deals und Coupons ohne ihr [deal:…]/[coupon:…]-Kuerzel
       const pushText = msg.text.replace(/^\[(?:deal|coupon):[^\]]{1,80}\]\s*/i, '') || msg.text;
-      pushToUser(to, { title: `@${me}`, body: pushText.slice(0, 120), url: '/?chat=dm&user=' + encodeURIComponent(me), tag: 'dm-' + me, kind: 'dm', from: me });
-      return send(res, 201, { ok: true, message: { ...msg, paint: namensfarbe(me) } });
+      pushToUser(to, { title: nameFuerAndere(me), body: pushText.slice(0, 120), url: '/?chat=dm&user=' + encodeURIComponent(me), tag: 'dm-' + me, kind: 'dm', from: me });
+      return send(res, 201, { ok: true, message: { ...msg, paint: namensfarbe(me), ...mitAnzeigename(me) } });
     }
     // Freunde: Anfrage senden, annehmen, ablehnen, entfernen (beidseitig)
     if (p === '/api/friend' && req.method === 'POST') {
@@ -3093,7 +3235,7 @@ const server = http.createServer(async (req, res) => {
         }
       }
       saveJson('users.json', users);
-      return send(res, 200, { ok: true, friends: my.friends, friendRequests: my.friendRequests });
+      return send(res, 200, { ok: true, friends: my.friends, friendRequests: my.friendRequests, namen: anzeigeNamen([...my.friends, ...my.friendRequests]) });
     }
     // Öffentliches Profil eines Nutzers ansehen (Mods sehen zusätzlich den Moderations-Status)
     if (p === '/api/user' && req.method === 'GET') {
@@ -3104,87 +3246,22 @@ const server = http.createServer(async (req, res) => {
         banned: !!chat.bans[name],
         mutedUntil: (chat.mutes[name] || 0) > Date.now() ? chat.mutes[name] : 0,
       } : {};
-      // Die Namensfarbe steht ohnehin an jeder Nachricht, sie ist nicht privat.
-      // Der Rang dagegen schon: er geht nie an andere.
+      // Namensfarbe und Anzeigename stehen ohnehin an jeder Nachricht, sie sind
+      // nicht privat. Der Rang dagegen schon: er geht nie an andere.
       if (prof.publicProfile === false) {
-        return send(res, 200, { user: name, private: true, role: roleOf(name), activePaint: namensfarbe(name), ...modInfo });
+        return send(res, 200, { user: name, private: true, role: roleOf(name), activePaint: namensfarbe(name), anzeigename: anzeigenameVon(name), ...modInfo });
       }
       return send(res, 200, {
         user: name, role: roleOf(name), bio: prof.bio || '', avatar: prof.avatar || '',
-        favs: prof.favs || {}, activePaint: namensfarbe(name), ...modInfo,
+        favs: prof.favs || {}, activePaint: namensfarbe(name), anzeigename: anzeigenameVon(name), ...modInfo,
       });
     }
 
-    // @Handle (Nutzername) ändern: einmal pro Monat, überall sauber umbenannt
+    // Der @Name ist ab der Registrierung fest: selbst aendern geht nicht mehr,
+    // nur auf Anfrage ueber das Team (/api/admin/rename). Frei aenderbar ist
+    // der Anzeigename (POST /api/profile, Feld "anzeigename").
     if (p === '/api/handle' && req.method === 'POST') {
-      const me = authUser(req);
-      if (!me) return send(res, 401, { error: 'Bitte anmelden.' });
-      const b = await readBody(req);
-      const neu = String(b.name || '').trim();
-      if (!/^[a-zA-Z0-9_.-]{3,24}$/.test(neu)) return send(res, 400, { error: 'Name: 3 bis 24 Zeichen, nur Buchstaben, Zahlen und ._-' });
-      if (neu === me) return send(res, 400, { error: 'So heißt du schon.' });
-      const prof = profileOf(me);
-      if (prof.lastRename && Date.now() - prof.lastRename < 30 * 864e5) {
-        const tage = Math.ceil((prof.lastRename + 30 * 864e5 - Date.now()) / 864e5);
-        return send(res, 409, { error: `Du kannst deinen Namen erst in ${tage} Tagen wieder ändern.` });
-      }
-      if (Object.keys(users).some(k => k !== me && k.toLowerCase() === neu.toLowerCase()))
-        return send(res, 409, { error: 'Name ist schon vergeben.' });
-      // Überall umziehen: Konto, Sessions, Wallet, Chats, DMs, Freunde, Kommentare
-      const wasAdmin = roleOf(me) === 'admin';
-      users[neu] = users[me]; if (neu !== me) delete users[me];
-      if (wasAdmin && !DEFAULT_ADMINS.includes(neu.toLowerCase())) users[neu].role = 'admin';
-      profileOf(neu).lastRename = Date.now();
-      for (const [t, u] of Object.entries(sessions)) if (u === me) sessions[t] = neu;
-      for (const r of Object.values(resets)) if (r.user === me) r.user = neu;
-      for (const t of loginTickets.values()) if (t.user === me) t.user = neu;
-      // Push-Abos ziehen mit um (sonst bekaeme ein spaeterer Traeger des alten
-      // Namens die DMs aufs Geraet)
-      for (const x of pushSubs) if (x.user === me) x.user = neu;
-      saveJson('push-subs.json', pushSubs);
-      for (const c of sseClients) if (c.user === me) c.user = neu;
-      saveJson('resets.json', resets);
-      if (wallets[me]) { wallets[neu] = wallets[me]; if (neu !== me) delete wallets[me]; }
-      // Wartende Geschenke, Originalfotos und Papierkorb ziehen mit um — sonst
-      // waeren sie unter dem neuen Namen unsichtbar (und ein spaeterer
-      // Nutzer des alten Namens erbte sie)
-      if (gifts[me]) { gifts[neu] = [...(gifts[neu] || []), ...gifts[me]]; if (neu !== me) delete gifts[me]; saveJson('gifts.json', gifts); }
-      for (const liste of Object.values(gifts)) for (const g of liste || []) if (g && g.giftFrom === me) g.giftFrom = neu;
-      try { if (fs.existsSync(origOrdner(me))) fs.renameSync(origOrdner(me), origOrdner(neu)); } catch (e) { console.error('Originalfotos umziehen:', e.message); }
-      archivUmbenennen(me, neu);
-      chat.messages.forEach(m => { if (m.user === me) m.user = neu; });
-      if (chat.pinned && chat.pinned.user === me) chat.pinned.user = neu;
-      if (chat.bans[me]) { chat.bans[neu] = true; delete chat.bans[me]; }
-      if (chat.mutes[me]) { chat.mutes[neu] = chat.mutes[me]; delete chat.mutes[me]; }
-      const newDms = {};
-      for (const [key, convo] of Object.entries(dms)) {
-        const parts = key.split('|').map(x => x === me ? neu : x);
-        convo.msgs.forEach(m => { if (m.from === me) m.from = neu; });
-        if (convo.reads && convo.reads[me] != null) { convo.reads[neu] = convo.reads[me]; delete convo.reads[me]; }
-        newDms[parts.sort().join('|')] = convo;
-      }
-      dms = newDms;
-      for (const u of Object.values(users)) {
-        const pr = u.profile;
-        if (!pr) continue;
-        if (pr.friends) pr.friends = pr.friends.map(f => f === me ? neu : f);
-        if (pr.friendRequests) pr.friendRequests = pr.friendRequests.map(f => f === me ? neu : f);
-        // Vorgemerkte Einladungen ziehen mit
-        if (pr.invitedBy === me) pr.invitedBy = neu;
-        for (const g of pr.geworben || []) if (g && g.user === me) g.user = neu;
-      }
-      for (const list of Object.values(comments)) {
-        list.forEach(c => {
-          if (c.user === me) c.user = neu;
-          for (const arr of Object.values(c.reactions || {})) {
-            const i = arr.indexOf(me); if (i >= 0) arr[i] = neu;
-          }
-        });
-      }
-      saveJson('users.json', users); saveJson('sessions.json', sessions);
-      saveJson('wallets.json', wallets); saveJson('chat.json', chat);
-      saveJson('dms.json', dms); saveJson('comments.json', comments);
-      return send(res, 200, { ok: true, user: neu });
+      return send(res, 403, { error: 'Dein @Name ist seit der Registrierung fest. Ändern können wir ihn nur auf Anfrage, schreib uns dafür (Kontakt im Impressum). Deinen Anzeigenamen kannst du selbst ändern.' });
     }
 
     // Konto löschen (aus den Einstellungen, mit Bestätigung im Client)
@@ -3310,6 +3387,22 @@ const server = http.createServer(async (req, res) => {
       if (typeof b.nameColor === 'string' && b.nameColor !== '' && !FARBE_OK.test(b.nameColor))
         return send(res, 400, { error: 'Bitte eine Farbe im Format #RRGGBB wählen.' });
       const prof = profileOf(user);
+      // Anzeigename: nur pruefen, wenn er sich wirklich aendert (das Formular
+      // schickt ihn bei jedem Speichern mit). Das erste Mal geht sofort, danach
+      // alle 7 Tage — auch das Zuruecksetzen auf den @Namen zaehlt als Aenderung.
+      let neuerAnzeigename = null;
+      if (typeof b.anzeigename === 'string') {
+        const pr = anzeigenamePruefen(user, b.anzeigename);
+        if (pr.error) return send(res, 400, { error: pr.error });
+        if (pr.name !== anzeigenameVon(user)) {
+          const ab = anzeigenameAb(prof);
+          if (ab) {
+            const tage = Math.ceil((ab - Date.now()) / 864e5);
+            return send(res, 409, { error: `Du kannst deinen Anzeigenamen erst in ${tage} ${tage === 1 ? 'Tag' : 'Tagen'} wieder ändern.` });
+          }
+          neuerAnzeigename = pr.name;
+        }
+      }
       if (typeof b.bio === 'string') prof.bio = censor(b.bio.trim().slice(0, 160));
       if (typeof b.publicProfile === 'boolean') prof.publicProfile = b.publicProfile;
       // Profilbild: kleines dataURL-Bild (Client verkleinert auf 96px)
@@ -3319,6 +3412,10 @@ const server = http.createServer(async (req, res) => {
       // Namensfarbe: #rrggbb oder leer (= automatisch, die feste Chat-Farbe)
       if (b.nameColor === '' || b.nameColor === null) delete prof.nameColor;
       else if (typeof b.nameColor === 'string') prof.nameColor = b.nameColor.toLowerCase(); // oben geprueft
+      if (neuerAnzeigename !== null) {
+        if (neuerAnzeigename) prof.anzeigename = neuerAnzeigename; else delete prof.anzeigename;
+        prof.anzeigenameTs = Date.now();
+      }
       // Lieblings-Kleinigkeiten fürs Profil, alles durch den Filter
       if (b.favs && typeof b.favs === 'object') {
         prof.favs = prof.favs || {};
@@ -3336,7 +3433,7 @@ const server = http.createServer(async (req, res) => {
       const me = authUser(req);
       const list = (profComments[target] || []).map(c => {
         const cp = users[c.from] ? profileOf(c.from) : null;
-        return { ...c, avatar: cp ? cp.avatar || '' : '', paint: cp ? namensfarbe(c.from) : null };
+        return { ...c, avatar: cp ? cp.avatar || '' : '', paint: cp ? namensfarbe(c.from) : null, ...(cp ? mitAnzeigename(c.from) : {}) };
       }).sort((a, z) => z.ts - a.ts);
       const stars = list.map(c => c.stars).filter(Boolean);
       const avg = stars.length ? Math.round(stars.reduce((a, x) => a + x, 0) / stars.length * 10) / 10 : 0;
@@ -3419,12 +3516,14 @@ const server = http.createServer(async (req, res) => {
         }
         if (umbenannt) saveJson('gifts.json', gifts);
       }
+      // Anzeigenamen aller, von denen hier ein Geschenk liegt ("Geschenk von …")
+      const schenkerNamen = w => anzeigeNamen([...(w.vouchers || []), ...(gifts[user] || [])].map(v => v && v.giftFrom).filter(Boolean));
       if (url.searchParams.get('nur') === 'index') {
         const w = wallets[user] || { vouchers: [], cards: [], deleted: [] };
-        return send(res, 200, { index: walletIndex(w), deleted: w.deleted || [], gifts: mitBildern(gifts[user]), ts: w.ts || 0, statistik: w.statistik || {} });
+        return send(res, 200, { index: walletIndex(w), deleted: w.deleted || [], gifts: mitBildern(gifts[user]), ts: w.ts || 0, statistik: w.statistik || {}, namen: schenkerNamen(w) });
       }
       const w = wallets[user] || { vouchers: [], cards: [] };
-      return send(res, 200, { ...w, vouchers: mitBildern(w.vouchers), cards: mitBildern(w.cards), gifts: mitBildern(gifts[user]) });
+      return send(res, 200, { ...w, vouchers: mitBildern(w.vouchers), cards: mitBildern(w.cards), gifts: mitBildern(gifts[user]), namen: schenkerNamen(w) });
     }
     // Gezielt einzelne Eintraege holen (nach einem Blick ins Inhaltsverzeichnis)
     if (p === '/api/wallet/items' && req.method === 'POST') {
@@ -3516,7 +3615,7 @@ const server = http.createServer(async (req, res) => {
       saveJson('users.json', users); // Tageszähler
       ssePush('gift', to);
       pushToUser(to, {
-        title: `Geschenk von @${me}!`,
+        title: `Geschenk von ${nameFuerAndere(me)}!`,
         body: rabatt
           ? `Ein ${v.vendor}-Rabattcode${v.rabatt != null ? ` über ${String(v.rabatt).replace('.', ',')} ${v.rabattArt === 'pct' ? '%' : '€'}` : ''} wartet auf dich.`
           : `Ein ${v.vendor}-Gutschein${v.amount != null ? ` über ${String(v.amount).replace('.', ',')} €` : ''} wartet in deiner Wallet.`,
@@ -3881,7 +3980,17 @@ const server = http.createServer(async (req, res) => {
       if (!isAdmin(req)) return send(res, 403, { error: 'Admin-Key falsch.' });
       return send(res, 200, Object.entries(users).map(([name, u]) => ({
         user: name, email: u.email || '', newsletter: !!u.newsletter, ts: u.ts,
+        anzeigename: anzeigenameVon(name), lastRename: (u.profile && u.profile.lastRename) || 0,
       })));
+    }
+    // Support: @Name eines Kontos aendern (der Nutzer hat darum gebeten)
+    if (p === '/api/admin/rename' && req.method === 'POST') {
+      if (!isAdmin(req)) return send(res, 403, { error: 'Admin-Key falsch.' });
+      const b = await readBody(req);
+      const von = String(b.from || ''), zu = String(b.to || '').trim();
+      const fehler = kontoUmbenennen(von, zu);
+      if (fehler) return send(res, fehler === 'Nutzer nicht gefunden.' ? 404 : /vergeben|trägt schon/.test(fehler) ? 409 : 400, { error: fehler });
+      return send(res, 200, { ok: true, user: zu });
     }
 
     if (p === '/api/admin/newsletter.csv' && req.method === 'GET') {
@@ -4123,7 +4232,7 @@ const server = http.createServer(async (req, res) => {
       const list = all.filter(c => !c.deleted || all.some(x => x.parent === c.id && !x.deleted)).map(c => {
         const { badge, ...rest } = c;
         if (c.deleted || !users[c.user]) return rest;
-        return { ...rest, avatar: profileOf(c.user).avatar || '', paint: namensfarbe(c.user) };
+        return { ...rest, avatar: profileOf(c.user).avatar || '', paint: namensfarbe(c.user), ...mitAnzeigename(c.user) };
       });
       return send(res, 200, list);
     }
@@ -4146,7 +4255,7 @@ const server = http.createServer(async (req, res) => {
       };
       (comments[dealId] = comments[dealId] || []).push(c);
       saveJson('comments.json', comments);
-      return send(res, 201, { ...c, avatar: profileOf(user).avatar || '', paint: namensfarbe(user) });
+      return send(res, 201, { ...c, avatar: profileOf(user).avatar || '', paint: namensfarbe(user), ...mitAnzeigename(user) });
     }
 
     // Kommentar-Reaktionen: like, helpful oder ein Emote-Name (Toggle)

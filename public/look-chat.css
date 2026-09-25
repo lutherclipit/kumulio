@@ -158,7 +158,10 @@
 #dm-partner-rolle { flex: none; display: grid; }
 #dm-partner-rolle:empty { display: none; }
 #dm-partner-rolle .icon { width: 16px; height: 16px; }
-.dm-partner-hinweis { font-size: .76rem; font-weight: 600; line-height: 1.2; color: var(--muted); }
+.dm-partner-hinweis {
+  max-width: 100%; font-size: .76rem; font-weight: 600; line-height: 1.2; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;   /* traegt auch den @Namen */
+}
 
 /* ---- Verlauf: oben und unten laeuft er weich in den Seitengrund aus ----- */
 #view-chat.im-dm #chat-box-wrap::before, #view-chat.im-dm #chat-box-wrap::after {
