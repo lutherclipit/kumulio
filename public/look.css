@@ -1125,3 +1125,103 @@ body:has(#wallet-mini.show) .topbar .brand { opacity: 0; transform: translateY(6
 .cg-nummer { font-size: 1.3rem; font-weight: 800; letter-spacing: .1em; font-variant-numeric: tabular-nums; }
 .cg-hinweis { margin: 0; color: #6B7280; font-size: .8rem; text-align: center; }
 @media (prefers-reduced-motion: reduce) { .code-gross { transition: none; } }
+
+/* =============================================================================
+   Pfand (Runde 127): dritter Reiter im Schieber, Pfand-Karten, Pfand-Reiter
+   ========================================================================== */
+/* Schieber mit drei verschieden breiten Titeln: jeder Titel so breit wie sein
+   Text, der Rest gleich verteilt. Die Flaeche dahinter besteht aus zwei
+   runden Kappen und einem Mittelstueck (setzeWmFlaeche in app.js) — nur
+   transform, und die Ecken bleiben beim Gleiten rund. */
+.wallet-kopf #wallet-modes { grid-template-columns: auto auto auto; }
+#wallet-modes .wm-flaeche {
+  left: 4px; right: 4px; top: 4px; bottom: 4px; width: auto;
+  background: none; box-shadow: none; border-radius: 0; transform: none; transition: none;
+  --wm-bg: #fff;
+  filter: drop-shadow(0 3px 6px rgba(10, 14, 18, .16));
+  opacity: 0; pointer-events: none;
+}
+#wallet-modes.wm-bereit .wm-flaeche { opacity: 1; }
+.wm-flaeche > i {
+  position: absolute; top: 0; bottom: 0; left: 0; background: var(--wm-bg);
+  transition: transform .42s var(--spring);
+}
+.wm-l, .wm-r { width: 20px; border-radius: 10px; }
+.wm-l { transform: translate3d(var(--wm-x, 0px), 0, 0); }
+.wm-r { transform: translate3d(calc(var(--wm-x, 0px) + var(--wm-w, 20px) - 20px), 0, 0); }
+.wm-m { width: 100px; transform-origin: 0 0; transform: translate3d(calc(var(--wm-x, 0px) + 10px), 0, 0) scaleX(var(--wm-s, 0)); }
+#wallet-modes.wm-still .wm-flaeche > i { transition: none; }
+body.sparsam .wm-flaeche > i { transition-duration: .2s; }
+body:not(.wallet-farbe) #wallet-modes .wm-flaeche {
+  --wm-bg: var(--akzent-tief); background: none; box-shadow: none;
+  filter: drop-shadow(0 4px 8px color-mix(in srgb, var(--akzent) 26%, transparent));
+}
+@media (prefers-reduced-motion: reduce) { .wm-flaeche > i { transition: none; } }
+/* Schmale Handys: "Karten & Coupons" braucht Platz */
+@media (max-width: 350px) {
+  .wm-titel { padding: 9px 3px; font-size: .84rem; }
+}
+
+/* ---- Pfand-Karte: wie eine Gutschein-Karte, darunter die Filiale, in der
+   der Bon gilt — eine eigene Zeile ueber die ganze Breite */
+.wallet-card.vk.pk { grid-template-rows: auto 1fr auto; }
+.pk-filiale {
+  grid-column: 1 / -1; grid-row: 3;
+  display: flex; align-items: flex-start; gap: 8px; min-width: 0;
+  margin-top: 10px; padding-top: 9px;
+  border-top: 1px solid color-mix(in srgb, var(--tc, #fff) 24%, transparent);
+  font-size: .8rem; line-height: 1.35;
+}
+.pk-filiale .icon { flex: none; width: 16px; height: 16px; margin-top: 1px; opacity: .92; }
+.pk-filiale-text { display: flex; flex-direction: column; min-width: 0; }
+.pk-filiale-text b { font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pk-filiale-text span { font-weight: 600; opacity: .9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wallet-card.vk.hell .pk-filiale { text-shadow: none; }
+/* Eingeloest: ruhig und grau, wie ein eingeloester Rabattcode */
+.wallet-card.pk.pk-aus { filter: grayscale(.85); opacity: .7; box-shadow: none; }
+.wallet-card.pk.rc-neu { animation: rcNeu .7s cubic-bezier(.3, 1.35, .45, 1); }
+@media (prefers-reduced-motion: reduce) { .wallet-card.pk.rc-neu { animation: none; } }
+
+/* ---- Reiter "Pfand" */
+#pfand-content { padding-bottom: 8px; }
+.pf-kopf { margin-top: 2px; }
+.pf-summe { margin: 10px 0 14px; padding: 14px; }
+.pf-summe-zeile { display: flex; align-items: center; gap: 12px; }
+.pf-summe-bild {
+  flex: none; width: 46px; height: 46px; border-radius: 13px;
+  display: grid; place-items: center; background: var(--akzent-weich); color: var(--akzent-text);
+}
+.pf-summe-bild .icon { width: 24px; height: 24px; }
+.pf-summe-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.pf-summe-text b { font-size: 1.55rem; font-weight: 850; letter-spacing: -.02em; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.pf-summe-text small { font-size: .78rem; line-height: 1.35; color: var(--muted); }
+.pf-scannen { position: relative; cursor: pointer; }
+.pf-scannen .icon { width: 20px; height: 20px; }
+.pf-liste { display: grid; gap: 10px; }
+.pf-liste .wallet-card { margin: 0; }
+#pfand-content > .pf-liste > .status { color: var(--muted); }
+.pf-aus-fold { margin-top: 14px; }
+.pf-liste-aus { padding: 0 14px 14px; }
+
+/* Leer: kurze Erklaerung und der Knopf zum Scannen */
+.pf-leer {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  margin-top: 6px; padding: 26px 20px 20px; border-radius: 18px;
+  background: var(--karte); box-shadow: var(--schatten-1);
+}
+.pf-leer-bild { width: 112px; height: 112px; }
+.pf-leer-bild svg { display: block; width: 100%; height: 100%; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.pf-leer-bild .pf-bon { fill: var(--karte-2); stroke: color-mix(in srgb, var(--text) 30%, transparent); stroke-width: 2.2; }
+.pf-leer-bild .pf-bon-fuss { stroke: none; }
+.pf-leer-bild .pf-linie { stroke: color-mix(in srgb, var(--text) 30%, transparent); stroke-width: 3; }
+.pf-leer-bild .pf-strich { stroke: var(--text); stroke-width: 2; opacity: .75; }
+.pf-leer-bild .pf-flasche { fill: var(--akzent-weich); stroke: var(--akzent-text); stroke-width: 2.4; }
+.pf-leer-bild .pf-deckel { stroke: var(--akzent-text); stroke-width: 3; }
+.pf-leer-bild .pf-etikett { stroke: var(--akzent-text); stroke-width: 2; opacity: .6; }
+.pf-leer h2 { margin: 10px 0 0; color: var(--text); font-size: 1.2rem; font-weight: 850; letter-spacing: -.01em; }
+.pf-leer p { max-width: 300px; margin: 6px 0 0; font-size: .88rem; line-height: 1.5; color: var(--muted); }
+.pf-leer .gd-los { margin-top: 18px; }
+.pf-leer-link {
+  margin-top: 6px; padding: 10px 12px; border: 0; background: none; cursor: pointer;
+  color: var(--akzent-text); font: inherit; font-size: .88rem; font-weight: 750;
+}

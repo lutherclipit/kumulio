@@ -1756,3 +1756,86 @@ body.sparsam #sheet-content #btn-sheet-fav .icon, body.sparsam #sheet-content .a
 .bk-pdf-teilen { padding: 0; border: 0; background: none; font: inherit; font-weight: 700; color: var(--akzent-text); cursor: pointer; }
 a.bk-pdf-teilen { color: var(--akzent-text); }
 .bk-pdf-quelle a:active { opacity: .7; }
+
+/* =============================================================================
+   Pfandbon (Runde 127): Formular und eigene Seite
+   ========================================================================== */
+/* Umschalter mit drei Formularen: Gutschein | Rabattcode | Pfandbon */
+.wa-schalter { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.wa-schalter-flaeche { width: calc((100% - 8px) / 3); }
+@media (max-width: 350px) { .wa-schalter-knopf { padding: 0 2px; font-size: .84rem; } }
+
+/* Filiale: Name, Strasse, PLZ | Ort, darunter der Standort */
+.wa-zeile { position: relative; }
+.pf-opt { font-style: normal; font-weight: 600; opacity: .75; }
+.pf-zeile-zwei {
+  display: grid; grid-template-columns: minmax(0, 88px) minmax(0, 1fr); column-gap: 16px;
+  border-top: 1px solid var(--linie);
+}
+.pf-zeile-zwei > .wa-zeile + .wa-zeile { border-top: 0; }
+.pf-zeile-zwei + .wa-zeile { border-top: 1px solid var(--linie); }
+.pf-standort { flex-direction: row; align-items: center; gap: 12px; padding: 12px 0; cursor: default; }
+.pf-standort-knopf {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0; padding: 0; border: 0;
+  background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; touch-action: manipulation;
+}
+.pf-standort-knopf:disabled { cursor: default; }
+.pf-standort-bild {
+  flex: none; width: 38px; height: 38px; border-radius: 11px;
+  display: grid; place-items: center; background: var(--karte-2); color: var(--akzent-text);
+  transition: transform .2s var(--spring);
+}
+.pf-standort-knopf:active .pf-standort-bild { transform: scale(.92); }
+.pf-standort-bild.an { background: var(--akzent-weich); }
+.pf-standort-bild .icon { width: 19px; height: 19px; }
+.pf-standort-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pf-standort-text b { font-size: .92rem; font-weight: 750; line-height: 1.25; }
+.pf-standort-text small { font-size: .76rem; line-height: 1.35; color: var(--muted); }
+.pf-standort-weg {
+  flex: none; padding: 8px 2px 8px 8px; border: 0; background: none; cursor: pointer;
+  color: var(--muted); font: inherit; font-size: .82rem; font-weight: 700;
+}
+
+/* "Bitte pruefen": vom Scan unsicher gelesen — gelb, bis man es anfasst */
+.wa-zeile.pruefen::before {
+  content: ""; position: absolute; left: -16px; top: 9px; bottom: 9px; width: 3px;
+  border-radius: 0 3px 3px 0; background: #F5A524;
+}
+.wa-zeile.pruefen .wa-zeile-label, .pf-pruefen, .pf-pruefen-text { color: #9A5B00; }
+.pf-pruefen { font-weight: 750; }
+.wa-betrag.pruefen { border-color: color-mix(in srgb, #F5A524 75%, transparent); }
+.wa-shops.pruefen { outline-color: color-mix(in srgb, #F5A524 65%, transparent); }
+.pf-pruefen-text { margin: 8px 2px 0; font-size: .78rem; font-weight: 750; }
+:root[data-theme="dark"] :is(.wa-zeile.pruefen .wa-zeile-label, .pf-pruefen, .pf-pruefen-text) { color: #F5B75E; }
+
+/* ---- Pfandbon-Seite */
+.pd-filiale { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; }
+.pd-filiale-bild {
+  flex: none; width: 42px; height: 42px; border-radius: 12px;
+  display: grid; place-items: center; background: var(--akzent-weich); color: var(--akzent-text);
+}
+.pd-filiale-bild .icon { width: 21px; height: 21px; }
+.pd-filiale-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pd-filiale-text small { margin-top: 6px; font-size: .78rem; font-weight: 600; line-height: 1.35; color: var(--muted); }
+.pd-filiale-text b { font-size: 1.04rem; font-weight: 800; line-height: 1.3; }
+.pd-filiale-text span { font-size: .9rem; line-height: 1.4; }
+.pd-filiale-text .pd-standort { margin-top: 3px; font-size: .78rem; font-weight: 650; color: var(--muted); }
+.pd .gd-zeile.pd-karten { color: var(--text); text-decoration: none; }
+.pd-karten-bild { width: 42px; }
+.pd-karten-bild .icon {
+  width: 42px; height: 42px; padding: 11px; box-sizing: border-box; border-radius: 12px;
+  background: var(--karte-2); color: var(--text);
+}
+.pd-bild { padding: 10px; }
+.pd-bild #pd-code {
+  display: block; width: 100%; max-height: 320px; margin: 0; padding: 10px; box-sizing: border-box;
+  object-fit: contain; background: #fff; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--linie); cursor: zoom-in;
+}
+.pd-angaben { padding: 2px 16px; }
+.pd-zeile { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 50px; }
+.pd-zeile + .pd-zeile { border-top: 1px solid var(--linie); }
+.pd-zeile small { font-size: .82rem; font-weight: 650; color: var(--muted); }
+.pd-zeile b { font-size: .95rem; font-weight: 750; font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
+.pd-leer-filiale .icon { color: var(--muted); }
+/* "Aendern" leiser als "Eingeloest" */
+.gd-knopf.pd-aendern, :root[data-theme="dark"] .gd-knopf.pd-aendern { background: var(--karte-2); color: var(--text); box-shadow: none; }

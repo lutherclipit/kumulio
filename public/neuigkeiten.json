@@ -1,5 +1,34 @@
 [
   {
+    "v": "2026-09-26.1",
+    "datum": "26. September 2026",
+    "titel": "Pfand in der Wallet",
+    "punkte": [
+      {
+        "icon": "wallet",
+        "titel": "Pfandbons scannen",
+        "text": "Fotografier den Bon vom Leergutautomaten: kumulio liest Betrag, Laden, Code und Filiale selbst aus. Was nicht sicher lesbar war, ist gelb markiert, damit du es kurz prüfst.",
+        "bild": "/brand/neu/2026-09-26-pfand-hell.webp",
+        "bildDunkel": "/brand/neu/2026-09-26-pfand-dunkel.webp",
+        "bildAlt": "Der Pfand-Reiter mit der Pfand-Summe und zwei Pfandbons, jeder mit seiner Filiale",
+        "bildGroesse": [
+          780,
+          864
+        ]
+      },
+      {
+        "icon": "pin",
+        "titel": "Immer mit Filiale",
+        "text": "Pfandbons gelten nur in der Filiale, in der du sie bekommen hast. Deshalb steht sie auf jeder Karte, auf Wunsch mit deinem Standort. An der Kasse zeigst du den Code groß."
+      },
+      {
+        "icon": "check",
+        "titel": "Eigener Bereich, eigene Summe",
+        "text": "Pfand liegt im neuen Reiter neben Karten & Coupons und zählt nicht zu deinem Wallet-Guthaben oder Rang. Eingelöste Bons markierst du mit einem Tipp."
+      }
+    ]
+  },
+  {
     "v": "2026-09-25.4",
     "datum": "25. September 2026",
     "titel": "Ruhigere Wallet, ein Profil",

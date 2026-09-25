@@ -513,11 +513,15 @@
           <!-- Die Bereichswahl steht UNTER dem Betrag: oben liest man erst die
                Zahl, dann waehlt man. Andersherum wirkt der Kopf wie eine
                Werkzeugleiste mit Zahl darunter. -->
-          <!-- Schieber mit zwei Titeln, dahinter gleitet die Flaeche -->
+          <!-- Schieber mit drei Titeln, dahinter gleitet die Flaeche. Die
+               Titel sind verschieden breit: die Flaeche besteht aus zwei
+               runden Kappen und einem Mittelstueck, die nur per transform
+               gleiten (setzeWmFlaeche in app.js) -->
           <div id="wallet-modes" role="tablist">
-            <span class="wm-flaeche" aria-hidden="true"></span>
+            <span class="wm-flaeche" aria-hidden="true"><i class="wm-l"></i><i class="wm-m"></i><i class="wm-r"></i></span>
             <button class="wm-titel active" data-wtab="gutscheine" role="tab" aria-selected="true">Gutscheine</button>
             <button class="wm-titel" data-wtab="coupons" role="tab" aria-selected="false">Karten &amp; Coupons</button>
+            <button class="wm-titel" data-wtab="pfand" role="tab" aria-selected="false">Pfand</button>
           </div>
         </div>
       </div>
@@ -602,6 +606,8 @@
       <!-- Karten und Coupons in einem: pro Marke eine Kachel, dahinter Karte,
            App-Sprung und die Coupons dieser Marke -->
       <div id="coupons-content" class="hidden"></div>
+      <!-- Pfandbons: gelten nur in ihrer Filiale, eigene Summe (renderPfand) -->
+      <div id="pfand-content" class="hidden"></div>
     </section>
 
     <!-- ================= CHAT: Gespraeche mit Freunden ======================== -->

@@ -452,6 +452,12 @@ let bioBrauchtTippen = false;    // Browser liess Face ID nicht ohne Antippen st
 const WALLET_LIMIT = { gutscheine: 500, karten: 100 };
 // Rabattcodes liegen bei den Gutscheinen, haben aber kein Guthaben
 function istRabatt(v) { return !!v && v.art === 'rabatt'; }
+// Pfandbons auch: ihr Wert steht in amount, balance bleibt null. Sie zaehlen
+// nicht zum Wallet-Guthaben und nicht zum Rang (der Pfand-Reiter zeigt eine
+// eigene Summe) und gelten nur in der Filiale, in der man sie bekommen hat.
+function istPfand(v) { return !!v && v.art === 'pfand'; }
+function ohneGuthaben(v) { return istRabatt(v) || istPfand(v); }
+function walletArt(v) { return istRabatt(v) ? 'rabatt' : istPfand(v) ? 'pfand' : 'gutschein'; }
 function walletPlatz(art = 'gutscheine') {
   const n = (art === 'karten' ? state.wallet.cards : state.wallet.vouchers).length;
   // Wartende Geschenke belegen schon Platz (der Server zaehlt sie genauso)
@@ -3279,9 +3285,9 @@ function renderProfil() {
 }
 
 // Guthaben, nach dem sich der Rang richtet: alle Restguthaben (wie der
-// Wallet-Kopf), Rabattcodes zaehlen nicht
+// Wallet-Kopf), Rabattcodes und Pfandbons zaehlen nicht
 function rangGuthaben() {
-  const aktiv = state.wallet.vouchers.filter(v => !istRabatt(v) && (v.balance == null || v.balance > 0));
+  const aktiv = state.wallet.vouchers.filter(v => !ohneGuthaben(v) && (v.balance == null || v.balance > 0));
   return Math.round(aktiv.reduce((s, v) => s + (v.balance || 0), 0) * 100) / 100;
 }
 const rangAnteil = (r, total) => r.next ? Math.max(0, Math.min(1, (total - r.min) / (r.next.min - r.min))) : 1;
@@ -4503,6 +4509,18 @@ function normalisiereWallet() {
       v.code = String(v.code || '');
       v.vendor = String(v.vendor || '');
     }
+    // Pfandbon: der Wert steht in amount, nie Guthaben; die Filiale ist ein
+    // Objekt mit Text-Feldern (ein altes Geraet kennt sie nicht)
+    if (istPfand(v)) {
+      const n = Number(v.amount);
+      v.amount = v.amount != null && v.amount !== '' && Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
+      v.balance = null;
+      v.code = String(v.code || '');
+      v.vendor = String(v.vendor || '');
+      v.eingeloest = Number(v.eingeloest) > 0 ? Number(v.eingeloest) : 0;
+      const f = v.filiale && typeof v.filiale === 'object' ? v.filiale : {};
+      v.filiale = { ...f, name: String(f.name || ''), strasse: String(f.strasse || ''), plz: String(f.plz || ''), ort: String(f.ort || '') };
+    }
   }
   for (const c of w.cards) {
     if (!c.id) c.id = neueId();
@@ -5708,14 +5726,14 @@ let addEditId = '';  // gesetzt, wenn eine vorhandene Sparkarte geaendert wird
 // Gutscheine wurden als Duplikat abgewiesen.
 function findDupe(v, extra = []) {
   const shop = s => String(s || '').trim().toLowerCase();
-  return [...state.wallet.vouchers, ...extra].find(x => x && x !== v && x.id !== v.id && istRabatt(x) === istRabatt(v) && (
+  return [...state.wallet.vouchers, ...extra].find(x => x && x !== v && x.id !== v.id && walletArt(x) === walletArt(v) && (
     (x.pin && v.pin && String(v.pin).length >= 4 && x.pin === v.pin && shop(x.vendor) === shop(v.vendor))
     || (v.code && x.code && x.code === v.code && (shop(x.vendor) === shop(v.vendor) || String(v.code).length >= 12))));
 }
 // Ein gerade gespeicherter oder ausgepackter Gutschein darf nicht hinter einem
 // gespeicherten Filter verschwinden — sonst wirkt er "weg"
 function zeigeNeuenGutschein(v) {
-  if (!v || istRabatt(v)) return;
+  if (!v || ohneGuthaben(v)) return;
   const f = state.walletFilter;
   if ((f && f !== 'alle' && f.toLowerCase() !== String(v.vendor || '').toLowerCase()) || state.walletVal) {
     state.walletFilter = '';
@@ -5750,6 +5768,14 @@ let waSaving = false;
 let waFixQueue = [];
 let waFixTotal = 0;
 function openFixForm(fix, pos, total) {
+  // Ein Pfandbon aus dem Mehrfach-Upload: ins Pfand-Formular, dort gescannt
+  if (fix && fix.art === 'pfand') {
+    openWalletAdd('pfand', '', '', { datei: fix.datei });
+    if (!waOffen() || !waApi) { waFixQueue.unshift(fix); return; }
+    waApi.ausSchlange = true;
+    waApi.hinweis('fix', `<b>Bild ${pos} von ${total}:</b> ein Pfandbon. Bitte prüfen und speichern.`);
+    return;
+  }
   openWalletAdd('voucher');
   if (!waOffen() || !waApi || !$('#wa-preview')) { waFixQueue.unshift(fix); return; }
   addImg = fix.img || '';
@@ -6146,6 +6172,854 @@ function ocrTrusted(words, token, minConf) {
   return !!hit && (hit.confidence ?? 0) >= minConf;
 }
 
+// =============================================================================
+// Pfandbons erkennen: Code (Barcode/Aztec/QR), Betrag, Kette, Filiale,
+// Datum und Bon-Nr. — alles lokal im Geraet (ZXing, Tesseract), nichts geht
+// an fremde Dienste. Was nicht sicher gelesen wurde, bleibt leer oder wird
+// als "bitte pruefen" markiert. Nie raten.
+// =============================================================================
+
+// Ketten, die Pfand annehmen. name = so, wie die Wallet sie schreibt (Logo,
+// Farbe), re = woran man sie auf dem Bon erkennt.
+const PFAND_KETTEN = [
+  ['Kaufland', /kaufland/i],
+  ['Marktkauf', /marktkauf/i],
+  ['EDEKA', /\bedeka\b|\be\s?d\s?e\s?k\s?a\b|\be-?center\b/i],
+  ['REWE', /\brewe\b/i],
+  ['Lidl', /\blid[l1!|](?![a-zäöü])/i],
+  ['ALDI', /\baldi\b/i],
+  ['Netto', /\bnetto\b/i],
+  ['PENNY', /\bpenny\b/i],
+  ['NORMA', /\bnorma\b/i],
+  ['Globus', /\bglobus\b/i],
+  ['tegut', /\btegut\b/i],
+  ['famila', /\bfamila\b/i],
+  ['Nahkauf', /\bnahkauf\b/i],
+  ['Rossmann', /\brossmann\b/i],
+  ['dm', /\bdm[- ]?drogerie/i],
+  ['Trinkgut', /\btrinkgut\b/i],
+  ['Getränke Hoffmann', /getr[aä]nke\s*hoffmann/i],
+  ['Fristo', /\bfristo\b/i],
+  ['real', /\breal\s*,-/i],
+];
+// Fuer die Auswahl beim Anlegen: die ueblichen zuerst
+const PFAND_GRID = ['EDEKA', 'REWE', 'Lidl', 'ALDI', 'Kaufland', 'Netto', 'PENNY', 'NORMA', 'Globus', 'Marktkauf',
+  'tegut', 'famila', 'Nahkauf', 'Rossmann', 'dm', 'Trinkgut', 'Getränke Hoffmann', 'Fristo'];
+
+// Woran man einen Pfandbon erkennt (Leergutautomat, Mehrweg/Einweg …):
+// je Merkmal ein Treffer
+function pfandWortTreffer(text) {
+  const t = String(text || '');
+  let n = 0;
+  for (const re of [/l[e3][e3]?rg[uv]t/i, /pfandbon|pfandartikel|bepfandet/i, /mehrweg/i, /einweg/i, /tomra|sivario/i,
+    /nur\s+in\s+dieser\s+filiale/i, /flasche/i, /\bpfand\b/i]) if (re.test(t)) n++;
+  return n;
+}
+
+// Tomra-Codes wie bei Lidl: 19 Ziffern, "2…", die Bon-Nr. steht an Stelle
+// 9–13, der Betrag in Cent in den letzten sechs Ziffern
+// ("2015593271335000975" = Bon 71335, 9,75 €)
+function pfandCodeZerlegen(code) {
+  const c = String(code || '').replace(/\s+/g, '');
+  if (!/^2\d{18}$/.test(c)) return null;
+  const cent = parseInt(c.slice(13), 10);
+  if (!(cent > 0) || cent > 99999) return null;
+  return { betrag: cent / 100, bon: c.slice(8, 13) };
+}
+
+// ---- Flaechen im Foto: senkrechte Striche (Barcode) und dichte Kanten in
+// beide Richtungen bei halb dunkler, quadratischer Flaeche (Aztec/QR)
+function findeCodeFlaechen(img) {
+  const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+  if (!iw || !ih) return [];
+  const W = Math.min(560, iw), s = W / iw, H = Math.max(40, Math.round(ih * s));
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0, W, H);
+  let d;
+  try { d = ctx.getImageData(0, 0, W, H).data; } catch { return []; }
+  const g = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) g[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
+  const strich = new Float32Array(W * H), kante = new Float32Array(W * H), dunkel = new Float32Array(W * H);
+  // Papierhell = oberes Zehntel; dunkel heisst deutlich darunter
+  const hell = [...g].sort((a, b) => a - b)[Math.floor(W * H * 0.9)] || 255;
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+    const i = y * W + x;
+    const gx = Math.abs(g[i + 1] - g[i - 1]), gy = Math.abs(g[i + W] - g[i - W]);
+    strich[i] = Math.max(0, gx - gy);
+    kante[i] = Math.min(gx, gy) + (gx + gy) / 4;
+    dunkel[i] = g[i] < hell * 0.62 ? 1 : 0;
+  }
+  const k = W / 360;   // Radien wachsen mit der Aufloesung
+  const blur = (src, rx, ry) => {
+    const S = new Float64Array((W + 1) * (H + 1));
+    for (let y = 0; y < H; y++) { let z = 0; for (let x = 0; x < W; x++) { z += src[y * W + x]; S[(y + 1) * (W + 1) + x + 1] = S[y * (W + 1) + x + 1] + z; } }
+    const out = new Float32Array(W * H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const x0 = Math.max(0, x - rx), x1 = Math.min(W, x + rx + 1), y0 = Math.max(0, y - ry), y1 = Math.min(H, y + ry + 1);
+      out[y * W + x] = (S[y1 * (W + 1) + x1] - S[y0 * (W + 1) + x1] - S[y1 * (W + 1) + x0] + S[y0 * (W + 1) + x0]) / ((x1 - x0) * (y1 - y0));
+    }
+    return out;
+  };
+  const schwelle = (arr, faktor, min) => {
+    let z = 0, q = 0;
+    for (let i = 0; i < arr.length; i++) { z += arr[i]; q += arr[i] * arr[i]; }
+    const m = z / arr.length, sd = Math.sqrt(Math.max(0, q / arr.length - m * m));
+    return Math.max(min, m + faktor * sd);
+  };
+  const komponenten = (mask, minFlaeche) => {
+    const lab = new Int32Array(W * H);
+    const boxen = [];
+    const stapel = [];
+    let n = 0;
+    for (let i = 0; i < W * H; i++) {
+      if (!mask[i] || lab[i]) continue;
+      n++;
+      let x0 = W, y0 = H, x1 = 0, y1 = 0, area = 0, wert = 0;
+      stapel.push(i); lab[i] = n;
+      while (stapel.length) {
+        const j = stapel.pop();
+        const x = j % W, y = (j - x) / W;
+        area++; wert += mask[j];
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+        if (x > 0 && mask[j - 1] && !lab[j - 1]) { lab[j - 1] = n; stapel.push(j - 1); }
+        if (x < W - 1 && mask[j + 1] && !lab[j + 1]) { lab[j + 1] = n; stapel.push(j + 1); }
+        if (y > 0 && mask[j - W] && !lab[j - W]) { lab[j - W] = n; stapel.push(j - W); }
+        if (y < H - 1 && mask[j + W] && !lab[j + W]) { lab[j + W] = n; stapel.push(j + W); }
+      }
+      if (area >= minFlaeche) boxen.push({ x0, y0, x1, y1, area, wert: wert / area });
+    }
+    return boxen;
+  };
+  // Breite Balken zerreissen einen Barcode in Stuecke: nebeneinander liegende
+  // Stuecke mit fast gleicher Hoehe gehoeren zusammen
+  const verbinde = boxen => {
+    for (let weiter = true; weiter;) {
+      weiter = false;
+      for (let i = 0; i < boxen.length && !weiter; i++) for (let j = i + 1; j < boxen.length && !weiter; j++) {
+        const a = boxen[i], b = boxen[j];
+        const ueber = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0) + 1;
+        const kleiner = Math.min(a.y1 - a.y0, b.y1 - b.y0) + 1;
+        const luecke = Math.max(a.x0, b.x0) - Math.min(a.x1, b.x1);
+        const groesser = Math.max(a.y1 - a.y0, b.y1 - b.y0) + 1;
+        // dicht daneben, oder ein ganzes Stueck weiter, aber genau auf derselben Hoehe
+        // (feine Striche in der Mitte eines Codes gehen im Foto oft unter)
+        if ((ueber >= kleiner * 0.6 && luecke <= 26 * k)
+          || (ueber >= groesser * 0.8 && luecke <= Math.max(a.x1 - a.x0, b.x1 - b.x0) + 1)) {
+          const area = a.area + b.area;
+          boxen[i] = { x0: Math.min(a.x0, b.x0), y0: Math.min(a.y0, b.y0), x1: Math.max(a.x1, b.x1), y1: Math.max(a.y1, b.y1), area, wert: (a.wert * a.area + b.wert * b.area) / area };
+          boxen.splice(j, 1);
+          weiter = true;
+        }
+      }
+    }
+    return boxen;
+  };
+  const anteil = (arr, b) => {
+    let z = 0;
+    for (let y = b.y0; y <= b.y1; y++) for (let x = b.x0; x <= b.x1; x++) z += arr[y * W + x];
+    return z / ((b.x1 - b.x0 + 1) * (b.y1 - b.y0 + 1));
+  };
+  const sb = blur(strich, Math.round(7 * k), Math.round(3 * k));
+  const T1 = schwelle(sb, 2, 14);
+  const m1 = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) m1[i] = sb[i] > T1 ? sb[i] : 0;
+  const eins = verbinde(komponenten(m1, 60 * k * k))
+    .map(b => ({ ...b, w: b.x1 - b.x0 + 1, h: b.y1 - b.y0 + 1 }))
+    // Ein Barcode ist breiter als hoch-schmal, dicht und halb dunkel
+    .filter(b => b.w >= 30 * k && b.h >= 8 * k && b.area / (b.w * b.h) > 0.35)
+    .map(b => ({ ...b, dunkel: anteil(dunkel, b) }))
+    .filter(b => b.dunkel > 0.08 && b.dunkel < 0.85)
+    .map(b => ({ typ: '1d', x: b.x0 / s, y: b.y0 / s, width: b.w / s, height: b.h / s, score: b.area * b.wert / (k * k) }));
+  const kb = blur(kante, Math.round(5 * k), Math.round(5 * k));
+  const T2 = schwelle(kb, 1.6, 30);
+  const m2 = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) m2[i] = kb[i] > T2 ? kb[i] : 0;
+  const zwei = komponenten(m2, 150 * k * k)
+    .map(b => ({ ...b, w: b.x1 - b.x0 + 1, h: b.y1 - b.y0 + 1 }))
+    .filter(b => b.w >= 22 * k && b.h >= 22 * k && b.w / b.h > 0.7 && b.w / b.h < 1.45 && b.area / (b.w * b.h) > 0.55)
+    .map(b => ({ ...b, dunkel: anteil(dunkel, b) }))
+    .filter(b => b.dunkel > 0.28 && b.dunkel < 0.66)
+    .map(b => ({ typ: '2d', x: b.x0 / s, y: b.y0 / s, width: b.w / s, height: b.h / s, score: b.area * b.wert / (k * k) }));
+  return [...eins.sort((a, b) => b.score - a.score).slice(0, 3), ...zwei.sort((a, b) => b.score - a.score).slice(0, 2)];
+}
+
+// Ausschnitt einer Code-Flaeche auf weissem Grund (Ruhezone), hochskaliert
+function codeAusschnitt(img, f, { rand = 0.04, ziel = 1200, unten = 0 } = {}) {
+  const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+  const px = f.width * rand + 2, py = f.height * rand * 2 + 2;
+  const x = Math.max(0, f.x - px), y = Math.max(0, f.y - py);
+  const w = Math.min(iw - x, f.width + 2 * px), h = Math.min(ih - y, f.height + 2 * py + f.height * unten);
+  const s = Math.max(0.2, Math.min(4, ziel / w));
+  const mx = Math.round(w * s * 0.08) + 12, my = Math.round(h * s * 0.12) + 12;
+  const c = document.createElement('canvas');
+  c.width = Math.round(w * s) + 2 * mx; c.height = Math.round(h * s) + 2 * my;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, c.width, c.height);
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, x, y, w, h, mx, my, Math.round(w * s), Math.round(h * s));
+  return c;
+}
+
+// ZXing-Formatnamen und die des eingebauten Detektors auf eine Schreibweise
+function codeFormatName(f) {
+  return String(f || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 20);
+}
+function zxingLies(canvas, binarizer) {
+  if (!window.ZXing) return null;
+  try {
+    const src = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+    const bin = binarizer === 'global' ? new ZXing.GlobalHistogramBinarizer(src) : new ZXing.HybridBinarizer(src);
+    const hints = new Map();
+    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+    const r = new ZXing.MultiFormatReader().decode(new ZXing.BinaryBitmap(bin), hints);
+    return { text: r.getText(), format: codeFormatName(ZXing.BarcodeFormat[r.getBarcodeFormat()]) };
+  } catch { return null; }
+}
+
+// Code lesen: mehrere Ausschnitte und Groessen, dann abstimmen. Ein einzelner
+// Treffer, dem ein anderer widerspricht, gilt als unsicher (ZXing hat bei
+// einem Bon schon einmal zwei Ziffern vertauscht und trotzdem "gueltig" gemeldet).
+async function pfandCodeLesen(img, flaechen) {
+  if (!window.ZXing) await zxingDetect(document.createElement('canvas')).catch(() => null);
+  const stimmen = new Map();
+  const zaehle = (text, format, f) => {
+    text = String(text || '').trim();
+    // Nur, was nach einem Kassen-Code aussieht (ZXing liefert aus Rauschen
+    // selten, aber doch mal Zeichensalat wie "4, JZ:H7^µ")
+    if (!/^[0-9A-Za-z+\-.\/:]{6,80}$/.test(text)) return;
+    const e = stimmen.get(text) || { text, format: codeFormatName(format), n: 0, flaeche: f };
+    e.n++;
+    if (!e.flaeche && f) e.flaeche = f;
+    stimmen.set(text, e);
+  };
+  const nativ = 'BarcodeDetector' in window ? new BarcodeDetector() : null;
+  if (nativ) {
+    try {
+      for (const code of await nativ.detect(img)) {
+        const b = code.boundingBox;
+        zaehle(code.rawValue, code.format, b ? { typ: /qr|aztec|data_matrix|pdf/.test(code.format) ? '2d' : '1d', x: b.x, y: b.y, width: b.width, height: b.height } : null);
+      }
+    } catch { /* weiter mit ZXing */ }
+  }
+  const kandidaten = [...flaechen.filter(f => f.typ === '1d').slice(0, 2), ...flaechen.filter(f => f.typ === '2d').slice(0, 1)];
+  for (const f of kandidaten) {
+    // Wenig Rand: daneben liegen oft Hand oder Tischdecke, deren Muster
+    // ZXing fuer den Anfang eines Codes haelt
+    const versuche = f.typ === '1d' ? [[0.015, 1000], [0.015, 1500], [0.04, 800], [0.04, 1200]] : [[0.03, 520], [0.03, 800], [0.06, 1100]];
+    let hier = 0;
+    for (const [rand, ziel] of versuche) {
+      const c = codeAusschnitt(img, f, { rand, ziel });
+      if (nativ) { try { for (const code of await nativ.detect(c)) { zaehle(code.rawValue, code.format, f); hier++; } } catch { } }
+      for (const bin of ['hybrid', 'global']) {
+        const r = zxingLies(c, bin);
+        if (r) { zaehle(r.text, r.format, f); hier++; }
+      }
+      // Zwei uebereinstimmende Lesungen reichen
+      if ([...stimmen.values()].some(e => e.n >= 2 && e.flaeche === f)) break;
+      await new Promise(r => setTimeout(r, 0));   // Oberflaeche atmen lassen
+    }
+  }
+  const liste = [...stimmen.values()].sort((a, b) => b.n - a.n);
+  if (!liste.length) return null;
+  const best = liste[0];
+  const widerspruch = liste.some(e => e !== best && e.flaeche === best.flaeche);
+  return { text: best.text, format: best.format, flaeche: best.flaeche, sicher: best.n >= 2 && !widerspruch };
+}
+
+// ---- Vorlage fuer die Texterkennung: Graustufen, Kontrast gestreckt, die
+// Codes weiss uebermalt (ihre Striche bringen die Zeilenerkennung durcheinander)
+// bereich: der Streifen um den Code (Bons sind schmale Streifen) — so wird
+// die Schrift gross genug, und Hand, Boden und Tisch fallen weg
+function pfandOcrBereich(img, f) {
+  const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+  if (!f) return { x: 0, y: 0, width: iw, height: ih };
+  const rand = f.typ === '1d' ? 0.35 : 0.62;
+  const x0 = Math.max(0, f.x - f.width * rand), x1 = Math.min(iw, f.x + f.width * (1 + rand));
+  const hoch = (x1 - x0) * 3.2;
+  const y0 = Math.max(0, f.y - hoch * 0.75), y1 = Math.min(ih, f.y + f.height + hoch * 0.45);
+  return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+}
+function pfandOcrVorlage(img, flaechen, { binaer = false, zielBreite = 1500, bereich = null } = {}) {
+  const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+  const b = bereich || { x: 0, y: 0, width: iw, height: ih };
+  // Obergrenze in Pixeln: die Summenbilder fuer Schwarz-Weiss brauchen je
+  // Pixel 16 Byte — auf dem Handy soll das unter ~50 MB bleiben
+  const maxPixel = binaer ? 3.2e6 : 5e6;
+  const s = Math.min(3, zielBreite / b.width, 4200 / b.height, Math.sqrt(maxPixel / (b.width * b.height)));
+  const W = Math.round(b.width * s), H = Math.round(b.height * s);
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, b.x, b.y, b.width, b.height, 0, 0, W, H);
+  const im = ctx.getImageData(0, 0, W, H);
+  const d = im.data;
+  const L = new Float32Array(W * H);
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < W * H; i++) { const v = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2]; L[i] = v; hist[v | 0]++; }
+  const weiss = new Uint8Array(W * H);
+  for (const f of flaechen) {
+    const x0 = Math.max(0, Math.floor((f.x - b.x) * s - 3)), y0 = Math.max(0, Math.floor((f.y - b.y) * s - 3));
+    const x1 = Math.min(W, Math.ceil((f.x - b.x + f.width) * s + 3)), y1 = Math.min(H, Math.ceil((f.y - b.y + f.height) * s + 3));
+    if (x1 <= x0 || y1 <= y0) continue;
+    for (let y = y0; y < y1; y++) weiss.fill(1, y * W + x0, y * W + x1);
+  }
+  if (!binaer) {
+    let acc = 0, lo = 0, hi = 255;
+    for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc > W * H * 0.02) { lo = v; break; } }
+    acc = 0;
+    for (let v = 255; v >= 0; v--) { acc += hist[v]; if (acc > W * H * 0.2) { hi = v; break; } }
+    const sp = Math.max(40, hi - lo);
+    for (let i = 0; i < W * H; i++) {
+      const v = weiss[i] ? 255 : Math.max(0, Math.min(255, (L[i] - lo) * 255 / sp));
+      d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v;
+    }
+  } else {
+    // Sauvola: jede Stelle gegen ihre Umgebung — Schatten und Knicke im
+    // Papier verschwinden, die Schrift bleibt
+    const S = new Float64Array((W + 1) * (H + 1)), Q = new Float64Array((W + 1) * (H + 1));
+    for (let y = 0; y < H; y++) {
+      let z = 0, q = 0;
+      for (let x = 0; x < W; x++) {
+        const v = L[y * W + x]; z += v; q += v * v;
+        S[(y + 1) * (W + 1) + x + 1] = S[y * (W + 1) + x + 1] + z;
+        Q[(y + 1) * (W + 1) + x + 1] = Q[y * (W + 1) + x + 1] + q;
+      }
+    }
+    const r = Math.max(8, Math.round(Math.max(W, H) / 40));
+    for (let y = 0; y < H; y++) {
+      const y0 = Math.max(0, y - r), y1 = Math.min(H, y + r + 1);
+      for (let x = 0; x < W; x++) {
+        const i = y * W + x;
+        if (weiss[i]) { d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = 255; continue; }
+        const x0 = Math.max(0, x - r), x1 = Math.min(W, x + r + 1);
+        const n = (x1 - x0) * (y1 - y0);
+        const a = y1 * (W + 1), b = y0 * (W + 1);
+        const sum = S[a + x1] - S[b + x1] - S[a + x0] + S[b + x0];
+        const sq = Q[a + x1] - Q[b + x1] - Q[a + x0] + Q[b + x0];
+        const m = sum / n, sd = Math.sqrt(Math.max(0, sq / n - m * m));
+        const v = L[i] < m * (1 + 0.2 * (sd / 128 - 1)) ? 0 : 255;
+        d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v;
+      }
+    }
+  }
+  ctx.putImageData(im, 0, 0);
+  return { canvas: c, s };
+}
+
+// Der schwarze Balken mit dem Betrag (weisse Schrift) sitzt bei Tomra-,
+// Lidl- und Kaufland-Bons direkt ueber dem Code. Gesucht wird er genau dort:
+// Zeilen, die ueber die Breite des Codes fast ganz dunkel sind.
+function pfandBalkenFinden(img, f) {
+  const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+  const hoch = f.typ === '1d' ? f.height * 1.1 : f.height * 0.5;
+  const seite = f.typ === '1d' ? 0.15 : 0.6;
+  const x = Math.max(0, f.x - f.width * seite), w = Math.min(iw - x, f.width * (1 + 2 * seite));
+  const y = Math.max(0, f.y - hoch), h = f.y - y;
+  if (w < 20 || h < 8) return null;
+  const s = Math.min(1, 400 / w);
+  const W = Math.max(1, Math.round(w * s)), H = Math.max(1, Math.round(h * s));
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(img, x, y, w, h, 0, 0, W, H);
+  const d = ctx.getImageData(0, 0, W, H).data;
+  const L = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) L[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
+  // Papierhelligkeit dieses Ausschnitts
+  const sortiert = [...L].sort((a, b) => a - b);
+  const papier = sortiert[Math.floor(sortiert.length * 0.95)];
+  const grenze = papier * 0.45;
+  const zeileDunkel = [];
+  for (let yy = 0; yy < H; yy++) {
+    let n = 0;
+    for (let xx = 0; xx < W; xx++) if (L[yy * W + xx] < grenze) n++;
+    zeileDunkel.push(n / W);
+  }
+  // Von unten (am Code) nach oben: der erste Lauf dunkler Zeilen
+  let y1 = -1, y0 = -1;
+  for (let yy = H - 1; yy >= 0; yy--) {
+    if (zeileDunkel[yy] > 0.3) { if (y1 < 0) y1 = yy; y0 = yy; }
+    else if (y1 >= 0 && y1 - yy > 2) break;
+  }
+  if (y1 < 0 || y1 - y0 + 1 < Math.max(4, H * 0.08)) return null;
+  // Spalten: wo der Balken wirklich dunkel ist
+  let x0 = W, x1 = -1;
+  for (let xx = 0; xx < W; xx++) {
+    let n = 0;
+    for (let yy = y0; yy <= y1; yy++) if (L[yy * W + xx] < grenze) n++;
+    if (n / (y1 - y0 + 1) > 0.35) { if (xx < x0) x0 = xx; x1 = xx; }
+  }
+  if (x1 - x0 < W * 0.2) return null;
+  return { x: x + x0 / s, y: y + y0 / s, width: (x1 - x0 + 1) / s, height: (y1 - y0 + 1) / s };
+}
+// Einen Bildausschnitt fuer die Texterkennung vorbereiten: hochskalieren,
+// optional umkehren (weisse Schrift auf Schwarz), hart schwarz-weiss (Otsu)
+// und alles Dunkle, das den Rand beruehrt, weg — angeschnittene Striche,
+// Schatten und Papierraender stoeren die Zeilenerkennung
+function zeilenVorlage(img, b, { umkehren = false, zielHoehe = 72, maxBreite = 2400, hochBehalten = false } = {}) {
+  const s = Math.max(0.5, Math.min(5, zielHoehe / b.height, maxBreite / b.width));
+  const W = Math.max(1, Math.round(b.width * s)), H = Math.max(1, Math.round(b.height * s));
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, b.x, b.y, b.width, b.height, 0, 0, W, H);
+  const im = ctx.getImageData(0, 0, W, H);
+  const d = im.data;
+  const L = new Uint8Array(W * H);
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < L.length; i++) {
+    let v = Math.round(0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2]);
+    if (umkehren) v = 255 - v;
+    L[i] = v; hist[v]++;
+  }
+  // Otsu-Schwelle
+  let sum = 0;
+  for (let v = 0; v < 256; v++) sum += v * hist[v];
+  let sB = 0, wB = 0, best = 0, t = 128;
+  for (let v = 0; v < 256; v++) {
+    wB += hist[v]; if (!wB) continue;
+    const wF = L.length - wB; if (!wF) break;
+    sB += v * hist[v];
+    const mB = sB / wB, mF = (sum - sB) / wF;
+    const zw = wB * wF * (mB - mF) * (mB - mF);
+    if (zw > best) { best = zw; t = v; }
+  }
+  const schwarz = new Uint8Array(W * H);
+  for (let i = 0; i < L.length; i++) schwarz[i] = L[i] <= t ? 1 : 0;
+  // Grosse dunkle Flaechen am Rand weg (Papier um einen umgekehrten Balken,
+  // Schatten, angeschnittene Striche). Kleine Flecken am Rand bleiben: das
+  // sind oft Ziffern, die bis an die Kante reichen.
+  const lab = new Int32Array(W * H);
+  let nr = 0;
+  const st = [];
+  for (let start = 0; start < W * H; start++) {
+    if (!schwarz[start] || lab[start]) continue;
+    nr++;
+    let x0 = W, x1 = 0, y0 = H, y1 = 0, n = 0;
+    const teil = [];
+    st.push(start); lab[start] = nr;
+    while (st.length) {
+      const i = st.pop(), x = i % W, y = (i - x) / W;
+      teil.push(i); n++;
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      if (x > 0 && schwarz[i - 1] && !lab[i - 1]) { lab[i - 1] = nr; st.push(i - 1); }
+      if (x < W - 1 && schwarz[i + 1] && !lab[i + 1]) { lab[i + 1] = nr; st.push(i + 1); }
+      if (y > 0 && schwarz[i - W] && !lab[i - W]) { lab[i - W] = nr; st.push(i - W); }
+      if (y < H - 1 && schwarz[i + W] && !lab[i + W]) { lab[i + W] = nr; st.push(i + W); }
+    }
+    const amRand = x0 === 0 || y0 === 0 || x1 === W - 1 || y1 === H - 1;
+    if (amRand && (x1 - x0 + 1 > W * 0.45 || (!hochBehalten && y1 - y0 + 1 > H * 0.92) || n > W * H * 0.12)) for (const i of teil) schwarz[i] = 0;
+  }
+  // Weisser Rand drumherum: Tesseract mag Luft um die Schrift
+  const rand = Math.round(Math.min(zielHoehe, H) * 0.3) + 10;
+  const out = document.createElement('canvas');
+  out.width = W + 2 * rand; out.height = H + 2 * rand;
+  const o = out.getContext('2d');
+  o.fillStyle = '#fff';
+  o.fillRect(0, 0, out.width, out.height);
+  for (let i = 0; i < L.length; i++) { const v = schwarz[i] ? 0 : 255; d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v; d[i * 4 + 3] = 255; }
+  o.putImageData(im, rand, rand);
+  return out;
+}
+// Die Ziffernzeile unter dem Code genau finden: erst kommen Zeilen voller
+// Kanten (der Code), dann eine Luecke, dann die Ziffern bis zur naechsten Luecke
+function pfandZiffernZeile(img, f) {
+  const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+  const x = Math.max(0, f.x - f.width * 0.05), w = Math.min(iw - x, f.width * 1.1);
+  const y = Math.max(0, f.y + f.height * 0.5), h = Math.min(ih - y, f.height * (f.typ === '1d' ? 1.05 : 0.85));
+  if (w < 20 || h < 10) return null;
+  const s = Math.min(1, 500 / w);
+  const W = Math.max(1, Math.round(w * s)), H = Math.max(1, Math.round(h * s));
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(img, x, y, w, h, 0, 0, W, H);
+  const d = ctx.getImageData(0, 0, W, H).data;
+  const L = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) L[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
+  const hell = [...L].sort((a, b) => a - b)[Math.floor(W * H * 0.92)] || 255;
+  const grenze = hell * 0.6;
+  const wechsel = [], dunkel = [];
+  for (let yy = 0; yy < H; yy++) {
+    let n = 0, z = 0;
+    for (let xx = 1; xx < W; xx++) {
+      const a = L[yy * W + xx - 1] < grenze, b = L[yy * W + xx] < grenze;
+      if (a !== b) n++;
+      if (b) z++;
+    }
+    wechsel.push(n); dunkel.push(z / W);
+  }
+  const codeWechsel = [...wechsel.slice(0, Math.max(1, Math.round(H * 0.2)))].sort((a, b) => a - b)[Math.floor(H * 0.1)] || 0;
+  let yy = 0;
+  while (yy < H && wechsel[yy] >= codeWechsel * 0.55 && codeWechsel > 6) yy++;    // noch im Code
+  while (yy < H && dunkel[yy] < 0.012) yy++;                                        // Luecke
+  const ya = yy;
+  while (yy < H && dunkel[yy] >= 0.012) yy++;                                       // Ziffern
+  const yb = yy;
+  if (yb - ya < 3 || yb - ya > H * 0.5) return null;
+  const pad = (yb - ya) * 0.35;
+  return { x, y: y + Math.max(0, ya - pad) / s, width: w, height: (yb - ya + 2 * pad) / s };
+}
+// Eine Zeile lesen (Seitenmodus 7), optional nur bestimmte Zeichen
+async function ocrZeile(canvas, erlaubt = '') {
+  const worker = await getOcrWorker();
+  try {
+    await worker.setParameters({ tessedit_pageseg_mode: '7', tessedit_char_whitelist: erlaubt });
+    const { data } = await worker.recognize(canvas);
+    return { text: (data.text || '').trim(), conf: data.confidence || 0 };
+  } catch { return { text: '', conf: 0 }; }
+  finally { try { await worker.setParameters({ tessedit_pageseg_mode: '6', tessedit_char_whitelist: '' }); } catch { } }
+}
+async function ocrSeite(canvas, psm = '4') {
+  const worker = await getOcrWorker();
+  try {
+    await worker.setParameters({ tessedit_pageseg_mode: psm });
+    const { data } = await worker.recognize(canvas);
+    return { text: data.text || '', words: data.words || [], lines: data.lines || [] };
+  } catch { return { text: '', words: [], lines: [] }; }
+  finally { try { await worker.setParameters({ tessedit_pageseg_mode: '6' }); } catch { } }
+}
+
+// ---- Aus den gelesenen Texten die Felder ziehen
+const PFAND_MONATE = [
+  [1, /^(JAN|3AN)/], [2, /^FEB/], [3, /^(M[AÄ]R|MRZ)/], [4, /^APR/], [5, /^(MA[I1lY|])/], [6, /^J[UV]N/], [7, /^J[UV][L1I|]/],
+  [8, /^A[UV]G/], [9, /^SEP/], [10, /^[O0](K|C)[T7]/], [11, /^N[O0]V/], [12, /^[D0O]E[Z2C]/],
+];
+function pfandZahl(x) { const n = parseFloat(String(x).replace(/\s/g, '').replace(',', '.')); return Number.isFinite(n) ? n : null; }
+function pfandDatumAus(text) {
+  const heute = new Date();
+  const treffer = [];
+  const pruefe = (t, m, j, quelle) => {
+    if (j < 100) j += 2000;
+    if (j < 2000 || m < 1 || m > 12 || t < 1 || t > 31) return;
+    const dt = new Date(j, m - 1, t, 12);
+    if (dt.getMonth() !== m - 1 || dt > new Date(heute.getTime() + 864e5)) return;
+    treffer.push({ iso: `${j}-${String(m).padStart(2, '0')}-${String(t).padStart(2, '0')}`, quelle });
+  };
+  const T = String(text || '');
+  for (const m of T.matchAll(/\b(\d{1,2})\s?[.\/]\s?(\d{1,2})\s?[.\/]\s?(\d{4}|\d{2})\b/g)) pruefe(+m[1], +m[2], +m[3], 'zahl');
+  for (const m of T.matchAll(/\b(\d{4})-(\d{2})-(\d{2})\b/g)) pruefe(+m[3], +m[2], +m[1], 'iso');
+  for (const m of T.matchAll(/\b([0-3O]?[0-9O])\s?[-.\s]\s?([A-Z0-9ÄÖÜ|]{3})[A-Z]*\s?[-.\s]\s?((?:19|20)\d{2}|\d{2})\b/gi)) {
+    const mon = PFAND_MONATE.find(([, re]) => re.test(m[2].toUpperCase()));
+    if (mon) pruefe(+m[1].replace(/O/g, '0'), mon[0], +m[3], 'monat');
+  }
+  return treffer;
+}
+function pfandBetraegeAus(text) {
+  const T = String(text || '');
+  const out = [];
+  // "Summe: 57,29 EUR" — die groesste Summe ist die Gesamtsumme
+  for (const m of T.matchAll(/\bs\s?[uv]\s?[mn]{1,2}\s?[eo0@]?\s?[:;.,]?\W{0,3}\s*(\d{1,3})\s?[.,]\s?(\d{2})(?!\d)/gi)) out.push({ wert: pfandZahl(m[1] + '.' + m[2]), quelle: 'summe' });
+  // "€13.47", "€ 9.75" (Tomra), auch "E 9.75" / "< 9.75", wenn die OCR das Zeichen verliert
+  for (const m of T.matchAll(/(?:€|EUR)\s?(\d{1,3})\s?[.,]\s?(\d{2})(?!\d)/gi)) out.push({ wert: pfandZahl(m[1] + '.' + m[2]), quelle: 'euro' });
+  // "0,24 EUR" — Posten und Zwischensummen, zur Not die groesste
+  for (const m of T.matchAll(/(\d{1,3})\s?[.,]\s?(\d{2})\s?(?:EUR|EU[RF!]?|€|[EFT][UÜu][RT])\b/gi)) out.push({ wert: pfandZahl(m[1] + '.' + m[2]), quelle: 'posten' });
+  return out.filter(b => b.wert != null && b.wert > 0 && b.wert < 1000);
+}
+function pfandBonNrAus(text) {
+  // Bon-Nummern haben mindestens drei Stellen ("Bon 076") — zwei gelesene
+  // Ziffern sind fast immer ein angeschnittenes Stueck davon
+  const m = String(text || '').match(/\bB\s?[o0aı]\s?[nmr]{1,2}\w?\s*[-.]?\s*(?:[NHKM][rt]\.?)?\s*[:.]?\s*([0-9OoSB]{3,8})\b/);
+  if (!m) return '';
+  const nr = m[1].replace(/[Oo]/g, '0').replace(/S/g, '5').replace(/B/g, '8');
+  return /^\d{3,8}$/.test(nr) ? nr : '';
+}
+function pfandKetteAus(text) {
+  const T = String(text || '');
+  for (const [name, re] of PFAND_KETTEN) if (re.test(T)) return { name, sicher: true };
+  // Leicht verlesen ("EDERA", "Kaufiand"): hoechstens ein Zeichen daneben,
+  // nur bei laengeren Namen — und dann als "bitte pruefen"
+  const woerter = T.split(/[^A-Za-zÄÖÜäöüß]+/).filter(w => w.length >= 5);
+  for (const [name] of PFAND_KETTEN) {
+    const n = name.toLowerCase();
+    if (n.length < 5) continue;
+    if (woerter.some(w => levenshtein(w.toLowerCase(), n) <= 1)) return { name, sicher: false };
+  }
+  return null;
+}
+function levenshtein(a, b) {
+  if (Math.abs(a.length - b.length) > 2) return 9;
+  const v = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let prev = v[0]; v[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = v[j];
+      v[j] = Math.min(v[j] + 1, v[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return v[b.length];
+}
+// Anschrift: "12169 Berlin-Steglitz-Zehl", darueber "Steglitzer Damm 95"
+const STRASSEN_ENDE = /(str(?:a(?:ss|ß)e)?\.?|straße|strasse|weg|allee|platz|damm|ring|gasse|chaussee|ufer|markt|steig|pfad|hof|berg|feld|park|landstr\.?|stieg|twiete|kamp|wall|graben|brücke|bruecke|tor)\b/i;
+function pfandAnschriftAus(text) {
+  const zeilen = String(text || '').split('\n').map(z => z.replace(/[|\\{}\[\]“”"'`´‘’»«~_]/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean);
+  let plz = '', ort = '', strasse = '', zeileNr = -1;
+  for (let i = 0; i < zeilen.length; i++) {
+    const m = zeilen[i].match(/(?:^|\s)(?:D-?)?([0-9]{5})\s+([A-ZÄÖÜ][a-zäöüß]{2,}[A-Za-zÄÖÜäöüß.\-]*(?:[ -][A-ZÄÖÜa-zäöüß][A-Za-zÄÖÜäöüß.\-]*){0,3})/);
+    if (!m) continue;
+    const n = +m[1];
+    if (n < 1001 || n > 99998) continue;
+    plz = m[1];
+    // "Ber lin-Steglitz" → "Berlin-Steglitz": die OCR zerreisst Woerter gern
+    ort = m[2].replace(/\b([A-ZÄÖÜ][a-zäöüß]{1,3}) ([a-zäöüß][A-Za-zÄÖÜäöüß\-]{2,})/g, '$1$2')
+      .split(' ').filter(w => /^[A-ZÄÖÜ]/.test(w) || /^(a|am|an|im|in|ob|bei|vor|der|dem|den)$/.test(w)).join(' ')
+      .replace(/[.\-]+$/, '').slice(0, 40);
+    zeileNr = i;
+    break;
+  }
+  const strassenZeile = z => {
+    const m = z.match(/([A-ZÄÖÜ][A-Za-zÄÖÜäöüß.\- ]{2,40}?)\s*[,.]?\s*(\d{1,4}\s?[a-zA-Z]?(?:\s?[-/]\s?\d{1,4})?)\s*$/);
+    if (!m || /\d{5}/.test(z) || /bon|summe|pfand|tomra|flasche|eur\b/i.test(z)) return '';
+    let name = m[1].trim().replace(/\s+/g, ' ');
+    // Typische Lesefehler: "Harleshäuserstr, 64" / "…erste, 64" → "…str. 64",
+    // "Steglitzer Danm" → "Damm"
+    name = name.replace(/([a-zäöüß]{5,})st[re][,.]?$/i, '$1str.').replace(/str[,.]?$/i, 'str.').replace(/\bDan[nm]\b/g, 'Damm');
+    return `${name} ${m[2].replace(/\s+/g, '')}`;
+  };
+  if (zeileNr > 0) {
+    for (let k = zeileNr - 1; k >= Math.max(0, zeileNr - 2) && !strasse; k--) strasse = strassenZeile(zeilen[k]);
+  }
+  if (!strasse) {
+    const z = zeilen.find(x => STRASSEN_ENDE.test(x) && strassenZeile(x));
+    if (z) strasse = strassenZeile(z);
+  }
+  return { strasse: strasse.slice(0, 60), plz, ort };
+}
+// Name der Filiale: bei EDEKA steht der Kaufmann oben ("Prandzioch"), bei
+// Kaufland die Stadt im Namen ("Kaufland Leipzig")
+function pfandFilialNameAus(text, kette, anschrift) {
+  const zeilen = String(text || '').split('\n').map(z => z.replace(/[^A-Za-zÄÖÜäöüß0-9 .&'-]/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const stop = /leergut|pfand|lohnt|filiale|einl[oö]sen|bon|summe|mehrweg|einweg|tomra|sivario|flasche|kisten|willkommen|danke|anz|bezeichnung|zeit|datum/i;
+  // Nur Zeilen UEBER der Anschrift (ohne gefundene Anschrift: nur bei Ketten,
+  // die ihre Stadt im Namen tragen, die ersten Zeilen)
+  const merkmal = anschrift.strasse ? anschrift.strasse.split(' ')[0].slice(0, 6) : anschrift.plz;
+  let grenze = merkmal ? zeilen.findIndex(z => z.includes(merkmal)) : -1;
+  if (grenze < 0) grenze = anschrift.strasse || anschrift.plz ? 0 : 4;
+  const oben = zeilen.slice(0, Math.min(grenze, 6));
+  for (const z of oben) {
+    if (stop.test(z) || /\d{3,}/.test(z) || /\s\d{1,4}\s?[a-z]?$/i.test(z)) continue;
+    let rest = z;
+    const k = kette ? PFAND_KETTEN.find(([n]) => n === kette) : null;
+    if (k && k[1].test(z)) rest = z.replace(k[1], ' ').trim();
+    const w = rest.split(' ').filter(x => /^[A-ZÄÖÜ][a-zäöüß]{2,}$/.test(x));
+    if (w.length >= 1 && w.length <= 3 && rest.length <= 30) return w.join(' ');
+  }
+  return '';
+}
+
+// Alles zusammen: ein Foto rein, Felder mit "sicher ja/nein" raus.
+// status(p, text): Fortschritt 0..100
+async function pfandBildQuelle(datei) {
+  // Das Original, nicht neu komprimiert: jede JPEG-Runde kostet einem
+  // zerknitterten Barcode die letzten lesbaren Kanten
+  const url = URL.createObjectURL(datei);
+  try {
+    const img = new Image();
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+    const w = img.naturalWidth, h = img.naturalHeight;
+    const s = Math.min(1, 2400 / Math.max(w, h));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(w * s)); c.height = Math.max(1, Math.round(h * s));
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    return c;
+  } finally { URL.revokeObjectURL(url); }
+}
+async function pfandScannen(datei, status = () => { }) {
+  status(3, 'Lade das Bild …');
+  const img = await pfandBildQuelle(datei);
+  const iw = img.width, ih = img.height;
+  status(8, 'Suche den Code …');
+  const flaechen = findeCodeFlaechen(img);
+  const code = await pfandCodeLesen(img, flaechen);
+  const f = code?.flaeche || flaechen.find(x => x.typ === '1d' && x.score > 30000) || flaechen.find(x => x.typ === '2d') || null;
+  status(24, 'Lese den Text … (kann beim ersten Mal etwas dauern)');
+  // Nur echte Codes uebermalen — kurze Schriftzeilen sehen fuer den Sucher
+  // manchmal auch wie Striche aus ("Lidl lohnt sich.")
+  const zuMaskieren = f ? flaechen.filter(x => x === f || (x.height >= f.height * 0.4 && x.score >= f.score * 0.3)) : [];
+  const bereich = pfandOcrBereich(img, f);
+  const graus = await ocrSeite(pfandOcrVorlage(img, zuMaskieren, { bereich }).canvas, '4');
+  status(46, 'Lese den Text …');
+  const binaer = await ocrSeite(pfandOcrVorlage(img, zuMaskieren, { binaer: true, bereich }).canvas, '4');
+  status(66, 'Lese Betrag und Code …');
+  let balkenText = '', balkenText2 = '', bonZeile = '', ziffern = '', ziffern2 = '', fuss = '';
+  if (f) {
+    // Betrag im schwarzen Balken ueber dem Code, die Bon-Nr. direkt darueber
+    const balken = pfandBalkenFinden(img, f);
+    if (balken) {
+      // Ziffern fuellen den Balken oft bis an die Kante: nichts Hohes wegwerfen
+      balkenText = (await ocrZeile(zeilenVorlage(img, balken, { umkehren: true, hochBehalten: true }), '')).text;
+      // Zweite Lesung in anderer Groesse: stimmen beide, ist der Betrag sicher
+      balkenText2 = (await ocrZeile(zeilenVorlage(img, balken, { umkehren: true, hochBehalten: true, zielHoehe: 110 }), '')).text;
+      // Nicht umgekehrt: der Balken selbst faellt als grosse Flaeche weg, die
+      // Bon-Nr. darueber (oder daneben, wenn der Balken eine Stufe hat) bleibt
+      const oben = Math.max(0, balken.y - balken.height * 0.9);
+      const rund = { x: balken.x, y: oben, width: balken.width, height: balken.y + balken.height - oben };
+      bonZeile = (await ocrSeite(zeilenVorlage(img, rund, { zielHoehe: 170 }), '6')).text;
+    }
+    status(78, 'Lese die Ziffern unter dem Code …');
+    // Ziffern unter dem Code: Ersatz, wenn der Code selbst nicht lesbar war,
+    // sonst Gegenprobe
+    const zeile = pfandZiffernZeile(img, f) || {
+      x: Math.max(0, f.x - f.width * 0.05), y: Math.min(ih - 2, f.y + f.height * 0.97),
+      width: Math.min(f.width * 1.1, iw - Math.max(0, f.x - f.width * 0.05)), height: Math.min(f.height * (f.typ === '1d' ? 0.22 : 0.16), ih - Math.min(ih - 2, f.y + f.height * 0.97)),
+    };
+    if (zeile.height > 5) {
+      ziffern = (await ocrZeile(zeilenVorlage(img, zeile, { zielHoehe: 56 }), '0123456789')).text.replace(/\D/g, '');
+      if (!code && ziffern.length >= 10) ziffern2 = (await ocrZeile(zeilenVorlage(img, zeile, { zielHoehe: 84 }), '0123456789')).text.replace(/\D/g, '');
+    }
+    status(88, 'Lese Datum und Automat …');
+    // Unter dem Code stehen Automat, Datum und bei manchen Bons die Summe
+    const fy = f.y + f.height * (f.typ === '1d' ? 1.25 : 1.12);
+    const fh = Math.min(ih - fy, f.height * (f.typ === '1d' ? 2.2 : 0.6));
+    const fx = Math.max(0, f.x - f.width * 0.15), fw = Math.min(iw - fx, f.width * 1.3);
+    if (fh > 12 && fw > 40) {
+      const c = zeilenVorlage(img, { x: fx, y: fy, width: fw, height: fh }, { zielHoehe: Math.min(1000, fh * Math.max(1, 1300 / fw)) });
+      fuss = (await ocrSeite(c, '6')).text;
+    }
+  }
+  status(96, 'Fast fertig …');
+  const e = pfandAuswerten({ graus, binaer, balkenText, balkenText2, bonZeile, ziffern, ziffern2, fuss, code });
+  // Kassen-Code: der Code samt Ziffern darunter, auf weissem Grund
+  let codeImg = '';
+  if (f) {
+    try { codeImg = kodiereBild(codeAusschnitt(img, f, { rand: 0.03, ziel: 1100, unten: f.typ === '1d' ? 0.2 : 0.16 }), 'code'); } catch { }
+  }
+  status(100, '');
+  return { ...e, codeImg, rohtext: [graus.text, binaer.text, balkenText, bonZeile, ziffern, fuss].join('\n') };
+}
+
+// Felder aus allen Lesungen. Jedes Feld: { wert, sicher, hinweis }
+function pfandAuswerten({ graus, binaer, balkenText = '', balkenText2 = '', bonZeile = '', ziffern = '', ziffern2 = '', fuss = '', code = null }) {
+  const texte = [graus.text || '', binaer.text || '', fuss || ''];
+  const alles = [...texte, balkenText, bonZeile].join('\n');
+  const aus = {};
+  // Code: gelesen (abgestimmt) > Ziffern darunter
+  const zerlegt = pfandCodeZerlegen(code?.text);
+  const zerlegtZiffern = ziffern === ziffern2 ? pfandCodeZerlegen(ziffern) : null;
+  // Ziffern ohne lesbaren Code zaehlen nur, wenn zwei Lesungen gleich sind
+  // (sonst bleibt das Feld leer — das Bild vom Code reicht an der Kasse)
+  const zifferOk = ziffern.length >= 10 && ziffern === ziffern2;
+  if (code) aus.code = { wert: code.text, format: code.format, sicher: code.sicher || code.text === ziffern };
+  else if (zifferOk) aus.code = { wert: ziffern, format: '', sicher: false, hinweis: 'aus den Ziffern unter dem Code gelesen' };
+  else aus.code = { wert: '', format: '', sicher: false };
+  const tomra = zerlegt || zerlegtZiffern;
+  // Betrag: Code > Balken > Summe > €-Zeichen > groesster Posten
+  const kandidaten = [];
+  if (zerlegt) kandidaten.push({ wert: zerlegt.betrag, quelle: 'code', gewicht: code.sicher ? 5 : 3, stark: true });
+  else if (zerlegtZiffern) kandidaten.push({ wert: zerlegtZiffern.betrag, quelle: 'ziffern', gewicht: 1 });
+  // Im Balken steht der Betrag allein ("€13.47"); das €-Zeichen verliert die OCR oft
+  [balkenText, balkenText2].forEach((t, i) => {
+    const m = t.match(/(\d{1,3})\s?[.,]\s?(\d{2})(?!\d)/);
+    if (m) kandidaten.push({ wert: pfandZahl(m[1] + '.' + m[2]), quelle: 'balken' + i, gewicht: 1.8, stark: true });
+  });
+  // Auf einem Pfandbon ist die Gesamtsumme der groesste Betrag: Posten und
+  // Zwischensummen (Mehrweg, Einweg) sind Teile davon
+  texte.forEach((t, i) => {
+    const b = pfandBetraegeAus(t);
+    const q = i === 2 ? 'fuss' : 'text' + i;
+    const summen = b.filter(x => x.quelle === 'summe');
+    if (summen.length) kandidaten.push({ wert: Math.max(...summen.map(x => x.wert)), quelle: q, gewicht: 1.5, stark: true });
+    b.filter(x => x.quelle === 'euro').forEach(x => kandidaten.push({ wert: x.wert, quelle: q, gewicht: 1.2, stark: true }));
+    if (b.length) kandidaten.push({ wert: Math.max(...b.map(x => x.wert)), quelle: q + '-max', gewicht: 0.6 });
+  });
+  const proWert = new Map();
+  for (const k of kandidaten) {
+    if (k.wert == null) continue;
+    const key = k.wert.toFixed(2);
+    const e = proWert.get(key) || { wert: k.wert, gewicht: 0, quellen: new Set(), stark: 0 };
+    e.gewicht += k.gewicht; e.quellen.add(k.quelle);
+    if (k.stark) e.stark++;
+    proWert.set(key, e);
+  }
+  const betraege = [...proWert.values()].sort((a, b) => b.gewicht - a.gewicht || b.wert - a.wert);
+  const bester = betraege[0];
+  aus.betrag = bester
+    ? {
+      wert: bester.wert,
+      // sicher: aus einem sauber gelesenen Code, oder zwei unabhaengige Stellen sagen dasselbe
+      // (der groesste Betrag allein reicht nie)
+      sicher: (bester.quellen.has('code') && !!code?.sicher) || (bester.stark >= 1 && bester.quellen.size >= 2),
+      quellen: [...bester.quellen],
+      andere: betraege.slice(1, 3).map(x => x.wert),
+    }
+    : { wert: null, sicher: false };
+  // Bon-Nr.: Text (Zeile ueber dem Balken zuerst), gegengeprueft mit dem Tomra-Code
+  const nrListe = [pfandBonNrAus(bonZeile), pfandBonNrAus(graus.text), pfandBonNrAus(binaer.text)].filter(Boolean);
+  const nrText = nrListe[0] || '';
+  if (tomra && (zerlegt ? code.sicher : nrListe.includes(tomra.bon))) aus.bonNr = { wert: tomra.bon, sicher: true };
+  else if (nrText) aus.bonNr = { wert: nrText, sicher: nrListe.filter(x => x === nrText).length >= 2 };
+  else aus.bonNr = { wert: '', sicher: false };
+  // Die Ziffern unter dem Code passen zu Bon-Nr. UND Betrag? Dann stimmen sie
+  if (!code && zerlegtZiffern && aus.bonNr.wert === zerlegtZiffern.bon && aus.betrag.wert === zerlegtZiffern.betrag) {
+    aus.code.sicher = true;
+    aus.code.hinweis = 'passt zu Bon-Nr. und Betrag';
+    aus.betrag.sicher = true;
+  }
+  if (aus.betrag.wert != null && tomra && (zerlegt || aus.code.sicher) && Math.abs(tomra.betrag - aus.betrag.wert) > 0.001) aus.betrag.sicher = false;
+  // Kette
+  const kette = pfandKetteAus(alles);
+  aus.kette = kette ? { wert: kette.name, sicher: kette.sicher } : { wert: '', sicher: false };
+  // Anschrift: beide Lesungen, die vollstaendigere gewinnt; weichen sie ab: pruefen
+  const a1 = pfandAnschriftAus(graus.text), a2 = pfandAnschriftAus(binaer.text);
+  // Gleich vollstaendig? Dann die Lesung, bei der sich die OCR sicherer war
+  const sicherheit = (words, teile) => {
+    const w = teile.join(' ').split(/\s+/).filter(x => x.length >= 2)
+      .map(t => (words || []).find(x => (x.text || '').includes(t))?.confidence ?? 0);
+    return w.length ? w.reduce((x, y) => x + y, 0) / w.length : 0;
+  };
+  // Feld fuer Feld: die Lesung, bei der sich die OCR sicherer war
+  const norm = x => String(x || '').toLowerCase().replace(/[^a-z0-9äöüß]/g, '');
+  const waehle = (feld, bonus = () => 0) => {
+    const x1 = a1[feld], x2 = a2[feld];
+    if (!x1 || !x2) return { wert: x1 || x2 || '', sicher: false };
+    if (norm(x1) === norm(x2)) return { wert: x1, sicher: true };
+    const s1 = sicherheit(graus.words, [x1]) + bonus(x1), s2 = sicherheit(binaer.words, [x2]) + bonus(x2);
+    return { wert: s1 >= s2 ? x1 : x2, sicher: false };
+  };
+  // Eine Strasse mit Endung ("…str.", "Damm") schlaegt eine ohne; die laengere
+  // schlaegt die kuerzere (die OCR verliert eher Buchstaben, als dass sie welche erfindet)
+  aus.strasse = waehle('strasse', x => (STRASSEN_ENDE.test(x) ? 20 : 0) + Math.min(20, x.length));
+  aus.plz = waehle('plz');
+  aus.ort = waehle('ort');
+  const a = { strasse: aus.strasse.wert, plz: aus.plz.wert, ort: aus.ort.wert };
+  // Filialname; bei "Kaufland Leipzig" ohne Anschrift wird die Stadt zum Ort
+  // Nur mit Anschrift: ohne sie ist "die Zeile ueber der Anschrift" geraten
+  const mitAnschrift = !!(a.plz || a.strasse) || ['Kaufland', 'Globus', 'Marktkauf', 'real'].includes(kette?.name);
+  const name = mitAnschrift ? (pfandFilialNameAus(graus.text, kette?.name, a) || pfandFilialNameAus(binaer.text, kette?.name, a)) : '';
+  aus.filialName = { wert: name, sicher: !!name && pfandFilialNameAus(graus.text, kette?.name, a) === pfandFilialNameAus(binaer.text, kette?.name, a) };
+  if (!aus.ort.wert && name && kette && ['Kaufland', 'Globus', 'Marktkauf', 'real'].includes(kette.name)) {
+    aus.ort = { wert: name, sicher: false, hinweis: 'aus dem Namen der Filiale' };
+    aus.filialName = { wert: '', sicher: false };
+  }
+  // Datum: stimmen zwei Lesungen ueberein, gilt es als sicher
+  // Datum: stimmen zwei Lesungen ueberein, gilt es als sicher — ausser in der
+  // Punktschrift der Automaten ("21-DEZ-2019"), da wird aus 9 gern eine 5
+  const zaehl = new Map(), punkt = new Set();
+  texte.forEach(t => {
+    const d = pfandDatumAus(t);
+    d.forEach(x => { if (x.quelle === 'monat') punkt.add(x.iso); });
+    new Set(d.map(x => x.iso)).forEach(iso => zaehl.set(iso, (zaehl.get(iso) || 0) + 1));
+  });
+  const datum = [...zaehl.entries()].sort((x, y) => y[1] - x[1])[0];
+  aus.datum = datum ? { wert: datum[0], sicher: datum[1] >= 2 && zaehl.size === 1 && !punkt.has(datum[0]) } : { wert: '', sicher: false };
+  aus.istPfand = pfandWortTreffer(alles) >= 2 || !!zerlegt || /l[e3]{2}rg[uv]t|pfandbon/i.test(alles);
+  return aus;
+}
+
+// Schneller Verdacht aus dem normalen Gutschein-Scan: Leergut-Woerter oder ein
+// Tomra-Code. Reicht das nicht, entscheidet pfandScannen (istPfand).
+function pfandVermutet(r) {
+  const t = String(r?.text || '');
+  return pfandWortTreffer(t) >= 2 || /l[e3]{2}rg[uv]t|pfandbon/i.test(t) || !!pfandCodeZerlegen(r?.barcode);
+}
+
 // Große, interaktive Shop-Auswahl beim Hinzufügen (erst 6, Rest hinter "Weitere")
 const VENDOR_GRID = ['REWE', 'Amazon', 'Wunschgutschein', 'Zalando', 'IKEA', 'Rossmann', 'Lidl', 'EDEKA', 'Netto', 'dm', 'Müller', 'MediaMarkt', 'H&M', 'Douglas', 'Nike', 'Anderer Gutschein'];
 // Rabattcodes: vor allem Lieferdienste und Online-Shops
@@ -6235,10 +7109,11 @@ let waApi = null;
 const WA_SHOPS_EXTRA = ['ALDI', 'PENNY', 'Kaufland', 'Globus', 'tegut', 'NORMA', 'Saturn', 'Otto', 'eBay',
   'Adidas', 'Zara', 'Shein', 'Temu', 'Spotify', 'Netflix', 'Steam', 'Nintendo eShop', 'Deutsche Bahn', 'Peter Pane'];
 function waShopListe(art) {
-  const basis = art === 'card' ? CARD_GRID : art === 'rabatt' ? RABATT_GRID : VENDOR_GRID;
+  const basis = art === 'card' ? CARD_GRID : art === 'rabatt' ? RABATT_GRID : art === 'pfand' ? PFAND_GRID : VENDOR_GRID;
   const weitere = art === 'card'
     ? [...(cardCouponList || []).map(c => c && c.brand), ...VENDOR_GRID]
-    : art === 'rabatt' ? [...VENDOR_GRID, ...WA_SHOPS_EXTRA] : [...WA_SHOPS_EXTRA, ...RABATT_GRID];
+    : art === 'rabatt' ? [...VENDOR_GRID, ...WA_SHOPS_EXTRA]
+    : art === 'pfand' ? [...WA_SHOPS_EXTRA, ...VENDOR_GRID] : [...WA_SHOPS_EXTRA, ...RABATT_GRID];
   const gesehen = new Set();
   return [...basis, ...weitere].filter(n => {
     if (!n || ANDERE_SHOPS.has(n) || n === 'Andere Karte') return false;
@@ -6313,6 +7188,8 @@ function waSparkarteHtml(d) {
 // geaendert statt neu angelegt. Alles andere bleibt gleich — nur der Titel,
 // die Vorbelegung und das Speichern unterscheiden sich.
 function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
+  // Pfandbons haben ein eigenes Formular (Filiale, Standort, Bon-Angaben)
+  if (type === 'pfand') return openPfandAdd(prefillName, bearbeiteId, opts);
   if (!state.token) { switchView('profile'); island('Für die Wallet bitte anmelden'); return; }
   if (walletGesperrt()) { aktualisiereSperre(); return; } // gesperrte Wallet: nichts zeigen
   waSaving = false;
@@ -6335,29 +7212,9 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
 
   // Liegt die Seite schon oben (Umschalter, Duplikat, naechstes Bild), wird sie
   // nur neu gefuellt — sonst gleitet eine neue herein
-  let seite = waSeiteOben();
-  const neuGefuellt = !!seite && !opts.richtung && !opts.von;
-  if (seite) {
-    seite.el.querySelector('.wseite-titel').textContent = titel;
-    seite.el.setAttribute('aria-label', titel);
-  } else {
-    buzz(8);
-    // Liegt gerade ein Blatt ueber einer Seite (Marken-Blatt aus dem
-    // Laden-Hinweis), kaeme die neue Seite darunter zu liegen: Blatt erst zu
-    if (document.body.classList.contains('blatt-ueber-seite') && state.sheetMode) closeSheet();
-    seite = wseiteOeffnen({ art: 'hinzufuegen', titel, klasse: 'wa', baue: () => { } });
-    if (!seite) return;
-    const neu = seite;
-    neu.beimSchliessen = () => {
-      waScanLauf++;                              // laufende Scans tragen nichts mehr ein
-      neu.waRo?.disconnect();
-      if (waApi?.seite === neu) { waApi = null; waHandleImage = null; }
-      // Wer die Seite verlaesst, bricht auch den Rest ab (Ergaenzen, weitere
-      // geteilte Bilder) — sonst tauchte er beim naechsten Speichern ungefragt
-      // wieder auf. Nur die Sperre haelt ihn fest: danach geht es weiter.
-      if (!walletGesperrt()) { waFixQueue = []; waFixTotal = 0; geteiltSchlange = []; }
-    };
-  }
+  const geholt = waSeiteHolen(titel, opts);
+  if (!geholt) return;
+  const { seite, neuGefuellt } = geholt;
   const el = seite.el;
   const inhalt = el.querySelector('.wseite-inhalt');
   const q = sel => el.querySelector(sel);
@@ -6366,7 +7223,7 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
   const platz = walletPlatz(art);
   const voll = !addEditId && platz.voll;
   const platzText = platz.voll ? walletVollText(art)
-    : `${platz.n}${platz.g ? ` + ${platz.g} wartende Geschenke` : ''} von maximal ${platz.max} ${isCard ? 'Sparkarten' : 'Gutscheinen und Rabattcodes'} in deiner Wallet, noch ${platz.frei} frei.`;
+    : `${platz.n}${platz.g ? ` + ${platz.g} wartende Geschenke` : ''} von maximal ${platz.max} ${isCard ? 'Sparkarten' : 'Gutscheinen, Rabattcodes und Pfandbons'} in deiner Wallet, noch ${platz.frei} frei.`;
   const modusVon = opts.von || addType;
   const shopListe = waShopListe(addType);
   const mehrere = addType === 'voucher';
@@ -6380,12 +7237,7 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
 
   const alterSchalter = opts.richtung ? q('#wa-modus') : null;
   inhalt.innerHTML = `
-    ${!isCard && !addEditId ? `
-    <div class="wa-schalter" id="wa-modus" role="tablist" aria-label="Was fügst du hinzu?" style="--i:${modusVon === 'rabatt' ? 1 : 0}">
-      <span class="wa-schalter-flaeche" aria-hidden="true"></span>
-      <button class="wa-schalter-knopf${modusVon !== 'rabatt' ? ' an' : ''}" type="button" role="tab" data-wa-modus="voucher" aria-selected="${!isRabatt}">Gutschein</button>
-      <button class="wa-schalter-knopf${modusVon === 'rabatt' ? ' an' : ''}" type="button" role="tab" data-wa-modus="rabatt" aria-selected="${isRabatt}">Rabattcode</button>
-    </div>` : ''}
+    ${!isCard && !addEditId ? waSchalterHtml(modusVon, addType) : ''}
     ${!addEditId && (platz.voll || platz.fast) ? `
     <div class="wa-hinweis ${platz.voll ? 'voll' : 'fast'}">${icon('warning', 'icon')}<span>${esc(platzText)}</span></div>` : ''}
     <div class="wa-form${opts.von && !opts.richtung ? ' wa-form-neu' : ''}">
@@ -6555,45 +7407,8 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
     if (ziel && text) ziel.click(); else sucheAuf(false);
   });
 
-  // ---- Gutschein oder Rabattcode: der Schieber oben wechselt das Formular
-  // Der alte Schalter bleibt stehen: seine Flaeche gleitet gerade und soll
-  // nicht mitten im Weg neu anfangen
-  if (alterSchalter && q('#wa-modus')) q('#wa-modus').replaceWith(alterSchalter);
-  const modus = q('#wa-modus');
-  if (modus) {
-    const setzeModus = typ => {
-      modus.style.setProperty('--i', typ === 'rabatt' ? 1 : 0);
-      modus.querySelectorAll('[data-wa-modus]').forEach(k => {
-        k.classList.toggle('an', k.dataset.waModus === typ);
-        k.setAttribute('aria-selected', String(k.dataset.waModus === typ));
-      });
-    };
-    if (opts.von && opts.von !== addType) requestAnimationFrame(() => { void modus.offsetWidth; setzeModus(addType); });
-    // onclick statt addEventListener: der Schalter bleibt ueber den Wechsel
-    // hinweg stehen und darf den Handler nicht doppelt tragen
-    modus.querySelectorAll('[data-wa-modus]').forEach(k => k.onclick = () => {
-      if (k.dataset.waModus === addType || waSaving || modus._wechselt) return;
-      buzz(8);
-      const ziel = k.dataset.waModus;
-      const richtung = ziel === 'rabatt' ? 1 : -1;
-      setzeModus(ziel);
-      const form = q('.wa-form');
-      const weiter = () => {
-        modus._wechselt = false;
-        // Inzwischen geschlossen oder gesperrt: dann keine neue Seite aufmachen
-        if (wseiteOben() !== seite || walletGesperrt()) return;
-        openWalletAdd(ziel, '', '', { von: addType, richtung });
-      };
-      if (!weich() || !form?.animate) return weiter();
-      modus._wechselt = true;
-      const raus = form.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: `translate3d(${-richtung * 24}px, 0, 0)` }],
-        { duration: 120, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' });
-      let getan = false;
-      const einmal = () => { if (!getan) { getan = true; weiter(); } };
-      raus.onfinish = einmal;
-      setTimeout(einmal, 260);
-    });
-  }
+  // ---- Gutschein, Rabattcode oder Pfandbon: der Schieber oben wechselt das Formular
+  waSchalterVerdrahten(seite, q, addType, opts, alterSchalter);
   // Neu gefuellt (naechstes Bild, Duplikat): das neue Formular blendet sanft
   // ein, statt hart an die Stelle des alten zu springen
   if (neuGefuellt && weich()) {
@@ -6838,6 +7653,28 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
       });
       // Inzwischen kam ein anderes Bild: dieses Ergebnis gehoert nicht mehr hierher
       if (veraltet()) return;
+      // Ein Pfandbon? Der gehoert unter Pfand: das Formular wechselt und liest
+      // das Bild dort gezielt (Betrag im Balken, Filiale, Code). Hat der
+      // Gutschein-Scan gar nichts gefunden, schaut der Pfand-Scan nach —
+      // Kassenbons liest er besser.
+      if (!addEditId && addType !== 'card') {
+        let pfand = pfandVermutet(r) ? { vermutet: true } : null;
+        if (!pfand && !r.barcode && !r.amount && !r.pin) {
+          scanMeldung('Lese weiter …');
+          const e = await pfandScannen(f, p => { if (!veraltet()) scanProgress(Math.max(60, p)); }).catch(() => null);
+          if (veraltet()) return;
+          if (e && e.istPfand) pfand = { ergebnis: e };
+        }
+        if (pfand) {
+          const ausSchlange = !!waApi?.ausSchlange;
+          openWalletAdd('pfand', '', '', { von: addType, richtung: 1, datei: f, ergebnis: pfand.ergebnis || null });
+          if (waApi) {
+            waApi.ausSchlange = ausSchlange;
+            waApi.hinweis('fix', '<b>Das ist ein Pfandbon.</b> Er kommt unter Pfand, zusammen mit der Filiale, in der er gilt.');
+          }
+          return;
+        }
+      }
       if (r.codeImg) { addCodeImg = r.codeImg; bildZeigen(r.codeImg); }
       const felder = ['#wa-code', '#wa-pin', '#wa-amount', '#wa-cnumber', '#wa-rcode', '#wa-rwert', '#wa-mbw'];
       const vorher = Object.fromEntries(felder.map(sel => [sel, $(sel)?.value || '']));
@@ -6982,6 +7819,11 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
         bildZeigen(small);
         const hiRes = await readImageFile(files[i], 2200, 0.9);
         const r = await analyzeWalletImage(hiRes, p => scanProgress(((i + p / 100) / files.length) * 100));
+        // Pfandbons gehoeren nicht zu den Gutscheinen: einzeln unter Pfand nachreichen
+        if (pfandVermutet(r)) {
+          results.push({ ok: false, name: 'Pfandbon', warum: 'Pfandbon erkannt, kommt unter Pfand', fix: { art: 'pfand', datei: files[i] } });
+          continue;
+        }
         const ex = extractVoucher(r);
         // Duplikat zuerst prüfen: dafür reichen PIN+Shop bzw. der Code schon aus,
         // auch wenn z. B. der Wert nicht lesbar war
@@ -7365,7 +8207,7 @@ function karteZuMarke(vendor) {
 function gutscheineZuMarke(name, max = 3) {
   const k = String(name || '').trim().toLowerCase();
   return state.wallet.vouchers
-    .filter(v => !istRabatt(v))
+    .filter(v => !ohneGuthaben(v))
     .filter(v => String(v.vendor || '').trim().toLowerCase() === k)
     .filter(v => v.balance == null || v.balance > 0)
     .sort((a, b) => (a.balance ?? Infinity) - (b.balance ?? Infinity))
@@ -7436,6 +8278,8 @@ function zeigeSchenkSchritt(v) {
   if (walletGesperrt()) { aktualisiereSperre(); return; } // gesperrte Wallet: nichts zeigen
   if (!state.token) { island('Zum Verschenken bitte anmelden'); return; }
   if (schenktGerade(v.id)) { island('Wird gerade verschenkt …'); return; }
+  // Pfandbons gelten nur in ihrer Filiale (und das Papier bleibt bei dir)
+  if (istPfand(v)) { island('Pfandbons kann man nicht verschenken'); return; }
   // Rabattcodes gehen genauso weg — aber nur, solange sie noch gelten
   const rabatt = istRabatt(v);
   if (rabatt && !rabattVerschenkbar(v)) {
@@ -8261,6 +9105,10 @@ function wIcon(name, cls = 'icon') {
     zuschnitt: '<path d="M7 3.5V17h13.5"/><path d="M3.5 7H17v13.5"/>',
     kamera: '<path d="M4.5 8.7a2 2 0 0 1 2-2h1.9l1.5-2.2h4.2l1.5 2.2h1.9a2 2 0 0 1 2 2v8.8a2 2 0 0 1-2 2h-11a2 2 0 0 1-2-2z"/><circle cx="12" cy="12.9" r="3.3"/>',
     scan: '<path d="M4.5 8.5v-2a2 2 0 0 1 2-2h2M15.5 4.5h2a2 2 0 0 1 2 2v2M19.5 15.5v2a2 2 0 0 1-2 2h-2M8.5 19.5h-2a2 2 0 0 1-2-2v-2"/><path d="M8 12h8"/>',
+    // Pfandflasche (Reiter "Pfand"), Ort (Filiale) und Standort (Fadenkreuz)
+    ort: '<path d="M12 20.5s-6.3-5.4-6.3-10.7a6.3 6.3 0 0 1 12.6 0c0 5.3-6.3 10.7-6.3 10.7z"/><circle cx="12" cy="9.8" r="2.3"/>',
+    flasche: '<path d="M10 3.5h4M10.5 3.5v3.2c0 1-2.5 2.2-2.5 5V19a1.5 1.5 0 0 0 1.5 1.5h5A1.5 1.5 0 0 0 16 19v-7.3c0-2.8-2.5-4-2.5-5V3.5"/><path d="M8 13h8"/>',
+    standort: '<circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3"/>',
   };
   return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${pfade[name] || ''}</svg>`;
 }
@@ -8613,6 +9461,16 @@ function wseitenAbgleichen() {
       if (seite.stand !== rpStand(r) && !seite.el.querySelector('.gd-leiste.auf')) zeichneRabattSeite(seite);
       continue;
     }
+    if (seite.art === 'pfand') {
+      const pv = state.wallet.vouchers.find(x => x.id === seite.id && istPfand(x));
+      if (!pv) {
+        while (s.length > i + 1) wseiteZurueck({ sofort: true });
+        wseiteZurueck();
+        return;
+      }
+      if (seite.stand !== pdStand(pv) && !seite.el.querySelector('.gd-leiste.auf')) zeichnePfandSeite(seite);
+      continue;
+    }
     if (seite.art === 'rang') {
       if (seite.stand !== rangSeitenStand()) zeichneRangSeite(seite);
       continue;
@@ -8655,6 +9513,7 @@ function oeffneGutscheinSeite(id, { animFrom = null, buchen = 0 } = {}) {
   if (!v) return;
   if (schenktGerade(id)) { island('Wird gerade verschenkt …'); return; }
   if (istRabatt(v)) return openRabattSheet(id);
+  if (istPfand(v)) return oeffnePfandSeite(id);
   if (v.giftFrom && !v.giftSeen) { v.giftSeen = true; saveWallet(); }
   // Dieselbe Seite liegt schon oben (Bild getauscht): nur neu zeichnen
   const oben = wseiteOben();
@@ -8898,7 +9757,7 @@ function gdLeisteMessen(seite) {
   }
   seite.el.style.setProperty('--gd-leiste-h', Math.max(0, leiste.offsetHeight - optH) + 'px');
 }
-addEventListener('resize', () => wseiten().forEach(s => { if (s.art === 'gutschein' || s.art === 'rabatt' || s.art === 'deal') gdLeisteMessen(s); }), { passive: true });
+addEventListener('resize', () => wseiten().forEach(s => { if (s.art === 'gutschein' || s.art === 'rabatt' || s.art === 'pfand' || s.art === 'deal') gdLeisteMessen(s); }), { passive: true });
 
 function verdrahteGutscheinSeite(seite, v, karte) {
   const el = seite.el;
@@ -10583,6 +11442,1038 @@ function rabattFormHtml(v) {
       </div>`;
 }
 
+// =============================================================================
+// Pfand: Pfandbons in der Wallet (art: 'pfand'), eigener Reiter "Pfand".
+// Sie liegen bei den Gutscheinen (Sichern, Abgleich, Papierkorb und
+// Loeschmarker greifen genauso), haben aber kein Guthaben: der Wert steht in
+// amount, balance bleibt null — so zaehlen sie weder zum Wallet-Guthaben noch
+// zum Rang (Server: rangStufe). Der Reiter zeigt eine eigene Pfand-Summe.
+// Ein Pfandbon gilt nur in der Filiale, in der man ihn bekommen hat: die
+// steht deshalb auf jeder Karte und oben auf seiner Seite.
+//   { id, art: 'pfand', vendor (Kette), amount, balance: null, code, codeFormat,
+//     bonNr, bonDatum ('JJJJ-MM-TT'), filiale: { name, strasse, plz, ort, lat,
+//     lng, genau }, eingeloest (Zeitstempel oder 0), img, codeImg, added, mt }
+// =============================================================================
+function pfandFiliale(v) { return v && v.filiale && typeof v.filiale === 'object' ? v.filiale : {}; }
+function pfandHatStandort(f) { return Number.isFinite(Number(f?.lat)) && Number.isFinite(Number(f?.lng)) && f.lat !== '' && f.lat != null && f.lng != null; }
+function pfandHatFiliale(v) {
+  const f = pfandFiliale(v);
+  return !!(f.strasse || f.ort || f.plz || pfandHatStandort(f));
+}
+// "EDEKA Prandzioch" und "Harleshäuserstr. 64, 34130 Kassel"
+function pfandFilialName(v) { return [v.vendor, pfandFiliale(v).name].filter(Boolean).join(' '); }
+function pfandAnschrift(v, { kurz = false } = {}) {
+  const f = pfandFiliale(v);
+  const ort = kurz ? f.ort : [f.plz, f.ort].filter(Boolean).join(' ');
+  return [f.strasse, ort].filter(Boolean).join(', ');
+}
+function pfandSumme(liste) { return Math.round(liste.reduce((s, v) => s + (Number(v.amount) || 0), 0) * 100) / 100; }
+function pfandTag(ts) { return new Date(ts).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }); }
+// Karten-Link: Koordinaten, sonst die Anschrift. Nur ein Link — geoeffnet
+// wird er erst, wenn man ihn antippt (kein Dienst wird von hier aus gefragt)
+function pfandKartenUrl(v) {
+  const f = pfandFiliale(v);
+  const ziel = pfandHatStandort(f) ? `${f.lat},${f.lng}` : [pfandFilialName(v), f.strasse, f.plz, f.ort].filter(Boolean).join(', ');
+  if (!pfandHatStandort(f) && !(f.strasse && (f.ort || f.plz))) return '';
+  return /iPhone|iPad|Mac/.test(navigator.platform || '') ? `https://maps.apple.com/?q=${encodeURIComponent(ziel)}`
+    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(ziel)}`;
+}
+
+// Pfand-Karte in der Liste: wie eine Gutschein-Karte, darunter die Filiale
+function pfandKarteHtml(v, { vorschau = false } = {}) {
+  const leer = !v.vendor;
+  const farbe = leer ? WA_LEER_FARBE : brandColor(v.vendor);
+  const aus = !!v.eingeloest;
+  const anschrift = pfandAnschrift(v, { kurz: true });
+  const f = pfandFiliale(v);
+  const zweite = anschrift || (pfandHatStandort(f) ? 'Standort gespeichert' : '');
+  const fuss = v.bonDatum ? `Bon vom ${waTag(v.bonDatum)}` : v.added ? `hinzugefügt ${pfandTag(v.added)}` : '';
+  // Eingeloest ohne Filiale: kein "fehlt" mehr — da gibt es nichts zu ergaenzen
+  const filiale = leer ? '' : zweite || f.name
+    ? `<b>Nur bei ${esc(pfandFilialName(v))}</b>${zweite ? `<span>${esc(zweite)}</span>` : ''}`
+    : aus ? '' : `<b>Filiale fehlt</b><span>${vorschau ? 'Unten eintragen' : 'Antippen und ergänzen'}</span>`;
+  return `
+    <div class="wallet-card vk pk${aus ? ' pk-aus' : ''}${leer ? ' wa-leer' : brandHelligkeit(farbe) > 0.62 ? ' hell' : ''}"
+      ${vorschau ? '' : `data-pf="${esc(v.id)}" role="button" tabindex="0" aria-label="${esc(v.vendor)}-Pfandbon über ${euroFmt(v.amount ?? 0)} öffnen"`}
+      style="--bc:${farbe}; --tc:${leer ? '#fff' : brandTextColor(v.vendor)}">
+      <span class="vk-motiv" aria-hidden="true">${leer ? '' : vkMotivHtml(v)}</span>
+      <span class="vk-logo">${leer ? waLeerChip() : brandChipHtml(v.vendor)}</span>
+      <div class="vk-text">
+        <b class="wallet-card-name${leer ? ' wa-platzhalter' : ''}">${esc(v.vendor || 'Laden')}</b>
+        <span class="vk-art">${aus ? `eingelöst am ${pfandTag(v.eingeloest)}` : 'Pfandbon'}</span>
+      </div>
+      <div class="vk-rechts"><span class="wallet-card-balance${v.amount == null ? ' wa-platzhalter' : ''}">${euroFmt(v.amount ?? 0)}</span></div>
+      <div class="vk-fuss">${fuss ? `<span>${esc(fuss)}</span>` : ''}</div>
+      ${filiale ? `<div class="pk-filiale">${wIcon('ort')}<span class="pk-filiale-text">${filiale}</span></div>` : ''}
+    </div>`;
+}
+
+// ---- Reiter "Pfand": Summe und Scannen oben, darunter die offenen Bons,
+// eingeloeste zugeklappt am Ende. Ohne Bons: kurze Erklaerung und Scannen.
+function renderPfand(host) {
+  host = host || $('#pfand-content');
+  if (!host || !state.token) return;
+  const alle = state.wallet.vouchers.filter(istPfand);
+  const offen = alle.filter(v => !v.eingeloest).sort((a, b) => (b.added || 0) - (a.added || 0));
+  const aus = alle.filter(v => v.eingeloest).sort((a, b) => (b.eingeloest || 0) - (a.eingeloest || 0));
+  const summe = pfandSumme(offen);
+  const kamera = `
+    <label class="gd-los pf-scannen">${wIcon('kamera')}<span>Pfandbon scannen</span>
+      <input type="file" accept="image/*" capture="environment" data-pf-kamera hidden></label>`;
+  const aufraeumen = kontoInfo && kontoInfo.autoAufraeumen === false
+    ? 'Eingelöste bleiben, bis du sie löschst.'
+    : 'Eingelöste verschwinden 30 Tage nach dem Einlösen von selbst.';
+  const bau = !alle.length ? `
+    <div class="pf-leer">
+      <span class="pf-leer-bild" aria-hidden="true">${pfandBildSvg()}</span>
+      <h2>Noch kein Pfand</h2>
+      <p>Fotografier den Bon vom Leergutautomaten. kumulio liest Betrag, Laden und Code und merkt sich, in welcher Filiale er gilt.</p>
+      ${kamera}
+      <button class="pf-leer-link" type="button" data-pf-neu>Ohne Foto eintragen</button>
+    </div>` : `
+    <div class="bereich-zeile rc-kopf pf-kopf">
+      <h2 class="bereich-titel" style="margin:0">Dein Pfand</h2>
+      <button class="chip rc-neu-chip" type="button" data-pf-neu>${icon('plus', 'icon icon-sm')} Pfandbon</button>
+    </div>
+    <div class="gd-block pf-summe">
+      <div class="pf-summe-zeile">
+        <span class="pf-summe-bild" aria-hidden="true">${wIcon('flasche')}</span>
+        <span class="pf-summe-text"><b>${euroFmt(summe)}</b>
+          <small>${offen.length ? `in ${offen.length === 1 ? 'einem Bon' : `${offen.length} Bons`} · zählt nicht zum Wallet-Guthaben` : 'Alles eingelöst'}</small></span>
+      </div>
+      ${kamera}
+    </div>
+    <div class="pf-liste">${offen.map(v => pfandKarteHtml(v)).join('')
+      || '<div class="status">Gerade kein offener Pfandbon.</div>'}</div>
+    ${aus.length ? `<details class="rules-fold pf-aus-fold"${renderPfand.ausOffen ? ' open' : ''}>
+      <summary>${icon('list', 'icon icon-sm')} Eingelöst <span class="stars-count">(${aus.length})</span>
+        ${icon('chevron', 'icon icon-sm chev')}</summary>
+      <p class="used-hinweis">${aufraeumen}</p>
+      <div class="pf-liste pf-liste-aus">${aus.map(v => pfandKarteHtml(v)).join('')}</div>
+    </details>` : ''}`;
+  if (renderPfand.letzterBau === bau && host.firstElementChild) return;
+  // Neu gebaut wird nur, wenn sich etwas geaendert hat (Abgleich, Einloesen)
+  host.innerHTML = bau;
+  renderPfand.letzterBau = bau;
+  host.querySelectorAll('[data-pf]').forEach(el => {
+    el.onclick = () => oeffnePfandSeite(el.dataset.pf);
+    el.onkeydown = e => { if (e.target === el && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); oeffnePfandSeite(el.dataset.pf); } };
+  });
+  host.querySelectorAll('[data-pf-neu]').forEach(b => b.onclick = () => openWalletAdd('pfand'));
+  host.querySelectorAll('[data-pf-kamera]').forEach(inp => inp.onchange = e => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (f) openWalletAdd('pfand', '', '', { datei: f });
+  });
+  const fold = host.querySelector('.pf-aus-fold');
+  if (fold) fold.ontoggle = () => { renderPfand.ausOffen = fold.open; };
+}
+// Leerer Reiter: ein Bon mit Barcode und eine Flasche, in Akzentfarbe
+function pfandBildSvg() {
+  return `<svg viewBox="0 0 120 120" aria-hidden="true">
+    <rect x="22" y="18" width="52" height="80" rx="7" class="pf-bon"/>
+    <path d="M22 88v6a7 7 0 0 0 7 7h38a7 7 0 0 0 7-7v-6" class="pf-bon-fuss"/>
+    <path d="M31 32h26M31 40h18" class="pf-linie"/>
+    <path d="M31 56v18M35 56v18M38 56v18M43 56v18M46 56v18M50 56v18M55 56v18M58 56v18M62 56v18M65 56v18" class="pf-strich"/>
+    <path d="M86 42h10v8c0 3 6 6 6 13v36a5 5 0 0 1-5 5H85a5 5 0 0 1-5-5V63c0-7 6-10 6-13z" class="pf-flasche"/>
+    <path d="M85 36h12" class="pf-deckel"/>
+    <path d="M80 76h22" class="pf-etikett"/>
+  </svg>`;
+}
+// Nach dem Speichern: in den Pfand-Reiter und den Bon kurz hervorheben
+function zeigePfand(id) {
+  if (state.activeView !== 'wallet') switchView('wallet');
+  if (walletTab !== 'pfand') document.querySelector('[data-wtab="pfand"]')?.click();
+  else renderPfand();
+  setTimeout(() => {
+    const el = id && document.querySelector(`#pfand-content [data-pf="${CSS.escape(id)}"]`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: sperrRuhig() ? 'auto' : 'smooth', block: 'center' });
+    if (!sperrRuhig()) neuStarten(el, 'rc-neu');
+  }, 380);
+}
+
+// ---- Pfandbon als eigene Seite: Karte mit Betrag, darunter gross die
+// Filiale (nur dort einloesbar), der Code fuer die Kasse und die Angaben vom
+// Bon. Unten fest: eingeloest und aendern, unter "Mehr" das Loeschen.
+function pdStand(v) { return [itemHash(v), state.token ? 1 : 0].join('|'); }
+function oeffnePfandSeite(id) {
+  if (walletGesperrt()) { aktualisiereSperre(); return; }
+  const v = state.wallet.vouchers.find(x => x.id === id && istPfand(x));
+  if (!v) return;
+  const oben = wseiteOben();
+  if (oben && oben.art === 'pfand' && oben.id === id) { zeichnePfandSeite(oben); return; }
+  buzz(8);
+  wseiteOeffnen({ art: 'pfand', id, titel: v.vendor || 'Pfandbon', klasse: 'gd rp pd', baue: s => zeichnePfandSeite(s) });
+}
+function pfandSeiteHtml(v) {
+  const farbe = brandColor(v.vendor);
+  const f = pfandFiliale(v);
+  const status = v.eingeloest ? `eingelöst am ${pfandTag(v.eingeloest)}`
+    : v.bonDatum ? `Bon vom ${waTag(v.bonDatum)}` : v.added ? `hinzugefügt am ${pfandTag(v.added)}` : '';
+  const ortZeile = [f.plz, f.ort].filter(Boolean).join(' ');
+  const karten = pfandKartenUrl(v);
+  const bildSrc = v.codeImg || v.img;
+  const zeile = (label, wert) => `<div class="pd-zeile"><small>${label}</small><b>${esc(wert)}</b></div>`;
+  const angaben = [v.bonNr && zeile('Bon-Nr.', v.bonNr), v.bonDatum && zeile('Datum vom Bon', waTag(v.bonDatum))].filter(Boolean).join('');
+  return `
+    <div class="gd-karte rp-karte pd-karte${v.eingeloest ? ' rp-aus' : ''}${brandHelligkeit(farbe) > 0.62 ? ' hell' : ''}" id="gd-karte"
+      style="--bc:${farbe}; --tc:${brandTextColor(v.vendor)}">
+      <span class="vk-motiv gd-motiv" aria-hidden="true">${vkMotivHtml(v)}</span>
+      <div class="gd-karte-kopf">
+        <span class="vk-logo">${brandChipHtml(v.vendor)}</span>
+        <span class="gd-karte-namen"><b>${esc(v.vendor)}</b><span>Pfandbon</span></span>
+      </div>
+      <div class="gd-guthaben"><b>${v.amount != null ? euroFmt(v.amount) : 'Betrag fehlt'}</b></div>
+      <div class="gd-karte-fuss"><span>${esc(status)}</span></div>
+    </div>
+    ${pfandHatFiliale(v) || f.name ? `
+    <div class="gd-block pd-filiale">
+      <span class="pd-filiale-bild">${wIcon('ort')}</span>
+      <span class="pd-filiale-text">
+        <b>${esc(pfandFilialName(v))}</b>
+        ${f.strasse ? `<span>${esc(f.strasse)}</span>` : ''}
+        ${ortZeile ? `<span>${esc(ortZeile)}</span>` : ''}
+        ${pfandHatStandort(f) ? `<span class="pd-standort" id="pd-standort">Standort gespeichert</span>` : ''}
+        <small>Nur in dieser Filiale einlösbar</small>
+      </span>
+    </div>
+    ${karten ? `
+    <a class="gd-block gd-zeile pd-karten" href="${esc(karten)}" target="_blank" rel="noopener noreferrer">
+      <span class="gd-zeile-plus pd-karten-bild">${icon('arrow-out', 'icon')}</span>
+      <span class="gd-zeile-text"><b>In Karten öffnen</b><small>Weg zur Filiale</small></span>
+      ${icon('chevron', 'icon gd-pfeil')}
+    </a>` : ''}` : `
+    <button class="gd-block gd-leer pd-leer-filiale" type="button" data-pd="aendern">${wIcon('ort')}<span>Filiale ergänzen</span></button>`}
+    ${bildSrc ? `
+    <div class="gd-block gd-bild pd-bild">
+      <img class="${v.codeImg ? 'wallet-code-img' : 'wallet-img'}" id="pd-code" src="${esc(bildSrc)}"
+        alt="Code für die Kasse" role="button" tabindex="0" aria-label="Code groß zeigen">
+      <div class="gd-bild-knoepfe">
+        <label class="gd-bild-knopf">${wIcon('bild')}<span>Tauschen</span>
+          <input type="file" id="wv-img-file" accept="image/*" style="display:none"></label>
+        <button class="gd-bild-knopf" id="wv-img-crop" type="button">${wIcon('zuschnitt')}<span>Zuschneiden</span></button>
+        <button class="gd-bild-knopf gd-bild-lupe" id="pd-gross" type="button" aria-label="Code groß zeigen" title="Groß zeigen">${icon('search')}</button>
+      </div>
+    </div>` : `
+    <label class="gd-block gd-leer">${wIcon('bild')}<span>Bild vom Code hinzufügen</span>
+      <input type="file" id="wv-img-file" accept="image/*" style="display:none"></label>`}
+    ${v.code ? `
+    <div class="gd-block gd-codes">
+      <div class="gd-code-zeile">
+        <span class="gd-code-text"><small>Code</small><b>${esc(v.code)}</b></span>
+        <button class="gd-kopier" type="button" data-copy-txt="${esc(v.code)}" aria-label="Code kopieren" title="Code kopieren">${wIcon('kopie')}</button>
+      </div>
+    </div>` : ''}
+    ${angaben ? `<div class="gd-block pd-angaben">${angaben}</div>` : ''}
+    <p class="rp-info">Zählt nicht zum Wallet-Guthaben. An der Kasse den Code zeigen oder den Bon abgeben.</p>
+    ${v.added ? `<p class="rp-fuss">Hinzugefügt am ${pfandTag(v.added)}</p>` : ''}`;
+}
+function pdLeisteHtml(v) {
+  return `
+    <div class="wseite-leiste gd-leiste">
+      <div class="gd-knoepfe">
+        <button class="gd-knopf gd-auf" type="button" data-pd="eingeloest">${v.eingeloest ? wIcon('rueck') : icon('check')}<span>${v.eingeloest ? 'Wieder offen' : 'Eingelöst'}</span></button>
+        <button class="gd-knopf pd-aendern" type="button" data-pd="aendern">${wIcon('stift')}<span>Ändern</span></button>
+      </div>
+      <button class="gd-mehr" type="button" aria-expanded="false" aria-controls="gd-optionen">
+        <span>Mehr</span>${icon('chevron-down', 'icon gd-mehr-pfeil')}</button>
+      <div class="gd-optionen" id="gd-optionen" role="menu" aria-label="Weitere Aktionen">
+        <button class="gd-option gefahr" type="button" role="menuitem" data-pd="loeschen" tabindex="-1">
+          <span class="gd-option-bild">${wIcon('muell')}</span>
+          <span class="gd-option-text"><b>Pfandbon löschen</b></span>
+        </button>
+      </div>
+      <div class="gd-fuss" aria-hidden="true"></div>
+    </div>`;
+}
+function zeichnePfandSeite(seite) {
+  const v = state.wallet.vouchers.find(x => x.id === seite.id && istPfand(x));
+  if (!v) return;
+  const el = seite.el;
+  const inhalt = el.querySelector('.wseite-inhalt');
+  const scroll = inhalt.scrollTop;
+  seite.stand = pdStand(v);
+  el.querySelector('.wseite-titel').textContent = v.vendor || 'Pfandbon';
+  el.setAttribute('aria-label', `${v.vendor}-Pfandbon`);
+  inhaltAngleichen(inhalt, pfandSeiteHtml(v));
+  gdLeisteSetzen(seite, pdLeisteHtml(v));
+  inhalt.scrollTop = scroll;
+  gdLeisteMessen(seite);
+  el.querySelectorAll('[data-copy-txt]').forEach(b => b.onclick = () => { copyText(b.dataset.copyTxt); buzz(10); });
+  // Der Code gross fuer die Kasse (wie bei den Sparkarten)
+  const gross = () => {
+    const x = state.wallet.vouchers.find(y => y.id === seite.id);
+    const bild = el.querySelector('#pd-code');
+    if (x && bild) zeigeCodeGross({ name: x.vendor, codeImg: x.codeImg || x.img, number: x.code }, bild);
+  };
+  const bild = el.querySelector('#pd-code');
+  if (bild) {
+    bild.onclick = gross;
+    bild.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); gross(); } };
+  }
+  const lupe = el.querySelector('#pd-gross');
+  if (lupe) lupe.onclick = gross;
+  // Bild tauschen und zuschneiden wie beim Gutschein — nur neu gebaute Knoepfe verdrahten
+  const bildDatei = el.querySelector('#wv-img-file');
+  if (!bildDatei || !bildDatei._verdrahtet) { if (bildDatei) bildDatei._verdrahtet = true; wireVoucherImage(v); }
+  el.querySelector('.gd-mehr').onclick = () => gdOptionen(seite);
+  el.querySelector('.gd-dimm').onclick = () => gdOptionen(seite, false);
+  el.querySelectorAll('[data-pd]').forEach(b => b.onclick = () => {
+    const x = state.wallet.vouchers.find(y => y.id === seite.id && istPfand(y));
+    if (!x || walletGesperrt()) return;
+    const k = b.dataset.pd;
+    if (k === 'aendern') { gdOptionen(seite, false); openWalletAdd('pfand', x.vendor, x.id); }
+    else if (k === 'loeschen') { gdOptionen(seite, false); pfandLoeschen(x); }
+    else if (k === 'eingeloest') pfandEinloesen(x, !x.eingeloest);
+  });
+  pfandEntfernung(seite, v);
+}
+// Eingeloest (oder wieder offen). Rueckgaengig geht hier und in der Meldung.
+function pfandEinloesen(x, an) {
+  x.eingeloest = an ? Date.now() : 0;
+  x.mt = Date.now();
+  saveWallet();
+  buzz(12);
+  const oben = wseiteOben();
+  if (oben && oben.art === 'pfand' && oben.id === x.id) zeichnePfandSeite(oben);
+  if (an) {
+    playSfx('coin');
+    showToast({
+      title: 'Als eingelöst markiert',
+      text: `${x.vendor}-Pfandbon über ${euroFmt(x.amount ?? 0)}`,
+      iconName: 'check',
+      actions: [{ label: 'Rückgängig', ghost: true, fn: () => {
+        const y = state.wallet.vouchers.find(z => z.id === x.id && istPfand(z));
+        if (y && y.eingeloest && !walletGesperrt()) pfandEinloesen(y, false);
+      } }],
+    }, 6000);
+  } else island('Wieder offen');
+}
+async function pfandLoeschen(v) {
+  if (!await askConfirm(`Den ${esc(v.vendor)}-Pfandbon über ${esc(euroFmt(v.amount ?? 0))} löschen?`, { okLabel: 'Löschen' }) || walletGesperrt()) return;
+  tombstone(v.id);
+  origEntfernen(v);
+  state.wallet.vouchers = state.wallet.vouchers.filter(x => x.id !== v.id);
+  const oben = wseiteOben();
+  if (oben && oben.art === 'pfand' && oben.id === v.id) wseiteZurueck();
+  saveWallet();
+  island('Pfandbon gelöscht');
+}
+// "ca. 350 m von dir": nur, wenn der Standort schon freigegeben ist — hier
+// wird nie gefragt. Luftlinie aus den gespeicherten Koordinaten, kein Dienst.
+async function pfandEntfernung(seite, v) {
+  const f = pfandFiliale(v);
+  if (!pfandHatStandort(f) || !navigator.geolocation || !navigator.permissions) return;
+  try {
+    const p = await navigator.permissions.query({ name: 'geolocation' });
+    if (p.state !== 'granted') return;
+  } catch { return; }
+  navigator.geolocation.getCurrentPosition(pos => {
+    const ziel = seite.el.querySelector('#pd-standort');
+    if (!ziel || wseiteOben() !== seite) return;
+    const m = pfandMeter(pos.coords.latitude, pos.coords.longitude, Number(f.lat), Number(f.lng));
+    ziel.textContent = m < 150 ? 'Du bist gerade dort' : `ca. ${m < 1000 ? Math.round(m / 10) * 10 + ' m' : String(Math.round(m / 100) / 10).replace('.', ',') + ' km'} von dir`;
+  }, () => { }, { maximumAge: 300000, timeout: 6000 });
+}
+function pfandMeter(lat1, lng1, lat2, lng2) {
+  const r = Math.PI / 180, R = 6371000;
+  const a = Math.sin((lat2 - lat1) * r / 2) ** 2 + Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin((lng2 - lng1) * r / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+// ---- Pfandbon hinzufuegen oder aendern: dieselbe Seite wie Gutschein und
+// Rabattcode (Umschalter oben). Foto → pfandScannen → Felder vorbelegt,
+// Unsicheres gelb markiert ("bitte pruefen"). Nichts wird erfunden: was nicht
+// sicher gelesen wurde, bleibt leer. Gespeichert wird erst mit "Speichern".
+function openPfandAdd(prefillName = '', bearbeiteId = '', opts = {}) {
+  if (!state.token) { switchView('profile'); island('Für die Wallet bitte anmelden'); return; }
+  if (walletGesperrt()) { aktualisiereSperre(); return; }
+  waSaving = false;
+  addType = 'pfand';
+  addPrefill = prefillName || '';
+  addEditId = bearbeiteId || '';
+  const bearbeitet = addEditId ? state.wallet.vouchers.find(x => x.id === addEditId && istPfand(x)) : null;
+  if (!bearbeitet) addEditId = '';
+  waScanLauf++;
+  addImg = bearbeitet?.img || '';
+  addOrig = '';
+  waAutoWerte = {};
+  addCodeImg = bearbeitet?.codeImg || '';
+  const titel = addEditId ? 'Pfandbon ändern' : 'Pfandbon hinzufügen';
+  const geholt = waSeiteHolen(titel, opts);
+  if (!geholt) return;
+  const { seite, neuGefuellt } = geholt;
+  const el = seite.el;
+  const inhalt = el.querySelector('.wseite-inhalt');
+  const q = sel => el.querySelector(sel);
+  const platz = walletPlatz('gutscheine');
+  const voll = !addEditId && platz.voll;
+  const platzText = platz.voll ? walletVollText('gutscheine')
+    : `${platz.n}${platz.g ? ` + ${platz.g} wartende Geschenke` : ''} von maximal ${platz.max} Gutscheinen, Rabattcodes und Pfandbons in deiner Wallet, noch ${platz.frei} frei.`;
+  const f0 = bearbeitet ? pfandFiliale(bearbeitet) : {};
+  const shopListe = waShopListe('pfand');
+  let maus = false;
+  try { maus = matchMedia('(hover: hover) and (pointer: fine)').matches; } catch { /* alt */ }
+  const einfuegen = /Mac|iPhone|iPad/.test(navigator.platform || '') ? '⌘+V' : 'Strg+V';
+  const mehrInhalt = `<span class="wa-shop-mehr-bild">${icon('search', 'icon')}</span><span class="wa-shop-name">Weitere</span>`;
+  const alterSchalter = opts.richtung ? q('#wa-modus') : null;
+  const wert = x => esc(x == null ? '' : String(x));
+  inhalt.innerHTML = `
+    ${!addEditId ? waSchalterHtml(opts.von || 'pfand', 'pfand') : ''}
+    ${!addEditId && (platz.voll || platz.fast) ? `
+    <div class="wa-hinweis ${platz.voll ? 'voll' : 'fast'}">${icon('warning', 'icon')}<span>${esc(platzText)}</span></div>` : ''}
+    <div class="wa-form${opts.von && !opts.richtung ? ' wa-form-neu' : ''}">
+      <div class="wa-vorschau" id="wa-vorschau" aria-hidden="true"></div>
+
+      <section class="gd-block wa-scan" id="wa-drop" aria-label="Foto vom Pfandbon">
+        <div class="wa-scan-kopf">
+          <span class="wa-scan-symbol">${wIcon('scan')}</span>
+          <span class="wa-scan-text"><b>Foto vom Pfandbon</b>
+            <small>Betrag, Code, Laden und Filiale liest kumulio selbst aus.</small></span>
+        </div>
+        <div class="wa-scan-bild hidden" id="wa-scan-frame">
+          <img id="wa-preview" alt="Dein Bild">
+          <div class="scan-line hidden" id="wa-scanline"></div>
+        </div>
+        <div class="scan-progress hidden" id="wa-progress">
+          <div class="scan-progress-track"><div class="scan-progress-fill" id="wa-progress-fill"></div></div>
+          <span id="wa-progress-txt">0 %</span>
+        </div>
+        <p id="wa-ai-msg" class="form-msg wa-scan-meldung" role="status"></p>
+        <div class="wa-scan-knoepfe">
+          <label class="wa-scan-knopf">${wIcon('kamera')}<span data-mit-bild="Neues Foto">Foto aufnehmen</span>
+            <input id="wa-cam" type="file" accept="image/*" capture="environment" hidden></label>
+          <label class="wa-scan-knopf">${wIcon('bild')}<span data-mit-bild="Anderes Bild">Bild hochladen</span>
+            <input id="wa-img" type="file" accept="image/*" hidden></label>
+          <button class="wa-scan-knopf wa-scan-crop" id="wa-crop" type="button" aria-label="Bild zuschneiden" title="Zuschneiden">${wIcon('zuschnitt')}</button>
+        </div>
+        ${maus ? `<p class="wa-scan-tipp">Oder mit ${einfuegen} einfügen oder hierher ziehen.</p>` : ''}
+      </section>
+
+      <h3 class="gd-h">Laden</h3>
+      <div class="wa-shops" id="wa-vendor-grid" role="group" aria-label="Laden wählen">
+        ${shopListe.slice(0, 7).map(n => `<button class="wa-shop" type="button" data-vg="${esc(n)}" aria-pressed="false">
+          ${brandChipHtml(n)}<span class="wa-shop-name">${waKachelName(n)}</span></button>`).join('')}
+        <button class="wa-shop wa-shop-mehr" type="button" id="wa-vendor-showmore" aria-expanded="false" aria-controls="wa-suche"
+          aria-label="Weitere Läden">${mehrInhalt}</button>
+      </div>
+      <p class="pf-pruefen-text hidden" id="pf-laden-pruefen">Laden bitte prüfen</p>
+      <div class="gd-block wa-suche hidden" id="wa-suche">
+        <label class="wa-suche-zeile">${icon('search', 'icon')}
+          <input id="wa-vendor" type="search" maxlength="30" autocomplete="off" autocorrect="off" spellcheck="false"
+            enterkeyhint="done" placeholder="Laden suchen oder eintippen" aria-label="Laden suchen oder eintippen"></label>
+        <div class="wa-suche-liste" id="wa-suche-liste"></div>
+      </div>
+
+      <h3 class="gd-h">Filiale <small>nur dort einlösbar</small></h3>
+      <div class="gd-block wa-gruppe pf-filiale" id="pf-filiale">
+        <label class="wa-zeile"><span class="wa-zeile-label">Name der Filiale <i class="pf-opt">optional</i></span>
+          <input id="pf-name" maxlength="40" autocomplete="off" placeholder="z. B. der Name des Kaufmanns" value="${wert(f0.name)}"></label>
+        <label class="wa-zeile"><span class="wa-zeile-label">Straße und Hausnummer</span>
+          <input id="pf-strasse" maxlength="60" autocomplete="off" placeholder="z. B. Hauptstraße 12" value="${wert(f0.strasse)}"></label>
+        <div class="pf-zeile-zwei">
+          <label class="wa-zeile"><span class="wa-zeile-label">PLZ</span>
+            <input id="pf-plz" inputmode="numeric" maxlength="5" autocomplete="off" placeholder="12345" value="${wert(f0.plz)}"></label>
+          <label class="wa-zeile"><span class="wa-zeile-label">Ort</span>
+            <input id="pf-ort" maxlength="40" autocomplete="off" placeholder="z. B. Kassel" value="${wert(f0.ort)}"></label>
+        </div>
+        <div class="wa-zeile pf-standort" id="pf-standort"></div>
+      </div>
+      <p class="wa-fussnote">Pfandbons gelten nur in der Filiale, in der du sie bekommen hast. Mit Anschrift oder Standort weißt du später, wo.</p>
+
+      <h3 class="gd-h">Betrag</h3>
+      <label class="gd-block wa-betrag" id="wa-betrag">
+        <input id="wa-amount" inputmode="decimal" autocomplete="off" placeholder="0,00" aria-label="Betrag in Euro"
+          value="${bearbeitet?.amount != null ? esc(bearbeitet.amount.toFixed(2).replace('.', ',')) : ''}">
+        <span class="wa-betrag-einheit" aria-hidden="true">€</span>
+      </label>
+      <p class="pf-pruefen-text hidden" id="pf-betrag-pruefen">Betrag bitte prüfen</p>
+
+      <h3 class="gd-h">Details <small>optional</small></h3>
+      <div class="gd-block wa-gruppe">
+        <label class="wa-zeile"><span class="wa-zeile-label">Code für die Kasse</span>
+          <input id="wa-code" class="wa-code-feld" maxlength="80" autocomplete="off" autocorrect="off" spellcheck="false"
+            placeholder="Die Ziffern unter dem Barcode" value="${wert(bearbeitet?.code)}"></label>
+        <label class="wa-zeile"><span class="wa-zeile-label">Bon-Nr.</span>
+          <input id="pf-bon" maxlength="12" inputmode="numeric" autocomplete="off" placeholder="Falls aufgedruckt" value="${wert(bearbeitet?.bonNr)}"></label>
+        <label class="wa-zeile"><span class="wa-zeile-label">Datum vom Bon</span>
+          <input id="pf-datum" type="date" max="${new Date().toISOString().slice(0, 10)}" value="${wert(bearbeitet?.bonDatum)}"></label>
+      </div>
+      ${!addEditId && !(platz.voll || platz.fast) ? `<p class="wa-fussnote">${esc(platzText)}</p>` : ''}
+    </div>`;
+
+  el.querySelectorAll('.wa-leiste').forEach(x => x.remove());
+  el.insertAdjacentHTML('beforeend', `
+    <div class="wseite-leiste wa-leiste">
+      <p class="wa-meldung" id="wa-msg" role="alert"></p>
+      <button class="gd-los wa-speichern aus" id="wa-save" type="button" aria-disabled="true">${addEditId ? 'Änderungen speichern' : 'Speichern'}</button>
+    </div>`);
+  seite.waRo?.disconnect();
+  if ('ResizeObserver' in window) {
+    seite.waRo = new ResizeObserver(() => {
+      const l = q('.wa-leiste');
+      if (l) el.style.setProperty('--wa-leiste-h', l.offsetHeight + 'px');
+    });
+    seite.waRo.observe(q('.wa-leiste'));
+  }
+  inhalt.scrollTop = 0;
+  if (!el.contains(document.activeElement)) el.focus({ preventScroll: true });
+  const meldung = (text, art = '') => {
+    const m = q('#wa-msg');
+    if (!m) return;
+    m.className = 'wa-meldung' + (art ? ' ' + art : '');
+    m.textContent = text || '';
+  };
+
+  // ---- Laden: sieben Kacheln und "Weitere" mit Suche (wie beim Gutschein)
+  let gewaehlt = '';
+  const kacheln = () => [...el.querySelectorAll('#wa-vendor-grid [data-vg]')];
+  const setzeShop = name => {
+    name = String(name || '').replace(/\s+/g, ' ').trim().slice(0, 30);
+    const bekannt = shopListe.find(n => n.toLowerCase() === name.toLowerCase());
+    if (bekannt) name = bekannt;
+    gewaehlt = name;
+    const kachel = kacheln().find(t => t.dataset.vg.toLowerCase() === name.toLowerCase()) || null;
+    kacheln().forEach(t => { t.classList.toggle('on', t === kachel); t.setAttribute('aria-pressed', String(t === kachel)); });
+    const mehr = q('#wa-vendor-showmore');
+    if (mehr) {
+      const fremd = name && !kachel ? name : '';
+      if ((mehr.dataset.zeigt || '') !== fremd) {
+        mehr.dataset.zeigt = fremd;
+        mehr.innerHTML = fremd ? `${brandChipHtml(fremd)}<span class="wa-shop-name">${esc(fremd)}</span>` : mehrInhalt;
+      }
+      mehr.classList.toggle('on', !!fremd);
+      mehr.setAttribute('aria-label', fremd ? `${fremd}, anderen Laden suchen` : 'Weitere Läden');
+    }
+    if (q('#wa-vendor')) q('#wa-vendor').value = '';
+    pruefenAus('laden');
+    aktualisieren();
+  };
+  const sucheZeichnen = () => {
+    const liste = q('#wa-suche-liste'), feld = q('#wa-vendor');
+    if (!liste || !feld) return;
+    const text = feld.value.replace(/\s+/g, ' ').trim();
+    const low = text.toLowerCase();
+    const treffer = (low ? shopListe.filter(n => n.toLowerCase().includes(low)) : shopListe.slice(7)).slice(0, 12);
+    const exakt = shopListe.some(n => n.toLowerCase() === low);
+    liste.innerHTML = treffer.map(n => `
+      <button class="wa-treffer${n === gewaehlt ? ' an' : ''}" type="button" data-wahl="${esc(n)}">
+        ${brandChipHtml(n)}<span>${esc(n)}</span></button>`).join('')
+      + (text && !exakt ? `
+      <button class="wa-treffer wa-treffer-frei" type="button" data-wahl="${esc(text)}">
+        <span class="wa-treffer-plus">${icon('plus', 'icon')}</span><span>„${esc(text.slice(0, 30))}“ übernehmen</span></button>` : '');
+    liste.querySelectorAll('[data-wahl]').forEach(b => b.onclick = () => { setzeShop(b.dataset.wahl); sucheAuf(false); buzz(6); });
+  };
+  const sucheAuf = auf => {
+    const box = q('#wa-suche');
+    if (!box) return;
+    zeigeWeich(box, auf);
+    q('#wa-vendor-showmore')?.setAttribute('aria-expanded', String(auf));
+    if (auf) { sucheZeichnen(); if (maus) q('#wa-vendor')?.focus({ preventScroll: true }); }
+  };
+  kacheln().forEach(b => b.addEventListener('click', () => { setzeShop(b.dataset.vg); sucheAuf(false); buzz(6); }));
+  q('#wa-vendor-showmore')?.addEventListener('click', () => { sucheAuf(!offenWeich(q('#wa-suche'))); buzz(6); });
+  q('#wa-vendor')?.addEventListener('input', sucheZeichnen);
+  q('#wa-vendor')?.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const text = e.target.value.replace(/\s+/g, ' ').trim().toLowerCase();
+    const eintraege = [...el.querySelectorAll('#wa-suche-liste [data-wahl]')];
+    const ziel = eintraege.find(b => !b.classList.contains('wa-treffer-frei') && b.dataset.wahl.toLowerCase() === text) || eintraege[0];
+    if (ziel && text) ziel.click(); else sucheAuf(false);
+  });
+
+  waSchalterVerdrahten(seite, q, 'pfand', opts, alterSchalter);
+  if (neuGefuellt && weich()) {
+    q('.wa-form')?.animate?.([{ opacity: 0, transform: 'translate3d(0, 10px, 0)' }, { opacity: 1, transform: 'none' }],
+      { duration: 280, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+  }
+  if (opts.richtung && weich()) {
+    q('.wa-form')?.animate?.([{ opacity: 0, transform: `translate3d(${opts.richtung * 28}px, 0, 0)` }, { opacity: 1, transform: 'none' }],
+      { duration: 300, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+  }
+
+  // ---- "Bitte pruefen": vom Scan unsicher gelesene Felder sind gelb
+  // markiert, bis man sie anfasst
+  const PRUEF_ZIEL = {
+    betrag: () => q('#wa-betrag'), laden: () => q('#wa-vendor-grid'),
+    '#pf-name': () => q('#pf-name')?.closest('.wa-zeile'), '#pf-strasse': () => q('#pf-strasse')?.closest('.wa-zeile'),
+    '#pf-plz': () => q('#pf-plz')?.closest('.wa-zeile'), '#pf-ort': () => q('#pf-ort')?.closest('.wa-zeile'),
+    '#wa-code': () => q('#wa-code')?.closest('.wa-zeile'), '#pf-bon': () => q('#pf-bon')?.closest('.wa-zeile'),
+    '#pf-datum': () => q('#pf-datum')?.closest('.wa-zeile'),
+  };
+  const pruefenAn = key => {
+    const z = PRUEF_ZIEL[key]?.();
+    if (!z) return;
+    z.classList.add('pruefen');
+    if (key === 'betrag') zeigeWeich(q('#pf-betrag-pruefen'), true);
+    else if (key === 'laden') zeigeWeich(q('#pf-laden-pruefen'), true);
+    else {
+      const label = z.querySelector('.wa-zeile-label');
+      if (label && !label.querySelector('.pf-pruefen')) label.insertAdjacentHTML('beforeend', '<span class="pf-pruefen"> · prüfen</span>');
+    }
+  };
+  const pruefenAus = key => {
+    const z = PRUEF_ZIEL[key]?.();
+    if (!z || !z.classList.contains('pruefen')) return;
+    z.classList.remove('pruefen');
+    z.querySelector('.pf-pruefen')?.remove();
+    if (key === 'betrag') zeigeWeich(q('#pf-betrag-pruefen'), false);
+    if (key === 'laden') zeigeWeich(q('#pf-laden-pruefen'), false);
+  };
+  const allePruefenAus = () => Object.keys(PRUEF_ZIEL).forEach(pruefenAus);
+
+  // ---- Standort: nur auf Knopfdruck, mit Rueckfrage des Browsers. Gespeichert
+  // werden nur die Koordinaten (kein Kartendienst, keine Adresse von aussen)
+  let standort = pfandHatStandort(f0) ? { lat: Number(f0.lat), lng: Number(f0.lng), genau: f0.genau } : null;
+  let standortLaeuft = false;
+  const standortZeichnen = (fehler = '') => {
+    const box = q('#pf-standort');
+    if (!box) return;
+    box.innerHTML = standort ? `
+      <span class="pf-standort-bild an">${wIcon('ort')}</span>
+      <span class="pf-standort-text"><b>Standort gespeichert</b><small>${standort.genau ? `auf etwa ${Math.max(5, Math.round(standort.genau / 5) * 5)} m genau` : 'wo du den Bon eingetragen hast'}</small></span>
+      <button class="pf-standort-weg" type="button" id="pf-standort-weg">Entfernen</button>` : `
+      <button class="pf-standort-knopf" type="button" id="pf-standort-los"${standortLaeuft ? ' disabled' : ''}>
+        <span class="pf-standort-bild">${wIcon('standort')}</span>
+        <span class="pf-standort-text"><b>${standortLaeuft ? 'Standort wird bestimmt …' : 'Standort verwenden'}</b>
+          <small>${esc(fehler || 'Merkt sich, wo die Filiale liegt.')}</small></span>
+      </button>`;
+    q('#pf-standort-weg')?.addEventListener('click', () => { standort = null; standortZeichnen(); aktualisieren(); buzz(6); });
+    q('#pf-standort-los')?.addEventListener('click', () => {
+      if (!navigator.geolocation) { standortZeichnen('Dieses Gerät kann seinen Standort nicht bestimmen.'); return; }
+      standortLaeuft = true;
+      standortZeichnen();
+      navigator.geolocation.getCurrentPosition(pos => {
+        standortLaeuft = false;
+        if (waSeiteOben() !== seite) return;
+        standort = {
+          lat: Math.round(pos.coords.latitude * 1e5) / 1e5, lng: Math.round(pos.coords.longitude * 1e5) / 1e5,
+          genau: Math.round(pos.coords.accuracy || 0) || undefined,
+        };
+        standortZeichnen();
+        aktualisieren();
+        buzz(10);
+      }, err => {
+        standortLaeuft = false;
+        standortZeichnen(err && err.code === 1 ? 'Standort nicht freigegeben. Trag die Filiale einfach oben ein.' : 'Standort gerade nicht bestimmbar. Versuch es gleich nochmal.');
+      }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 });
+    });
+  };
+  standortZeichnen();
+
+  // ---- Vorschau und Pruefung
+  const zahlAus = sel => {
+    const n = parseFloat(String(q(sel)?.value || '').replace(/\s/g, '').replace('€', '').replace(',', '.'));
+    return Number.isFinite(n) ? n : null;
+  };
+  const leseFiliale = () => {
+    const t = sel => String(q(sel)?.value || '').replace(/\s+/g, ' ').trim();
+    const plz = t('#pf-plz').replace(/\D/g, '').slice(0, 5);
+    return {
+      name: t('#pf-name').slice(0, 40), strasse: t('#pf-strasse').slice(0, 60), plz: plz.length === 5 ? plz : '', ort: t('#pf-ort').slice(0, 40),
+      ...(standort ? { lat: standort.lat, lng: standort.lng, ...(standort.genau ? { genau: standort.genau } : {}) } : {}),
+    };
+  };
+  const entwurf = () => ({
+    vendor: gewaehlt, amount: zahlAus('#wa-amount'), bonDatum: q('#pf-datum')?.value || '',
+    filiale: leseFiliale(), added: bearbeitet?.added || Date.now(), eingeloest: 0,
+  });
+  let vorschauMarke = null;
+  const vorschauZeichnen = () => {
+    const box = q('#wa-vorschau');
+    if (!box) return;
+    const d = entwurf();
+    if (d.amount != null && d.amount < 0) d.amount = null;
+    const tpl = document.createElement('template');
+    tpl.innerHTML = pfandKarteHtml(d, { vorschau: true }).trim();
+    const neu = tpl.content.firstElementChild;
+    const alt = box.firstElementChild;
+    // Gleiche Marke: nur die Texte tauschen, das Logo bleibt stehen (kein Flackern)
+    if (!alt || vorschauMarke !== gewaehlt.toLowerCase()) { vorschauMarke = gewaehlt.toLowerCase(); box.replaceChildren(neu); return; }
+    for (const sel of ['.vk-text', '.vk-rechts', '.vk-fuss', '.pk-filiale']) {
+      const n = neu.querySelector(sel), o = alt.querySelector(sel);
+      if (n && o && n.outerHTML !== o.outerHTML) o.replaceWith(n);
+    }
+  };
+  const pruefen = () => {
+    if (voll) return { fehlt: [], text: walletVollText('gutscheine') };
+    const a = zahlAus('#wa-amount');
+    const ohneWert = a == null || a <= 0;
+    if (!gewaehlt && ohneWert) return { fehlt: ['shop', 'betrag'], text: 'Bitte noch Laden und Betrag angeben.' };
+    if (!gewaehlt) return { fehlt: ['shop'], text: 'Bitte den Laden auswählen.' };
+    if (ohneWert) return { fehlt: ['betrag'], text: 'Bitte den Betrag eintragen.' };
+    if (a > 1000) return { fehlt: ['betrag'], text: 'So viel Pfand passt auf keinen Bon. Bitte den Betrag prüfen.' };
+    return null;
+  };
+  const aktualisieren = () => {
+    vorschauZeichnen();
+    const datum = q('#pf-datum');
+    if (datum) datum.classList.toggle('leer', !datum.value);
+    const fe = pruefen();
+    const knopf = q('#wa-save');
+    if (knopf && !waSaving) { knopf.classList.toggle('aus', !!fe); knopf.setAttribute('aria-disabled', String(!!fe)); }
+    const fehlt = fe ? fe.fehlt : [];
+    if (!fehlt.includes('shop')) q('#wa-vendor-grid')?.classList.remove('err');
+    if (!fehlt.includes('betrag')) q('#wa-betrag')?.classList.remove('err');
+    const m = q('#wa-msg');
+    if (m && m.classList.contains('error') && !fe) meldung('');
+  };
+  const fehlerZeigen = fe => {
+    meldung(fe.text, 'error');
+    q('#wa-vendor-grid')?.classList.toggle('err', fe.fehlt.includes('shop'));
+    q('#wa-betrag')?.classList.toggle('err', fe.fehlt.includes('betrag'));
+    buzz([40, 30, 40]);
+    if (!reducedMotion()) neuStarten(q('#wa-msg'), 'shake-once');
+    const ziel = fe.fehlt.includes('shop') ? q('#wa-vendor-grid') : fe.fehlt.includes('betrag') ? q('#wa-betrag') : null;
+    ziel?.scrollIntoView({ behavior: sperrRuhig() ? 'auto' : 'smooth', block: 'center' });
+    if (!fe.fehlt.includes('shop') && fe.fehlt.includes('betrag')) q('#wa-amount')?.focus({ preventScroll: true });
+  };
+  const feldPruefKey = { '#wa-amount': 'betrag' };
+  ['#wa-amount', '#wa-code', '#pf-name', '#pf-strasse', '#pf-plz', '#pf-ort', '#pf-bon', '#pf-datum'].forEach(sel => {
+    const feld = q(sel);
+    if (!feld) return;
+    const neu = () => { pruefenAus(feldPruefKey[sel] || sel); aktualisieren(); };
+    feld.addEventListener('input', neu);
+    feld.addEventListener('change', neu);
+  });
+  // Enter springt ins naechste Feld, im letzten schliesst es die Tastatur
+  el.querySelector('.wa-form').addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || e.target.type === 'search' || !e.target.matches('input')) return;
+    e.preventDefault();
+    const liste = [...el.querySelectorAll('.wa-form input:not([type="file"]):not([type="search"])')].filter(x => !x.closest('.hidden'));
+    const naechstes = liste[liste.indexOf(e.target) + 1];
+    if (naechstes) naechstes.focus(); else e.target.blur();
+  });
+  setzeShop(bearbeitet ? bearbeitet.vendor : addPrefill);
+
+  // ---- Bild: Vorschau, Zuschneiden, Scan
+  const bildZeigen = src => {
+    const img = q('#wa-preview');
+    if (!img) return;
+    if (src) img.src = src;
+    zeigeWeich(q('#wa-scan-frame'), !!src);
+    const drop = q('#wa-drop');
+    if (!drop || drop.classList.contains('hat-bild') === !!src) return;
+    drop.classList.toggle('hat-bild', !!src);
+    drop.querySelectorAll('[data-mit-bild]').forEach(t => { const alt = t.textContent; t.textContent = t.dataset.mitBild; t.dataset.mitBild = alt; });
+  };
+  const scanMeldung = (text, art = '') => {
+    const m = q('#wa-ai-msg');
+    if (!m) return;
+    m.className = 'form-msg wa-scan-meldung' + (art ? ' ' + art : '');
+    m.textContent = text || '';
+  };
+  const scanProgress = p => {
+    const fl = q('#wa-progress-fill'), t = q('#wa-progress-txt');
+    if (fl) fl.style.transform = `scaleX(${Math.max(0, Math.min(100, p)) / 100})`;
+    if (t) t.textContent = Math.round(p) + ' %';
+  };
+  if (bearbeitet && (addCodeImg || addImg)) bildZeigen(addCodeImg || addImg);
+  q('#wa-crop')?.addEventListener('click', () => {
+    const quelle = addOrig || addImg || addCodeImg;
+    if (!quelle) return;
+    openImgCrop(quelle, (out, info) => {
+      if (walletGesperrt() || waSeiteOben() !== seite || q('#wa-preview') == null) return;
+      if (info.ganz) { addImg = out; addCodeImg = ''; }
+      else { if (!addOrig && addImg) addOrig = addImg; addCodeImg = out; }
+      bildZeigen(addCodeImg || addImg);
+      aktualisieren();
+      buzz(8);
+    });
+  });
+  let scanFormat = bearbeitet?.codeFormat || '', scanCode = bearbeitet?.code || '';
+  const handleImageFile = async (datei, fertig = null) => {
+    if (!datei) return;
+    const lauf = ++waScanLauf;
+    const veraltet = () => lauf !== waScanLauf || waSeiteOben() !== seite;
+    try {
+      // Was der letzte Scan eingetragen hat und niemand angefasst hat, geht wieder raus
+      for (const [sel, w] of Object.entries(waAutoWerte)) {
+        if (sel === '__shop') { if (gewaehlt === w) setzeShop(''); continue; }
+        const feld = q(sel); if (feld && feld.value === w) feld.value = '';
+      }
+      waAutoWerte = {};
+      allePruefenAus();
+      scanFormat = ''; scanCode = '';
+      addCodeImg = ''; addOrig = ''; addImg = '';
+      aktualisieren();
+      const vorschau = await readImageFile(datei, 900, 0.82, 'vorschau');
+      if (veraltet()) return;
+      addImg = vorschau;
+      const ganz = await readImageFile(datei, 1600, 0.82, 'foto').catch(() => '');
+      if (veraltet()) return;
+      addOrig = ganz;
+      bildZeigen(addImg);
+      q('#wa-scanline')?.classList.remove('hidden');
+      q('#wa-progress')?.classList.remove('done');
+      zeigeWeich(q('#wa-progress'), true);
+      scanProgress(4);
+      scanMeldung('Scanne den Pfandbon …');
+      const r = fertig || await pfandScannen(datei, (p, text) => {
+        if (veraltet()) return;
+        scanProgress(p);
+        if (text) scanMeldung(text);
+      });
+      if (veraltet()) return;
+      if (r.codeImg) { addCodeImg = r.codeImg; bildZeigen(r.codeImg); }
+      const erkannt = [], pruefenListe = [];
+      // Nur leere Felder fuellen: was man schon selbst eingetragen hat, bleibt
+      const fuelle = (sel, feld, name, key = sel) => {
+        const w = feld && feld.wert != null ? String(feld.wert) : '';
+        const input = q(sel);
+        if (!w || !input || input.value) return;
+        input.value = w;
+        waAutoWerte[sel] = w;
+        erkannt.push(name);
+        if (!feld.sicher) { pruefenAn(key); pruefenListe.push(name); }
+      };
+      fuelle('#wa-amount', r.betrag?.wert != null ? { ...r.betrag, wert: r.betrag.wert.toFixed(2).replace('.', ',') } : null, 'Betrag', 'betrag');
+      if (r.kette?.wert && !gewaehlt) {
+        setzeShop(r.kette.wert);
+        waAutoWerte.__shop = gewaehlt;
+        erkannt.push('Laden');
+        if (!r.kette.sicher) { pruefenAn('laden'); pruefenListe.push('Laden'); }
+      }
+      fuelle('#pf-name', r.filialName, 'Name der Filiale');
+      fuelle('#pf-strasse', r.strasse, 'Straße');
+      fuelle('#pf-plz', r.plz, 'PLZ');
+      fuelle('#pf-ort', r.ort, 'Ort');
+      fuelle('#wa-code', r.code, 'Code');
+      fuelle('#pf-bon', r.bonNr, 'Bon-Nr.');
+      fuelle('#pf-datum', r.datum, 'Datum');
+      if (r.code?.wert && q('#wa-code')?.value === r.code.wert) { scanFormat = r.code.format || ''; scanCode = r.code.wert; }
+      if (r.codeImg) erkannt.push('Code-Bild für die Kasse');
+      scanProgress(100);
+      q('#wa-progress')?.classList.add('done');
+      q('#wa-scanline')?.classList.add('hidden');
+      setTimeout(() => zeigeWeich(q('#wa-progress'), false), 1400);
+      aktualisieren();
+      const liste = xs => xs.length > 1 ? `${xs.slice(0, -1).join(', ')} und ${xs[xs.length - 1]}` : xs[0];
+      if (!r.istPfand && erkannt.length < 2) {
+        scanMeldung('Das sieht nicht nach einem Pfandbon aus. Du kannst die Felder trotzdem selbst ausfüllen.', 'error');
+      } else if (erkannt.length) {
+        scanMeldung(`Erkannt: ${liste(erkannt)}.${pruefenListe.length ? ` Gelb markiert heißt: bitte kurz prüfen (${liste(pruefenListe)}).` : ' Bitte kurz prüfen.'}`
+          + (!q('#pf-strasse').value && !q('#pf-ort').value ? ' Die Filiale stand nicht lesbar auf dem Bon, bitte eintragen.' : ''), 'ok');
+      } else scanMeldung('Nichts sicher erkannt, bitte die Felder ausfüllen.');
+    } catch {
+      if (veraltet()) return;
+      q('#wa-scanline')?.classList.add('hidden');
+      q('#wa-progress')?.classList.add('hidden');
+      scanMeldung('Bild konnte nicht gelesen werden.', 'error');
+    }
+  };
+  q('#wa-img').addEventListener('change', e => { handleImageFile(e.target.files[0]); e.target.value = ''; });
+  q('#wa-cam').addEventListener('change', e => { handleImageFile(e.target.files[0]); e.target.value = ''; });
+  waHandleImage = f => handleImageFile(f);
+  const form = el.querySelector('.wa-form'), drop = q('#wa-drop');
+  ['dragover', 'dragenter'].forEach(t => form.addEventListener(t, e => { e.preventDefault(); drop.classList.add('drag'); }));
+  form.addEventListener('dragleave', e => { if (!form.contains(e.relatedTarget)) drop.classList.remove('drag'); });
+  form.addEventListener('drop', e => {
+    e.preventDefault(); drop.classList.remove('drag');
+    const f = [...(e.dataTransfer.files || [])].find(x => x && x.type.startsWith('image/'));
+    if (f) handleImageFile(f);
+  });
+  const zu = () => { if (waSeiteOben() === seite) wseiteZurueck(); };
+
+  q('#wa-save').addEventListener('click', async () => {
+    const knopf = q('#wa-save');
+    if (waSaving) return;
+    const fehler = pruefen();
+    if (fehler) { fehlerZeigen(fehler); return; }
+    const filiale = leseFiliale();
+    // Ohne Filiale geht es, aber nur mit Ansage: der Bon gilt nur dort
+    if (!(filiale.strasse || filiale.ort || filiale.plz || pfandHatStandort(filiale))) {
+      const weiter = await askConfirm('<b>Ohne Filiale speichern?</b><br>Pfandbons gelten nur in der Filiale, in der du sie bekommen hast. Mit Straße, Ort oder Standort weißt du später, wo du ihn einlöst.', { okLabel: 'Ohne Filiale speichern' });
+      if (!weiter || waSeiteOben() !== seite || walletGesperrt()) {
+        if (waSeiteOben() === seite) { q('#pf-filiale')?.scrollIntoView({ behavior: sperrRuhig() ? 'auto' : 'smooth', block: 'center' }); }
+        return;
+      }
+    }
+    const editId = addEditId;
+    const alt = editId ? state.wallet.vouchers.find(x => x.id === editId && istPfand(x)) : null;
+    const code = String(q('#wa-code').value || '').replace(/\s+/g, '').slice(0, 80);
+    const betrag = Math.round(zahlAus('#wa-amount') * 100) / 100;
+    const pf = {
+      ...(alt || {}),
+      id: alt ? alt.id : Math.random().toString(36).slice(2, 9),
+      art: 'pfand',
+      vendor: gewaehlt.slice(0, 30),
+      amount: betrag, balance: null, pin: '', end: '',
+      code,
+      // Format nur, solange der Code der gescannte ist
+      codeFormat: code && code === scanCode.replace(/\s+/g, '') ? scanFormat : (alt && code === alt.code ? alt.codeFormat || '' : ''),
+      bonNr: String(q('#pf-bon').value || '').trim().slice(0, 12),
+      bonDatum: q('#pf-datum').value || '',
+      filiale,
+      notiz: String(alt?.notiz || '').slice(0, 80),
+      eingeloest: alt ? (alt.eingeloest || 0) : 0,
+      tx: [],
+      img: addCodeImg ? '' : addImg, codeImg: addCodeImg,
+      added: alt ? alt.added : Date.now(),
+      ...(alt ? { mt: Date.now() } : {}),
+    };
+    if (alt && (pf.img !== alt.img || pf.codeImg !== alt.codeImg)) {
+      pf.bildMt = Math.max(Date.now(), (alt.bildMt || 0) + 1);
+      if (pf.orig && !addCodeImg) origEntfernen(pf);
+    }
+    const dupe = findDupe(pf);
+    if (dupe && alt) {
+      q('#wa-code').closest('.wa-zeile')?.classList.add('err');
+      fehlerZeigen({ fehlt: [], text: `Diesen Code hast du schon bei einem anderen Pfandbon (${dupe.vendor}).` });
+      return;
+    }
+    if (dupe) { dupeReject(`Diesen Pfandbon hast du schon in der Wallet (${esc(dupe.vendor)}, gleicher Code).`); return; }
+    if (alt) state.wallet.vouchers[state.wallet.vouchers.indexOf(alt)] = pf;
+    else state.wallet.vouchers.unshift(pf);
+    if (addCodeImg && (addOrig || addImg) && (!alt || alt.codeImg !== addCodeImg)) origSichern(pf, addOrig || addImg);
+    meldung('');
+    save('wallet', state.wallet);
+    renderWallet();
+    const weiterInSchlange = () => !editId && (waFixQueue.length || geteiltSchlange.length) && nextFixOrDone();
+    if (state.token) {
+      waSaving = true;
+      knopf.classList.remove('aus');
+      setBtnLoading(knopf, true);
+      meldung('Speichere und sichere am Konto …');
+      const ok = await syncWalletNow();
+      waSaving = false;
+      setBtnLoading(knopf, false);
+      if (!ok) {
+        if (!weiterInSchlange()) zu();
+        showToast(walletSyncFatal ? {
+          title: 'Auf dem Gerät gespeichert',
+          text: 'Das Konto hat das Sichern abgelehnt (' + (walletSyncError || 'unbekannt') + '). Bitte neu anmelden, dann wird nachgesichert.',
+          iconName: 'warning',
+        } : {
+          title: 'Gespeichert, Sicherung folgt',
+          text: 'Der Server war gerade nicht erreichbar. Der Pfandbon bleibt auf dem Gerät und wird automatisch nachgesichert.',
+          iconName: 'warning',
+        }, 8000);
+        if (!editId) zeigePfand(pf.id);
+        return;
+      }
+    }
+    playSfx('coin'); buzz(20);
+    island(editId ? 'Pfandbon geändert' : 'Pfandbon gespeichert');
+    if (weiterInSchlange()) return;
+    zu();
+    if (!editId) zeigePfand(pf.id);
+  });
+
+  const formStand = () => JSON.stringify([gewaehlt, addImg, addCodeImg, standort,
+    ...[...el.querySelectorAll('.wa-form input:not([type="file"]):not([type="search"])')].map(x => x.value)]);
+  const anfang = formStand();
+  seite.zurueckFrage = () => {
+    if (waSaving) return '';
+    const rest = waFixQueue.length + geteiltSchlange.length;
+    const geaendert = formStand() !== anfang;
+    if (!geaendert && !rest) return '';
+    const teile = geaendert ? ['Deine Eingaben sind noch nicht gespeichert.'] : [];
+    if (rest) teile.push(`${rest === 1 ? 'Ein weiteres Bild wartet' : `${rest} weitere Bilder warten`} noch und ${rest === 1 ? 'wird' : 'werden'} dann nicht gespeichert.`);
+    return teile.join(' ') + ' Verwerfen?';
+  };
+  waApi = {
+    seite,
+    bild: src => bildZeigen(src),
+    shop: name => setzeShop(name),
+    aktualisieren,
+    hinweis: (art, html) => {
+      inhalt.querySelectorAll('.wa-hinweis.' + art).forEach(x => x.remove());
+      const b = document.createElement('div');
+      b.className = 'wa-hinweis ' + art;
+      b.innerHTML = `${icon(art === 'dupe' ? 'warning' : 'bulb', 'icon')}<span>${html}</span>`;
+      inhalt.prepend(b);
+      inhalt.scrollTop = 0;
+      return b;
+    },
+  };
+  aktualisieren();
+  // Kam ein Bild mit (Kamera im Pfand-Reiter, erkannt im Gutschein-Formular,
+  // Warteschlange): gleich scannen — bzw. das fertige Ergebnis eintragen
+  if (opts.datei) handleImageFile(opts.datei, opts.ergebnis || null);
+}
+
+// Umschalter oben auf der Hinzufuegen-Seite: Gutschein | Rabattcode | Pfandbon.
+// von: wo die Flaeche startet (sie gleitet dann zu aktiv)
+const WA_MODI = [['voucher', 'Gutschein'], ['rabatt', 'Rabattcode'], ['pfand', 'Pfandbon']];
+function waSchalterHtml(von, aktiv) {
+  const i = Math.max(0, WA_MODI.findIndex(([k]) => k === von));
+  return `
+    <div class="wa-schalter" id="wa-modus" role="tablist" aria-label="Was fügst du hinzu?" style="--i:${i}">
+      <span class="wa-schalter-flaeche" aria-hidden="true"></span>
+      ${WA_MODI.map(([k, t]) => `<button class="wa-schalter-knopf${k === von ? ' an' : ''}" type="button" role="tab" data-wa-modus="${k}" aria-selected="${k === aktiv}">${t}</button>`).join('')}
+    </div>`;
+}
+function waSchalterVerdrahten(seite, q, typ, opts, alterSchalter) {
+  // Der alte Schalter bleibt stehen: seine Flaeche gleitet gerade und soll
+  // nicht mitten im Weg neu anfangen
+  if (alterSchalter && q('#wa-modus')) q('#wa-modus').replaceWith(alterSchalter);
+  const modus = q('#wa-modus');
+  if (!modus) return;
+  const index = k => Math.max(0, WA_MODI.findIndex(([x]) => x === k));
+  const setzeModus = k => {
+    modus.style.setProperty('--i', index(k));
+    modus.querySelectorAll('[data-wa-modus]').forEach(b => {
+      b.classList.toggle('an', b.dataset.waModus === k);
+      b.setAttribute('aria-selected', String(b.dataset.waModus === k));
+    });
+  };
+  if (opts.von && opts.von !== typ) requestAnimationFrame(() => { void modus.offsetWidth; setzeModus(typ); });
+  // onclick statt addEventListener: der Schalter bleibt ueber den Wechsel
+  // hinweg stehen und darf den Handler nicht doppelt tragen
+  modus.querySelectorAll('[data-wa-modus]').forEach(k => k.onclick = () => {
+    if (k.dataset.waModus === typ || waSaving || modus._wechselt) return;
+    buzz(8);
+    const ziel = k.dataset.waModus;
+    const richtung = index(ziel) > index(typ) ? 1 : -1;
+    setzeModus(ziel);
+    const form = q('.wa-form');
+    const weiter = () => {
+      modus._wechselt = false;
+      if (wseiteOben() !== seite || walletGesperrt()) return;
+      openWalletAdd(ziel, '', '', { von: typ, richtung });
+    };
+    if (!weich() || !form?.animate) return weiter();
+    modus._wechselt = true;
+    const raus = form.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: `translate3d(${-richtung * 24}px, 0, 0)` }],
+      { duration: 120, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' });
+    let getan = false;
+    const einmal = () => { if (!getan) { getan = true; weiter(); } };
+    raus.onfinish = einmal;
+    setTimeout(einmal, 260);
+  });
+}
+// Die Hinzufuegen-Seite holen: liegt sie schon oben (Umschalter, naechstes
+// Bild), wird sie nur neu gefuellt — sonst gleitet eine neue herein
+function waSeiteHolen(titel, opts = {}) {
+  let seite = waSeiteOben();
+  const neuGefuellt = !!seite && !opts.richtung && !opts.von;
+  if (seite) {
+    seite.el.querySelector('.wseite-titel').textContent = titel;
+    seite.el.setAttribute('aria-label', titel);
+    return { seite, neuGefuellt };
+  }
+  buzz(8);
+  // Liegt gerade ein Blatt ueber einer Seite (Marken-Blatt aus dem
+  // Laden-Hinweis), kaeme die neue Seite darunter zu liegen: Blatt erst zu
+  if (document.body.classList.contains('blatt-ueber-seite') && state.sheetMode) closeSheet();
+  seite = wseiteOeffnen({ art: 'hinzufuegen', titel, klasse: 'wa', baue: () => { } });
+  if (!seite) return null;
+  const neu = seite;
+  neu.beimSchliessen = () => {
+    waScanLauf++;                              // laufende Scans tragen nichts mehr ein
+    neu.waRo?.disconnect();
+    if (waApi?.seite === neu) { waApi = null; waHandleImage = null; }
+    // Wer die Seite verlaesst, bricht auch den Rest ab (Ergaenzen, weitere
+    // geteilte Bilder) — sonst tauchte er beim naechsten Speichern ungefragt
+    // wieder auf. Nur die Sperre haelt ihn fest: danach geht es weiter.
+    if (!walletGesperrt()) { waFixQueue = []; waFixTotal = 0; geteiltSchlange = []; }
+  };
+  return { seite, neuGefuellt: false };
+}
+
 // ---- Marken-Ansicht: Farben und schwebende Logos im Kopf
 // Zwei Farb-Ebenen im Farbfeld wechseln sich ab, damit REWE -> dm weich
 // ueberblendet (Verlaeufe selbst lassen sich nicht animieren, Deckkraft schon).
@@ -10664,13 +12555,39 @@ function zeigeMarkenLogos(name) {
 function walletMarkeName() {
   const f = state.walletFilter && state.walletFilter !== 'alle' ? String(state.walletFilter).toLowerCase() : '';
   if (!f) return '';
-  const v = state.wallet.vouchers.find(x => !istRabatt(x) && (x.balance == null || x.balance > 0)
+  const v = state.wallet.vouchers.find(x => !ohneGuthaben(x) && (x.balance == null || x.balance > 0)
     && String(x.vendor || '').toLowerCase() === f);
   return v ? v.vendor : '';
 }
 
-// Zwei Wallet-Bereiche: Gutscheine | Karten & Coupons
+// Drei Wallet-Bereiche: Gutscheine | Karten & Coupons | Pfand
 let walletTab = 'gutscheine';
+// Die Flaeche hinter dem aktiven Titel. Die Titel sind verschieden breit —
+// eine Flaeche, die breiter oder schmaler wird, liesse sich nur ueber width
+// animieren (Layout in jedem Bild). Deshalb drei Teile: zwei runde Kappen,
+// die nur verschoben werden, und ein Mittelstueck, das verschoben und in der
+// Breite skaliert wird (ohne Ecken, also ohne Verzerrung). Nur transform.
+function setzeWmFlaeche(anim = true) {
+  const modes = $('#wallet-modes');
+  const aktiv = modes?.querySelector('.wm-titel.active');
+  if (!modes || !aktiv || !aktiv.offsetWidth) return;
+  const flaeche = modes.querySelector('.wm-flaeche');
+  const x = aktiv.offsetLeft - flaeche.offsetLeft, w = aktiv.offsetWidth;
+  const R = 10;
+  modes.classList.toggle('wm-still', !anim || reducedMotion());
+  modes.style.setProperty('--wm-x', x + 'px');
+  modes.style.setProperty('--wm-w', w + 'px');
+  modes.style.setProperty('--wm-s', String(Math.max(0, (w - 2 * R) / 100)));
+  if (!anim) { void flaeche.offsetWidth; requestAnimationFrame(() => modes.classList.remove('wm-still')); }
+  modes.classList.add('wm-bereit');
+}
+addEventListener('resize', () => setzeWmFlaeche(false));
+document.fonts?.ready?.then(() => setzeWmFlaeche(false));
+// Wird die Wallet sichtbar (vorher display:none), stimmen die Masse erst dann
+if ('ResizeObserver' in window) {
+  const modes = document.querySelector('#wallet-modes');
+  if (modes) new ResizeObserver(() => setzeWmFlaeche(false)).observe(modes);
+}
 // Der Wechsel blendet ueber: der alte Bereich (und beim Weg zu den Coupons der
 // Guthaben-Block) blendet aus, dann wird in EINEM Schritt umgeschaltet, der
 // Schieber gleitet an seine neue Stelle und der neue Bereich blendet ein.
@@ -10678,44 +12595,50 @@ let walletTab = 'gutscheine';
 // die der gewaehlten Marke.
 function updateWalletTab(anim) {
   const coupons = walletTab === 'coupons' || walletTab === 'karten';
+  const pfand = walletTab === 'pfand';
   const gated = !state.token && !coupons;
+  // Ohne Guthaben-Block oben: Karten & Coupons, Pfand und die Anmelde-Sperre
+  const ohneGeld = coupons || pfand || gated;
   document.body.classList.toggle('wallet-farbe', state.activeView === 'wallet' && !!state.token);
-  $('#wallet-modes')?.classList.toggle('rechts', coupons);
   document.querySelectorAll('[data-wtab]').forEach(b =>
     b.setAttribute('aria-selected', b.classList.contains('active') ? 'true' : 'false'));
-  setzeMarkenModus(coupons || gated ? '' : walletMarkeName());
+  setzeWmFlaeche(anim);
+  setzeMarkenModus(ohneGeld ? '' : walletMarkeName());
   if (!walletTab.startsWith('gutscheine')) $('#wallet-mini')?.classList.remove('show');
 
-  const wc = $('#wallet-content'), cc = $('#coupons-content'), geld = $('#wallet-kopf-geld');
+  const wc = $('#wallet-content'), cc = $('#coupons-content'), pc = $('#pfand-content'), geld = $('#wallet-kopf-geld');
   const setzen = (neuZeichnen = true) => {
     $('#wallet-gate').classList.toggle('hidden', !gated);
-    wc.classList.toggle('hidden', gated || coupons);
+    wc.classList.toggle('hidden', gated || coupons || pfand);
     cc.classList.toggle('hidden', !coupons);
+    pc.classList.toggle('hidden', !pfand || gated);
     if (coupons && neuZeichnen) renderCoupons(cc);
+    if (pfand && !gated && neuZeichnen) renderPfand(pc);
   };
-  const altHost = !cc.classList.contains('hidden') ? cc : !wc.classList.contains('hidden') ? wc : null;
-  const neuHost = coupons ? cc : gated ? null : wc;
+  const altHost = [cc, pc, wc].find(h => !h.classList.contains('hidden')) || null;
+  const neuHost = coupons ? cc : gated ? null : pfand ? pc : wc;
   const lauf = (updateWalletTab.lauf || 0) + 1;
   updateWalletTab.lauf = lauf;
   // Ein laufender Wechsel ist mit diesem erledigt: seine Blenden loesen
-  for (const el of [wc, cc, geld]) el?.getAnimations?.().forEach(a => { if (a.id === 'wtab') a.cancel(); });
+  for (const el of [wc, cc, pc, geld]) el?.getAnimations?.().forEach(a => { if (a.id === 'wtab') a.cancel(); });
 
   const bewegt = anim && altHost !== neuHost && !reducedMotion() && !!wc.animate;
   if (!bewegt) {
     setzen();
-    kopfUmschalten(coupons || gated, false, kopfZielUnten(coupons || gated));
+    kopfUmschalten(ohneGeld, false, kopfZielUnten(ohneGeld));
     return;
   }
-  // Die Coupons schon jetzt aufbauen, solange sie noch versteckt sind (kostet
-  // dann kein Layout) — sonst faellt die Arbeit genau in den Moment, in dem der
-  // Schieber losgleiten soll
+  // Die Coupons (bzw. das Pfand) schon jetzt aufbauen, solange sie noch
+  // versteckt sind (kostet dann kein Layout) — sonst faellt die Arbeit genau in
+  // den Moment, in dem der Schieber losgleiten soll
   if (coupons) renderCoupons(cc);
+  if (pfand && !gated) renderPfand(pc);
   pruefeBildrate();   // das Geraet misst sich selbst, siehe unten
   // Fuer die Dauer der Umschaltung ruhen die teuren Weichzeichner (siehe CSS)
   document.body.classList.add('wallet-wechsel');
   clearTimeout(updateWalletTab.ruheTimer);
   updateWalletTab.ruheTimer = setTimeout(() => document.body.classList.remove('wallet-wechsel'), 700);
-  const zuKlappen = (coupons || gated) && !geld.classList.contains('zu');
+  const zuKlappen = ohneGeld && !geld.classList.contains('zu');
   const raus = [altHost, zuKlappen && geld].filter(Boolean);
   const blende = (el, von, nach, dauer, verz = 0) => {
     const a = el.animate([{ opacity: von }, { opacity: nach }],
@@ -10728,10 +12651,10 @@ function updateWalletTab(anim) {
   const weiter = () => {
     if (getan || updateWalletTab.lauf !== lauf) return;
     getan = true;
-    const aufKlappen = !(coupons || gated) && geld.classList.contains('zu');
-    const kopfZiel = kopfZielUnten(coupons || gated);
+    const aufKlappen = !ohneGeld && geld.classList.contains('zu');
+    const kopfZiel = kopfZielUnten(ohneGeld);
     setzen(false);
-    kopfUmschalten(coupons || gated, true, kopfZiel);
+    kopfUmschalten(ohneGeld, true, kopfZiel);
     raus.forEach(el => el.getAnimations().forEach(a => { if (a.id === 'wtab') a.cancel(); }));
     const rein = [neuHost, aufKlappen && geld].filter(Boolean);
     rein.forEach(el => {
@@ -10786,8 +12709,8 @@ function renderWallet() {
     ? 'Aufgebrauchte bleiben, bis du sie löschst (automatisches Aufräumen ist in den Einstellungen aus).'
     : 'Aufgebrauchte Gutscheine werden 30 Tage nach der letzten Buchung automatisch entfernt. Abschalten kannst du das in den Einstellungen.';
 
-  const allActive = state.wallet.vouchers.filter(v => !istRabatt(v) && (v.balance == null || v.balance > 0));
-  const used = state.wallet.vouchers.filter(v => !istRabatt(v) && v.balance != null && v.balance <= 0);
+  const allActive = state.wallet.vouchers.filter(v => !ohneGuthaben(v) && (v.balance == null || v.balance > 0));
+  const used = state.wallet.vouchers.filter(v => !ohneGuthaben(v) && v.balance != null && v.balance <= 0);
 
   // Suche (Shop, Code, PIN, eigene Notiz, Buchungs-Notizen) + Filter-Chips
   const q = (state.walletQuery || '').trim().toLowerCase();
@@ -11092,7 +13015,7 @@ function renderWallet() {
 function zuletztVerwendet() {
   let best = null, bestTs = 0;
   for (const v of state.wallet.vouchers) {
-    if (istRabatt(v) || !(v.balance > 0)) continue;
+    if (ohneGuthaben(v) || !(v.balance > 0)) continue;
     for (const t of v.tx || []) {
       const ts = Number(t && t.ts) || 0;
       if (t && t.amt < 0 && !t.reverted && ts > bestTs) { best = v; bestTs = ts; }
@@ -11190,7 +13113,7 @@ function oeffneMarkenMenue() {
   if (!menu.classList.contains('hidden') && !menu._zu) return schliesseMarkenMenue();
   // Ging es gerade zu: das Zuklappen abbrechen und wieder aufmachen
   if (menu._zu) { menu._zu = false; menu.getAnimations().forEach(a => a.cancel()); menu.classList.add('hidden'); }
-  const aktiv = state.wallet.vouchers.filter(v => !istRabatt(v) && (v.balance == null || v.balance > 0));
+  const aktiv = state.wallet.vouchers.filter(v => !ohneGuthaben(v) && (v.balance == null || v.balance > 0));
   const proMarke = new Map();
   for (const v of aktiv) {
     const e = proMarke.get(v.vendor) || { n: 0, summe: 0 };
@@ -11273,7 +13196,7 @@ function walletStats(range) {
   let added = 0, spent = 0;
   const zahl = x => (Number.isFinite(Number(x)) ? Number(x) : 0);
   state.wallet.vouchers.forEach(v => {
-    if (istRabatt(v)) return;
+    if (ohneGuthaben(v)) return;
     if (v.amount != null && inRange(v.added)) added += zahl(v.amount);
     (v.tx || []).forEach(t => {
       if (t.reverted || !inRange(t.ts)) return;
@@ -11306,7 +13229,7 @@ function walletVerlauf(monate = 6) {
   };
   const zahl = x => (Number.isFinite(Number(x)) ? Number(x) : 0);
   state.wallet.vouchers.forEach(v => {
-    if (istRabatt(v)) return;
+    if (ohneGuthaben(v)) return;
     if (v.amount != null) { const f = treffer(v.added); if (f) f.rein += zahl(v.amount); }
     (v.tx || []).forEach(t => {
       if (t.reverted) return;
@@ -11371,7 +13294,7 @@ function anaAuswahlHtml(f) {
     : `<b>${esc(anaMonatText(f))}</b><span>keine Bewegung</span>`;
 }
 function anaMarkenHtml() {
-  const aktiv = state.wallet.vouchers.filter(v => !istRabatt(v) && v.balance != null && v.balance > 0);
+  const aktiv = state.wallet.vouchers.filter(v => !ohneGuthaben(v) && v.balance != null && v.balance > 0);
   if (!aktiv.length) return '';
   const pro = new Map();
   for (const v of aktiv) {
@@ -12126,7 +14049,7 @@ function renderSchenkAuswahl() {
 }
 function zeichneSchenkAuswahl(seite, { sanft = false } = {}) {
   if (walletGesperrt()) { aktualisiereSperre(); return; } // gesperrte Wallet: nichts zeigen
-  const alle = state.wallet.vouchers.filter(v => !istRabatt(v) && (v.balance == null || v.balance > 0));
+  const alle = state.wallet.vouchers.filter(v => !ohneGuthaben(v) && (v.balance == null || v.balance > 0));
   const marken = [...new Set(alle.map(v => v.vendor))];
   if (schenkFilter && !marken.includes(schenkFilter)) schenkFilter = '';
   let liste = schenkFilter ? alle.filter(v => v.vendor === schenkFilter) : alle;
@@ -12231,7 +14154,7 @@ function zeichneSchenkAuswahl(seite, { sanft = false } = {}) {
 $('#wa-schenken')?.addEventListener('click', () => {
   if (walletGesperrt()) { aktualisiereSperre(); return; }
   if (!state.token) { island('Zum Verschenken bitte anmelden'); return; }
-  const offen = state.wallet.vouchers.filter(v => !istRabatt(v) && (v.balance == null || v.balance > 0));
+  const offen = state.wallet.vouchers.filter(v => !ohneGuthaben(v) && (v.balance == null || v.balance > 0));
   if (!offen.length) { island('Du hast gerade keinen Gutschein mit Guthaben'); return; }
   buzz(12);
   schenkFilter = '';
@@ -14613,7 +16536,7 @@ function aktualisiereSperre() {
   setzeLeistenfarbe();
   renderRangKarte();   // Rang im Profil: gesperrt ohne Betrag, entsperrt wieder mit
   // Nicht nur ein Vorhang: darunter ist nichts bedien- oder per Tastatur erreichbar
-  for (const sel of ['#wallet-kopf', '#wallet-content', '#coupons-content', '#wallet-gate', '#wallet-mini', '#wallet-modes']) {
+  for (const sel of ['#wallet-kopf', '#wallet-content', '#coupons-content', '#pfand-content', '#wallet-gate', '#wallet-mini', '#wallet-modes']) {
     const n = $(sel);
     if (n) n.inert = walletGesperrt();
   }
@@ -14850,8 +16773,8 @@ function walletAuftritt({ menue = false } = {}) {
     $('.wk-sprite'),
     ...document.querySelectorAll('.wallet-aktionen .wa-btn'),
     $('#wallet-modes'),
-    ...(coupons
-      ? [...$('#coupons-content').children].slice(0, 6)
+    ...(coupons || walletTab === 'pfand'
+      ? [...$(coupons ? '#coupons-content' : '#pfand-content').children].slice(0, 6)
       : [$('#pin-empfehlung:not(.hidden)'), $('.wallet-tools'), $('#zuletzt-verwendet:not(.hidden)'),
         $('#wallet-content .bereich-zeile'),
         ...[...$('#voucher-list').children].filter(e => !e.classList.contains('wl-geist')).slice(0, 6)]),
@@ -15333,7 +17256,7 @@ async function papierkorbZeigen() {
   wrap.className = 'overlay';
   const zeile = e => `<div class="korb-zeile">
       <div class="korb-info"><b>${esc(e.vendor || 'Eintrag')}</b>
-        <span>${e.typ === 'karte' ? 'Sparkarte' : e.art === 'rabatt' ? 'Rabattcode' : (e.amount != null ? euroFmt(e.amount) : 'Gutschein')}${e.balance != null && e.typ !== 'karte' ? ' · Rest ' + euroFmt(e.balance) : ''}
+        <span>${e.typ === 'karte' ? 'Sparkarte' : e.art === 'rabatt' ? 'Rabattcode' : e.art === 'pfand' ? 'Pfandbon' + (e.amount != null ? ' ' + euroFmt(e.amount) : '') : (e.amount != null ? euroFmt(e.amount) : 'Gutschein')}${e.balance != null && e.typ !== 'karte' ? ' · Rest ' + euroFmt(e.balance) : ''}
           · ${esc(e.grund || '')} · ${new Date(e.ts).toLocaleDateString('de-DE')}</span></div>
       ${e.verschenkt ? '<span class="pill">verschenkt</span>' : `<button class="btn btn-small btn-ghost" data-zurueck="${esc(e.key)}" type="button">Zurückholen</button>`}
     </div>`;
@@ -15623,7 +17546,7 @@ function markenImGepaeck() {
     return m.get(k);
   };
   for (const v of state.wallet.vouchers) {
-    if (!v || istRabatt(v) || !(v.balance == null || v.balance > 0)) continue;
+    if (!v || ohneGuthaben(v) || !(v.balance == null || v.balance > 0)) continue;
     const e = eintrag(v.vendor);
     if (e) { e.n++; e.summe += v.balance || 0; }
   }
