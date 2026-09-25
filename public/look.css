@@ -666,9 +666,12 @@ body.wallet-farbe #wallet-farbfeld::after {
    Rang-Farbe weiter — die gibt es dort unten nicht mehr. */
 
 #view-wallet .bereich-titel { color: var(--text); text-shadow: none; }
-#view-wallet .rc-hinweis,
 #wallet-content > .status, #coupons-content > .status, #coupons-content .cc-cards > .status,
 #view-wallet .voucher-list > .status, #coupons-content :is(.cc-leer, .cc-hinweis) { color: var(--muted); }
+/* Der Hinweis unter "Deine Rabattcodes" steht bei Karten & Coupons mitten im
+   Auslauf (der Kopf ist dort kurz): in --muted kam er hell auf Rang-Rosa nur auf
+   3:1. Etwas mehr Tinte, dann sind es gut 4,5:1 — hell wie dunkel. */
+#view-wallet .rc-hinweis { color: color-mix(in srgb, var(--text) 50%, var(--muted)); }
 /* Zaehler neben "Deine Gutscheine": kleines Kaertchen auf dem Seitengrund */
 .wallet-platz, :root[data-theme="dark"] .wallet-platz {
   background: var(--karte); color: var(--muted); border: 0; border-radius: 8px;
@@ -719,7 +722,6 @@ body.sparsam.wallet-farbe #wallet-farbfeld { transition: opacity .24s ease-out; 
 @media (prefers-reduced-motion: reduce) { body.wallet-farbe #wallet-farbfeld { transition: opacity .24s ease-out; } }
 /* Marken- und Rang-Farben blenden so schnell ueber wie der Bereichswechsel */
 .ff-marke { transition: opacity .4s ease, transform .32s cubic-bezier(.22, 1, .32, 1); }
-@media (prefers-reduced-motion: reduce) { .ff-marke { transition: none; } }
 /* Runde 126: auf dem Handy springt der Farbgrund beim Wechsel Gutscheine <->
    Karten & Coupons mit Kopf und Inhalt in EINEM Bild (Runde 100, style.css).
    Die Regel oben (body.wallet-farbe, hoehere Spezifitaet) hatte dort die
@@ -732,6 +734,8 @@ body.sparsam.wallet-farbe #wallet-farbfeld { transition: opacity .24s ease-out; 
   body.wallet-farbe #wallet-farbfeld { transition: opacity .24s ease-out; }
   .ff-marke { transition: opacity .4s ease; }
 }
+/* Nach der Handy-Regel, sonst gewinnt deren Ueberblendung bei reduzierter Bewegung */
+@media (prefers-reduced-motion: reduce) { .ff-marke { transition: none; } }
 
 /* =============================================================================
    Marken-Ansicht: der Kopf traegt die Markenfarben, darunter laeuft der Verlauf
