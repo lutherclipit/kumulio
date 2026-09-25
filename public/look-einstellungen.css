@@ -169,11 +169,19 @@
    oben aus der Karte; Farbe ueber data-stufe, gesperrt 0 = App-Farbe.
    Die Lage der Figur ist die des Rang-Fensters, auf --sb verkleinert:
    --hoch = wie weit die alte Leinwand (1139 x 1204) ueber der Karte beginnt
-   (36 px bei 256 px), --rechts = Abstand ihrer Bezugskante zum rechten Rand. */
+   (36 px bei 256 px), --rechts = Abstand ihrer Bezugskante zum rechten Rand,
+   --luft = so weit darf die Figur rechts ueber die Karte (genau der Rand der
+   Leiste: mehr gaebe seitliches Scrollen, weniger schnitte Umhang und
+   Schwanz ab).
+   --sb waechst mit der Leiste (86vw), aber nur so weit, dass jede Rang-Figur
+   neben Name und "Profil ansehen" mindestens 5 px Luft laesst — Umhang,
+   Zepter und Pokal ragen links weit hinaus (fuer alle Figuren von 360 bis
+   430 px nachgemessen; die Leiste ist ab 396 px 340 px breit). */
 #top-menu .tm-rang {
-  --sb: clamp(160px, 46vw, 184px);
+  --sb: clamp(128px, 120vw - 303px, 170px);
   --hoch: calc(var(--sb) * .1406);
-  --rechts: 4px;
+  --rechts: 3px;
+  --luft: 14px;
   --rf-radius: 18px;
   position: relative; isolation: isolate; display: block;
   min-height: 146px; margin-top: 26px; padding: 16px 16px 16px 16px;
@@ -207,25 +215,24 @@
   opacity: .6;
   animation: wkStrahlen 70s linear infinite;
 }
-/* Rahmen: oben offen (der Kopf schaut heraus), rechts etwas Luft fuer Pokal
-   und Zepter — nur so viel, wie die Leiste daneben Rand hat (kein seitliches
-   Scrollen) —, unten schneidet die Kartenkante weich */
+/* Rahmen: oben offen (der Kopf schaut heraus), rechts --luft fuer Pokal,
+   Zepter und Umhang, unten schneidet die Kartenkante weich */
 .tm-rang-rahmen {
   --oben: 70px;
   position: absolute; z-index: 1; pointer-events: none; isolation: isolate;
-  top: calc(-1 * var(--oben)); bottom: 0; left: 0; right: -10px;
+  top: calc(-1 * var(--oben)); bottom: 0; left: 0; right: calc(-1 * var(--luft));
   overflow: hidden; border-radius: 0 0 0 var(--rf-radius);
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), rgba(0, 0, 0, .35) calc(100% - 5px), rgba(0, 0, 0, .15) 100%);
           mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), rgba(0, 0, 0, .35) calc(100% - 5px), rgba(0, 0, 0, .15) 100%);
 }
 .tm-rang-sprite {
   position: absolute; top: calc(var(--oben) - var(--hoch) - var(--sb) * .1756);
-  left: calc(100% - 10px - var(--rechts) - var(--sb) * 1.0536);
+  left: calc(100% - var(--luft) - var(--rechts) - var(--sb) * 1.0536);
   width: calc(var(--sb) * 1.2195); max-width: none; height: auto;
   filter: drop-shadow(0 5px 8px rgba(0, 0, 0, .16));
 }
 .tm-rang-funken {
-  position: absolute; top: calc(var(--oben) - var(--hoch)); left: calc(100% - 10px - var(--rechts) - var(--sb) * .8341);
+  position: absolute; top: calc(var(--oben) - var(--hoch)); left: calc(100% - var(--luft) - var(--rechts) - var(--sb) * .8341);
   width: var(--sb); aspect-ratio: 1139 / 1204; pointer-events: none;
 }
 .tm-rang-funken .wk-f1 { width: 12px; height: 12px; }
@@ -238,8 +245,13 @@
   max-width: 57%; min-width: 0;
 }
 /* Gesperrt: das universelle Maskottchen zeigt den Daumen weiter links, es
-   steht etwas kleiner, damit der Daumen neben "Profil ansehen" Platz hat */
-#top-menu .tm-rang.zu { --sb: clamp(148px, 42vw, 172px); }
+   steht kleiner, damit der Daumen neben "Profil ansehen" Platz hat. Sein
+   Schwanz ragt am weitesten nach rechts (12,5 % von --sb ueber die
+   Bezugskante): die Figur rueckt so weit herein, dass er ganz bleibt */
+#top-menu .tm-rang.zu {
+  --sb: clamp(120px, 92vw - 204.5px, 159px);
+  --rechts: calc(var(--sb) * .128 - var(--luft) + 1px);
+}
 .tm-rang-ich { display: flex; align-items: center; gap: 10px; max-width: 100%; min-width: 0; }
 #top-menu .tm-rang .avatar-big {
   width: 42px; height: 42px; font-size: 1.05rem;
@@ -248,8 +260,11 @@
 /* Bilder mit Transparenz: fester Grund, sonst scheint der Verlauf durch */
 #top-menu .tm-rang img.avatar-big { background: #fff; object-fit: cover; }
 .tm-rang-wer { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+/* Der Name ist nie breiter als "Profil ansehen" (width 0 + min-width 100 %:
+   die Zeile darunter gibt die Breite vor) — lange Namen enden mit "…",
+   bevor sie an die Figur stossen */
 #top-menu .tm-rang .tm-name {
-  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  width: 0; min-width: 100%; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 1rem; font-weight: 850; letter-spacing: -.01em; line-height: 1.25;
   text-shadow: 0 1px 8px rgba(0, 0, 0, .16);
 }
@@ -283,10 +298,10 @@ body:is(.sparsam, .ohne-anim) .tm-rang-licht::before, body:is(.sparsam, .ohne-an
 body:is(.sparsam, .ohne-anim) .tm-rang .wk-f { opacity: .9; transform: none; }
 body.sparsam #top-menu .tm-rang { transition: none; }
 /* Schmale Handys: Bild und Figur etwas kleiner, damit "Profil ansehen"
-   neben dem Maskottchen frei bleibt */
+   neben dem Maskottchen frei bleibt (die Leiste hat hier 12 px Rand) */
 @media (max-width: 370px) {
-  #top-menu .tm-rang { --sb: 158px; padding-inline: 14px; }
-  #top-menu .tm-rang.zu { --sb: 146px; }
+  #top-menu .tm-rang { --sb: clamp(120px, 125vw - 306px, 157px); --luft: 12px; padding-inline: 14px; }
+  #top-menu .tm-rang.zu { --sb: clamp(116px, 95vw - 206px, 146px); }
   #top-menu .tm-rang .avatar-big { width: 38px; height: 38px; font-size: .95rem; }
   .tm-rang-ich { gap: 9px; }
 }

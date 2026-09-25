@@ -3116,20 +3116,22 @@ const server = http.createServer(async (req, res) => {
       const name = String(url.searchParams.get('name') || '');
       if (!users[name]) return send(res, 404, { error: 'Nutzer nicht gefunden.' });
       const prof = profileOf(name);
-      const modInfo = isModUser(authUser(req)) ? {
+      const wer = authUser(req);
+      const modInfo = isModUser(wer) ? {
         banned: !!chat.bans[name],
         mutedUntil: (chat.mutes[name] || 0) > Date.now() ? chat.mutes[name] : 0,
       } : {};
       // Die Namensfarbe steht ohnehin an jeder Nachricht, sie ist nicht privat.
       // Vom Rang geht nur die Stufe (1..7) raus, damit das Profil in der
       // Rang-Farbe erscheint (Wunsch des Nutzers, Runde 122) — nie Guthaben,
-      // Betrag oder Abstand, und bei privaten Profilen gar nichts.
+      // Betrag oder Abstand, bei privaten Profilen gar nichts und nur an
+      // Angemeldete (sonst liesse sich ohne Konto die Stufe aller abfragen).
       if (prof.publicProfile === false) {
         return send(res, 200, { user: name, private: true, role: roleOf(name), activePaint: namensfarbe(name), ...modInfo });
       }
       return send(res, 200, {
         user: name, role: roleOf(name), bio: prof.bio || '', avatar: prof.avatar || '',
-        favs: prof.favs || {}, activePaint: namensfarbe(name), stufe: rangStufe(name), ...modInfo,
+        favs: prof.favs || {}, activePaint: namensfarbe(name), ...(wer ? { stufe: rangStufe(name) } : {}), ...modInfo,
       });
     }
 
