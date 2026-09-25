@@ -1170,8 +1170,12 @@ body.sparsam .wa .scan-line { animation: none; transform: translate3d(0, 50%, 0)
 .pin-modal .ws-tasten.klein { gap: 8px 18px; margin: 2px 0 12px; }
 .pin-modal .ws-tasten.klein .ws-taste { width: 60px; height: 60px; }
 .pin-modal .ws-taste:active { background: var(--karte-2); }
-/* Neu in kumulio: Kopf in der Rang-Farbe, sonst wie jede Karte */
-.neu-modal { padding: 0; }
+/* Neu in kumulio: Kopf in der Rang-Farbe, sonst wie jede Karte. Die Regeln
+   fuer .modal und die Wortmarke haben im Dunkelmodus :root[data-theme] davor
+   und waeren staerker — dann sass der Kopf eingerueckt mit eckigen Kanten im
+   runden Fenster und das Logo stand blau auf der Rang-Farbe. */
+.neu-modal, :root[data-theme="dark"] .neu-modal { padding: 0; }
+.neu-logo .k-wordmark, :root[data-theme="dark"] .neu-logo .k-wordmark { color: #fff; }
 .neu-icon { border-radius: 10px; background: var(--akzent-weich); color: var(--akzent-text); }
 :root[data-theme="dark"] .neu-icon { color: var(--akzent-text); }
 .neu-liste li + li { border-top-color: var(--linie); }

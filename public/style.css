@@ -4814,7 +4814,7 @@ body.wallet-zu #coupons-content, body.wallet-zu #wallet-gate { visibility: hidde
 .ws-logo { display: flex; justify-content: center; height: 34px; margin-bottom: clamp(18px, 4vh, 34px); }
 .ws-logo .k-wordmark { height: 34px; width: auto; overflow: visible; }
 /* Auf dem Rang-Verlauf: alles hell */
-.wallet-sperre .k-wordmark { color: #fff; }
+.wallet-sperre .k-wordmark, :root[data-theme="dark"] .wallet-sperre .k-wordmark { color: #fff; }
 .wallet-sperre .k-wordmark .k-dot { fill: #fff; }
 .wallet-sperre .k-wordmark .k-ripple { stroke: #fff; }
 .wallet-sperre .ws-text { color: rgba(255, 255, 255, .82); }

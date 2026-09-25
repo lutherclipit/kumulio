@@ -13428,8 +13428,30 @@ async function bioVerfuegbar() {
   try { return !!window.PublicKeyCredential && await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable(); }
   catch { return false; }
 }
+// Kann der Browser es grundsaetzlich (WebAuthn auf sicherer Seite)? Die
+// Vorab-Abfrage oben liegt manchmal falsch (aeltere Android-Chrome, iPhone
+// ohne iCloud-Schluesselbund, manche Browser) — dann darf man es in den
+// Einstellungen trotzdem versuchen und bekommt bei einem Fehler den Grund.
+function bioGrundsaetzlich() { return !!window.PublicKeyCredential && window.isSecureContext !== false; }
+// Eingebaute Browser anderer Apps (Instagram, TikTok, Facebook, Snapchat,
+// Android-WebView) geben Face ID / Fingerabdruck fast nie frei
+const bioInAppBrowser = () => /FBAN|FBAV|Instagram|TikTok|musical_ly|Snapchat|Line\/|; wv\)/i.test(navigator.userAgent || '');
+// Warum das Einrichten scheiterte, in Worten mit einem Weg heraus
+function bioFehlerText(err) {
+  const n = err && err.name;
+  if (bioInAppBrowser()) return 'Im Browser dieser App geht es nicht. Öffne kumulio in Safari oder Chrome (bzw. über das Symbol auf deinem Home-Bildschirm).';
+  if (n === 'NotAllowedError') return uaIOS
+    ? 'Abgebrochen oder vom iPhone nicht erlaubt. Face ID braucht den iCloud-Schlüsselbund: Einstellungen → dein Name → iCloud → Passwörter (und Schlüsselbund) einschalten, dann nochmal versuchen.'
+    : 'Abgebrochen oder vom Gerät nicht erlaubt. Auf Android braucht es eine Displaysperre mit Fingerabdruck und aktuelle Google-Play-Dienste; dann nochmal versuchen.';
+  if (n === 'NotSupportedError') return 'Dieses Gerät oder dieser Browser unterstützt Face ID / Fingerabdruck für Webseiten nicht. Versuch es in Safari (iPhone) oder Chrome (Android).';
+  if (n === 'SecurityError') return 'Nur auf der sicheren Seite https://kumulio.de möglich. Öffne kumulio direkt dort.';
+  if (n === 'InvalidStateError') return 'Auf diesem Gerät ist schon ein Zugang gespeichert. Schalte es aus und wieder ein.';
+  return 'Face ID / Fingerabdruck ließ sich nicht einrichten' + (n ? ` (${String(n).replace(/[^A-Za-z]/g, '')})` : '') + '. Versuch es in Safari (iPhone) oder Chrome (Android).';
+}
 function bioAn() { return !!lsJson(bioSchluessel(), null); }
+let bioLetzterFehler = '';
 async function bioEinrichten() {
+  bioLetzterFehler = '';
   try {
     const cred = await navigator.credentials.create({ publicKey: {
       challenge: crypto.getRandomValues(new Uint8Array(32)),
@@ -13441,7 +13463,11 @@ async function bioEinrichten() {
     } });
     lsSetzen(bioSchluessel(), JSON.stringify({ id: b64(cred.rawId) }));
     return true;
-  } catch { island('Face ID / Fingerabdruck ließ sich nicht einrichten'); return false; }
+  } catch (err) {
+    bioLetzterFehler = bioFehlerText(err);
+    island('Face ID / Fingerabdruck ließ sich nicht einrichten');
+    return false;
+  }
 }
 // Face ID / Fingerabdruck: startet von selbst, sobald die Sperre erscheint —
 // kein extra Antippen. Manche Browser (v. a. Safari) lassen die Abfrage nur
@@ -14181,11 +14207,18 @@ async function renderSicherheit() {
   card.classList.toggle('hidden', !state.token);
   if (!state.token) return;
   const pin = pinGesetzt();
-  const bioOk = pin && await bioVerfuegbar();
+  const bioGemeldet = pin && await bioVerfuegbar();
+  // Bedienbar, sobald der Browser es grundsaetzlich kann — auch wenn die
+  // Vorab-Abfrage nein sagt (die irrt sich manchmal)
+  const bioOk = pin && (bioGemeldet || (bioGrundsaetzlich() && !bioInAppBrowser()));
   // Warum es hier nicht geht, statt die Zeile still wegzulassen
-  const bioGrund = !window.PublicKeyCredential
+  const bioGrund = !window.PublicKeyCredential || bioInAppBrowser()
     ? 'Dieser Browser kann es nicht, etwa der eingebaute Browser von Instagram oder TikTok. Öffne kumulio in Safari oder Chrome.'
     : 'Auf diesem Gerät ist keine Face ID und kein Fingerabdruck eingerichtet, oder der Browser gibt sie nicht frei. In den Handy-Einstellungen einrichten und kumulio neu öffnen.';
+  const bioText = bioLetzterFehler
+    || (bioGemeldet ? 'Wallet ohne PIN-Eingabe entsperren, auf diesem Gerät'
+      : bioOk ? 'Dein Browser meldet es nicht sicher. Probier es einfach aus: Klappt es nicht, steht hier der Grund.'
+        : bioGrund);
   const k = kontoInfo || {};
   card.innerHTML = `
     <h2 class="card-h">Sicherheit</h2>
@@ -14197,7 +14230,7 @@ async function renderSicherheit() {
         : `<button class="btn btn-small" id="si-pin-an" type="button" ${pinMoeglich() ? '' : 'disabled'}>Festlegen</button>`}</div>
     </div>
     ${pin ? `<div class="settings-row">
-      <div class="settings-label"><b>Face ID / Fingerabdruck</b><span>${bioOk ? 'Wallet ohne PIN-Eingabe entsperren, auf diesem Gerät' : bioGrund}</span></div>
+      <div class="settings-label"><b>Face ID / Fingerabdruck</b><span id="si-bio-text"${bioLetzterFehler ? ' class="si-fehler"' : ''}>${esc(bioText)}</span></div>
       <label class="switch"><input type="checkbox" id="si-bio" ${bioOk && bioAn() ? 'checked' : ''} ${bioOk ? '' : 'disabled'}><span class="switch-slider"></span></label>
     </div>` : ''}
     <div class="settings-row">
@@ -14236,7 +14269,17 @@ async function renderSicherheit() {
     if (e.target.checked) {
       // Face ID oeffnet die Wallet ohne PIN — einschalten also nur mit der PIN
       const pin = await pinDialog({ titel: 'PIN eingeben', text: 'Zum Einschalten von Face ID / Fingerabdruck', fest: (pinDaten() || {}).laenge || 4, pruefe: pinPruefeDialog });
-      if (pin === null || !await bioEinrichten()) e.target.checked = false;
+      if (pin === null) e.target.checked = false;
+      else if (!await bioEinrichten()) {
+        e.target.checked = false;
+        // Der Grund bleibt in der Zeile stehen, bis es klappt
+        const t = $('#si-bio-text');
+        if (t && bioLetzterFehler) { t.textContent = bioLetzterFehler; t.classList.add('si-fehler'); }
+      } else {
+        bioLetzterFehler = '';
+        const t = $('#si-bio-text');
+        if (t) { t.textContent = 'Wallet ohne PIN-Eingabe entsperren, auf diesem Gerät'; t.classList.remove('si-fehler'); }
+      }
     }
     else { try { localStorage.removeItem(bioSchluessel()); } catch { } }
   });

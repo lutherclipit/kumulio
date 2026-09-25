@@ -419,3 +419,6 @@ body.sparsam #top-menu .tm-rang { transition: none; }
   #top-menu .tm-item + .tm-item { background-position: 52px 0; background-size: calc(100% - 52px) 1px; }
   #top-menu .tm-item::after { width: 14px; height: 14px; }
 }
+
+/* Face ID: warum das Einrichten scheiterte (bleibt stehen, bis es klappt) */
+#sicherheit-card .settings-label .si-fehler { color: var(--danger); font-weight: 600; }
