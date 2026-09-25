@@ -3466,18 +3466,48 @@ function renderFarbwahl() {
     ${NAMENSFARBEN.map(c => `<button type="button" class="pe-farbe${f === c ? ' an' : ''}" role="radio" aria-checked="${f === c}" data-farbe="${c}" style="--f:${c}" aria-label="Farbe ${c}">${f === c ? icon('check', 'icon') : ''}</button>`).join('')}
     <label class="pe-farbe pe-eigen${eigen ? ' an' : ''}" style="--f:${eigen ? f : 'transparent'}" title="Eigene Farbe">
       <input type="color" id="pe-farbe-eigen" value="${eigen ? f : '#2d6bdb'}" aria-label="Eigene Farbe wählen">
-      ${icon(eigen ? 'check' : 'plus', 'icon')}
+      ${icon(eigen ? 'check' : 'plus', 'icon').replace('<svg ', `<svg data-art="${eigen ? 'check' : 'plus'}" `)}
     </label>`;
+  host.querySelectorAll('[data-farbe]').forEach(b => b.onclick = () => { peFarbe = b.dataset.farbe; farbwahlZustand(); buzz(6); });
+  const eingabe = $('#pe-farbe-eigen');
+  // Der Farbwaehler des Handys haengt an genau diesem <input>. Wird es
+  // ersetzt, klappt der Waehler sofort zu — und das iPhone meldet "change"
+  // schon beim Antippen einer Farbe (Meldung: "man fliegt immer raus").
+  // Darum hier nie neu zeichnen, nur Zustand und Vorschau nachziehen.
+  const nimm = () => { peFarbe = eingabe.value.toLowerCase(); farbwahlZustand(); };
+  eingabe.addEventListener('input', nimm);
+  eingabe.addEventListener('change', nimm);
+  farbwahlZustand();
+}
+// Markierung, Kreis der eigenen Farbe, Satz darunter und Vorschau — ohne das
+// Farbfeld anzufassen
+function farbwahlZustand() {
+  const host = $('#pe-farben');
+  if (!host) return;
+  const f = (peFarbe || '').toLowerCase();
+  const eigen = !!f && !NAMENSFARBEN.includes(f);
+  host.querySelectorAll('[data-farbe]').forEach(b => {
+    const an = (b.dataset.farbe || '') === f;
+    b.classList.toggle('an', an);
+    b.setAttribute('aria-checked', String(an));
+    if (b.dataset.farbe) b.innerHTML = an ? icon('check', 'icon') : '';
+  });
+  const lab = host.querySelector('.pe-eigen');
+  if (lab) {
+    lab.classList.toggle('an', eigen);
+    lab.style.setProperty('--f', eigen ? f : 'transparent');
+    const alt = lab.querySelector('svg.icon');
+    const soll = eigen ? 'check' : 'plus';
+    if (alt && alt.dataset.art !== soll) {
+      alt.insertAdjacentHTML('afterend', icon(soll, 'icon'));
+      alt.nextElementSibling.dataset.art = soll;
+      alt.remove();
+    }
+  }
   // Unter den Farben steht in Worten, was gewaehlt ist
   $('#pe-farbe-text').textContent = !f ? 'Automatisch: die feste Farbe deines Namens.'
     : eigen ? `Eigene Farbe ${f.toUpperCase()}. Zu helle oder zu dunkle Farben gleichen wir an, damit dein Name lesbar bleibt.`
     : 'Zu helle oder zu dunkle Farben gleichen wir an, damit dein Name lesbar bleibt.';
-  host.querySelectorAll('[data-farbe]').forEach(b => b.onclick = () => { peFarbe = b.dataset.farbe; renderFarbwahl(); buzz(6); });
-  const eingabe = $('#pe-farbe-eigen');
-  // "input" feuert beim Ziehen im Farbwaehler: nur die Vorschau mitziehen,
-  // neu gezeichnet wird erst bei "change" (sonst schliesst der Waehler)
-  eingabe.addEventListener('input', () => { peFarbe = eingabe.value.toLowerCase(); zeigeFarbVorschau(); });
-  eingabe.addEventListener('change', () => { peFarbe = eingabe.value.toLowerCase(); renderFarbwahl(); });
   zeigeFarbVorschau();
 }
 function zeigeFarbVorschau() {
