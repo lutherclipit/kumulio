@@ -147,7 +147,9 @@ body[data-ansicht="feed"] #btn-search-top { transition: opacity .2s ease, visibi
 }
 :root[data-theme="dark"] #btn-profile-top.iconbtn,
 body.wallet-farbe #btn-profile-top.iconbtn { --ava-ring: var(--kopf-k3, #2FE09C); }
-body.marken-modus.wallet-farbe #btn-profile-top.iconbtn { --ava-ring: var(--marke-k3, var(--kopf-k3, #2FE09C)); }
+/* Marken-Kopf: k3 der Marke liegt nur 22 % ueber ihrem Grundton (Rewe-Rot auf
+   Rot kaum zu sehen), darum wie der Ring im Profil-Kopf mit Weiss aufgehellt */
+body.marken-modus.wallet-farbe #btn-profile-top.iconbtn { --ava-ring: color-mix(in srgb, var(--marke-k3, var(--kopf-k3, #2FE09C)) 65%, #fff); }
 /* Marken-Ansicht weggescrollt: dort ist die Kopfzeile hell (weiter unten) */
 body.marken-modus.wallet-farbe.kopf-weg #btn-profile-top.iconbtn { --ava-ring: var(--marke-k2, var(--kopf-k2, #0FA86B)); }
 :root[data-theme="dark"] body.marken-modus.wallet-farbe.kopf-weg #btn-profile-top.iconbtn { --ava-ring: var(--marke-k3, var(--kopf-k3, #2FE09C)); }
