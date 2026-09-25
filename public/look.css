@@ -13,9 +13,9 @@
   --linie: rgba(16, 24, 32, .08);
   --schatten-1: 0 1px 2px rgba(16, 24, 32, .05), 0 8px 24px rgba(16, 24, 32, .07);
   --schatten-2: 0 14px 38px rgba(16, 24, 32, .14);
-  --akzent: var(--kopf-k2, #12C77E);
-  --akzent-tief: var(--kopf-k1, #0E9C64);
-  --akzent-text: var(--kopf-k1, #0E9C64);
+  --akzent: var(--kopf-k2, #6081A9);
+  --akzent-tief: var(--kopf-k1, #405A7C);
+  --akzent-text: var(--kopf-k1, #405A7C);
   --akzent-weich: color-mix(in srgb, var(--akzent) 13%, var(--karte));
   --preis: #E0322B;
   --badge-gelb: #FFD23F;
@@ -23,7 +23,7 @@
   --leiste-h: 64px;
   --leiste-gesamt: calc(var(--leiste-h) + env(safe-area-inset-bottom, 0px));
   --leiste-bg: #FFFFFF;
-  --leiste-aktiv: var(--kopf-k1, #0E9C64);
+  --leiste-aktiv: var(--kopf-k1, #405A7C);
   --rund: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", Roboto, sans-serif;
   /* Alte Namen zeigen auf die neuen Werte — so zieht die ganze App mit */
   --glass: var(--karte);
@@ -47,10 +47,10 @@
   --linie: rgba(255, 255, 255, .07);
   --schatten-1: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .32);
   --schatten-2: 0 14px 38px rgba(0, 0, 0, .55);
-  --akzent-text: var(--kopf-k3, #23D992);
+  --akzent-text: var(--kopf-k3, #B6C9DF);
   --preis: #FF6B5E;
   --leiste-bg: #161A20;
-  --leiste-aktiv: var(--kopf-k3, #23D992);
+  --leiste-aktiv: var(--kopf-k3, #B6C9DF);
   --glass: var(--karte);
   --glass-strong: var(--karte);
   --surface: var(--karte);
@@ -141,18 +141,18 @@ body[data-ansicht="feed"] #btn-search-top { transition: opacity .2s ease, visibi
    Dunkelmodus der helle; in der Marken-Ansicht die Toene der Marke. */
 #btn-profile-top { padding: 0; overflow: visible; }
 #btn-profile-top.iconbtn {
-  --ava-ring: var(--kopf-k2, #0FA86B);
+  --ava-ring: var(--kopf-k2, #6081A9);
   padding: 4px; background: transparent;
   box-shadow: inset 0 0 0 2px var(--ava-ring);
 }
 :root[data-theme="dark"] #btn-profile-top.iconbtn,
-body.wallet-farbe #btn-profile-top.iconbtn { --ava-ring: var(--kopf-k3, #2FE09C); }
+body.wallet-farbe #btn-profile-top.iconbtn { --ava-ring: var(--kopf-k3, #B6C9DF); }
 /* Marken-Kopf: k3 der Marke liegt nur 22 % ueber ihrem Grundton (Rewe-Rot auf
    Rot kaum zu sehen), darum wie der Ring im Profil-Kopf mit Weiss aufgehellt */
-body.marken-modus.wallet-farbe #btn-profile-top.iconbtn { --ava-ring: color-mix(in srgb, var(--marke-k3, var(--kopf-k3, #2FE09C)) 65%, #fff); }
+body.marken-modus.wallet-farbe #btn-profile-top.iconbtn { --ava-ring: color-mix(in srgb, var(--marke-k3, var(--kopf-k3, #B6C9DF)) 65%, #fff); }
 /* Marken-Ansicht weggescrollt: dort ist die Kopfzeile hell (weiter unten) */
-body.marken-modus.wallet-farbe.kopf-weg #btn-profile-top.iconbtn { --ava-ring: var(--marke-k2, var(--kopf-k2, #0FA86B)); }
-:root[data-theme="dark"] body.marken-modus.wallet-farbe.kopf-weg #btn-profile-top.iconbtn { --ava-ring: var(--marke-k3, var(--kopf-k3, #2FE09C)); }
+body.marken-modus.wallet-farbe.kopf-weg #btn-profile-top.iconbtn { --ava-ring: var(--marke-k2, var(--kopf-k2, #6081A9)); }
+:root[data-theme="dark"] body.marken-modus.wallet-farbe.kopf-weg #btn-profile-top.iconbtn { --ava-ring: var(--marke-k3, var(--kopf-k3, #B6C9DF)); }
 #btn-profile-top .avatar-mini { width: 100%; height: 100%; font-size: .86rem; box-shadow: 0 2px 8px rgba(0, 0, 0, .14); }
 #btn-profile-top img.avatar-mini { width: 100%; height: 100%; }
 /* Logo optisch auf die Mitte der runden Knoepfe: die Kaestchen sind gleich
@@ -245,7 +245,7 @@ main { --menue-luft: calc(var(--leiste-h) + 18px); }
    Wallet (zweiter Entwurf): Glas-Karte mit Maskottchen, quadratische Griffe,
    Schieber als Pille, Suche und Marke getrennt, weisse PIN-Karte, neue Karten
    ========================================================================== */
-#view-wallet { --wk-akzent: var(--kopf-k1, #0E9C64); }
+#view-wallet { --wk-akzent: var(--kopf-k1, #405A7C); }
 body.marken-modus #view-wallet { --wk-akzent: var(--marke-k1); }
 #kopf-vorne, #kopf-hinten { min-height: 0; }
 /* Das Maskottchen ragt oben ueber die Karte hinaus. Der Rahmen, der beim
@@ -350,8 +350,8 @@ body.sparsam .wk-f { opacity: .9; transform: none; }
   .wk-licht::before { animation: none; }
   .wk-f { animation: none; opacity: .9; }
 }
-#view-wallet { --wk-schein: var(--kopf-k3, #2FE09C); }
-body.marken-modus #view-wallet { --wk-schein: var(--marke-k3, var(--kopf-k3, #2FE09C)); }
+#view-wallet { --wk-schein: var(--kopf-k3, #B6C9DF); }
+body.marken-modus #view-wallet { --wk-schein: var(--marke-k3, var(--kopf-k3, #B6C9DF)); }
 
 .wk-sprite.auftritt { animation: spriteRein .7s var(--spring) backwards; animation-delay: var(--ad, 0ms); }
 
@@ -636,17 +636,17 @@ body.ohne-anim .wk-glas:has(> .wk-figur:active) .wk-sprite { transform: none; }
    und Hinweise darauf sind weiss (Wunsch des Nutzers: schwarz passte nicht).
    ========================================================================== */
 body.wallet-farbe {
-  --wallet-grund: color-mix(in srgb, var(--kopf-k2, #12C77E) 70%, var(--kopf-k1, #0E9C64));
+  --wallet-grund: color-mix(in srgb, var(--kopf-k2, #6081A9) 70%, var(--kopf-k1, #405A7C));
   background-color: var(--wallet-grund);
 }
 :root[data-theme="dark"] body.wallet-farbe {
-  --wallet-grund: color-mix(in srgb, var(--kopf-k1, #0E9C64) 58%, #0B0E11);
+  --wallet-grund: color-mix(in srgb, var(--kopf-k1, #405A7C) 58%, #0B0E11);
 }
 body { transition: background-color .35s ease; }
 body.wallet-farbe #wallet-farbfeld::after {
   background:
     radial-gradient(circle at 84% 6%, rgba(255, 255, 255, .15), transparent 46%),
-    linear-gradient(176deg, var(--kopf-k1, #0E9C64) 0%, var(--kopf-k2, #12C77E) 46%, var(--wallet-grund) 100%);
+    linear-gradient(176deg, var(--kopf-k1, #405A7C) 0%, var(--kopf-k2, #6081A9) 46%, var(--wallet-grund) 100%);
 }
 /* Kopfzeile nach dem Wegscrollen: dieselbe Farbe statt weissem Schleier,
    Logo und Knoepfe bleiben wie oben */
@@ -738,7 +738,7 @@ body.marken-modus .wsl-suche { box-shadow: var(--schatten-1); }
 :root[data-theme="dark"] body.marken-modus .wsl-marke { color: var(--marke-k3); }
 /* Mini-Guthaben unten: Symbol und Betrag in derselben Farbe, im Dunkeln hell */
 body.marken-modus #wallet-mini .icon { color: var(--marke-k1); }
-:root[data-theme="dark"] #wallet-mini.rangfarbe #wallet-mini-total { color: var(--kopf-k3, #23D992); }
+:root[data-theme="dark"] #wallet-mini.rangfarbe #wallet-mini-total { color: var(--kopf-k3, #B6C9DF); }
 :root[data-theme="dark"] body.marken-modus #wallet-mini.rangfarbe #wallet-mini-total,
 :root[data-theme="dark"] body.marken-modus #wallet-mini .icon { color: var(--marke-k3); }
 /* Weggescrollt: helle Kopfzeile wie in den anderen Reitern, Logo in Tinte */

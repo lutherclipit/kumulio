@@ -754,7 +754,11 @@ button.gd-block:active, label.gd-block:active { transform: scale(.985); }
 .ana-kachel-kopf { display: flex; align-items: center; gap: 7px; font-size: .8rem; font-weight: 700; color: var(--muted); }
 .ana-kachel b { font-size: 1.42rem; font-weight: 850; letter-spacing: -.02em; line-height: 1.15; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ana-punkt { display: inline-block; width: 9px; height: 9px; flex: none; border-radius: 3px; }
-.ana-punkt.rein, .ana-paar .rein { background: var(--akzent); }
+/* "rein" gruen wie das +Betrag darunter (Aufladen gruen, Abbuchen rot) —
+   nicht in der Rangfarbe: bei Legende (Covert-Rot) waeren rein und raus
+   sonst zwei gleiche Rottoene */
+.ana-punkt.rein, .ana-paar .rein { background: color-mix(in srgb, #1A9A55 82%, #fff); }
+:root[data-theme="dark"] :is(.ana-punkt.rein, .ana-paar .rein) { background: #3FD68B; }
 .ana-punkt.raus, .ana-paar .raus { background: color-mix(in srgb, var(--preis) 82%, #fff); }
 .ana-karte { margin-top: 12px; padding: 14px 14px 12px; border-radius: 16px; background: var(--karte); box-shadow: var(--schatten-1); }
 .ana-karte-kopf { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
