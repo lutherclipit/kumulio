@@ -1386,7 +1386,21 @@ function lioBonusAbholen(user, id, jetzt = Date.now()) {
 // Bestaetigen der Adresse des Geworbenen (und einmal beim Serverstart fuer
 // die vorgemerkten Einladungen). Alt-Einladungen ohne Eintrag in geworben
 // (nur refCount) bekommen nichts. leise: ohne Push (Serverstart).
-const werbungMailHash = email => sha256('lio-werbung:' + String(email || '').trim().toLowerCase());
+// Die Adresse fuer den Abgleich auf ihren Kern gebracht: Gross/Klein egal, ein
+// +Zusatz faellt weg (a+1@… und a+2@… landen im selben Postfach), bei Gmail
+// zaehlen auch die Punkte nicht. Sonst liessen sich aus einem Postfach
+// beliebig viele "Freunde" mit bestaetigter Adresse anlegen.
+function mailKern(email) {
+  const e = String(email || '').trim().toLowerCase();
+  const at = e.lastIndexOf('@');
+  if (at < 1) return e;
+  let lokal = e.slice(0, at).split('+')[0];
+  let domain = e.slice(at + 1);
+  if (domain === 'googlemail.com') domain = 'gmail.com';
+  if (domain === 'gmail.com') lokal = lokal.replace(/\./g, '');
+  return (lokal || e.slice(0, at)) + '@' + domain;
+}
+const werbungMailHash = email => sha256('lio-werbung:' + mailKern(email));
 function lioWerbungPruefen(user, { jetzt = Date.now(), leise = false } = {}) {
   const u = users[user];
   const prof = u && u.profile;
@@ -1398,8 +1412,10 @@ function lioWerbungPruefen(user, { jetzt = Date.now(), leise = false } = {}) {
   const eintrag = (Array.isArray(wp.geworben) ? wp.geworben : []).find(g => g && String(g.user || '').toLowerCase() === user.toLowerCase());
   if (!eintrag || eintrag.lio || eintrag.lioKein) return false;
   const h = werbungMailHash(u.email);
-  if (lioDaten.geworbenMails[h]) {
-    // Diese Adresse hat schon einmal Lios gebracht (Konto geloescht und neu)
+  // Diese Adresse hat schon einmal Lios gebracht (Konto geloescht und neu,
+  // oder dasselbe Postfach mit +Zusatz), oder es ist das Postfach des Werbers
+  const eigene = users[werber].email && mailKern(users[werber].email) === mailKern(u.email);
+  if (lioDaten.geworbenMails[h] || eigene) {
     eintrag.lioKein = jetzt;
     saveJson('users.json', users);
     return false;
@@ -4727,7 +4743,7 @@ if (process.env.RA_TEST) {
     // Endpunkte im Test ansprechen: server.listen(0) im Testskript
     server, geworbenEntfernen, einladungenAufraeumen,
     // fuer scripts/test-lio.js
-    LIO, loginTagZaehlen, lioBonusAbholen, lioWerbungPruefen, lioSerie, loginTageZahl, lioStand, shop, shopBestand,
+    LIO, loginTagZaehlen, lioBonusAbholen, lioWerbungPruefen, lioSerie, loginTageZahl, lioStand, shop, shopBestand, mailKern,
     // fuer scripts/test-wallet.js
     bilderAufraeumen, bildDateien, bildAblegen, vereinigeWallet, archiviere, archivFlush, wallets, gifts, walletIndex, waehleFassung,
     totpCode, totpPruefen, base32, base32Lesen, ersatzcodeEinloesen, neueErsatzcodes, aufgebrauchtWeg, raeumeAufgebrauchteAuf, drossel,

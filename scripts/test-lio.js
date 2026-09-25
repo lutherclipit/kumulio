@@ -167,6 +167,22 @@ pruefe('dritter Tag (nicht in Folge): +10', S.lioStand(P('olga')) === 20 && P('o
   pruefe('zoe geloescht und mit derselben Adresse neu: nichts', S.lioStand(P('anna')) === vorZoe + 10 && P('anna').geworben.find(g => g.user === 'zoe').lioKein > 0);
   pruefe('Freunde-Info: 1 gutgeschrieben, 0 wartend', (await api('tokAnna', '/api/profile')).j.lioFreunde.gutgeschrieben === 1);
 
+  // --- Dasselbe Postfach mit +Zusatz oder Gmail-Punkten bringt nur einmal
+  // Lios, das eigene Postfach des Werbers nie
+  const ueberOlga = async (name, email) => {
+    await api(null, '/api/register', { user: name, email, pass: 'geheim123', turnstileToken: 'x', ref: 'olga' });
+    S.users[name].emailOk = 1;
+    S.loginTagZaehlen(name, tag(10, 1)); S.loginTagZaehlen(name, tag(10, 2)); S.loginTagZaehlen(name, tag(10, 3));
+  };
+  const vorOlga = S.lioStand(P('olga'));
+  await ueberOlga('pia', 'pia.muster@gmail.com');
+  pruefe('pia (Gmail): +10', S.lioStand(P('olga')) === vorOlga + 10);
+  await ueberOlga('pia2', 'piamuster+zwei@googlemail.com');
+  pruefe('dasselbe Gmail-Postfach mit +Zusatz, ohne Punkt: nichts', S.lioStand(P('olga')) === vorOlga + 10 && P('olga').geworben.find(g => g.user === 'pia2').lioKein > 0);
+  await ueberOlga('olga2', 'Olga+neu@example.invalid');
+  pruefe('eigenes Postfach des Werbers: nichts', S.lioStand(P('olga')) === vorOlga + 10 && P('olga').geworben.find(g => g.user === 'olga2').lioKein > 0);
+  pruefe('mailKern', S.mailKern(' A.B+x@GoogleMail.com ') === 'ab@gmail.com' && S.mailKern('a.b+x@web.de') === 'a.b@web.de' && S.mailKern('+x@web.de') === '+x@web.de');
+
   // --- Kein Echtgeld-Pfad
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   pruefe('kein Zahlungs-SDK', !/require\(['"](stripe|paypal|@paypal|braintree)/i.test(src));
