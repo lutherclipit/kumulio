@@ -1392,10 +1392,11 @@ function eigenesProfil(user) {
 //   prof.lioNeu     Gutschriften, die der Nutzer noch nicht gesehen hat (der
 //                   Client zeigt dafuer den fliegenden Stern und quittiert)
 //   prof.lioBoni    offene Wochen-/Monats-Boni [{id, art, menge, tag, ts}]
-//   prof.loginTage  verschiedene Login-Tage insgesamt (fuer die Einladungen)
+//   prof.loginTage  verschiedene Login-Tage insgesamt
+//   prof.lioTag     Kalendertag (Berlin) des letzten taeglichen Lios
 const LIO = {
   tag: 1, woche: 3, monat: 10, freund: 10,
-  freundTage: 3,          // so viele Login-Tage braucht ein Geworbener
+  freundTage: 3,          // so lange Login-Serie (Tage in Folge) braucht ein Geworbener
   logMax: 50, neuMax: 30, boniMax: 100,
 };
 // Welche E-Mail-Adressen schon einmal eine Einladungs-Belohnung ausgeloest
@@ -1432,10 +1433,24 @@ const lioBonusText = b => (b.art === 'monat' ? 'Monats-Bonus' : 'Wochen-Bonus') 
 function loginTagZaehlen(user, jetzt = Date.now()) {
   const prof = profileOf(user);
   const rekordVorher = Number(prof.loginStreak && prof.loginStreak.rekord) || 0;
-  if (!zaehleLoginTag(prof, jetzt)) return false;
-  prof.loginTage = (Number(prof.loginTage) || rekordVorher) + 1;
+  const neuerTag = zaehleLoginTag(prof, jetzt);
+  if (neuerTag) prof.loginTage = (Number(prof.loginTage) || rekordVorher) + 1;
+  // Taegliches Lio: einmal je Kalendertag, gemerkt in lioTag — nicht daran
+  // gebunden, dass der Tag gerade erst gezaehlt wurde. Am Starttag von Lio
+  // war der Tag bei vielen schon gezaehlt, sie gingen sonst leer aus. Wer
+  // heute schon ein Login-Lio hat (gebucht, bevor es lioTag gab), bekommt
+  // kein zweites.
+  const heute = berlinTag(jetzt);
+  let lioGebucht = false;
+  if (prof.loginStreak && prof.loginStreak.letzterTag === heute && prof.lioTag !== heute) {
+    const schon = (Array.isArray(prof.lioLog) ? prof.lioLog : [])
+      .some(e => e && e.grund === 'login' && berlinTag(e.ts) === heute);
+    prof.lioTag = heute;
+    if (!schon) lioBuchen(prof, LIO.tag, 'login', 'Täglicher Login', { neu: true, jetzt });
+    lioGebucht = true;
+  }
+  if (!neuerTag) return lioGebucht;
   const s = prof.loginStreak;
-  lioBuchen(prof, LIO.tag, 'login', 'Täglicher Login', { neu: true, jetzt });
   const erledigt = Array.isArray(prof.lioBoniErledigt) ? prof.lioBoniErledigt : [];
   for (const [art, alle, menge] of [['woche', 7, LIO.woche], ['monat', 30, LIO.monat]]) {
     if (!s.tage || s.tage % alle) continue;
@@ -1462,8 +1477,8 @@ function lioBonusAbholen(user, id, jetzt = Date.now()) {
 }
 
 // Freunde werben: 10 Lios je Freund, einmal je Geworbenem und nur, wenn der
-// Freund echt ist — bestaetigte E-Mail-Adresse und an mindestens 3
-// verschiedenen Tagen angemeldet. Geprueft beim Login-Tag und beim
+// Freund echt ist — bestaetigte E-Mail-Adresse und eine Login-Serie von
+// mindestens 3 Tagen in Folge. Geprueft beim Login-Tag und beim
 // Bestaetigen der Adresse des Geworbenen (und einmal beim Serverstart fuer
 // die vorgemerkten Einladungen). Alt-Einladungen ohne Eintrag in geworben
 // (nur refCount) bekommen nichts. leise: ohne Push (Serverstart).
@@ -1486,7 +1501,9 @@ function lioWerbungPruefen(user, { jetzt = Date.now(), leise = false } = {}) {
   const u = users[user];
   const prof = u && u.profile;
   if (!prof || !prof.invitedBy || !u.email || !u.emailOk) return false;
-  if (loginTageZahl(prof) < LIO.freundTage) return false;
+  // Der Geworbene braucht eine Login-Serie von mindestens 3 Tagen in Folge
+  // (Wunsch des Nutzers, 25.09.2026) — sein Serien-Rekord zaehlt
+  if ((Number(prof.loginStreak && prof.loginStreak.rekord) || 0) < LIO.freundTage) return false;
   const werber = prof.invitedBy;
   if (werber === user || !users[werber]) return false;
   const wp = profileOf(werber);

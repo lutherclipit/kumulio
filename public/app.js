@@ -12611,7 +12611,7 @@ async function renderInvitePage() {
         <small>${stand || 'Wer sich über deinen Link anmeldet, zählt hier.'}</small>
       </span>
     </div>
-    ${proFreund ? `<p class="inv-vorgemerkt inv-lio">${lioSternImg(26)}<span>${proFreund} Lios für jeden Freund, sobald er seine E-Mail-Adresse bestätigt und an ${tage} Tagen reingeschaut hat.</span></p>`
+    ${proFreund ? `<p class="inv-vorgemerkt inv-lio">${lioSternImg(26)}<span>${proFreund} Lios für jeden Freund, sobald er seine E-Mail-Adresse bestätigt und ${tage} Tage in Folge reingeschaut hat.</span></p>`
     : `<p class="inv-vorgemerkt">${icon('gift', 'icon icon-sm')}<span>Deine Einladungen sind vorgemerkt.</span></p>`}
 
     <h3 class="inv-h">Dein Einladungslink</h3>
@@ -12627,7 +12627,7 @@ async function renderInvitePage() {
     <div class="inv-steps">
       <div class="inv-step"><b>1</b><span>Link teilen, per WhatsApp, Story oder wie du magst.</span></div>
       <div class="inv-step"><b>2</b><span>Dein Freund öffnet ihn und legt ein kostenloses Konto an.</span></div>
-      <div class="inv-step"><b>3</b><span>${proFreund ? `Bestätigt er seine E-Mail-Adresse und schaut an ${tage} Tagen rein, bekommst du ${proFreund} Lios.` : 'Die Einladung wird bei dir vorgemerkt.'}</span></div>
+      <div class="inv-step"><b>3</b><span>${proFreund ? `Bestätigt er seine E-Mail-Adresse und schaut ${tage} Tage in Folge rein, bekommst du ${proFreund} Lios.` : 'Die Einladung wird bei dir vorgemerkt.'}</span></div>
     </div>`;
   $('#inv-share').onclick = shareInvite;
   $('#inv-copy').onclick = copyInvite;
@@ -13116,7 +13116,7 @@ function zeichneLioShop(seite) {
     weg('sun', 'Jeden Tag reinschauen', 'einmal pro Tag, von selbst', Number(s.proTag) || 0),
     weg('flame', '7 Tage in Folge', 'im Menü abholen', Number(s.woche) || 0),
     weg('trophy', '30 Tage in Folge', 'im Menü abholen', Number(s.monat) || 0),
-    weg('user', 'Freund einladen', `sobald er seine E-Mail bestätigt und an ${Number(f.tageNoetig) || 3} Tagen reinschaut`, Number(f.proFreund) || 0, ' data-lsh-einladen'),
+    weg('user', 'Freund einladen', `sobald er seine E-Mail bestätigt und ${Number(f.tageNoetig) || 3} Tage in Folge reinschaut`, Number(f.proFreund) || 0, ' data-lsh-einladen'),
   ].join('');
   const zeit = ts => new Date(ts).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const verlauf = (lioVerlauf || []).slice(0, 5).map(e => {

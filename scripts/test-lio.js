@@ -41,6 +41,16 @@ pruefe('Start: Stern fuer wera vorgemerkt', (P('wera').lioNeu || []).length === 
 // --- Tages-Lio und Serie
 pruefe('erster Login-Tag: +1', S.loginTagZaehlen('anna', tag(10, 1)) && S.lioStand(P('anna')) === 1);
 pruefe('am selben Tag nichts mehr', !S.loginTagZaehlen('anna', tag(10, 1) + 3600e3) && S.lioStand(P('anna')) === 1);
+// Tag schon gezaehlt, bevor es Lio gab (Starttag): das Lio kommt trotzdem, einmal
+S.users.bea = { hash: HASH, salt: 'salz', email: 'bea@example.invalid', ts: 9200, profile: { loginStreak: { tage: 4, rekord: 4, letzterTag: '2026-10-01' } } };
+pruefe('Tag vor dem Lio-Start gezaehlt: +1', S.loginTagZaehlen('bea', tag(10, 1)) && S.lioStand(P('bea')) === 1 && P('bea').lioNeu.length === 1);
+pruefe('... und am selben Tag kein zweites', !S.loginTagZaehlen('bea', tag(10, 1) + 3600e3) && S.lioStand(P('bea')) === 1);
+pruefe('... Serie bleibt, wie sie war', P('bea').loginStreak.tage === 4);
+// Heute schon ein Login-Lio gebucht, bevor es lioTag gab: kein zweites
+S.users.cem = { hash: HASH, salt: 'salz', email: 'cem@example.invalid', ts: 9300, profile: {
+  loginStreak: { tage: 1, rekord: 1, letzterTag: '2026-10-01' }, lio: 1,
+  lioLog: [{ id: 'x', ts: tag(10, 1) - 3600e3, delta: 1, grund: 'login', text: 'Täglicher Login' }] } };
+pruefe('Login-Lio von heute ohne lioTag: kein zweites', S.loginTagZaehlen('cem', tag(10, 1)) && S.lioStand(P('cem')) === 1 && P('cem').lioTag === '2026-10-01');
 for (let d = 2; d <= 6; d++) S.loginTagZaehlen('anna', tag(10, d));
 pruefe('6 Tage: 6 Lios, noch kein Bonus', S.lioStand(P('anna')) === 6 && !(P('anna').lioBoni || []).length);
 pruefe('Serie: noch 1 Tag bis zur Woche', S.lioSerie(P('anna'), tag(10, 6)).bisWoche === 1);
@@ -59,22 +69,27 @@ pruefe('Login-Tage gezaehlt', S.loginTageZahl(P('anna')) === 30);
 S.loginTagZaehlen('anna', tag(11, 5));
 pruefe('nach einer Luecke: Serie 1, Boni bleiben', P('anna').loginStreak.tage === 1 && P('anna').lioBoni.length === 4);
 
-// --- Einladungen: erst bestaetigte Adresse UND 3 Login-Tage, dann einmal +10
+// --- Einladungen: erst bestaetigte Adresse UND eine Login-Serie von 3 Tagen
+// in Folge, dann einmal +10
 S.users.neo = { hash: HASH, salt: 'salz', email: 'neo@example.invalid', ts: 9000, profile: { invitedBy: 'olga' } };
 P('olga').geworben = [{ user: 'neo', ts: 9000 }]; P('olga').refCount = 1;
 S.loginTagZaehlen('neo', tag(10, 1)); S.loginTagZaehlen('neo', tag(10, 3)); S.loginTagZaehlen('neo', tag(10, 5));
 pruefe('3 Tage, Adresse unbestaetigt: nichts', S.lioStand(P('olga')) === 0);
 S.users.neo.emailOk = 1;
-pruefe('Adresse bestaetigt: +10', S.lioWerbungPruefen('neo') && S.lioStand(P('olga')) === 10);
-pruefe('nochmal pruefen: nichts', !S.lioWerbungPruefen('neo') && S.lioStand(P('olga')) === 10);
+pruefe('bestaetigt, 3 Tage, aber nicht in Folge: nichts', !S.lioWerbungPruefen('neo') && S.lioStand(P('olga')) === 0);
 S.loginTagZaehlen('neo', tag(10, 6));
+pruefe('Serie 2: nichts', S.lioStand(P('olga')) === 0);
+S.loginTagZaehlen('neo', tag(10, 7));
+pruefe('3 Tage in Folge: +10', S.lioStand(P('olga')) === 10);
+pruefe('nochmal pruefen: nichts', !S.lioWerbungPruefen('neo') && S.lioStand(P('olga')) === 10);
+S.loginTagZaehlen('neo', tag(10, 8));
 pruefe('weiterer Login-Tag: nichts', S.lioStand(P('olga')) === 10);
 S.users.max = { hash: HASH, salt: 'salz', email: 'max@example.invalid', ts: 9100, emailOk: 1, profile: { invitedBy: 'olga' } };
 P('olga').geworben.push({ user: 'max', ts: 9100 });
 S.loginTagZaehlen('max', tag(10, 1)); S.loginTagZaehlen('max', tag(10, 2));
-pruefe('bestaetigt, erst 2 Tage: nichts', S.lioStand(P('olga')) === 10);
-S.loginTagZaehlen('max', tag(10, 9));
-pruefe('dritter Tag (nicht in Folge): +10', S.lioStand(P('olga')) === 20 && P('olga').lioFreunde === 2);
+pruefe('bestaetigt, erst 2 Tage in Folge: nichts', S.lioStand(P('olga')) === 10);
+S.loginTagZaehlen('max', tag(10, 3));
+pruefe('dritter Tag in Folge: +10', S.lioStand(P('olga')) === 20 && P('olga').lioFreunde === 2);
 
 (async () => {
   await new Promise(ok => S.server.listen(0, '127.0.0.1', ok));
