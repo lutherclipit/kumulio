@@ -4212,8 +4212,9 @@ function maybeShowOnboarding() {
     $('#ob-step').innerHTML = introFensterHtml('Schön, dass du da bist.', 'Das kann kumulio:')
       + introPunkteHtml([
         ['deals', 'Deals, die sich lohnen', 'Handverlesene Angebote und Preisfehler, ohne Deal-Spam.'],
-        ['wallet', 'Deine Gutschein-Wallet', 'Restguthaben, Code und PIN immer griffbereit.'],
-        ['message', 'Mit Freunden', 'Deals weiterschicken und zusammen sparen.'],
+        ['wallet', 'Alle Gutscheine in einer Wallet', 'Code und PIN immer griffbereit, abbuchen mit einem Tipp.'],
+        ['gift', 'Verschenken an Freunde', 'Gutscheine weitergeben, Coupons merken und teilen.'],
+        ['star', 'Lios und Cashback', 'Jeden Tag Lios sammeln und im Shop gegen Gutscheine tauschen.'],
       ]);
     $('#ob-extra').innerHTML = '';
     const next = $('#ob-next');
@@ -9030,7 +9031,7 @@ function gutscheinBuchen(seite, sign, amt, note) {
   }
   showToast({
     title: sign < 0 ? 'Abbuchung gespeichert' : 'Aufladung gespeichert',
-    text: `Restguthaben: ${euroFmt(v.balance)}`,
+    text: `Noch drauf: ${euroFmt(v.balance)}`,
     success: true,
   }, 3500);
   return '';
@@ -9943,17 +9944,67 @@ function bkPdfBlockHtml(d = bkDaten) {
       ${quelle}</section>`;
   }
   const seiten = (d.seiten || []).slice(0, 4);
+  // Die Seiten oeffnen in der App gross (zoombar, mit X) — nie die PDF selbst:
+  // in der installierten App (iPhone) oeffnete ein Link auf die PDF sie IN der
+  // App, ohne Schliessen-Knopf, und Zurueckwischen lud die App neu (Meldung
+  // eines Nutzers). Die PDF gibt es daneben zum Sichern oder Drucken: in der
+  // App ueber Teilen, im Browser in einem neuen Tab.
   return `<section class="bk-pdf" aria-label="Burger-King-Coupons zum Ausdrucken">
     ${kopf(d.gueltigBis ? `gültig bis ${bkDatum(d.gueltigBis)}` : 'aktuelle Ausgabe')}
     ${seiten.length ? `
-    <a class="bk-pdf-seiten${seiten.length > 1 ? ' mehrere' : ''}" href="${esc(pdf)}" target="_blank" rel="noopener" aria-label="PDF mit den Coupons öffnen">
-      ${seiten.map(s => `<img src="${API_BASE}/bk-coupons/seite-${s.n}${v}" width="${s.w}" height="${s.h}" alt="Seite ${s.n} der Burger-King-Coupons"
-        loading="lazy" decoding="async" style="aspect-ratio:${s.w} / ${s.h}">`).join('')}
-    </a>` : ''}
-    <a class="gd-los bk-pdf-knopf" href="${esc(pdf)}" target="_blank" rel="noopener">PDF ansehen</a>
+    <div class="bk-pdf-seiten${seiten.length > 1 ? ' mehrere' : ''}">
+      ${seiten.map(s => `<button class="bk-pdf-seite" type="button" data-bk-seite aria-label="Seite ${s.n} der Coupons groß ansehen"><img src="${API_BASE}/bk-coupons/seite-${s.n}${v}" width="${s.w}" height="${s.h}" alt=""
+        loading="lazy" decoding="async" style="aspect-ratio:${s.w} / ${s.h}"></button>`).join('')}
+    </div>
+    <button class="gd-los bk-pdf-knopf" type="button" data-bk-gross>Coupons groß ansehen</button>` : ''}
     <p class="bk-pdf-tipp">Nummer an der Kasse nennen oder den QR-Code scannen lassen.</p>
-    ${quelle}</section>`;
+    <p class="bk-pdf-quelle">${isStandalone
+      ? `<button class="bk-pdf-teilen" type="button" data-bk-teilen data-pdf="${esc(pdf)}">PDF sichern oder drucken</button>`
+      : `<a class="bk-pdf-teilen" href="${esc(pdf)}" target="_blank" rel="noopener">PDF öffnen</a>`}
+      · Quelle: <a href="https://www.einfach-sparsam.de/burger-king-coupons-ausdrucken.htm" target="_blank" rel="noopener noreferrer">einfach-sparsam.de</a>${d.groesse ? ` · ${String(Math.max(0.1, Math.round(d.groesse / 1e5) / 10)).replace('.', ',')} MB` : ''}</p>
+    </section>`;
 }
+// Seite gross: der Bildbetrachter der App (zwei Finger zoomen, X schliesst)
+document.addEventListener('click', e => {
+  const seite = e.target.closest?.('[data-bk-seite]');
+  const gross = !seite && e.target.closest?.('[data-bk-gross]');
+  if (!seite && !gross) return;
+  const img = (seite || gross.closest('.bk-pdf'))?.querySelector('img');
+  if (!img) return;
+  zeigeBildGross({ vonEl: img, src: img.currentSrc || img.src });
+});
+// PDF sichern oder drucken (installierte App): ueber das Teilen-Menue des
+// Handys. Teilen muss direkt auf den Tipp folgen — ist die PDF noch nicht
+// geladen, laedt sie erst, dann reicht ein zweiter Tipp.
+let bkPdfDatei = null;
+document.addEventListener('click', async e => {
+  const k = e.target.closest?.('[data-bk-teilen]');
+  if (!k || k.dataset.laedt) return;
+  const teilen = async datei => {
+    try {
+      if (navigator.canShare?.({ files: [datei] })) { await navigator.share({ files: [datei], title: 'Burger-King-Coupons' }); return true; }
+    } catch (err) { if (err?.name === 'AbortError') return true; if (err?.name !== 'NotAllowedError') island('Teilen hat nicht geklappt'); return err?.name !== 'NotAllowedError'; }
+    island('Dein Gerät kann die PDF hier nicht teilen. Die Coupons kannst du oben groß ansehen.');
+    return true;
+  };
+  if (bkPdfDatei) { teilen(bkPdfDatei); return; }
+  k.dataset.laedt = '1';
+  const text = k.textContent;
+  k.textContent = 'PDF wird geladen …';
+  try {
+    const r = await fetch(k.dataset.pdf);
+    if (!r.ok) throw new Error();
+    bkPdfDatei = new File([await r.blob()], 'Burger-King-Coupons.pdf', { type: 'application/pdf' });
+    k.textContent = text;
+    delete k.dataset.laedt;
+    if (!await teilen(bkPdfDatei)) k.textContent = 'PDF bereit: nochmal tippen';
+  } catch {
+    k.textContent = text;
+    delete k.dataset.laedt;
+    island('PDF konnte nicht geladen werden');
+  }
+});
+
 // Metadaten holen (hoechstens einmal pro Minute); true, wenn sich etwas geaendert hat
 async function ladeBkPdf() {
   if (bkLaden === true && Date.now() - (ladeBkPdf.zuletzt || 0) < 60e3) return false;
@@ -13069,7 +13120,7 @@ function inviteUrl() { return 'https://kumulio.de/?ref=' + encodeURIComponent(st
 function shareInvite() {
   if (!state.userName) { island('Zum Einladen bitte anmelden'); return; }
   const url = inviteUrl();
-  const text = 'Komm zu kumulio: alle Gutscheine mit Restguthaben in einer Wallet, die besten Deals und Lios für neue Gutscheine.';
+  const text = 'Komm zu kumulio: alle Gutscheine in einer Wallet, Cashback in Lios, Verschenken an Freunde und Coupons zum Merken.';
   if (navigator.share) { navigator.share({ title: 'kumulio', text, url }).catch(() => { }); return; }
   copyInvite();
 }
