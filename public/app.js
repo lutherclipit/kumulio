@@ -3609,6 +3609,7 @@ function authOk(r, { welcome = false } = {}) {
   neuGeprueft = false; // anderes Konto: eigener Stand beim Update-Log
   setTimeout(verarbeiteGeteiltes, 400); // geteiltes Bild wartete auf die Anmeldung
   api('/api/me').then(x => { kontoInfo = x; state.role = x.role || ''; refreshAdminUi(); pinKontoUebernehmen(x); renderWallet(); pruefeNeuigkeiten(); }).catch(() => { });
+  playSfx('anmelden', .5);   // derselbe Ton wie nach der PIN
   if (welcome) {
     // Willkommens-Moment: der Punkt quittiert das neue Konto
     $('#welcome-title').textContent = `Willkommen, ${r.user}!`;
@@ -4990,7 +4991,7 @@ function euroFmt(n) { return n == null ? '' : n.toFixed(2).replace('.', ',').rep
 
 // ---- Spielgefühl: Sounds, Vibration, Aufleuchten, Geldscheine, Zähl-Animation ----
 
-const SFX = { kaching: '/sounds/kaching.mp3', pay: '/sounds/pay.mp3', plop: '/sounds/plop.mp3', coin: '/sounds/coin.mp3', error: '/sounds/error.mp3', wow: '/sounds/wow.mp3', wowShort: '/sounds/wow-short.mp3' };
+const SFX = { kaching: '/sounds/kaching.mp3', pay: '/sounds/pay.mp3', plop: '/sounds/plop.mp3', coin: '/sounds/coin.mp3', error: '/sounds/error.mp3', wow: '/sounds/wow.mp3', wowShort: '/sounds/wow-short.mp3', anmelden: '/sounds/anmelden.mp3' };
 // Ton ist Opt-in: alle Effekte bleiben stumm, bis der Schalter in den Einstellungen an ist
 // (function statt const: wird auch weiter oben im Skript schon beim Laden gebraucht)
 function soundOn() { return localStorage.getItem('ra.sound') === '1'; }
@@ -12714,7 +12715,7 @@ function entsperreWallet() {
   neuStarten(logo, 'k-go');
   setzeSperrText('Entsperrt', false);
   buzz(15);
-  playSfx('plop', .4);
+  playSfx('anmelden', .5);   // Anmeldeton (vom Nutzer), auch nach Face ID
   clearTimeout(sperreGehtUhr);
   sperreGehtUhr = setTimeout(() => {
     el.classList.add('geht');
