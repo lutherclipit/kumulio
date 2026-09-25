@@ -196,11 +196,16 @@ body.sparsam .tabbar { backdrop-filter: none; -webkit-backdrop-filter: none; }
 .tabbtn:active .tab-ico { transform: scale(.88); }
 .tabbtn.active:active .tab-ico { transform: translate3d(0, -9px, 0) scale(1.18); }
 .tabbtn.active .tab-txt { font-weight: 800; }
-/* Woelbung ueber dem aktiven Reiter: dieselbe Flaeche wie die Leiste, oben
-   mit derselben feinen Kante; sie sitzt 3px tief, damit keine Naht bleibt */
+/* Woelbung ueber dem aktiven Reiter: dieselbe Flaeche wie die Leiste, und
+   ihre Kante ist die Fortsetzung der Leistenkante. Die Kante der Leiste ist
+   eine 1-px-Linie direkt ueber ihr (box-shadow 0 -1px, Mitte bei -0,5 px);
+   genau dort liegt die Grundlinie der Woelbung (y 16 von 20 im viewBox, eine
+   Einheit = 19/16 px). Die Flaeche reicht darunter 4,75 px in die Leiste und
+   deckt die gerade Linie unter der Woelbung ab — so laeuft die Kante ohne Naht
+   ueber die Woelbung, statt dass diese davor sitzt. */
 .tab-buckel {
-  position: absolute; left: 0; bottom: calc(100% - 3px); z-index: 0;
-  width: 94px; height: 19px; overflow: visible; pointer-events: none;
+  position: absolute; left: 0; bottom: calc(100% - 4.25px); z-index: 0;
+  width: 94px; height: 23.75px; overflow: visible; pointer-events: none;
   transform-origin: 50% 100%; will-change: transform;
   filter: drop-shadow(0 -6px 10px rgba(16, 24, 32, .06));
   transition: opacity .25s ease;
