@@ -100,3 +100,7 @@ body:is(.sparsam, .ohne-anim) .pe-ava-wahl.pop :is(.pe-ava, .avatar-big) { anima
    gelten hier nicht — der Kopf bleibt randlos, die Wortmarke weiss wie im Hellen */
 :root[data-theme="dark"] .neu-modal { padding: 0; }
 :root[data-theme="dark"] .neu-logo .k-wordmark { color: #fff; }
+
+/* Roter Punkt (Anfrage / Bonus wartet) oben links: mit Kumulio sitzt er auf
+   der Aussenkante des Rings statt innen — sonst verdeckt er Kamm und Auge */
+#btn-profile-top.has-dot:has(.ava-k)::after { top: -3px; right: -3px; z-index: 3; }
