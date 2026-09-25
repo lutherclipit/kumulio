@@ -3609,7 +3609,7 @@ function authOk(r, { welcome = false } = {}) {
   neuGeprueft = false; // anderes Konto: eigener Stand beim Update-Log
   setTimeout(verarbeiteGeteiltes, 400); // geteiltes Bild wartete auf die Anmeldung
   api('/api/me').then(x => { kontoInfo = x; state.role = x.role || ''; refreshAdminUi(); pinKontoUebernehmen(x); renderWallet(); pruefeNeuigkeiten(); }).catch(() => { });
-  playSfx('anmelden', .5);   // derselbe Ton wie nach der PIN
+  playSfx('anmelden', 1);   // derselbe Ton wie nach der PIN
   if (welcome) {
     // Willkommens-Moment: der Punkt quittiert das neue Konto
     $('#welcome-title').textContent = `Willkommen, ${r.user}!`;
@@ -12715,7 +12715,7 @@ function entsperreWallet() {
   neuStarten(logo, 'k-go');
   setzeSperrText('Entsperrt', false);
   buzz(15);
-  playSfx('anmelden', .5);   // Anmeldeton (vom Nutzer), auch nach Face ID
+  playSfx('anmelden', 1);   // Anmeldeton (vom Nutzer, 70 % leiser in der Datei), auch nach Face ID
   clearTimeout(sperreGehtUhr);
   sperreGehtUhr = setTimeout(() => {
     el.classList.add('geht');
