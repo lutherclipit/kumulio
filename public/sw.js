@@ -51,8 +51,10 @@ self.addEventListener('push', e => {
     }
     await self.registration.showNotification(d.title || 'kumulio', {
       body: d.body || '',
-      icon: '/brand/kumulio-icon.svg',
-      badge: '/brand/kumulio-icon.svg',
+      // PNG statt SVG: Android zeigt SVG-Icons in Mitteilungen nicht an; das
+      // Badge ist einfarbig (Android nutzt nur die Deckkraft)
+      icon: '/brand/icon-192.png?v=2',
+      badge: '/brand/badge-96.png',
       tag: d.tag || '',
       data: { url: d.url || '/' },
     });
