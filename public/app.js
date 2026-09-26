@@ -4336,7 +4336,7 @@ function startTour() {
     </div>`;
   const steps = [
     { view: 'feed', tab: 'feed', title: 'Deals, die sich lohnen', text: 'Oben die Highlights, darunter die Top Deals für dich. Preisfehler meldet kumulio auf Wunsch sofort aufs Handy.', visual: feedDemo },
-    { view: 'wallet', tab: 'wallet', title: 'Deine Wallet', text: 'Gutschein abfotografieren, den Rest füllt kumulio aus. Karten & Coupons deiner Läden liegen gleich daneben.', visual: walletDemo },
+    { view: 'wallet', tab: 'wallet', title: 'Deine Wallet', text: 'Gutschein scannen, den Rest füllt kumulio aus. Karten & Coupons deiner Läden liegen gleich daneben.', visual: walletDemo },
     // Lios: mit Konto zeigt das Lichtfeld auf den runden Shop-Knopf oben rechts in der
     // Wallet, ohne Konto (den Knopf gibt es dann nicht) steht die Karte mittig
     { view: 'wallet', sel: '#btn-lio-top', nurWenn: lioKnopfSichtbar, title: 'Lios sammeln', text: (state.token
@@ -7702,20 +7702,36 @@ function oeffneScanner({ art = 'gutschein', mehrere = false, beimFoto = null, be
     } catch { detektor = null; }
   }
 
-  // ---- Rahmen: so gross wie moeglich zwischen Kopf und Fuss, mittig
+  // ---- Rahmen: so gross wie moeglich zwischen Kopf und Fuss, mittig. Quer
+  // (Handy seitlich) stehen Ausloeser und Co. in einer Spalte rechts, der
+  // Rahmen nutzt die ganze Hoehe links davon. Sichere Raender (Notch, Leiste
+  // unten) traegt .scanner als padding — nur zum Messen hier
   const anordnen = () => {
-    const W = el.clientWidth;
-    const oben = el.querySelector('.sc-kopf').getBoundingClientRect().bottom + 14;
-    const unten = el.querySelector('.sc-fuss').getBoundingClientRect().top - 60;   // Platz fuer den Hinweis
+    const W = el.clientWidth, H = el.clientHeight;
+    const quer = W > H && H <= 560;
+    el.classList.toggle('quer', quer);
+    const cs = getComputedStyle(el);
+    const sl = parseFloat(cs.paddingLeft) || 0, sr = parseFloat(cs.paddingRight) || 0, sb = parseFloat(cs.paddingBottom) || 0;
+    const oben = el.querySelector('.sc-kopf').getBoundingClientRect().bottom + (quer ? 8 : 14);
+    const links = sl + 20;
+    // quer: so weit von der Spalte wie der Titel, dann stehen Titel, Rahmen und Hinweis auf einer Mitte
+    const rechts = quer ? el.querySelector('.sc-fuss').getBoundingClientRect().left - 20 : W - sr - 20;
+    // Platz fuer den Hinweis unter dem Rahmen
+    const unten = quer ? H - sb - 50 : el.querySelector('.sc-fuss').getBoundingClientRect().top - 60;
+    const breit = Math.max(120, rechts - links);
     const seiten = SCAN_FORMEN[form];
     const platzH = Math.max(120, unten - oben);
-    let w = seiten < 1 ? Math.min((W - 40) * 0.8, 380) : Math.min(W - 40, 560);
+    let w = seiten < 1 && !quer ? Math.min(breit * 0.8, 380) : Math.min(breit, 560);
     let h = w / seiten;
     if (h > platzH) { h = platzH; w = h * seiten; }
-    const x = (W - w) / 2, y = oben + (platzH - h) / 2;
+    const x = links + (breit - w) / 2, y = oben + (platzH - h) / 2;
     lauf.lage = { x, y, w, h };
     Object.assign(rahmen.style, { left: Math.round(x) + 'px', top: Math.round(y) + 'px', width: Math.round(w) + 'px', height: Math.round(h) + 'px' });
-    hinweisEl.style.top = Math.round(y + h + 18) + 'px';
+    // Der Hinweis steht mittig unter dem Rahmen (quer nur ueber dessen Spalte)
+    Object.assign(hinweisEl.style, {
+      top: Math.round(y + h + (quer ? 12 : 18)) + 'px',
+      left: quer ? Math.round(links) + 'px' : '', right: quer ? Math.round(W - rechts) + 'px' : '',
+    });
     lauf.grau = null; lauf.unruhe = [];
   };
   // Rahmen im Video (das Video fuellt den Schirm wie object-fit: cover);
@@ -7738,7 +7754,7 @@ function oeffneScanner({ art = 'gutschein', mehrere = false, beimFoto = null, be
     start: 'Kamera startet …',
     sucht: istBon ? 'Bon in den Rahmen halten' : 'Gutschein in den Rahmen halten',
     naeher: 'Näher ran',
-    ganz: 'Ganzen Bon in den Rahmen halten',
+    ganz: istBon ? 'Ganzen Bon in den Rahmen halten' : 'Ganz in den Rahmen halten',
     dunkel: 'Mehr Licht, bitte',
     halten: 'Code erkannt, still halten …',
     ohneCode: 'Kein Code lesbar? Tipp auf den Auslöser',
@@ -7826,7 +7842,8 @@ function oeffneScanner({ art = 'gutschein', mehrere = false, beimFoto = null, be
         if (c) {
           const bb = c.boundingBox;
           fund = { text: c.rawValue, format: codeFormatName(c.format), typ: /qr|aztec|data_matrix|pdf|maxi/.test(c.format) ? '2d' : '1d',
-            breite: (bb?.width || 0) / ac.width, mitte: bb ? (bb.y + bb.height / 2) / ac.height : null, bild };
+            breite: (bb?.width || 0) / ac.width, mitte: bb ? (bb.y + bb.height / 2) / ac.height : null, bild,
+            amRand: !!bb && (bb.x < ac.width * 0.01 || bb.x + bb.width > ac.width * 0.99 || bb.y < ac.height * 0.005 || bb.y + bb.height > ac.height * 0.995) };
         }
       } else {
         const fl = findeCodeFlaechen(mess);
@@ -7846,7 +7863,11 @@ function oeffneScanner({ art = 'gutschein', mehrere = false, beimFoto = null, be
           const r = hinten ? await hinten.lies(c, v.bin, formate) : zxingLies(c, v.bin, formate);
           if (r && r.text && r.text.trim().length >= 4) {
             const typ = /qr|aztec|matrix|pdf|maxi/.test(r.format || '') ? '2d' : '1d';
-            fund = { text: r.text.trim(), format: r.format || '', typ, breite: f.width / mess.width, mitte: (f.y + f.height / 2) / mess.height, bild };
+            // amRand: die Code-Flaeche stoesst an den Rahmen (bis 4 px im 360er
+            // Messbild; die Flaeche reicht etwas ueber die Striche hinaus) — der
+            // Code ragt hinaus, das Bild waere angeschnitten
+            fund = { text: r.text.trim(), format: r.format || '', typ, breite: f.width / mess.width, mitte: (f.y + f.height / 2) / mess.height, bild,
+              amRand: f.x < 4 || f.x + f.width > mess.width - 4 || f.y < 4 || f.y + f.height > mess.height - 4 };
             break;
           }
         }
@@ -7878,6 +7899,9 @@ function oeffneScanner({ art = 'gutschein', mehrere = false, beimFoto = null, be
     const ruhig = u.length === 2 && u.every(x => x.weg < 1.5 && (x.rest <= SCAN_RUHIG || x.rest <= x.kante));
     const beste = Math.max(...lauf.schaerfen.map(x => x.s));
     const scharf = v.schaerfe >= beste * 0.7;
+    // Der Code stoesst an den Rahmen (zu nah dran oder seitlich verrutscht):
+    // nicht selbst ausloesen, das Bild waere angeschnitten
+    if (code && code.amRand) { lauf.halteSeit = 0; lauf.sucheSeit = 0; zustand('ganz'); return; }
     if (code && code.breite >= minB) {
       lauf.sucheSeit = 0;
       // Bon mit dem Code ganz oben im Rahmen: Laden und Filiale fehlen im Bild
@@ -8146,7 +8170,8 @@ function oeffneScanner({ art = 'gutschein', mehrere = false, beimFoto = null, be
     else if (lauf.pausiert) kameraAn();
   };
   const weg = () => zu('weg');
-  const neuLage = () => { if (lauf.an && !lauf.fertig) anordnen(); };
+  // Gedreht oder Fenster geaendert: neuer Rahmen, alte Lesungen gelten nicht mehr
+  const neuLage = () => { if (lauf.an && !lauf.fertig) { anordnen(); lauf.treffer = []; lauf.halteSeit = 0; } };
   const zu = (grund = 'abbruch') => {
     if (!lauf.an) return;
     lauf.an = false;
@@ -8969,7 +8994,7 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
           && !findDupe({ vendor: currentVendor(), code, pin, amount: wert });
         if (sicher) {
           waKompakt(seite, {
-            titel: `Erkannt: ${currentVendor()} · ${euroFmt(wert)}`,
+            titel: `Erkannt: ${currentVendor()}\u00a0· ${euroFmt(wert)}`,   // der Punkt bricht nie an den Zeilenanfang
             zeilen: [code && ['Code', code], pin && ['PIN', pin]].filter(Boolean),
             bild: addImg || addCodeImg,
           });
@@ -13494,7 +13519,8 @@ function openPfandAdd(prefillName = '', bearbeiteId = '', opts = {}) {
         const t = sel => String(q(sel)?.value || '').trim();
         const d = entwurf();
         const filiale = t('#pf-strasse') || t('#pf-ort');
-        const sicher = r.istPfand && r.kette?.sicher && r.betrag?.sicher && gewaehlt && d.amount > 0 && filiale
+        // Beim Aendern eines Bons immer das ganze Formular ("Hinzufuegen" passte dort nicht)
+        const sicher = !addEditId && r.istPfand && r.kette?.sicher && r.betrag?.sicher && gewaehlt && d.amount > 0 && filiale
           && (r.code?.sicher || r.codeBildGeprueft) && !pruefen()
           && !findDupe({ art: 'pfand', vendor: gewaehlt, code: t('#wa-code').replace(/\s+/g, '') });
         if (sicher) {
@@ -13503,9 +13529,9 @@ function openPfandAdd(prefillName = '', bearbeiteId = '', opts = {}) {
           const code = t('#wa-code');
           waKompakt(seite, {
             // Die Filiale steht darunter (und auf der Karte): die Zeile bleibt kurz
-            titel: `Erkannt: ${gewaehlt} · ${euroFmt(d.amount)}`,
+            titel: `Erkannt: ${gewaehlt}\u00a0· ${euroFmt(d.amount)}`,
             zeilen: [
-              ['Filiale', [t('#pf-name'), t('#pf-strasse'), ort].filter(Boolean).join(', '), ['#pf-name', '#pf-strasse', '#pf-plz', '#pf-ort'].some(unsicher)],
+              ['Filiale', [t('#pf-name'), t('#pf-strasse'), ort].filter(Boolean), ['#pf-name', '#pf-strasse', '#pf-plz', '#pf-ort'].some(unsicher)],
               code && ['Code', code.length > 22 ? code.slice(0, 10) + ' … ' + code.slice(-6) : code, unsicher('#wa-code')],
               t('#pf-datum') && ['Datum', waTag(t('#pf-datum')), unsicher('#pf-datum')],
               t('#pf-bon') && ['Bon-Nr.', t('#pf-bon'), unsicher('#pf-bon')],
@@ -13713,7 +13739,12 @@ function waSchalterVerdrahten(seite, q, typ, opts, alterSchalter) {
 // alles Noetige sicher gelesen wurde; gespeichert wird trotzdem erst mit
 // "Hinzufuegen" (derselbe Speichern-Knopf, dieselbe Pruefung wie sonst).
 // "Bearbeiten" zeigt das ganze, schon ausgefuellte Formular.
-// zeilen: [Bezeichnung, Wert, pruefen?]
+// zeilen: [Bezeichnung, Wert, pruefen?]; Wert als Liste (Filiale: Name,
+// Strasse, Ort) bricht nur zwischen den Teilen um, nie mitten in "Str. 64"
+function waKompaktWert(v) {
+  if (!Array.isArray(v)) return esc(v);
+  return v.filter(Boolean).map(t => t.length <= 26 ? `<span class="wa-am-stueck">${esc(t)}</span>` : esc(t)).join(', ');
+}
 function waKompakt(seite, { titel, unter = '', zeilen = [], bild = '' }) {
   const el = seite?.el;
   const form = el?.querySelector('.wa-form');
@@ -13733,7 +13764,7 @@ function waKompakt(seite, { titel, unter = '', zeilen = [], bild = '' }) {
         <small>${esc(unter || (pruefen ? 'Das Wichtigste ist sicher gelesen. Markiertes bitte kurz ansehen.' : 'Alles sicher gelesen. Kurz ansehen, dann hinzufügen.'))}</small></span>
     </div>
     ${zeilen.length ? `<div class="wa-erkannt-zeilen">${zeilen.map(([k, v, p]) => `
-      <div class="wa-erkannt-zeile${p ? ' pruefen' : ''}"><span>${esc(k)}${p ? ' · prüfen' : ''}</span><b>${esc(v)}</b></div>`).join('')}</div>` : ''}
+      <div class="wa-erkannt-zeile${p ? ' pruefen' : ''}"><span>${esc(k)}${p ? ' · prüfen' : ''}</span><b>${waKompaktWert(v)}</b></div>`).join('')}</div>` : ''}
     ${bild ? `<button class="wa-erkannt-bild" type="button" aria-label="Scan groß ansehen"><img src="${esc(bild)}" alt="Dein Scan"></button>` : ''}`;
   form.querySelector('.wa-vorschau')?.after(box);
   el.querySelector('#wa-kompakt-knoepfe')?.remove();

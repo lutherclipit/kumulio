@@ -12,13 +12,13 @@
         "bildAlt": "Der Scanner: ein Pfandbon im Rahmen, darunter „Code erkannt, still halten“",
         "bildGroesse": [
           560,
-          840
+          904
         ]
       },
       {
         "icon": "check",
         "titel": "Alles erkannt? Ein Tipp",
-        "text": "Ist alles Wichtige sicher gelesen, siehst du statt des langen Formulars nur, was erkannt wurde. Ein Tipp auf „Hinzufügen“ und er liegt in der Wallet. Mit „Bearbeiten“ änderst du vorher noch etwas.",
+        "text": "Ist alles Wichtige sicher gelesen, siehst du statt des langen Formulars nur, was erkannt wurde. Ein Tipp auf „Hinzufügen“ genügt. Mit „Bearbeiten“ änderst du vorher noch etwas.",
         "bild": "/brand/neu/2026-09-26-erkannt-hell.webp",
         "bildDunkel": "/brand/neu/2026-09-26-erkannt-dunkel.webp",
         "bildAlt": "Ein gescannter REWE-Gutschein über 50 Euro mit Code und PIN, bereit zum Hinzufügen",

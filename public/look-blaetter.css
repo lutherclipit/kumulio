@@ -1875,13 +1875,14 @@ a.bk-pdf-teilen { color: var(--akzent-text); }
   padding: 11px 0; border-bottom: 1px solid var(--linie);
 }
 .wa-erkannt-zeile:last-child { border-bottom: 0; }
-.wa-erkannt-zeile span { flex: none; font-size: .8rem; font-weight: 650; color: var(--muted); }
+.wa-erkannt-zeile > span { flex: none; font-size: .8rem; font-weight: 650; color: var(--muted); }
 .wa-erkannt-zeile b {
   min-width: 0; font-size: .9rem; font-weight: 750; text-align: right;
   font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
 }
-.wa-erkannt-zeile.pruefen span { color: #9A5B00; font-weight: 750; }
-:root[data-theme="dark"] .wa-erkannt-zeile.pruefen span { color: #F5B75E; }
+.wa-erkannt-zeile .wa-am-stueck { white-space: nowrap; }
+.wa-erkannt-zeile.pruefen > span { color: #9A5B00; font-weight: 750; }
+:root[data-theme="dark"] .wa-erkannt-zeile.pruefen > span { color: #F5B75E; }
 
 /* =============================================================================
    Live-Scanner: Kamera im Vollbild, Rahmen in der Mitte, aussen abgedunkelt.
@@ -1889,7 +1890,10 @@ a.bk-pdf-teilen { color: var(--akzent-text); }
    Glas, aber ohne backdrop-filter; Bewegung nur transform/opacity.
    ========================================================================== */
 .scanner {
-  position: fixed; inset: 0; z-index: 91; overflow: hidden;
+  position: fixed; inset: 0; z-index: 91; overflow: hidden; box-sizing: border-box;
+  /* Sichere Raender nur zum Messen (anordnen): die Kinder liegen absolut und
+     fuellen trotzdem den ganzen Schirm */
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
   background: #07090C; color: #fff;
   touch-action: none; overscroll-behavior: contain;
   -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
@@ -1938,12 +1942,13 @@ a.bk-pdf-teilen { color: var(--akzent-text); }
 .sc-kopf {
   position: absolute; left: 0; right: 0; top: 0;
   display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; gap: 8px;
-  padding: calc(env(safe-area-inset-top, 0px) + 12px) 14px 0;
+  padding: calc(env(safe-area-inset-top, 0px) + 12px) calc(env(safe-area-inset-right, 0px) + 14px) 0 calc(env(safe-area-inset-left, 0px) + 14px);
 }
 .sc-titel {
   grid-column: 2; margin: 0; text-align: center; color: #fff;
   font-size: 1.02rem; font-weight: 800; letter-spacing: -.01em;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, .5);   /* lesbar auch ueber hellem Papier */
 }
 .sc-kopf .sc-zu { grid-column: 1; grid-row: 1; }
 .sc-kopf .sc-licht { grid-column: 3; grid-row: 1; }
@@ -1960,7 +1965,7 @@ a.bk-pdf-teilen { color: var(--akzent-text); }
 .sc-fuss {
   position: absolute; left: 0; right: 0; bottom: 0;
   display: flex; flex-direction: column; align-items: center; gap: 18px;
-  padding: 0 18px calc(env(safe-area-inset-bottom, 0px) + 24px);
+  padding: 0 calc(env(safe-area-inset-right, 0px) + 18px) calc(env(safe-area-inset-bottom, 0px) + 24px) calc(env(safe-area-inset-left, 0px) + 18px);
 }
 .sc-leiste { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; width: 100%; max-width: 420px; }
 .sc-neben { display: flex; flex-direction: column; align-items: center; gap: 7px; cursor: pointer; }
@@ -2005,6 +2010,29 @@ a.bk-pdf-teilen { color: var(--akzent-text); }
 .scanner .gd-los, :root[data-theme="dark"] .scanner .gd-los { margin-top: 0; background: #fff; color: #111; cursor: pointer; }
 .scanner .gd-los.leise, :root[data-theme="dark"] .scanner .gd-los.leise { background: rgba(255, 255, 255, .14); color: #fff; }
 .scanner .gd-los .icon { width: 20px; height: 20px; }
+/* Quer (Handy seitlich): Ausloeser mittig in einer Spalte rechts, darueber
+   Karte | Papier, darunter Bild hochladen — wie in der Kamera-App. Der Rahmen
+   nutzt die ganze Hoehe links davon (anordnen in app.js) */
+.scanner.quer { --sc-spalte: calc(env(safe-area-inset-right, 0px) + 124px); }
+.scanner.quer .sc-kopf { right: var(--sc-spalte); padding-right: 14px; }
+.scanner.quer .sc-fuss {
+  left: auto; top: 0; width: var(--sc-spalte); box-sizing: border-box;
+  display: grid; grid-template-rows: minmax(0, 1fr) auto minmax(0, 1fr); justify-items: center; align-items: center; gap: 16px;
+  padding: calc(env(safe-area-inset-top, 0px) + 12px) calc(env(safe-area-inset-right, 0px) + 12px) calc(env(safe-area-inset-bottom, 0px) + 12px) 12px;
+}
+.scanner.quer .sc-leiste { display: contents; }
+.scanner.quer .sc-form { grid-row: 1; align-self: end; grid-template-columns: minmax(0, 1fr); }
+.scanner.quer .sc-form-knopf { min-width: 78px; padding: 0 10px; }
+.scanner.quer .sc-ausloeser { grid-row: 2; }
+.scanner.quer .sc-leiste > .sc-neben:first-child { grid-row: 3; align-self: start; }
+.scanner.quer .sc-leiste > .sc-neben[aria-hidden="true"] { display: none; }
+/* Kamera geht nicht, quer: ohne grosses Symbol, Knoepfe nebeneinander */
+.scanner.quer.fehler .sc-kopf { right: 0; }
+.scanner.quer.fehler .sc-fuss { display: none; }
+.scanner.quer .sc-fehler { top: calc(50% + 24px); width: min(460px, calc(100% - 40px)); }
+.scanner.quer .sc-fehler-bild { display: none; }
+.scanner.quer .sc-fehler h3 { margin-top: 0; }
+.scanner.quer .sc-fehler-knoepfe { grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); margin-top: 16px; }
 @media (prefers-reduced-motion: reduce) {
   .scanner, .sc-video { transition: none; }
   .scanner.erfasst .sc-blitz, .sc-rahmen.sc-klick, .sc-rahmen.sc-form-neu .sc-ecke, .sc-hinweis.sc-neu { animation: none; }
