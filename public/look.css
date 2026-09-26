@@ -1133,7 +1133,9 @@ body:has(#wallet-mini.show) .topbar .brand { opacity: 0; transform: translateY(6
    Text, der Rest gleich verteilt. Die Flaeche dahinter besteht aus zwei
    runden Kappen und einem Mittelstueck (setzeWmFlaeche in app.js) — nur
    transform, und die Ecken bleiben beim Gleiten rund. */
-.wallet-kopf #wallet-modes { grid-template-columns: auto auto auto; }
+/* stretch: die Felder fuellen die ganze Leiste (eine alte Regel zentrierte
+   sie, dann sass die Flaeche eng um den Text und rechts blieb Platz frei) */
+.wallet-kopf #wallet-modes { grid-template-columns: auto auto auto; justify-content: stretch; }
 #wallet-modes .wm-flaeche {
   left: 4px; right: 4px; top: 4px; bottom: 4px; width: auto;
   background: none; box-shadow: none; border-radius: 0; transform: none; transition: none;
