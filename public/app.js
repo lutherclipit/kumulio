@@ -7536,10 +7536,17 @@ const SCAN_1D = [...PFAND_STRICHCODES, 'UPC_E'];
 const SCAN_2D = ['QR_CODE', 'AZTEC', 'DATA_MATRIX', 'PDF_417'];
 const SCAN_TAKT = 200;        // ms zwischen zwei Messungen
 const SCAN_HALTEN = 500;      // so lange muss alles passen, dann loest er aus
-// Ruhig: zwischen zwei Messungen hoechstens einen Block (etwa 2 % der
-// Rahmenbreite) verschoben und danach kaum Unterschied (Mittel je Block,
-// 0..255). Zittern der Hand geht durch, Hineinschieben und Zoomen nicht.
+// Ruhig: zwischen zwei Messungen hoechstens einen Block je Richtung (etwa
+// 2 % der Rahmenbreite) verschoben und danach kaum Unterschied (Mittel je Block,
+// 0..255) — absolut oder im Verhaeltnis zur Kantenstaerke des Bildes: ein
+// Strichcode laesst schon bei Zittern unter einem Block einen grossen Rest,
+// der Rest bleibt aber kleiner als eine Kante. Zittern der Hand geht durch,
+// Hineinschieben und Zoomen nicht.
 const SCAN_RUHIG = 12;
+// Bon: Laden und Filiale stehen ueber dem Code. Liegt die Code-Mitte im
+// oberen Teil des Rahmens (Anteil der Rahmenhoehe), ragt der Kopf oben
+// heraus: dann nicht selbst ausloesen, sondern "Ganzen Bon in den Rahmen"
+const SCAN_BON_CODE_OBEN = 0.3;
 let scannerAktiv = null;      // { zu, el } solange der Scanner offen ist
 function scannerSchliessen() { try { scannerAktiv?.zu('weg'); } catch { /* ist schon zu */ } }
 
@@ -7582,8 +7589,14 @@ function scanKlein(g, w, h, b) {
 // rest = der Unterschied danach (0..255). Zittern der Hand ist ein kleines weg
 // mit kleinem rest; Hineinschieben, Drehen, Zoomen sind es nicht.
 function scanBewegung(a, b, kw, kh, r = 3) {
-  const aus = { weg: Infinity, rest: Infinity };
+  const aus = { weg: Infinity, rest: Infinity, kante: 0 };
   if (!a || !b || a.length !== b.length || kw <= 2 * r || kh <= 2 * r) return aus;
+  // Kantenstaerke: mittlerer Unterschied benachbarter Bloecke
+  let k = 0;
+  for (let y = 0; y < kh - 1; y++) {
+    for (let x = 0, i = y * kw; x < kw - 1; x++, i++) k += Math.abs(a[i] - a[i + 1]) + Math.abs(a[i] - a[i + kw]);
+  }
+  aus.kante = k / (2 * (kw - 1) * (kh - 1));
   for (let dy = -r; dy <= r; dy++) {
     for (let dx = -r; dx <= r; dx++) {
       let s = 0, n = 0;
@@ -7674,6 +7687,7 @@ function oeffneScanner({ art = 'gutschein', mehrere = false, beimFoto = null, be
   const lauf = {
     an: true, fertig: false, pausiert: false, strom: null, spur: null, uhr: 0, sucht: false, licht: false,
     lage: null, grau: null, werte: null, unruhe: [], schaerfen: [], treffer: [], halteSeit: 0, sucheSeit: 0, start: 0, zustand: '',
+    startNr: 0, suchen: [], foto: null,
   };
   // Leinwaende einmal anlegen und bei jedem Takt wiederverwenden
   const mess = document.createElement('canvas'), messG = mess.getContext('2d', { willReadFrequently: true });
@@ -7724,6 +7738,7 @@ function oeffneScanner({ art = 'gutschein', mehrere = false, beimFoto = null, be
     start: 'Kamera startet …',
     sucht: istBon ? 'Bon in den Rahmen halten' : 'Gutschein in den Rahmen halten',
     naeher: 'Näher ran',
+    ganz: 'Ganzen Bon in den Rahmen halten',
     dunkel: 'Mehr Licht, bitte',
     halten: 'Code erkannt, still halten …',
     ohneCode: 'Kein Code lesbar? Tipp auf den Auslöser',
@@ -7733,7 +7748,7 @@ function oeffneScanner({ art = 'gutschein', mehrere = false, beimFoto = null, be
   // Suchen, Naeher ran, Licht: solche Hinweise wechseln hoechstens alle 0,8 s
   // (sonst flackern sie, waehrend man den Bon heranfuehrt). Code erkannt und
   // Aufnahme kommen sofort.
-  const LEISE_ZUSTAENDE = ['sucht', 'naeher', 'dunkel', 'ohneCode'];
+  const LEISE_ZUSTAENDE = ['sucht', 'naeher', 'ganz', 'dunkel', 'ohneCode'];
   const zustand = z => {
     if (lauf.zustand === z) return;
     const jetzt = performance.now();
@@ -7798,16 +7813,20 @@ function oeffneScanner({ art = 'gutschein', mehrere = false, beimFoto = null, be
     if (!q) return;
     lauf.sucht = true;
     try {
+      // bild: wann das gelesene Kamerabild aufgenommen wurde; mitte: Hoehe der
+      // Code-Mitte im Rahmen (0 oben .. 1 unten)
       let fund = null;
       if (detektor) {
         const k = Math.min(1, 960 / q.w);
         ac.width = Math.round(q.w * k); ac.height = Math.round(q.h * k);
+        const bild = performance.now();
         acG.drawImage(video, q.x, q.y, q.w, q.h, 0, 0, ac.width, ac.height);
         const codes = await detektor.detect(ac).catch(() => { detektor = null; return []; });
         const c = codes.find(x => x.rawValue && x.rawValue.length >= 4);
         if (c) {
+          const bb = c.boundingBox;
           fund = { text: c.rawValue, format: codeFormatName(c.format), typ: /qr|aztec|data_matrix|pdf|maxi/.test(c.format) ? '2d' : '1d',
-            breite: (c.boundingBox?.width || 0) / ac.width };
+            breite: (bb?.width || 0) / ac.width, mitte: bb ? (bb.y + bb.height / 2) / ac.height : null, bild };
         }
       } else {
         const fl = findeCodeFlaechen(mess);
@@ -7815,7 +7834,6 @@ function oeffneScanner({ art = 'gutschein', mehrere = false, beimFoto = null, be
         const staerkste = fl.reduce((a, b) => (!a || b.score > a.score ? b : a), null);
         lauf.flaeche = staerkste && staerkste.score >= 120000 ? { typ: staerkste.typ, breite: staerkste.width / mess.width, zeit: performance.now() } : null;
         const kandidaten = [...fl.filter(f => f.typ === '1d').slice(0, 2), ...fl.filter(f => f.typ === '2d').slice(0, 1)];
-        fassung = (fassung + 1) % 3;
         const hinten = kandidaten.length ? await zxingWorker() : null;
         if (!hinten && kandidaten.length && !window.ZXing) await zxingDetect(document.createElement('canvas')).catch(() => null);
         for (const f of kandidaten) {
@@ -7823,19 +7841,24 @@ function oeffneScanner({ art = 'gutschein', mehrere = false, beimFoto = null, be
           // Breite Strich-Flaeche = Strichcode; fast quadratisch kann auch ein Aztec-/QR-Code sein
           const formate = f.typ === '2d' ? SCAN_2D : f.width > f.height * 1.6 ? SCAN_1D : null;
           const v = FASSUNGEN[f.typ][fassung];
+          const bild = performance.now();
           const c = codeAusVideo(f, q, v);
           const r = hinten ? await hinten.lies(c, v.bin, formate) : zxingLies(c, v.bin, formate);
           if (r && r.text && r.text.trim().length >= 4) {
             const typ = /qr|aztec|matrix|pdf|maxi/.test(r.format || '') ? '2d' : '1d';
-            fund = { text: r.text.trim(), format: r.format || '', typ, breite: f.width / mess.width };
+            fund = { text: r.text.trim(), format: r.format || '', typ, breite: f.width / mess.width, mitte: (f.y + f.height / 2) / mess.height, bild };
             break;
           }
         }
+        // Eine Fassung, die gelesen hat, bleibt: so kommt die zweite gleiche
+        // Lesung gleich im naechsten Takt. Erst ein Fehlversuch nimmt die naechste
+        if (!fund && kandidaten.length) fassung = (fassung + 1) % 3;
       }
       const jetzt = performance.now();
       if (fund) lauf.treffer.push({ ...fund, zeit: jetzt });
       lauf.treffer = lauf.treffer.filter(x => jetzt - x.zeit < 2500);
-    } catch { /* naechster Takt versucht es wieder */ } finally { lauf.sucht = false; }
+      lauf.suchen = [...lauf.suchen.slice(-3), !!fund];
+    } catch { lauf.suchen = [...lauf.suchen.slice(-3), false]; } finally { lauf.sucht = false; }
   };
   // ---- Entscheiden: Hinweis setzen und, wenn alles passt, selbst ausloesen
   const entscheiden = () => {
@@ -7844,30 +7867,42 @@ function oeffneScanner({ art = 'gutschein', mehrere = false, beimFoto = null, be
     const jetzt = performance.now();
     const t = lauf.treffer;
     const letzter = t[t.length - 1];
-    const code = letzter && jetzt - letzter.zeit < 900 ? letzter : null;
+    // Der Code ist noch im Bild, solange hoechstens eine Suche danach leer
+    // ausging (nach der Uhr allein wuerde der Hinweis flackern, wenn eine
+    // erfolglose Suche auf dem Handy mal laenger braucht)
+    const code = letzter && jetzt - letzter.zeit < 2500 && lauf.suchen.slice(-2).includes(true) ? letzter : null;
     const gleich = code ? t.filter(x => x.text === code.text).length : 0;
     const minB = SCAN_MIN_BREITE[form][code ? code.typ : '1d'];
     const u = lauf.unruhe.slice(-2);
-    const ruhig = u.length === 2 && u.every(x => x.weg <= 1 && x.rest <= SCAN_RUHIG);
+    // weg < 1,5: hoechstens ein Block je Richtung (auch schraeg, 1,41)
+    const ruhig = u.length === 2 && u.every(x => x.weg < 1.5 && (x.rest <= SCAN_RUHIG || x.rest <= x.kante));
     const beste = Math.max(...lauf.schaerfen.map(x => x.s));
     const scharf = v.schaerfe >= beste * 0.7;
     if (code && code.breite >= minB) {
       lauf.sucheSeit = 0;
+      // Bon mit dem Code ganz oben im Rahmen: Laden und Filiale fehlen im Bild
+      if (form === 'bon' && code.mitte != null && code.mitte < SCAN_BON_CODE_OBEN) { lauf.halteSeit = 0; zustand('ganz'); return; }
       if (gleich >= 2 && ruhig && scharf) {
         if (!lauf.halteSeit) lauf.halteSeit = jetzt;
-        if (jetzt - lauf.halteSeit >= SCAN_HALTEN) { zustand('halten'); ausloesen('auto'); return; }
+        // Ausgeloest wird erst, wenn der Code auch in einem Kamerabild aus
+        // der ruhigen Phase gelesen wurde — nie auf eine Lesung von vorher
+        if (jetzt - lauf.halteSeit >= SCAN_HALTEN && code.bild >= lauf.halteSeit) { zustand('halten'); ausloesen('auto'); return; }
       } else lauf.halteSeit = 0;
       zustand('halten');
       return;
     }
     lauf.halteSeit = 0;
-    // Code gelesen, aber zu klein — oder eine deutliche Code-Flaeche, die
-    // (noch) nicht lesbar und zu klein ist: das Papier ist zu weit weg
-    const fl = lauf.flaeche && jetzt - lauf.flaeche.zeit < 900 ? lauf.flaeche : null;
-    if (code || (fl && fl.breite < SCAN_NAEHER[form][fl.typ])) { zustand('naeher'); lauf.sucheSeit = 0; return; }
-    if (v.mittel < 42) { zustand('dunkel'); return; }
+    // Code gelesen, aber zu klein: das Papier ist zu weit weg
+    if (code) { zustand('naeher'); lauf.sucheSeit = 0; return; }
     if (!lauf.sucheSeit) lauf.sucheSeit = jetzt;
-    zustand(jetzt - lauf.sucheSeit > 5000 ? 'ohneCode' : 'sucht');
+    const lange = jetzt - lauf.sucheSeit > 5000;
+    // Eine deutliche Code-Flaeche, die (noch) nicht lesbar und zu klein ist:
+    // "Naeher ran" — aber nicht ewig. Bleibt sie unlesbar (zerknittert,
+    // verdeckt), hilft naeher nichts mehr, dann der Tipp mit dem Ausloeser
+    const fl = lauf.flaeche && jetzt - lauf.flaeche.zeit < 900 ? lauf.flaeche : null;
+    if (!lange && fl && fl.breite < SCAN_NAEHER[form][fl.typ]) { zustand('naeher'); return; }
+    if (v.mittel < 42) { zustand('dunkel'); return; }
+    zustand(lange ? 'ohneCode' : 'sucht');
   };
   const takt = () => {
     clearTimeout(lauf.uhr);
@@ -7908,14 +7943,17 @@ function oeffneScanner({ art = 'gutschein', mehrere = false, beimFoto = null, be
     el.classList.remove('laeuft');
   };
   const kameraAn = async () => {
+    const nr = ++lauf.startNr;
     lauf.pausiert = false;
     zustand('start');
     if (!window.isSecureContext) return fehler('unsicher');
     if (!navigator.mediaDevices?.getUserMedia) return fehler('keine');
     let strom;
-    try { strom = await kameraHolen(); } catch (e) { if (lauf.an && !lauf.pausiert) fehler(e?.name || ''); return; }
-    // Inzwischen zu, im Hintergrund oder schon aufgenommen: gleich wieder aus
-    if (!lauf.an || lauf.pausiert || lauf.fertig) { strom.getTracks().forEach(x => x.stop()); return; }
+    try { strom = await kameraHolen(); } catch (e) { if (lauf.an && !lauf.pausiert && nr === lauf.startNr) fehler(e?.name || ''); return; }
+    // Inzwischen zu, im Hintergrund, schon aufgenommen oder ein neuerer Start
+    // (Hintergrund und zurueck, waehrend diese Kamera noch startete): gleich
+    // wieder aus — sonst bliebe eine zweite Kamera an, die niemand mehr stoppt
+    if (!lauf.an || lauf.pausiert || lauf.fertig || nr !== lauf.startNr) { strom.getTracks().forEach(x => x.stop()); return; }
     lauf.strom = strom;
     lauf.spur = strom.getVideoTracks()[0] || null;
     // Kamera weg (andere App, Kabel): kein eingefrorenes Bild weiterlesen
@@ -7928,12 +7966,31 @@ function oeffneScanner({ art = 'gutschein', mehrere = false, beimFoto = null, be
     let caps = {};
     try { caps = lauf.spur?.getCapabilities?.() || {}; } catch { caps = {}; }
     lichtKnopf.hidden = !caps.torch;
+    // Foto in voller Aufloesung (ImageCapture) nur, wenn die Kamera es im
+    // selben Seitenverhaeltnis wie die Vorschau und deutlich groesser liefert.
+    // Sonst (meist 4:3 gegen 16:9) wuerde takePhoto nur Zeit kosten — und
+    // manches Handy blitzt dabei
+    lauf.foto = null;
+    if ('ImageCapture' in window && lauf.spur) {
+      const spur = lauf.spur;
+      try {
+        const ic = new ImageCapture(spur);
+        ic.getPhotoCapabilities().then(pc => {
+          const pw = pc?.imageWidth?.max || 0, ph = pc?.imageHeight?.max || 0, vw = video.videoWidth, vh = video.videoHeight;
+          const seiten = (a, b) => Math.max(a, b) / Math.min(a, b);
+          if (lauf.spur !== spur || !pw || !ph || !vw || !vh) return;
+          if (Math.abs(seiten(pw, ph) - seiten(vw, vh)) <= 0.02 && Math.max(pw, ph) >= 1.25 * Math.max(vw, vh)) {
+            lauf.foto = { ic, ohneBlitz: Array.isArray(pc.fillLightMode) && pc.fillLightMode.includes('off') };
+          }
+        }).catch(() => { });
+      } catch { /* kein ImageCapture */ }
+    }
     if (Array.isArray(caps.focusMode) && caps.focusMode.includes('continuous')) {
       lauf.spur.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => { });
     }
     el.classList.add('laeuft');
     lauf.start = performance.now();
-    lauf.treffer = []; lauf.schaerfen = []; lauf.unruhe = []; lauf.grau = null; lauf.halteSeit = 0; lauf.sucheSeit = 0;
+    lauf.treffer = []; lauf.suchen = []; lauf.schaerfen = []; lauf.unruhe = []; lauf.grau = null; lauf.halteSeit = 0; lauf.sucheSeit = 0;
     anordnen();
     zustand('sucht');
     takt();
@@ -8006,8 +8063,11 @@ function oeffneScanner({ art = 'gutschein', mehrere = false, beimFoto = null, be
     return c;
   };
   const fotoVersuchen = async (q, bestes) => {
-    if (!('ImageCapture' in window) || !lauf.spur || lauf.spur.readyState !== 'live') return null;
-    const blob = await Promise.race([new ImageCapture(lauf.spur).takePhoto(), new Promise((_, nein) => setTimeout(() => nein(new Error('zu langsam')), 2500))]);
+    const f = lauf.foto;
+    if (!f || !lauf.spur || lauf.spur.readyState !== 'live') return null;
+    // Kein Blitz beim Foto (eine eingeschaltete Lampe bleibt, wie sie ist)
+    const einst = f.ohneBlitz && !lauf.licht ? { fillLightMode: 'off' } : undefined;
+    const blob = await Promise.race([f.ic.takePhoto(einst), new Promise((_, nein) => setTimeout(() => nein(new Error('zu langsam')), 2500))]);
     const bild = await createImageBitmap(blob);
     try {
       const k = bild.width / q.vw;
@@ -8048,8 +8108,20 @@ function oeffneScanner({ art = 'gutschein', mehrere = false, beimFoto = null, be
     try { leinwand = (await fotoVersuchen(q, bestes)) || leinwand; } catch { /* Video-Bild reicht */ }
     if (!lauf.an) return;
     kameraAus();
-    // Das Bild steht still im Rahmen, kurz blitzt es: aufgenommen
+    // Das Bild steht still im Rahmen, kurz blitzt es: aufgenommen. Es liegt
+    // genau dort, wo das Live-Bild war (mit seinem Rand ueber den Rahmen
+    // hinaus, der abgeschnitten wird) — sonst spraenge der Inhalt kleiner
     leinwand.className = 'sc-standbild';
+    try {
+      const W = el.clientWidth, H = el.clientHeight, s = Math.max(W / q.vw, H / q.vh);
+      const rx = rahmen.offsetLeft, ry = rahmen.offsetTop, rw = rahmen.offsetWidth, rh = rahmen.offsetHeight;
+      const x = q.x * s + (W - q.vw * s) / 2 - rx, y = q.y * s + (H - q.vh * s) / 2 - ry, w = q.w * s, h = q.h * s;
+      const rund = getComputedStyle(rahmen).borderTopLeftRadius || '22px';
+      Object.assign(leinwand.style, {
+        inset: 'auto', left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px', borderRadius: '0',
+        clipPath: `inset(${-y}px ${x + w - rw}px ${y + h - rh}px ${-x}px round ${rund})`,
+      });
+    } catch { /* dann eben randlos eingepasst */ }
     rahmen.prepend(leinwand);
     el.classList.add('erfasst');
     zustand('erfasst');
