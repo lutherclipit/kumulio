@@ -6243,7 +6243,12 @@ function findeCodeFlaechen(img) {
   for (let i = 0; i < W * H; i++) g[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
   const strich = new Float32Array(W * H), kante = new Float32Array(W * H), dunkel = new Float32Array(W * H);
   // Papierhell = oberes Zehntel; dunkel heisst deutlich darunter
-  const hell = [...g].sort((a, b) => a - b)[Math.floor(W * H * 0.9)] || 255;
+  let hell = 255;
+  {
+    const hist = new Uint32Array(256);
+    for (let i = 0; i < W * H; i++) hist[g[i] | 0]++;
+    for (let v = 0, acc = 0; v < 256; v++) { acc += hist[v]; if (acc > W * H * 0.9) { hell = v || 255; break; } }
+  }
   for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
     const i = y * W + x;
     const gx = Math.abs(g[i + 1] - g[i - 1]), gy = Math.abs(g[i + W] - g[i - W]);
@@ -6367,25 +6372,107 @@ function codeAusschnitt(img, f, { rand = 0.04, ziel = 1200, unten = 0 } = {}) {
 function codeFormatName(f) {
   return String(f || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 20);
 }
-function zxingLies(canvas, binarizer) {
+// formate: nur diese Code-Arten suchen (ZXing-Namen). Auf einem Strichcode-
+// Ausschnitt sparen die Strichcode-Formate allein die teure Suche nach
+// QR/Aztec/PDF417, die ZXing sonst zuerst probiert.
+function zxingLies(canvas, binarizer, formate = null) {
   if (!window.ZXing) return null;
   try {
     const src = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
     const bin = binarizer === 'global' ? new ZXing.GlobalHistogramBinarizer(src) : new ZXing.HybridBinarizer(src);
     const hints = new Map();
     hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+    if (formate) hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formate.map(f => ZXing.BarcodeFormat[f]));
     const r = new ZXing.MultiFormatReader().decode(new ZXing.BinaryBitmap(bin), hints);
-    return { text: r.getText(), format: codeFormatName(ZXing.BarcodeFormat[r.getBarcodeFormat()]) };
+    const punkte = (r.getResultPoints() || []).filter(Boolean).map(p => [p.getX(), p.getY()]);
+    return { text: r.getText(), format: codeFormatName(ZXing.BarcodeFormat[r.getBarcodeFormat()]), punkte };
   } catch { return null; }
+}
+const PFAND_STRICHCODES = ['CODE_128', 'EAN_13', 'EAN_8', 'ITF', 'CODE_39', 'CODE_93', 'UPC_A', 'CODABAR'];
+
+// ZXing im Hintergrund: auf grossen Ausschnitten braucht ein Leseversuch auf
+// dem Handy leicht eine Sekunde, auf dem Hauptfaden stuende solange die ganze
+// Oberflaeche (Fortschritt, Tippen). Im Worker nicht. Klappt der Worker nicht,
+// liest ZXing wie bisher vorne, mit Pausen zwischen den Versuchen.
+let zxingHinten = null;
+function zxingWorker() {
+  if (zxingHinten) return zxingHinten;
+  zxingHinten = new Promise(res => {
+    try {
+      const quelle = `importScripts(${JSON.stringify(location.origin + '/vendor/zxing.min.js')});
+self.onmessage = e => {
+  const { id, lum, w, h, bin, formate } = e.data;
+  let aus = null;
+  try {
+    const src = new ZXing.RGBLuminanceSource(lum, w, h);
+    const b = bin === 'global' ? new ZXing.GlobalHistogramBinarizer(src) : new ZXing.HybridBinarizer(src);
+    const hints = new Map();
+    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+    if (formate) hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formate.map(f => ZXing.BarcodeFormat[f]));
+    const r = new ZXing.MultiFormatReader().decode(new ZXing.BinaryBitmap(b), hints);
+    aus = { text: r.getText(), format: ZXing.BarcodeFormat[r.getBarcodeFormat()], punkte: (r.getResultPoints() || []).filter(Boolean).map(p => [p.getX(), p.getY()]) };
+  } catch (err) { }
+  self.postMessage({ id, aus });
+};
+self.postMessage({ bereit: !!self.ZXing });`;
+      const url = URL.createObjectURL(new Blob([quelle], { type: 'text/javascript' }));
+      const w = new Worker(url);
+      const offen = new Map();
+      let nr = 0, fertig = false;
+      const aus = ok => {
+        if (fertig) return;
+        fertig = true;
+        URL.revokeObjectURL(url);
+        if (!ok) try { w.terminate(); } catch { }
+        res(ok ? api : null);
+      };
+      const api = {
+        lies(canvas, bin, formate) {
+          const W = canvas.width, H = canvas.height;
+          const d = canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, W, H).data;
+          const lum = new Uint8ClampedArray(W * H);
+          for (let i = 0; i < W * H; i++) lum[i] = (306 * d[i * 4] + 601 * d[i * 4 + 1] + 117 * d[i * 4 + 2] + 0x200) >> 10;
+          return new Promise(r => { const id = ++nr; offen.set(id, r); w.postMessage({ id, lum, w: W, h: H, bin, formate }, [lum.buffer]); });
+        },
+      };
+      w.onmessage = e => {
+        if ('bereit' in e.data) { aus(e.data.bereit); return; }
+        const r = offen.get(e.data.id);
+        offen.delete(e.data.id);
+        const a = e.data.aus;
+        r?.(a ? { text: a.text, format: codeFormatName(a.format), punkte: a.punkte } : null);
+      };
+      w.onerror = () => { aus(false); for (const r of offen.values()) r(null); offen.clear(); };
+      setTimeout(() => aus(false), 8000);
+    } catch { res(null); }
+  }).then(api => { if (!api) zxingHinten = Promise.resolve(null); return api; });
+  return zxingHinten;
+}
+async function zxingLiesLeise(canvas, bin, formate = null) {
+  const w = await zxingWorker();
+  if (w) return w.lies(canvas, bin, formate);
+  const r = zxingLies(canvas, bin, formate);
+  await new Promise(x => setTimeout(x, 0));   // Oberflaeche atmen lassen
+  return r;
+}
+// Leserichtung eines Strichcodes aus ZXing-Punkten (Anfang → Ende):
+// 0 = normal, 90 = Bild steht im Uhrzeigersinn gedreht, 180 = auf dem Kopf …
+function codeRichtung(punkte) {
+  if (!punkte || punkte.length < 2) return 0;
+  const [a, b] = [punkte[0], punkte[punkte.length - 1]];
+  const w = Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI;
+  return ((Math.round(w / 90) * 90) % 360 + 360) % 360;
 }
 
 // Code lesen: mehrere Ausschnitte und Groessen, dann abstimmen. Ein einzelner
 // Treffer, dem ein anderer widerspricht, gilt als unsicher (ZXing hat bei
 // einem Bon schon einmal zwei Ziffern vertauscht und trotzdem "gueltig" gemeldet).
-async function pfandCodeLesen(img, flaechen) {
+async function pfandCodeLesen(img, flaechen, fortschritt = () => { }) {
   if (!window.ZXing) await zxingDetect(document.createElement('canvas')).catch(() => null);
   const stimmen = new Map();
-  const zaehle = (text, format, f) => {
+  // param: mit welchem Ausschnitt es geklappt hat (daraus wird das Kassen-Bild),
+  // richtung: Leserichtung des Strichcodes (steht der Bon auf dem Kopf?)
+  const zaehle = (text, format, f, param = null, punkte = null) => {
     text = String(text || '').trim();
     // Nur, was nach einem Kassen-Code aussieht (ZXing liefert aus Rauschen
     // selten, aber doch mal Zeichensalat wie "4, JZ:H7^µ")
@@ -6393,6 +6480,8 @@ async function pfandCodeLesen(img, flaechen) {
     const e = stimmen.get(text) || { text, format: codeFormatName(format), n: 0, flaeche: f };
     e.n++;
     if (!e.flaeche && f) e.flaeche = f;
+    if (!e.param && param) e.param = param;
+    if (e.richtung == null && punkte && !/qr|aztec|matrix|pdf|maxi/.test(e.format)) e.richtung = codeRichtung(punkte);
     stimmen.set(text, e);
   };
   const nativ = 'BarcodeDetector' in window ? new BarcodeDetector() : null;
@@ -6405,28 +6494,151 @@ async function pfandCodeLesen(img, flaechen) {
     } catch { /* weiter mit ZXing */ }
   }
   const kandidaten = [...flaechen.filter(f => f.typ === '1d').slice(0, 2), ...flaechen.filter(f => f.typ === '2d').slice(0, 1)];
+  const versucheFuer = f => f.typ === '1d' ? [[0.015, 1000], [0.015, 1500], [0.04, 800], [0.04, 1200]] : [[0.03, 520], [0.03, 800], [0.06, 1100]];
+  const gesamt = kandidaten.reduce((n, f) => n + versucheFuer(f).length, 0) || 1;
+  let schritt = 0;
   for (const f of kandidaten) {
     // Wenig Rand: daneben liegen oft Hand oder Tischdecke, deren Muster
     // ZXing fuer den Anfang eines Codes haelt
-    const versuche = f.typ === '1d' ? [[0.015, 1000], [0.015, 1500], [0.04, 800], [0.04, 1200]] : [[0.03, 520], [0.03, 800], [0.06, 1100]];
+    const versuche = versucheFuer(f);
+    // Eine breite Strich-Flaeche ist ein Strichcode; eine fast quadratische
+    // kann auch ein Aztec-/QR-Code sein, den der Sucher als Striche sah
+    const formate = f.typ === '1d' && f.width > f.height * 1.6 ? PFAND_STRICHCODES : null;
     let hier = 0;
     for (const [rand, ziel] of versuche) {
+      fortschritt(++schritt / gesamt);
       const c = codeAusschnitt(img, f, { rand, ziel });
-      if (nativ) { try { for (const code of await nativ.detect(c)) { zaehle(code.rawValue, code.format, f); hier++; } } catch { } }
+      if (nativ) { try { for (const code of await nativ.detect(c)) { zaehle(code.rawValue, code.format, f, { rand, ziel }); hier++; } } catch { } }
       for (const bin of ['hybrid', 'global']) {
-        const r = zxingLies(c, bin);
-        if (r) { zaehle(r.text, r.format, f); hier++; }
+        const r = await zxingLiesLeise(c, bin, formate);
+        if (r) { zaehle(r.text, r.format, f, { rand, ziel }, r.punkte); hier++; }
       }
       // Zwei uebereinstimmende Lesungen reichen
       if ([...stimmen.values()].some(e => e.n >= 2 && e.flaeche === f)) break;
-      await new Promise(r => setTimeout(r, 0));   // Oberflaeche atmen lassen
     }
   }
+  fortschritt(1);
   const liste = [...stimmen.values()].sort((a, b) => b.n - a.n);
   if (!liste.length) return null;
   const best = liste[0];
   const widerspruch = liste.some(e => e !== best && e.flaeche === best.flaeche);
-  return { text: best.text, format: best.format, flaeche: best.flaeche, sicher: best.n >= 2 && !widerspruch };
+  return { text: best.text, format: best.format, flaeche: best.flaeche, param: best.param || null, richtung: best.richtung || 0, sicher: best.n >= 2 && !widerspruch };
+}
+
+// Kassen-Bild pruefen: liest ZXing aus dem gespeicherten (komprimierten) Bild
+// wieder denselben Code? Nur dann ist sicher, dass die Kasse ihn auch liest.
+async function codeBildLiest(url, text) {
+  try {
+    const i = new Image();
+    await new Promise((res, rej) => { i.onload = res; i.onerror = rej; i.src = url; });
+    const c = document.createElement('canvas');
+    c.width = i.naturalWidth; c.height = i.naturalHeight;
+    c.getContext('2d').drawImage(i, 0, 0);
+    for (const bin of ['hybrid', 'global']) {
+      const r = await zxingLiesLeise(c, bin);
+      if (r && r.text === text) return true;
+    }
+  } catch { }
+  return false;
+}
+
+// Bild um 90/180/270 Grad (oder einen kleinen Winkel zum Geraderuecken) drehen
+function pfandDrehen(img, grad) {
+  const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+  const r = grad * Math.PI / 180;
+  const cos = Math.abs(Math.cos(r)), sin = Math.abs(Math.sin(r));
+  const c = document.createElement('canvas');
+  c.width = Math.round(w * cos + h * sin); c.height = Math.round(w * sin + h * cos);
+  const g = c.getContext('2d');
+  // Die Ecken, die beim Drehen entstehen, in der mittleren Farbe des Bildes:
+  // reines Weiss waere heller als das Papier und verschoebe alle Schwellen,
+  // die sich am hellsten Teil des Bildes ausrichten (Code-Sucher, Balken)
+  if (grad % 90) {
+    const m = document.createElement('canvas'); m.width = m.height = 16;
+    const mg = m.getContext('2d', { willReadFrequently: true });
+    mg.drawImage(img, 0, 0, 16, 16);
+    let rot = 0, gruen = 0, blau = 0;
+    try { const d = mg.getImageData(0, 0, 16, 16).data; for (let i = 0; i < d.length; i += 4) { rot += d[i]; gruen += d[i + 1]; blau += d[i + 2]; } } catch { rot = gruen = blau = 255 * 256; }
+    g.fillStyle = `rgb(${Math.round(rot / 256)},${Math.round(gruen / 256)},${Math.round(blau / 256)})`;
+  } else g.fillStyle = '#fff';
+  g.fillRect(0, 0, c.width, c.height);
+  g.imageSmoothingQuality = 'high';
+  g.translate(c.width / 2, c.height / 2);
+  g.rotate(r);
+  g.drawImage(img, -w / 2, -h / 2);
+  return c;
+}
+
+// Wie schraeg steht ein Strichcode? Strukturtensor ueber der Code-Flaeche:
+// die Kanten der Striche zeigen alle in dieselbe Richtung. Grad (+ = das Bild
+// ist im Uhrzeigersinn verdreht), klar: 0..1, wie einig sich die Kanten sind.
+function pfandStrichWinkel(img, f) {
+  const s = Math.min(1, 420 / f.width);
+  const W = Math.max(8, Math.round(f.width * s)), H = Math.max(8, Math.round(f.height * s));
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(img, f.x, f.y, f.width, f.height, 0, 0, W, H);
+  const d = ctx.getImageData(0, 0, W, H).data;
+  const L = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) L[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
+  let xx = 0, yy = 0, xy = 0;
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+    const i = y * W + x;
+    const gx = L[i + 1] - L[i - 1], gy = L[i + W] - L[i - W];
+    xx += gx * gx; yy += gy * gy; xy += gx * gy;
+  }
+  const summe = xx + yy;
+  if (!summe) return { grad: 0, klar: 0 };
+  return { grad: 0.5 * Math.atan2(2 * xy, xx - yy) * 180 / Math.PI, klar: Math.sqrt((xx - yy) ** 2 + 4 * xy * xy) / summe };
+}
+// Ohne Strichcode: wie schraeg stehen die Schriftzeilen? Dunkle Punkte auf
+// hellem Grund (Schrift auf Papier) in mehreren Winkeln auf Zeilen verteilen;
+// wo die Zeilen am schaerfsten getrennt sind, liegt der Winkel. 0 = gerade
+// oder nicht sicher genug, null = zu wenig Schrift, um es zu sagen.
+function pfandTextWinkel(img) {
+  const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+  const s = Math.min(1, 640 / Math.max(iw, ih));
+  const W = Math.max(8, Math.round(iw * s)), H = Math.max(8, Math.round(ih * s));
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0, W, H);
+  let d;
+  try { d = ctx.getImageData(0, 0, W, H).data; } catch { return null; }
+  const L = new Float32Array(W * H), hist = new Uint32Array(256);
+  for (let i = 0; i < W * H; i++) { const v = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2]; L[i] = v; hist[v | 0]++; }
+  let acc = 0, hell = 255;
+  for (let v = 255; v >= 0; v--) { acc += hist[v]; if (acc > W * H * 0.1) { hell = v; break; } }
+  const S = new Float64Array((W + 1) * (H + 1));
+  for (let y = 0; y < H; y++) { let z = 0; for (let x = 0; x < W; x++) { z += L[y * W + x]; S[(y + 1) * (W + 1) + x + 1] = S[y * (W + 1) + x + 1] + z; } }
+  const r = Math.max(4, Math.round(W / 80));
+  const px = [], py = [];
+  for (let y = 0; y < H; y++) {
+    const y0 = Math.max(0, y - r), y1 = Math.min(H, y + r + 1);
+    for (let x = 0; x < W; x++) {
+      const x0 = Math.max(0, x - r), x1 = Math.min(W, x + r + 1);
+      const m = (S[y1 * (W + 1) + x1] - S[y0 * (W + 1) + x1] - S[y1 * (W + 1) + x0] + S[y0 * (W + 1) + x0]) / ((x1 - x0) * (y1 - y0));
+      if (m > hell * 0.72 && L[y * W + x] < m - 28) { px.push(x); py.push(y); }
+    }
+  }
+  const n = px.length;
+  if (n < 400) return null;
+  const bins = new Float64Array(Math.ceil(Math.hypot(W, H)) * 2 + 4);
+  const schaerfe = grad => {
+    const a = grad * Math.PI / 180, sin = Math.sin(a), cos = Math.cos(a), off = bins.length / 2;
+    bins.fill(0);
+    for (let i = 0; i < n; i++) bins[Math.round(py[i] * cos - px[i] * sin + off)]++;
+    let q = 0;
+    for (let i = 0; i < bins.length; i++) q += bins[i] * bins[i];
+    return q / n;
+  };
+  let best = 0, bestWert = schaerfe(0);
+  const null0 = bestWert, alle = [];
+  for (let g = -20; g <= 20; g += 1) { const w = g ? schaerfe(g) : null0; alle.push(w); if (w > bestWert) { best = g; bestWert = w; } }
+  for (let g = best - 0.75; g <= best + 0.75; g += 0.25) { const w = schaerfe(g); if (w > bestWert) { best = g; bestWert = w; } }
+  // klar: wie sehr die beste Lage herausragt (liegen die Zeilen quer, ist
+  // keine Lage zwischen -20 und 20 Grad besonders scharf)
+  const mitte = alle.sort((a, b) => a - b)[alle.length >> 1] || 1;
+  return { grad: bestWert > null0 * 1.15 ? best : 0, klar: bestWert / mitte };
 }
 
 // ---- Vorlage fuer die Texterkennung: Graustufen, Kontrast gestreckt, die
@@ -6677,7 +6889,7 @@ async function ocrSeite(canvas, psm = '4') {
   try {
     await worker.setParameters({ tessedit_pageseg_mode: psm });
     const { data } = await worker.recognize(canvas);
-    return { text: data.text || '', words: data.words || [], lines: data.lines || [] };
+    return { text: data.text || '', words: data.words || [], lines: data.lines || [], breite: canvas.width };
   } catch { return { text: '', words: [], lines: [] }; }
   finally { try { await worker.setParameters({ tessedit_pageseg_mode: '6' }); } catch { } }
 }
@@ -6708,14 +6920,15 @@ function pfandDatumAus(text) {
   return treffer;
 }
 function pfandBetraegeAus(text) {
-  const T = String(text || '');
+  const T = pfandZiffernText(text);
   const out = [];
-  // "Summe: 57,29 EUR" — die groesste Summe ist die Gesamtsumme
-  for (const m of T.matchAll(/\bs\s?[uv]\s?[mn]{1,2}\s?[eo0@]?\s?[:;.,]?\W{0,3}\s*(\d{1,3})\s?[.,]\s?(\d{2})(?!\d)/gi)) out.push({ wert: pfandZahl(m[1] + '.' + m[2]), quelle: 'summe' });
-  // "€13.47", "€ 9.75" (Tomra), auch "E 9.75" / "< 9.75", wenn die OCR das Zeichen verliert
-  for (const m of T.matchAll(/(?:€|EUR)\s?(\d{1,3})\s?[.,]\s?(\d{2})(?!\d)/gi)) out.push({ wert: pfandZahl(m[1] + '.' + m[2]), quelle: 'euro' });
+  // "Summe: 57,29 EUR" — die groesste Summe ist die Gesamtsumme ("5umme": S als 5 gelesen)
+  // ("Sunmg: 57, 29": das e als g gelesen)
+  for (const m of T.matchAll(/\b[s5]\s?[uv]\s?[mn]{1,2}\s?[a-z0-9@]?\s?[:;.,]?\W{0,3}\s*(\d{1,3})\s?[.,]\s?(\d{2})(?!\d)/gi)) out.push({ wert: pfandZahl(m[1] + '.' + m[2]), quelle: 'summe' });
+  // "€13.47", "€ 9.75" (Tomra); das €-Zeichen wird auch mal zu "£"
+  for (const m of T.matchAll(/(?:€|£|EUR)\s?(\d{1,3})\s?[.,]\s?(\d{2})(?!\d)/gi)) out.push({ wert: pfandZahl(m[1] + '.' + m[2]), quelle: 'euro' });
   // "0,24 EUR" — Posten und Zwischensummen, zur Not die groesste
-  for (const m of T.matchAll(/(\d{1,3})\s?[.,]\s?(\d{2})\s?(?:EUR|EU[RF!]?|€|[EFT][UÜu][RT])\b/gi)) out.push({ wert: pfandZahl(m[1] + '.' + m[2]), quelle: 'posten' });
+  for (const m of T.matchAll(/(\d{1,3})\s?[.,]\s?(\d{2})\s?(?:EUR|EU[RF!]?|€|[EFTÜ][UÜu]?[RT])\b/gi)) out.push({ wert: pfandZahl(m[1] + '.' + m[2]), quelle: 'posten' });
   return out.filter(b => b.wert != null && b.wert > 0 && b.wert < 1000);
 }
 function pfandBonNrAus(text) {
@@ -6756,7 +6969,7 @@ function levenshtein(a, b) {
 const STRASSEN_ENDE = /(str(?:a(?:ss|ß)e)?\.?|straße|strasse|weg|allee|platz|damm|ring|gasse|chaussee|ufer|markt|steig|pfad|hof|berg|feld|park|landstr\.?|stieg|twiete|kamp|wall|graben|brücke|bruecke|tor)\b/i;
 function pfandAnschriftAus(text) {
   const zeilen = String(text || '').split('\n').map(z => z.replace(/[|\\{}\[\]“”"'`´‘’»«~_]/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean);
-  let plz = '', ort = '', strasse = '', zeileNr = -1;
+  let plz = '', ort = '', strasse = '', zeileNr = -1, ortGanz = true;
   for (let i = 0; i < zeilen.length; i++) {
     const m = zeilen[i].match(/(?:^|\s)(?:D-?)?([0-9]{5})\s+([A-ZÄÖÜ][a-zäöüß]{2,}[A-Za-zÄÖÜäöüß.\-]*(?:[ -][A-ZÄÖÜa-zäöüß][A-Za-zÄÖÜäöüß.\-]*){0,3})/);
     if (!m) continue;
@@ -6767,6 +6980,9 @@ function pfandAnschriftAus(text) {
     ort = m[2].replace(/\b([A-ZÄÖÜ][a-zäöüß]{1,3}) ([a-zäöüß][A-Za-zÄÖÜäöüß\-]{2,})/g, '$1$2')
       .split(' ').filter(w => /^[A-ZÄÖÜ]/.test(w) || /^(a|am|an|im|in|ob|bei|vor|der|dem|den)$/.test(w)).join(' ')
       .replace(/[.\-]+$/, '').slice(0, 40);
+    // Endet der Treffer mitten im Wort (ein Zeichen, das die Suche nicht
+    // kennt), ist der Ort vielleicht abgeschnitten
+    ortGanz = !/^[^\s,.;:]/.test(zeilen[i].slice(m.index + m[0].length));
     zeileNr = i;
     break;
   }
@@ -6786,7 +7002,7 @@ function pfandAnschriftAus(text) {
     const z = zeilen.find(x => STRASSEN_ENDE.test(x) && strassenZeile(x));
     if (z) strasse = strassenZeile(z);
   }
-  return { strasse: strasse.slice(0, 60), plz, ort };
+  return { strasse: strasse.slice(0, 60), plz, ort, ortGanz };
 }
 // Name der Filiale: bei EDEKA steht der Kaufmann oben ("Prandzioch"), bei
 // Kaufland die Stadt im Namen ("Kaufland Leipzig")
@@ -6831,14 +7047,116 @@ async function pfandBildQuelle(datei) {
     return c;
   } finally { URL.revokeObjectURL(url); }
 }
-async function pfandScannen(datei, status = () => { }) {
+// opts.drehen: false = nur so lesen, wie das Bild kommt (kein Drehen, kein
+// zweiter Anlauf) — fuer den schnellen Blick aus dem Gutschein-Formular
+async function pfandScannen(datei, status = () => { }, opts = {}) {
   status(3, 'Lade das Bild …');
   const img = await pfandBildQuelle(datei);
-  const iw = img.width, ih = img.height;
+  let e = await pfandScannenBild(img, status, opts);
+  // Nichts Brauchbares gelesen? Vielleicht liegt der Bon quer oder auf dem
+  // Kopf (ohne lesbaren Strichcode verraet das nur die Schrift)
+  if (opts.drehen !== false && !e.istPfand && e.betrag.wert == null) {
+    const grad = await pfandLageRaten(img, (p, t) => status(96, t));
+    if (grad && grad !== e.gedreht) {
+      // Zweiter Anlauf: der Fortschritt laeuft nicht zurueck, er kriecht von 96 bis 99
+      const e2 = await pfandScannenBild(pfandDrehen(img, grad), (p, t) => status(96 + p * 0.03, t), { ...opts, lageFest: true });
+      if (e2.istPfand || e2.betrag.wert != null) e = { ...e2, gedreht: grad };
+    }
+  }
+  status(100, '');
+  return e;
+}
+
+// Wie liegt der Bon? Schnelle Texterkennung auf dem ganzen Bild in allen
+// vier Lagen; gewinnt eine Lage deutlich (Pfand-Woerter, Kette, Betraege,
+// sicher gelesene Woerter), wird gedreht. Sonst 0: lieber nicht drehen.
+async function pfandLageRaten(img, status = () => { }) {
+  const bewerte = async grad => {
+    const q = grad ? pfandDrehen(img, grad) : img;
+    // Schwarz-Weiss nach Umgebung: dunkler Hintergrund und Hand stoeren so am wenigsten
+    const t = await ocrSeite(pfandOcrVorlage(q, [], { zielBreite: 1100, binaer: true }).canvas, '4');
+    const woerter = (t.words || []).filter(w => (w.confidence || 0) >= 70 && /[A-Za-zÄÖÜäöüß]{4,}|\d[.,]\d{2}/.test(w.text || '')).length;
+    return pfandWortTreffer(t.text) * 4 + (pfandKetteAus(t.text)?.sicher ? 3 : 0) + Math.min(4, pfandBetraegeAus(t.text).length) + woerter / 4;
+  };
+  status(90, 'Prüfe, wie der Bon liegt …');
+  const basis = await bewerte(0);
+  let beste = 0, besterWert = basis;
+  for (const g of [180, 90, 270]) {
+    const w = await bewerte(g);
+    if (w > besterWert) { beste = g; besterWert = w; }
+    if (besterWert >= 12) break;   // eindeutig: Pfand-Woerter, Kette und Betrag gelesen
+  }
+  return besterWert >= Math.max(5, basis * 1.5 + 2) ? beste : 0;
+}
+
+async function pfandScannenBild(img, status, opts = {}) {
+  // Zwischen den grossen Rechenschritten kurz Luft holen: Fortschritt und
+  // Tippen bleiben auch auf langsamen Handys fluessig
+  const atmen = () => new Promise(r => setTimeout(r, 0));
   status(8, 'Suche den Code …');
-  const flaechen = findeCodeFlaechen(img);
-  const code = await pfandCodeLesen(img, flaechen);
-  const f = code?.flaeche || flaechen.find(x => x.typ === '1d' && x.score > 30000) || flaechen.find(x => x.typ === '2d') || null;
+  await atmen();
+  let flaechen = findeCodeFlaechen(img);
+  let gedreht = 0;
+  await atmen();
+  const strichcodes = fl => fl.filter(x => x.typ === '1d' && x.width > x.height * 1.6).sort((a, b) => b.score - a.score);
+  const staerke = fl => strichcodes(fl)[0]?.score || 0;
+  // Schriftzeilen waagrecht (bis 20 Grad schief)? Dann liegt der Bon nicht quer
+  const zeilenWaagrecht = t => !!t && t.klar >= 1.42;
+  if (opts.drehen !== false && !opts.lageFest && !zeilenWaagrecht(pfandTextWinkel(img))) {
+    // Quer liegende Zeilen oder quer liegende Striche (und kein klarer
+    // Strichcode in dieser Lage): dann liegt der Bon quer. Ob links- oder
+    // rechtsherum, klaeren danach Code-Leserichtung oder Texterkennung.
+    const quer = pfandDrehen(img, 90);
+    await atmen();
+    const fq = findeCodeFlaechen(quer);
+    await atmen();
+    if (zeilenWaagrecht(pfandTextWinkel(quer)) || (staerke(flaechen) < 30000 && staerke(fq) > Math.max(30000, staerke(flaechen) * 2))) {
+      img = quer; flaechen = fq; gedreht = 90;
+    }
+  }
+  // Den Code zuerst im Bild lesen, wie es ist: jedes Drehen kostet Schaerfe
+  let code = await pfandCodeLesen(img, flaechen, p => status(8 + p * 15, 'Suche den Code …'));
+  // Rueckwaerts oder senkrecht gelesen: der Bon liegt auf dem Kopf oder quer.
+  // Gedreht wird nur, wenn der Code danach wieder genauso gelesen wird.
+  if (code && code.richtung && opts.drehen !== false && !opts.lageFest) {
+    const img2 = pfandDrehen(img, -code.richtung);
+    await atmen();
+    const fl2 = findeCodeFlaechen(img2);
+    const code2 = await pfandCodeLesen(img2, fl2);
+    if (code2 && code2.text === code.text && !code2.richtung) {
+      img = img2; flaechen = fl2; gedreht = (gedreht + 360 - code.richtung) % 360;
+      code = { ...code2, sicher: code.sicher || code2.sicher };
+    }
+  }
+  // Aus diesem Bild kommt der Code-Ausschnitt fuer die Kasse
+  let codeBild = img;
+  if (opts.drehen !== false) {
+    // Schraeg fotografiert: geraderuecken, sonst zerfallen die Zeilen fuer
+    // die Texterkennung. Den Winkel verraten die Schriftzeilen (genauer: die
+    // Flaeche eines schraegen Strichcodes enthaelt viel Drumherum); sind die
+    // nicht eindeutig, die Striche eines klaren Strichcodes.
+    const haupt = strichcodes(flaechen)[0];
+    const sw = haupt ? pfandStrichWinkel(img, haupt) : null;
+    const tw = pfandTextWinkel(img);
+    const grad = zeilenWaagrecht(tw) ? tw.grad : sw && sw.klar > 0.8 ? sw.grad : 0;
+    if (Math.abs(grad) > 1.5 && Math.abs(grad) < 25) {
+      img = pfandDrehen(img, -grad);
+      await atmen();
+      flaechen = findeCodeFlaechen(img);
+      await atmen();
+      // Schraeg nicht lesbar? Gerade vielleicht schon
+      if (!code && Math.abs(grad) > 3) {
+        code = await pfandCodeLesen(img, flaechen, p => status(16 + p * 7, 'Suche den Code …'));
+        if (code) codeBild = img;
+      }
+    }
+  }
+  const iw = img.width, ih = img.height;
+  // Die Code-Flaeche im (geraden) Bild fuer die Texterkennung; der Ausschnitt
+  // fuer die Kasse kommt aus dem Bild, in dem der Code gelesen wurde
+  const f = (code && codeBild === img ? code.flaeche : null)
+    || flaechen.find(x => x.typ === '1d' && x.score > 30000) || flaechen.find(x => x.typ === '2d') || null;
+  const fCode = code ? code.flaeche : f;
   status(24, 'Lese den Text … (kann beim ersten Mal etwas dauern)');
   // Nur echte Codes uebermalen — kurze Schriftzeilen sehen fuer den Sucher
   // manchmal auch wie Striche aus ("Lidl lohnt sich.")
@@ -6848,15 +7166,20 @@ async function pfandScannen(datei, status = () => { }) {
   status(46, 'Lese den Text …');
   const binaer = await ocrSeite(pfandOcrVorlage(img, zuMaskieren, { binaer: true, bereich }).canvas, '4');
   status(66, 'Lese Betrag und Code …');
-  let balkenText = '', balkenText2 = '', bonZeile = '', ziffern = '', ziffern2 = '', fuss = '';
+  const balkenTexte = [];
+  let bonZeile = '', ziffern = '', ziffern2 = '', fuss = '', fuss2 = '';
   if (f) {
     // Betrag im schwarzen Balken ueber dem Code, die Bon-Nr. direkt darueber
     const balken = pfandBalkenFinden(img, f);
     if (balken) {
-      // Ziffern fuellen den Balken oft bis an die Kante: nichts Hohes wegwerfen
-      balkenText = (await ocrZeile(zeilenVorlage(img, balken, { umkehren: true, hochBehalten: true }), '')).text;
-      // Zweite Lesung in anderer Groesse: stimmen beide, ist der Betrag sicher
-      balkenText2 = (await ocrZeile(zeilenVorlage(img, balken, { umkehren: true, hochBehalten: true, zielHoehe: 110 }), '')).text;
+      // Vier Lesungen in leicht verschiedenen Groessen, die Mehrheit zaehlt.
+      // Um 40 px Zeilenhoehe liest Tesseract am sichersten: groesser
+      // hochgezogen wird aus der Punktschrift eines kleinen Fotos gern eine
+      // falsche Ziffer (Kaufland "6,53" → "6,93"). Ziffern fuellen den Balken
+      // oft bis an die Kante: nichts Hohes wegwerfen.
+      for (const zielHoehe of [36, 40, 44, 48]) {
+        balkenTexte.push((await ocrZeile(zeilenVorlage(img, balken, { umkehren: true, hochBehalten: true, zielHoehe }), '')).text);
+      }
       // Nicht umgekehrt: der Balken selbst faellt als grosse Flaeche weg, die
       // Bon-Nr. darueber (oder daneben, wenn der Balken eine Stufe hat) bleibt
       const oben = Math.max(0, balken.y - balken.height * 0.9);
@@ -6876,29 +7199,93 @@ async function pfandScannen(datei, status = () => { }) {
     }
     status(88, 'Lese Datum und Automat …');
     // Unter dem Code stehen Automat, Datum und bei manchen Bons die Summe
-    const fy = f.y + f.height * (f.typ === '1d' ? 1.25 : 1.12);
-    const fh = Math.min(ih - fy, f.height * (f.typ === '1d' ? 2.2 : 0.6));
+    // (direkt unter dem Code: bei EDEKA steht dort gleich die Summe)
+    const fy = f.y + f.height * (f.typ === '1d' ? 1.05 : 1.12);
+    const fh = Math.min(ih - fy, f.height * (f.typ === '1d' ? 2.4 : 0.6));
     const fx = Math.max(0, f.x - f.width * 0.15), fw = Math.min(iw - fx, f.width * 1.3);
     if (fh > 12 && fw > 40) {
       const c = zeilenVorlage(img, { x: fx, y: fy, width: fw, height: fh }, { zielHoehe: Math.min(1000, fh * Math.max(1, 1300 / fw)) });
       fuss = (await ocrSeite(c, '6')).text;
+      // Zweite Lesung in Graustufen und enger (nur das Papier): die duenne
+      // Punktschrift von Automat und Datum zerfaellt im harten Schwarz-Weiss,
+      // wenn daneben eine Hand im Bild ist (EDEKA "09:52:49 08-JUL-2023")
+      const ex = Math.max(0, f.x - f.width * (f.typ === '1d' ? 0.03 : 0.3));
+      const eb = { x: ex, y: fy, width: Math.min(iw - ex, f.width * (f.typ === '1d' ? 1.06 : 1.6)), height: fh };
+      fuss2 = (await ocrSeite(pfandOcrVorlage(img, [], { bereich: eb, zielBreite: 1300 }).canvas, '6')).text;
     }
   }
   status(96, 'Fast fertig …');
-  const e = pfandAuswerten({ graus, binaer, balkenText, balkenText2, bonZeile, ziffern, ziffern2, fuss, code });
-  // Kassen-Code: der Code samt Ziffern darunter, auf weissem Grund
-  let codeImg = '';
-  if (f) {
-    try { codeImg = kodiereBild(codeAusschnitt(img, f, { rand: 0.03, ziel: 1100, unten: f.typ === '1d' ? 0.2 : 0.16 }), 'code'); } catch { }
+  const e = pfandAuswerten({ graus, binaer, balkenTexte, bonZeile, ziffern, ziffern2, fuss, fuss2, code });
+  // Kassen-Code: der Code samt Ziffern darunter, auf weissem Grund. Wurde der
+  // Code gelesen, muss ihn ZXing auch aus dem fertigen (komprimierten) Bild
+  // wieder lesen — sonst liest ihn die Kasse womoeglich auch nicht. Zu viel
+  // Rand (Hand, Tischdecke) stoert dabei am meisten.
+  let codeImg = '', codeBildGeprueft = false;
+  if (fCode) {
+    const unten = fCode.typ === '1d' ? 0.2 : 0.16;
+    const versuche = [{ rand: 0.03, ziel: 1100, unten }];
+    if (code) {
+      const p = code.param || { rand: 0.015, ziel: 1000 };
+      versuche.unshift({ ...p, unten }, { ...p, unten: 0 });
+      versuche.push(...(fCode.typ === '1d' ? [[0.015, 1000], [0.015, 1500], [0.04, 1200]] : [[0.03, 800], [0.06, 1100]])
+        .map(([rand, ziel]) => ({ rand, ziel, unten: 0 })));
+    }
+    const quelle = code ? codeBild : img;
+    let erstes = '';
+    for (const v of versuche) {
+      let url = '';
+      try { url = kodiereBild(codeAusschnitt(quelle, fCode, v), 'code'); } catch { continue; }
+      if (!erstes) erstes = url;
+      if (!code) break;
+      if (await codeBildLiest(url, code.text)) { codeImg = url; codeBildGeprueft = true; break; }
+    }
+    codeImg = codeImg || erstes;
   }
-  status(100, '');
-  return { ...e, codeImg, rohtext: [graus.text, binaer.text, balkenText, bonZeile, ziffern, fuss].join('\n') };
+  return { ...e, codeImg, codeBildGeprueft, gedreht, rohtext: [graus.text, binaer.text, balkenTexte.join(' | '), bonZeile, ziffern, fuss, fuss2].join('\n') };
+}
+
+// Betrag aus einer Balken-Lesung ("€13.47", "€ 9.75", "Summe: 6,53 EUR")
+function pfandBalkenBetrag(t) {
+  const m = pfandZiffernText(t).match(/(\d{1,3})\s?[.,]\s?(\d{2})(?!\d)/);
+  return m ? pfandZahl(m[1] + '.' + m[2]) : null;
+}
+// Typische Verwechsler der Texterkennung in Betraegen: O/o → 0, l/I/| → 1,
+// S/s → 5, B → 8, Z → 2 — nur innerhalb von Zahlen wie "13.4O" oder "S7,29"
+// (mindestens zwei echte Ziffern), Woerter bleiben unangetastet
+function pfandZiffernText(t) {
+  return String(t || '').replace(/(^|[^A-Za-zÄÖÜäöüß])([0-9OoIl|SsBZ]{1,3})(\s?[.,]\s?)([0-9OoIl|SsBZ]{2})(?![A-DF-Za-zÄÖÜäöüß0-9])/g, (m, vor, a, sep, b) => {
+    if ((a + b).replace(/\D/g, '').length < 2) return m;
+    const z = x => x.replace(/[Oo]/g, '0').replace(/[Il|]/g, '1').replace(/[Ss]/g, '5').replace(/B/g, '8').replace(/Z/g, '2');
+    return vor + z(a) + sep + z(b);
+  });
+}
+// Summenprobe: ist ziel die Summe von mindestens zwei anderen gelesenen
+// Betraegen (Posten, Zwischensummen)? "0,48 + 0,30 + 5,75 = 6,53" bestaetigt
+// die Summe unabhaengig von ihrer eigenen Lesung. Rechnet nur nach, erfindet nichts.
+function pfandSummenprobe(ziel, werte) {
+  const cent = Math.round(ziel * 100);
+  const w = [...new Set(werte.map(x => Math.round(x * 100)))].filter(x => x > 0 && x < cent).slice(0, 16);
+  const erreicht = new Map([[0, 0]]);   // Summe → groesste Zahl an Posten
+  for (const x of w) {
+    for (const [s, n] of [...erreicht]) {
+      const t = s + x;
+      if (t <= cent && (erreicht.get(t) ?? -1) < n + 1) erreicht.set(t, n + 1);
+    }
+  }
+  return (erreicht.get(cent) || 0) >= 2;
 }
 
 // Felder aus allen Lesungen. Jedes Feld: { wert, sicher, hinweis }
-function pfandAuswerten({ graus, binaer, balkenText = '', balkenText2 = '', bonZeile = '', ziffern = '', ziffern2 = '', fuss = '', code = null }) {
-  const texte = [graus.text || '', binaer.text || '', fuss || ''];
-  const alles = [...texte, balkenText, bonZeile].join('\n');
+function pfandAuswerten({ graus, binaer, balkenTexte = [], balkenText = '', balkenText2 = '', bonZeile = '', ziffern = '', ziffern2 = '', fuss = '', fuss2 = '', code = null }) {
+  // Zeichen, die die Texterkennung gern einsetzt: "Steglıtz" (punktloses i)
+  // schnitte den Ort sonst mitten im Wort ab, "6‚25" (tiefes Anfuehrungszeichen)
+  const glatt = t => String(t || '').replace(/ı/g, 'i').replace(/ſ/g, 's').replace(/[‚„]/g, ',');
+  graus = { ...graus, text: glatt(graus.text) };
+  binaer = { ...binaer, text: glatt(binaer.text) };
+  fuss = glatt(fuss); fuss2 = glatt(fuss2); bonZeile = glatt(bonZeile);
+  balkenTexte = [...balkenTexte, balkenText, balkenText2].filter(Boolean).map(glatt);
+  const texte = [graus.text || '', binaer.text || '', fuss || '', fuss2 || ''];
+  const alles = [...texte, ...balkenTexte, bonZeile].join('\n');
   const aus = {};
   // Code: gelesen (abgestimmt) > Ziffern darunter
   const zerlegt = pfandCodeZerlegen(code?.text);
@@ -6910,42 +7297,77 @@ function pfandAuswerten({ graus, binaer, balkenText = '', balkenText2 = '', bonZ
   else if (zifferOk) aus.code = { wert: ziffern, format: '', sicher: false, hinweis: 'aus den Ziffern unter dem Code gelesen' };
   else aus.code = { wert: '', format: '', sicher: false };
   const tomra = zerlegt || zerlegtZiffern;
-  // Betrag: Code > Balken > Summe > €-Zeichen > groesster Posten
+  // Betrag: Code > Balken > Summe > €-Zeichen > groesster Posten.
+  // lesung = aus welcher Lesung ein Kandidat stammt: "Summe" und "groesster
+  // Posten" aus DERSELBEN Texterkennung sind keine zwei Belege.
   const kandidaten = [];
-  if (zerlegt) kandidaten.push({ wert: zerlegt.betrag, quelle: 'code', gewicht: code.sicher ? 5 : 3, stark: true });
-  else if (zerlegtZiffern) kandidaten.push({ wert: zerlegtZiffern.betrag, quelle: 'ziffern', gewicht: 1 });
-  // Im Balken steht der Betrag allein ("€13.47"); das €-Zeichen verliert die OCR oft
-  [balkenText, balkenText2].forEach((t, i) => {
-    const m = t.match(/(\d{1,3})\s?[.,]\s?(\d{2})(?!\d)/);
-    if (m) kandidaten.push({ wert: pfandZahl(m[1] + '.' + m[2]), quelle: 'balken' + i, gewicht: 1.8, stark: true });
-  });
+  if (zerlegt) kandidaten.push({ wert: zerlegt.betrag, quelle: 'code', lesung: 'code', gewicht: code.sicher ? 5 : 3, stark: true });
+  else if (zerlegtZiffern) kandidaten.push({ wert: zerlegtZiffern.betrag, quelle: 'ziffern', lesung: 'ziffern', gewicht: 1 });
+  // Im Balken steht der Betrag allein ("€13.47"); das €-Zeichen verliert die
+  // OCR oft. Mehrere Lesungen desselben Balkens: die Mehrheit zaehlt, und nur
+  // wenn alle (mindestens drei) dasselbe sagen, ist der Balken allein ein Beleg
+  const balkenWerte = balkenTexte.map(pfandBalkenBetrag).filter(x => x != null && x > 0 && x < 1000);
+  const proBalken = new Map();
+  balkenWerte.forEach(w => proBalken.set(w.toFixed(2), (proBalken.get(w.toFixed(2)) || 0) + 1));
+  const balkenEinig = balkenWerte.length >= 3 && proBalken.size === 1 ? balkenWerte[0].toFixed(2) : '';
+  for (const [k, n] of proBalken) {
+    const mehrheit = n * 2 > balkenWerte.length;
+    kandidaten.push({ wert: +k, quelle: 'balken', lesung: 'balken', gewicht: 0.7 * n, stark: mehrheit && n >= 2, beleg: mehrheit && n >= 2 });
+  }
   // Auf einem Pfandbon ist die Gesamtsumme der groesste Betrag: Posten und
   // Zwischensummen (Mehrweg, Einweg) sind Teile davon
+  const alleBetraege = [];
   texte.forEach((t, i) => {
     const b = pfandBetraegeAus(t);
-    const q = i === 2 ? 'fuss' : 'text' + i;
+    alleBetraege.push(...b.map(x => x.wert));
+    const q = ['text0', 'text1', 'fuss', 'fuss2'][i];
     const summen = b.filter(x => x.quelle === 'summe');
-    if (summen.length) kandidaten.push({ wert: Math.max(...summen.map(x => x.wert)), quelle: q, gewicht: 1.5, stark: true });
-    b.filter(x => x.quelle === 'euro').forEach(x => kandidaten.push({ wert: x.wert, quelle: q, gewicht: 1.2, stark: true }));
-    if (b.length) kandidaten.push({ wert: Math.max(...b.map(x => x.wert)), quelle: q + '-max', gewicht: 0.6 });
+    if (summen.length) kandidaten.push({ wert: Math.max(...summen.map(x => x.wert)), quelle: q, lesung: q, gewicht: 1.5, stark: true });
+    b.filter(x => x.quelle === 'euro').forEach(x => kandidaten.push({ wert: x.wert, quelle: q, lesung: q, gewicht: 1.2, stark: true }));
+    if (b.length) kandidaten.push({ wert: Math.max(...b.map(x => x.wert)), quelle: q + '-max', lesung: q, gewicht: 0.6 });
   });
   const proWert = new Map();
   for (const k of kandidaten) {
     if (k.wert == null) continue;
     const key = k.wert.toFixed(2);
-    const e = proWert.get(key) || { wert: k.wert, gewicht: 0, quellen: new Set(), stark: 0 };
+    const e = proWert.get(key) || { wert: k.wert, gewicht: 0, quellen: new Set(), lesungen: new Set(), stark: 0 };
     e.gewicht += k.gewicht; e.quellen.add(k.quelle);
+    // Eine einzelne Balken-Lesung ist kein eigener Beleg (nur die Mehrheit)
+    if (k.lesung !== 'balken' || k.beleg) e.lesungen.add(k.lesung);
     if (k.stark) e.stark++;
     proWert.set(key, e);
   }
+  // Mehr als 250 € Pfand auf einem Bon (1000 Flaschen) ist ein Lesefehler
+  // ("56,50" → "556,5"): zaehlt kaum und nie als groesster Betrag
+  const plausibel = x => x > 0 && x <= 250;
+  const lesbar = alleBetraege.filter(plausibel);
+  const hoechster = lesbar.length ? Math.max(...lesbar) : 0;
+  for (const e of proWert.values()) {
+    // Summenprobe: passen die gelesenen Posten zusammen genau zu einem
+    // Kandidaten, ist das ein eigener, unabhaengiger Beleg
+    if (pfandSummenprobe(e.wert, lesbar.filter(x => Math.abs(x - e.wert) > 0.001))) {
+      e.gewicht += 2; e.quellen.add('summenprobe'); e.lesungen.add('summenprobe');
+    }
+    if (e.quellen.has('code')) continue;
+    if (!plausibel(e.wert)) e.gewicht *= 0.3;
+    // Kleiner als ein anderer gelesener Posten: kann nicht die Gesamtsumme sein
+    // (eher die Mehrweg-Zwischensumme oder ein Posten)
+    else if (e.wert < hoechster - 0.001) e.gewicht *= 0.5;
+  }
   const betraege = [...proWert.values()].sort((a, b) => b.gewicht - a.gewicht || b.wert - a.wert);
   const bester = betraege[0];
+  // Die Gesamtsumme ist der groesste Betrag auf dem Bon: steht irgendwo ein
+  // groesserer, ist der gewaehlte vielleicht nur eine Zwischensumme
+  // ("Mehrweg: Summe 0,79") — dann nie "sicher", ausser der Code sagt es
+  const groesserGelesen = bester && lesbar.some(x => x > bester.wert + 0.001);
   aus.betrag = bester
     ? {
       wert: bester.wert,
-      // sicher: aus einem sauber gelesenen Code, oder zwei unabhaengige Stellen sagen dasselbe
-      // (der groesste Betrag allein reicht nie)
-      sicher: (bester.quellen.has('code') && !!code?.sicher) || (bester.stark >= 1 && bester.quellen.size >= 2),
+      // sicher: aus einem sauber gelesenen Code, alle Balken-Lesungen einig, oder
+      // zwei unabhaengige Lesungen sagen dasselbe (der groesste Betrag allein reicht nie)
+      sicher: (bester.quellen.has('code') && !!code?.sicher) || (!groesserGelesen && (
+        (balkenEinig === bester.wert.toFixed(2) && !betraege.slice(1).some(x => x.stark >= 1 && x.gewicht >= 1.5))
+        || (bester.stark >= 1 && bester.lesungen.size >= 2))),
       quellen: [...bester.quellen],
       andere: betraege.slice(1, 3).map(x => x.wert),
     }
@@ -6976,10 +7398,33 @@ function pfandAuswerten({ graus, binaer, balkenText = '', balkenText2 = '', bonZ
   };
   // Feld fuer Feld: die Lesung, bei der sich die OCR sicherer war
   const norm = x => String(x || '').toLowerCase().replace(/[^a-z0-9äöüß]/g, '');
+  // Ziffern (Hausnummer, PLZ): beide Lesungen stammen aus denselben Pixeln und
+  // irren gern gemeinsam ("Damm 95" → zweimal "90"). Sicher nur, wenn die OCR
+  // sich bei den Ziffern in beiden Lesungen auch selbst sicher war.
+  const zifferSicherheit = (words, wert) => {
+    const z = String(wert || '').match(/\d+/g);
+    if (!z) return 100;
+    return Math.min(...z.map(t => (words || []).find(w => (w.text || '').includes(t))?.confidence ?? 0));
+  };
+  // Beruehrt das Wort den Rand des Lese-Ausschnitts, ist es vielleicht
+  // abgeschnitten ("Berlin-Stegl"): dann nie sicher, auch wenn beide Lesungen
+  // es gleich abschneiden
+  const amRand = (lesung, wert) => {
+    const b = lesung.breite, t = String(wert || '').split(/\s+/).filter(Boolean);
+    if (!b || !t.length) return false;
+    const finde = x => (lesung.words || []).find(w => w.bbox && (w.text || '').includes(x));
+    const a = finde(t[0]), z = finde(t[t.length - 1]);
+    return (!!a && a.bbox.x0 < b * 0.015) || (!!z && z.bbox.x1 > b * 0.985);
+  };
   const waehle = (feld, bonus = () => 0) => {
     const x1 = a1[feld], x2 = a2[feld];
     if (!x1 || !x2) return { wert: x1 || x2 || '', sicher: false };
-    if (norm(x1) === norm(x2)) return { wert: x1, sicher: true };
+    if (norm(x1) === norm(x2)) {
+      return {
+        wert: x1,
+        sicher: zifferSicherheit(graus.words, x1) >= 90 && zifferSicherheit(binaer.words, x2) >= 90 && !amRand(graus, x1) && !amRand(binaer, x2),
+      };
+    }
     const s1 = sicherheit(graus.words, [x1]) + bonus(x1), s2 = sicherheit(binaer.words, [x2]) + bonus(x2);
     return { wert: s1 >= s2 ? x1 : x2, sicher: false };
   };
@@ -6988,6 +7433,7 @@ function pfandAuswerten({ graus, binaer, balkenText = '', balkenText2 = '', bonZ
   aus.strasse = waehle('strasse', x => (STRASSEN_ENDE.test(x) ? 20 : 0) + Math.min(20, x.length));
   aus.plz = waehle('plz');
   aus.ort = waehle('ort');
+  if (aus.ort.sicher && (!a1.ortGanz || !a2.ortGanz)) aus.ort.sicher = false;
   const a = { strasse: aus.strasse.wert, plz: aus.plz.wert, ort: aus.ort.wert };
   // Filialname; bei "Kaufland Leipzig" ohne Anschrift wird die Stadt zum Ort
   // Nur mit Anschrift: ohne sie ist "die Zeile ueber der Anschrift" geraten
@@ -7007,17 +7453,37 @@ function pfandAuswerten({ graus, binaer, balkenText = '', balkenText2 = '', bonZ
     d.forEach(x => { if (x.quelle === 'monat') punkt.add(x.iso); });
     new Set(d.map(x => x.iso)).forEach(iso => zaehl.set(iso, (zaehl.get(iso) || 0) + 1));
   });
-  const datum = [...zaehl.entries()].sort((x, y) => y[1] - x[1])[0];
-  aus.datum = datum ? { wert: datum[0], sicher: datum[1] >= 2 && zaehl.size === 1 && !punkt.has(datum[0]) } : { wert: '', sicher: false };
-  aus.istPfand = pfandWortTreffer(alles) >= 2 || !!zerlegt || /l[e3]{2}rg[uv]t|pfandbon/i.test(alles);
+  const daten = [...zaehl.entries()].sort((x, y) => y[1] - x[1]);
+  const datum = daten[0];
+  // Zwei Lesungen, zwei verschiedene Daten, keins haeufiger: das waere
+  // geraten ("08-JUL" als 05 und 06 gelesen) — dann lieber leer lassen
+  // Punktschrift der Automaten ("08-JUL-2023") aus nur einer Lesung: 8, 5 und
+  // 6 sehen dort gleich aus — auch dann leer statt geraten
+  aus.datum = datum && !(daten[1] && daten[1][1] === datum[1]) && !(punkt.has(datum[0]) && datum[1] < 2)
+    ? { wert: datum[0], sicher: datum[1] >= 2 && zaehl.size === 1 && !punkt.has(datum[0]) }
+    : { wert: '', sicher: false };
+  aus.istPfand = pfandIstBon(alles, code?.text);
   return aus;
+}
+
+// Ist das ein Pfandbon? Starke Merkmale reichen allein (Leergutbon, Pfandbon,
+// Pfandartikel, Tomra/SiVario). Auf einem Gutschein steht dagegen gern "nicht
+// einlösbar für Pfand, Leergut und Flaschen" — mit Gutschein-Woertern zaehlen
+// die schwachen Merkmale nicht, und ein 19-stelliger Code mit "2" vorn allein
+// auch nicht (Geschenkkarten-Nummern sehen manchmal genauso aus).
+const PFAND_STARK = /l[e3]{2}rg[uv]t\s?-?\s?b[o0]n|pfand\s?-?\s?b[o0]n|pfandartikel|bepfandet|tomra|sivario|leergutautomat/i;
+const GUTSCHEIN_WORTE = /gutschein|geschenk|guthaben|\bpin\b|karten\s?-?\s?n(?:r|ummer)|g[uü]ltig\s+bis|aufladen|wertkarte|gift\s?card/i;
+function pfandIstBon(text, codeText = '') {
+  const t = String(text || '');
+  if (PFAND_STARK.test(t)) return true;
+  if (GUTSCHEIN_WORTE.test(t)) return false;
+  return /l[e3]{2}rg[uv]t/i.test(t) || pfandWortTreffer(t) >= 2 || !!pfandCodeZerlegen(codeText);
 }
 
 // Schneller Verdacht aus dem normalen Gutschein-Scan: Leergut-Woerter oder ein
 // Tomra-Code. Reicht das nicht, entscheidet pfandScannen (istPfand).
 function pfandVermutet(r) {
-  const t = String(r?.text || '');
-  return pfandWortTreffer(t) >= 2 || /l[e3]{2}rg[uv]t|pfandbon/i.test(t) || !!pfandCodeZerlegen(r?.barcode);
+  return pfandIstBon(r?.text, r?.barcode);
 }
 
 // Große, interaktive Shop-Auswahl beim Hinzufügen (erst 6, Rest hinter "Weitere")
@@ -7661,7 +8127,7 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
         let pfand = pfandVermutet(r) ? { vermutet: true } : null;
         if (!pfand && !r.barcode && !r.amount && !r.pin) {
           scanMeldung('Lese weiter …');
-          const e = await pfandScannen(f, p => { if (!veraltet()) scanProgress(Math.max(60, p)); }).catch(() => null);
+          const e = await pfandScannen(f, p => { if (!veraltet()) scanProgress(Math.max(60, p)); }, { drehen: false }).catch(() => null);
           if (veraltet()) return;
           if (e && e.istPfand) pfand = { ergebnis: e };
         }
