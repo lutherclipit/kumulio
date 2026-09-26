@@ -5981,7 +5981,9 @@ async function getOcrWorker() {
   return ocrWorkerPromise;
 }
 
-async function analyzeWalletImage(dataUrl, statusCb) {
+// live: der Code, den der Live-Scanner schon mehrfach gleich gelesen hat —
+// nur Ersatz, falls er im fertigen Bild nicht mehr lesbar ist
+async function analyzeWalletImage(dataUrl, statusCb, live = null) {
   const out = { barcode: '', codeImg: '', text: '', supported: { barcode: true, text: true } };
   const img = new Image();
   await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = dataUrl; });
@@ -6028,6 +6030,7 @@ async function analyzeWalletImage(dataUrl, statusCb) {
       } catch { break; }
     }
   }
+  if (!out.barcode && live && live.text && live.n >= 2) out.barcode = String(live.text).slice(0, 200);
   if (!out.codeImg) {
     // Kein Code lesbar (z. B. abfotografierter Bildschirm mit Moiré):
     // wenigstens den hellen Kartennummer-Kasten sauber ausschneiden
@@ -6079,6 +6082,14 @@ async function analyzeWalletImage(dataUrl, statusCb) {
   };
   out.pin = pinPick(out.text, out.words);
   out.amount = amtFrom(out.text);
+  // Sicher gelesen? Nur, wenn die OCR bei genau diesem Wort sicher war (fuer
+  // die kurze Bestaetigung nach dem Scan; eingetragen wird der Wert so oder so)
+  const betragSicher = (words, a) => {
+    const z = String(a || '').replace(/\D/g, '');
+    const w = z && (words || []).find(x => String(x.text || '').replace(/\D/g, '') === z);
+    return !!w && (w.confidence ?? 0) >= 75;
+  };
+  out.amountSicher = betragSicher(out.words, out.amount);
   // Am Text orientieren: das WORT „PIN" im Bild orten und den Kasten daneben/
   // darunter stark vergrößert nachlesen (der Wert geht im Vollbild oft unter)
   if (!out.pin) out.pin = await pinNearWord(img, out.words, pinPick);
@@ -6086,7 +6097,7 @@ async function analyzeWalletImage(dataUrl, statusCb) {
     // Zweitpass in hartem Schwarz-Weiß: Schrift auf farbigen Kacheln (z. B. der
     // Zalando-Kasten mit „€5") verschluckt die normale OCR sonst komplett
     const bw = await ocrBW(img);
-    if (!out.amount) out.amount = amtFrom(bw.text);
+    if (!out.amount) { out.amount = amtFrom(bw.text); out.amountSicher = betragSicher(bw.words, out.amount); }
     if (!out.pin) out.pin = pinPick(bw.text, bw.words) || await pinNearWord(bw.source, bw.words, pinPick);
   }
   if (!out.pin) {
@@ -6467,7 +6478,10 @@ function codeRichtung(punkte) {
 // Code lesen: mehrere Ausschnitte und Groessen, dann abstimmen. Ein einzelner
 // Treffer, dem ein anderer widerspricht, gilt als unsicher (ZXing hat bei
 // einem Bon schon einmal zwei Ziffern vertauscht und trotzdem "gueltig" gemeldet).
-async function pfandCodeLesen(img, flaechen, fortschritt = () => { }) {
+// live: Code, den der Live-Scanner schon mehrfach gleich gelesen hat. Er
+// zaehlt als EINE Stimme (andere Bilder, andere Aufloesung); widerspricht er
+// dem Ergebnis, ist der Code nicht sicher.
+async function pfandCodeLesen(img, flaechen, fortschritt = () => { }, live = null) {
   if (!window.ZXing) await zxingDetect(document.createElement('canvas')).catch(() => null);
   const stimmen = new Map();
   // param: mit welchem Ausschnitt es geklappt hat (daraus wird das Kassen-Bild),
@@ -6518,10 +6532,16 @@ async function pfandCodeLesen(img, flaechen, fortschritt = () => { }) {
     }
   }
   fortschritt(1);
-  const liste = [...stimmen.values()].sort((a, b) => b.n - a.n);
+  if (live && live.text && live.n >= 2) {
+    const vorher = stimmen.get(String(live.text).trim());
+    zaehle(live.text, live.format, null);
+    const e = stimmen.get(String(live.text).trim());
+    if (e && e !== vorher) e.live = true;   // nur live gelesen, im Bild nicht
+  }
+  const liste = [...stimmen.values()].sort((a, b) => b.n - a.n || (a.live ? 1 : 0) - (b.live ? 1 : 0));
   if (!liste.length) return null;
   const best = liste[0];
-  const widerspruch = liste.some(e => e !== best && e.flaeche === best.flaeche);
+  const widerspruch = liste.some(e => e !== best && (e.flaeche === best.flaeche || e.live || best.live));
   return { text: best.text, format: best.format, flaeche: best.flaeche, param: best.param || null, richtung: best.richtung || 0, sicher: best.n >= 2 && !widerspruch };
 }
 
@@ -7115,7 +7135,7 @@ async function pfandScannenBild(img, status, opts = {}) {
     }
   }
   // Den Code zuerst im Bild lesen, wie es ist: jedes Drehen kostet Schaerfe
-  let code = await pfandCodeLesen(img, flaechen, p => status(8 + p * 15, 'Suche den Code …'));
+  let code = await pfandCodeLesen(img, flaechen, p => status(8 + p * 15, 'Suche den Code …'), opts.live);
   // Rueckwaerts oder senkrecht gelesen: der Bon liegt auf dem Kopf oder quer.
   // Gedreht wird nur, wenn der Code danach wieder genauso gelesen wird.
   if (code && code.richtung && opts.drehen !== false && !opts.lageFest) {
@@ -7146,7 +7166,7 @@ async function pfandScannenBild(img, status, opts = {}) {
       await atmen();
       // Schraeg nicht lesbar? Gerade vielleicht schon
       if (!code && Math.abs(grad) > 3) {
-        code = await pfandCodeLesen(img, flaechen, p => status(16 + p * 7, 'Suche den Code …'));
+        code = await pfandCodeLesen(img, flaechen, p => status(16 + p * 7, 'Suche den Code …'), opts.live);
         if (code) codeBild = img;
       }
     }
@@ -7156,7 +7176,9 @@ async function pfandScannenBild(img, status, opts = {}) {
   // fuer die Kasse kommt aus dem Bild, in dem der Code gelesen wurde
   const f = (code && codeBild === img ? code.flaeche : null)
     || flaechen.find(x => x.typ === '1d' && x.score > 30000) || flaechen.find(x => x.typ === '2d') || null;
-  const fCode = code ? code.flaeche : f;
+  // Nur live gelesen (im Bild selbst nicht): der Ausschnitt kommt dann aus der
+  // Code-Flaeche des geraden Bildes
+  const fCode = code && code.flaeche ? code.flaeche : f;
   status(24, 'Lese den Text … (kann beim ersten Mal etwas dauern)');
   // Nur echte Codes uebermalen — kurze Schriftzeilen sehen fuer den Sucher
   // manchmal auch wie Striche aus ("Lidl lohnt sich.")
@@ -7230,7 +7252,7 @@ async function pfandScannenBild(img, status, opts = {}) {
       versuche.push(...(fCode.typ === '1d' ? [[0.015, 1000], [0.015, 1500], [0.04, 1200]] : [[0.03, 800], [0.06, 1100]])
         .map(([rand, ziel]) => ({ rand, ziel, unten: 0 })));
     }
-    const quelle = code ? codeBild : img;
+    const quelle = code && code.flaeche ? codeBild : img;
     let erstes = '';
     for (const v of versuche) {
       let url = '';
@@ -7486,6 +7508,614 @@ function pfandVermutet(r) {
   return pfandIstBon(r?.text, r?.barcode);
 }
 
+// =============================================================================
+// Live-Scanner: Gutschein oder Pfandbon direkt mit der Kamera statt ueber ein
+// Foto. Vollbild und dunkel, in der Mitte ein Rahmen (Bon hochkant, Karte
+// quer), aussen abgedunkelt. Etwa fuenfmal pro Sekunde ein kleines Bild aus
+// dem Rahmen:
+//  - Code suchen: der eingebaute BarcodeDetector (Android) oder der
+//    Flaechen-Sucher der Pfand-Erkennung und ZXing im Hintergrund auf dem
+//    engen Ausschnitt (ZXing liest ganze Bilder mit Rand drumherum schlecht)
+//  - Schaerfe (Laplace im Verhaeltnis zum Kontrast), Ruhe (Unterschied zum
+//    letzten Bild, ganz klein gemessen) und Helligkeit
+// Ist ein Code im Rahmen, zweimal gleich gelesen und gross genug, das Bild
+// ruhig und scharf, und bleibt das gut eine halbe Sekunde so, loest der
+// Scanner selbst aus: das schaerfste von drei Bildern in voller Aufloesung
+// (oder ein Foto per ImageCapture, wenn es denselben Ausschnitt zeigt und
+// mindestens so scharf ist), zugeschnitten auf den Rahmen. Danach ist die
+// Kamera sofort aus. Die Texterkennung laeuft erst danach, wie beim Foto —
+// nie pro Kamerabild. Der Ausloeser nimmt jederzeit von Hand auf.
+// =============================================================================
+const SCAN_FORMEN = { bon: 0.6, papier: 0.72, karte: 1.586 };     // Breite : Hoehe
+// Kleinste Code-Breite (Anteil an der Rahmenbreite), ab der ausgeloest wird
+const SCAN_MIN_BREITE = { bon: { '1d': 0.45, '2d': 0.28 }, papier: { '1d': 0.26, '2d': 0.18 }, karte: { '1d': 0.24, '2d': 0.13 } };
+// Eine deutliche Code-Flaeche, die sich (noch) nicht lesen laesst und
+// schmaler ist als das: zu weit weg, "Naeher ran"
+const SCAN_NAEHER = { bon: { '1d': 0.5, '2d': 0.3 }, papier: { '1d': 0.4, '2d': 0.24 }, karte: { '1d': 0.36, '2d': 0.18 } };
+const SCAN_1D = [...PFAND_STRICHCODES, 'UPC_E'];
+const SCAN_2D = ['QR_CODE', 'AZTEC', 'DATA_MATRIX', 'PDF_417'];
+const SCAN_TAKT = 200;        // ms zwischen zwei Messungen
+const SCAN_HALTEN = 500;      // so lange muss alles passen, dann loest er aus
+// Ruhig: zwischen zwei Messungen hoechstens einen Block (etwa 2 % der
+// Rahmenbreite) verschoben und danach kaum Unterschied (Mittel je Block,
+// 0..255). Zittern der Hand geht durch, Hineinschieben und Zoomen nicht.
+const SCAN_RUHIG = 12;
+let scannerAktiv = null;      // { zu, el } solange der Scanner offen ist
+function scannerSchliessen() { try { scannerAktiv?.zu('weg'); } catch { /* ist schon zu */ } }
+
+// Graubild aus einem Canvas-Kontext
+function scanGrau(ctx, w, h) {
+  const d = ctx.getImageData(0, 0, w, h).data;
+  const g = new Uint8ClampedArray(w * h);
+  for (let i = 0, j = 0; i < g.length; i++, j += 4) g[i] = (77 * d[j] + 150 * d[j + 1] + 29 * d[j + 2]) >> 8;
+  return g;
+}
+// Helligkeit, Kontrast und Schaerfe. Schaerfe = Streuung des Laplace-Bildes im
+// Verhaeltnis zur Helligkeitsstreuung: ein blasser Bon gilt nicht als unscharf
+function scanWerte(g, w, h) {
+  let s = 0, q = 0;
+  for (let i = 0; i < g.length; i++) { s += g[i]; q += g[i] * g[i]; }
+  const n = g.length, mittel = s / n, streu = Math.max(0, q / n - mittel * mittel);
+  let ls = 0, lq = 0, m = 0;
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1, i = y * w + 1; x < w - 1; x++, i++) {
+      const l = 4 * g[i] - g[i - 1] - g[i + 1] - g[i - w] - g[i + w];
+      ls += l; lq += l * l; m++;
+    }
+  }
+  const lap = m ? Math.max(0, lq / m - (ls / m) ** 2) : 0;
+  return { mittel, streu, schaerfe: lap / (streu + 40) };
+}
+// Graubild verkleinern (Mittel ueber b x b Pixel): Rauschen und leichtes
+// Zittern der Hand verschwinden darin, das Hineinschieben des Bons nicht
+function scanKlein(g, w, h, b) {
+  const kw = Math.floor(w / b), kh = Math.floor(h / b), k = new Float32Array(kw * kh);
+  for (let y = 0; y < kh * b; y++) {
+    const zeile = (y / b | 0) * kw;
+    for (let x = 0, i = y * w; x < kw * b; x++, i++) k[zeile + (x / b | 0)] += g[i];
+  }
+  for (let i = 0; i < k.length; i++) k[i] /= b * b;
+  return k;
+}
+// Wie weit hat sich das Bild seit dem letzten bewegt? Sucht die Verschiebung
+// (bis r Bloecke) mit dem kleinsten Unterschied: weg = diese Verschiebung,
+// rest = der Unterschied danach (0..255). Zittern der Hand ist ein kleines weg
+// mit kleinem rest; Hineinschieben, Drehen, Zoomen sind es nicht.
+function scanBewegung(a, b, kw, kh, r = 3) {
+  const aus = { weg: Infinity, rest: Infinity };
+  if (!a || !b || a.length !== b.length || kw <= 2 * r || kh <= 2 * r) return aus;
+  for (let dy = -r; dy <= r; dy++) {
+    for (let dx = -r; dx <= r; dx++) {
+      let s = 0, n = 0;
+      for (let y = r; y < kh - r; y++) {
+        for (let x = r, i = y * kw + r, j = (y + dy) * kw + r + dx; x < kw - r; x++, i++, j++) { s += Math.abs(a[i] - b[j]); n++; }
+      }
+      const rest = s / n, weg = Math.hypot(dx, dy);
+      if (rest < aus.rest - 0.05 || (rest <= aus.rest + 0.05 && weg < aus.weg)) { aus.rest = Math.min(rest, aus.rest); aus.weg = weg; }
+    }
+  }
+  return aus;
+}
+// Zeigen zwei Graubilder dasselbe? (normierte Kreuzkorrelation, 1 = gleich)
+function scanAehnlich(a, b) {
+  if (!a || !b || a.length !== b.length) return 0;
+  let sa = 0, sb = 0;
+  for (let i = 0; i < a.length; i++) { sa += a[i]; sb += b[i]; }
+  const ma = sa / a.length, mb = sb / b.length;
+  let z = 0, qa = 0, qb = 0;
+  for (let i = 0; i < a.length; i++) { const x = a[i] - ma, y = b[i] - mb; z += x * y; qa += x * x; qb += y * y; }
+  return qa && qb ? z / Math.sqrt(qa * qb) : 0;
+}
+// Schaerfe eines fertigen Ausschnitts, auf 240 px Breite gemessen (so sind
+// Video-Bild und hochaufgeloestes Foto vergleichbar)
+function scanSchaerfeVon(c) {
+  const w = 240, h = Math.max(40, Math.round(240 * c.height / c.width));
+  const t = document.createElement('canvas');
+  t.width = w; t.height = h;
+  const g = t.getContext('2d', { willReadFrequently: true });
+  g.drawImage(c, 0, 0, w, h);
+  const gr = scanGrau(g, w, h);
+  return { s: scanWerte(gr, w, h).schaerfe, g: gr };
+}
+
+// Den Scanner oeffnen. art: 'pfand' (Rahmen hochkant) oder 'gutschein'
+// (Karte quer oder Papier hochkant, umschaltbar). beimFoto(datei, info):
+// fertiger, zugeschnittener Scan; info.code = der live gelesene Code (zweimal
+// gleich), falls es einen gab. beimBild(dateien): "Bild hochladen" gewaehlt.
+function oeffneScanner({ art = 'gutschein', mehrere = false, beimFoto = null, beimBild = null } = {}) {
+  if (scannerAktiv || walletGesperrt()) return null;
+  const istBon = art === 'pfand';
+  let form = 'bon';
+  if (!istBon) { try { form = localStorage.getItem('ra.scanForm') === 'papier' ? 'papier' : 'karte'; } catch { form = 'karte'; } }
+  const titel = istBon ? 'Pfandbon scannen' : 'Gutschein scannen';
+  let touch = false;
+  try { touch = matchMedia('(pointer: coarse)').matches; } catch { /* alt */ }
+  const leise = reducedMotion();
+  const el = document.createElement('div');
+  el.className = 'scanner';
+  el.tabIndex = -1;
+  el.setAttribute('role', 'dialog');
+  el.setAttribute('aria-modal', 'true');
+  el.setAttribute('aria-label', titel);
+  el.innerHTML = `
+    <video class="sc-video" playsinline muted autoplay disablepictureinpicture aria-hidden="true"></video>
+    <div class="sc-rahmen" aria-hidden="true">
+      <i class="sc-ecke"></i><i class="sc-ecke"></i><i class="sc-ecke"></i><i class="sc-ecke"></i><span class="sc-blitz"></span>
+    </div>
+    <p class="sc-hinweis" role="status" aria-live="polite"></p>
+    <div class="sc-kopf">
+      <button class="sc-knopf sc-zu" type="button" aria-label="Schließen">${icon('x')}</button>
+      <h2 class="sc-titel">${titel}</h2>
+      <button class="sc-knopf sc-licht" type="button" aria-label="Licht einschalten" aria-pressed="false" hidden>${icon('bolt')}</button>
+    </div>
+    <div class="sc-fuss">
+      ${istBon ? '' : `<div class="sc-form" role="radiogroup" aria-label="Rahmen">
+        <button class="sc-form-knopf${form === 'karte' ? ' an' : ''}" type="button" role="radio" aria-checked="${form === 'karte'}" data-sc-form="karte">Karte</button>
+        <button class="sc-form-knopf${form === 'papier' ? ' an' : ''}" type="button" role="radio" aria-checked="${form === 'papier'}" data-sc-form="papier">Papier</button>
+      </div>`}
+      <div class="sc-leiste">
+        <label class="sc-neben">
+          <span class="sc-knopf">${wIcon('bild')}</span><span class="sc-neben-text">Bild hochladen</span>
+          <input type="file" accept="image/*"${mehrere ? ' multiple' : ''} hidden data-sc-bild>
+        </label>
+        <button class="sc-ausloeser" type="button" aria-label="Jetzt aufnehmen"><span></span></button>
+        <span class="sc-neben" aria-hidden="true"></span>
+      </div>
+    </div>
+    <div class="sc-fehler" hidden></div>`;
+  document.body.appendChild(el);
+  const video = el.querySelector('.sc-video');
+  video.muted = true;
+  const rahmen = el.querySelector('.sc-rahmen');
+  const hinweisEl = el.querySelector('.sc-hinweis');
+  const lichtKnopf = el.querySelector('.sc-licht');
+  const fehlerEl = el.querySelector('.sc-fehler');
+  const fokusVorher = document.activeElement;
+  const lauf = {
+    an: true, fertig: false, pausiert: false, strom: null, spur: null, uhr: 0, sucht: false, licht: false,
+    lage: null, grau: null, werte: null, unruhe: [], schaerfen: [], treffer: [], halteSeit: 0, sucheSeit: 0, start: 0, zustand: '',
+  };
+  // Leinwaende einmal anlegen und bei jedem Takt wiederverwenden
+  const mess = document.createElement('canvas'), messG = mess.getContext('2d', { willReadFrequently: true });
+  const ac = document.createElement('canvas'), acG = ac.getContext('2d', { willReadFrequently: true });
+  // Der eingebaute Leser (Android) ist am schnellsten. Kennt er keine Formate
+  // oder scheitert er, liest ZXing im Hintergrund
+  let detektor = null;
+  if ('BarcodeDetector' in window) {
+    try {
+      detektor = new BarcodeDetector();
+      BarcodeDetector.getSupportedFormats?.().then(f => { if (!f || !f.length) detektor = null; }).catch(() => { detektor = null; });
+    } catch { detektor = null; }
+  }
+
+  // ---- Rahmen: so gross wie moeglich zwischen Kopf und Fuss, mittig
+  const anordnen = () => {
+    const W = el.clientWidth;
+    const oben = el.querySelector('.sc-kopf').getBoundingClientRect().bottom + 14;
+    const unten = el.querySelector('.sc-fuss').getBoundingClientRect().top - 60;   // Platz fuer den Hinweis
+    const seiten = SCAN_FORMEN[form];
+    const platzH = Math.max(120, unten - oben);
+    let w = seiten < 1 ? Math.min((W - 40) * 0.8, 380) : Math.min(W - 40, 560);
+    let h = w / seiten;
+    if (h > platzH) { h = platzH; w = h * seiten; }
+    const x = (W - w) / 2, y = oben + (platzH - h) / 2;
+    lauf.lage = { x, y, w, h };
+    Object.assign(rahmen.style, { left: Math.round(x) + 'px', top: Math.round(y) + 'px', width: Math.round(w) + 'px', height: Math.round(h) + 'px' });
+    hinweisEl.style.top = Math.round(y + h + 18) + 'px';
+    lauf.grau = null; lauf.unruhe = [];
+  };
+  // Rahmen im Video (das Video fuellt den Schirm wie object-fit: cover);
+  // rand = Zugabe ringsum als Anteil, damit am Rand nichts fehlt
+  const imVideo = (rand = 0) => {
+    const vw = video.videoWidth, vh = video.videoHeight, W = el.clientWidth, H = el.clientHeight;
+    if (!vw || !vh || !lauf.lage || !W || !H) return null;
+    const s = Math.max(W / vw, H / vh), ox = (W - vw * s) / 2, oy = (H - vh * s) / 2;
+    const L = lauf.lage;
+    let x = (L.x - L.w * rand - ox) / s, y = (L.y - L.h * rand - oy) / s;
+    let w = L.w * (1 + 2 * rand) / s, h = L.h * (1 + 2 * rand) / s;
+    x = Math.max(0, x); y = Math.max(0, y);
+    w = Math.min(vw - x, w); h = Math.min(vh - y, h);
+    if (w < 20 || h < 20) return null;
+    return { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h), vw, vh };
+  };
+
+  // ---- Hinweis unter dem Rahmen
+  const TEXTE = {
+    start: 'Kamera startet …',
+    sucht: istBon ? 'Bon in den Rahmen halten' : 'Gutschein in den Rahmen halten',
+    naeher: 'Näher ran',
+    dunkel: 'Mehr Licht, bitte',
+    halten: 'Code erkannt, still halten …',
+    ohneCode: 'Kein Code lesbar? Tipp auf den Auslöser',
+    erfassen: 'Still halten …',
+    erfasst: 'Erfasst',
+  };
+  // Suchen, Naeher ran, Licht: solche Hinweise wechseln hoechstens alle 0,8 s
+  // (sonst flackern sie, waehrend man den Bon heranfuehrt). Code erkannt und
+  // Aufnahme kommen sofort.
+  const LEISE_ZUSTAENDE = ['sucht', 'naeher', 'dunkel', 'ohneCode'];
+  const zustand = z => {
+    if (lauf.zustand === z) return;
+    const jetzt = performance.now();
+    if (LEISE_ZUSTAENDE.includes(z) && LEISE_ZUSTAENDE.includes(lauf.zustand) && jetzt - (lauf.zustandSeit || 0) < 800) return;
+    lauf.zustandSeit = jetzt;
+    lauf.zustand = z;
+    el.dataset.zustand = z;
+    hinweisEl.textContent = z === 'dunkel' && !lichtKnopf.hidden && !lauf.licht ? 'Mehr Licht, bitte: Lampe oben rechts' : TEXTE[z] || '';
+    if (!leise && z !== 'start') neuStarten(hinweisEl, 'sc-neu');
+  };
+
+  // ---- Messen: Schaerfe, Ruhe und Helligkeit (kleines Bild, 360 breit)
+  const messen = () => {
+    const q = imVideo(0);
+    if (!q) return false;
+    const w = 360, h = Math.max(60, Math.min(900, Math.round(w * q.h / q.w)));
+    if (mess.width !== w || mess.height !== h) { mess.width = w; mess.height = h; lauf.grau = null; }
+    messG.drawImage(video, q.x, q.y, q.w, q.h, 0, 0, w, h);
+    const g = scanGrau(messG, w, h);
+    const jetzt = performance.now();
+    lauf.werte = scanWerte(g, w, h);
+    const kg = scanKlein(g, w, h, 6);
+    lauf.unruhe.push(scanBewegung(kg, lauf.grau, Math.floor(w / 6), Math.floor(h / 6)));
+    if (lauf.unruhe.length > 8) lauf.unruhe.shift();
+    lauf.grau = kg;
+    lauf.schaerfen.push({ t: jetzt, s: lauf.werte.schaerfe });
+    lauf.schaerfen = lauf.schaerfen.filter(x => jetzt - x.t < 3000);
+    // Nur fuer Tests (Fake-Kamera): window.__scanLog = [] sammelt die Messwerte
+    if (Array.isArray(window.__scanLog)) {
+      const b = lauf.unruhe[lauf.unruhe.length - 1];
+      window.__scanLog.push({ t: Math.round(jetzt - lauf.start), s: +lauf.werte.schaerfe.toFixed(3), u: +b.rest.toFixed(2) + '/' + (b.weg === Infinity ? '-' : +b.weg.toFixed(1)),
+        m: Math.round(lauf.werte.mittel), z: lauf.zustand, f: lauf.flaeche ? lauf.flaeche.typ + ':' + lauf.flaeche.breite.toFixed(2) : '-' });
+    }
+    return true;
+  };
+  // Enger Ausschnitt um eine Code-Flaeche (aus dem kleinen Bild) in voller
+  // Video-Aufloesung, auf weissem Grund — so liest ZXing am sichersten
+  // Jede Suche nimmt eine andere Fassung (Rand, Groesse, Schwelle): ein
+  // zerknitterter Code, den eine Fassung nicht liest, liest oft die naechste
+  const FASSUNGEN = {
+    '1d': [{ rx: 0.05, ry: 0.12, ziel: 1000, bin: 'hybrid' }, { rx: 0.03, ry: 0.08, ziel: 800, bin: 'global' }, { rx: 0.08, ry: 0.16, ziel: 1200, bin: 'hybrid' }],
+    '2d': [{ rx: 0.1, ry: 0.1, ziel: 640, bin: 'hybrid' }, { rx: 0.06, ry: 0.06, ziel: 800, bin: 'hybrid' }, { rx: 0.14, ry: 0.14, ziel: 520, bin: 'global' }],
+  };
+  let fassung = 0;
+  const codeAusVideo = (f, q, v) => {
+    const k = q.w / mess.width;
+    const gx = q.x + f.x * k, gy = q.y + f.y * k, gw = f.width * k, gh = f.height * k;
+    const px = gw * v.rx + 4, py = gh * v.ry + 4;
+    const sx = Math.max(0, gx - px), sy = Math.max(0, gy - py);
+    const sw = Math.min(q.vw - sx, gw + 2 * px), sh = Math.min(q.vh - sy, gh + 2 * py);
+    const z = f.typ === '1d' ? Math.min(2, v.ziel / sw) : Math.min(2, v.ziel / Math.max(sw, sh));
+    ac.width = Math.max(8, Math.round(sw * z) + 24); ac.height = Math.max(8, Math.round(sh * z) + 24);
+    acG.fillStyle = '#fff';
+    acG.fillRect(0, 0, ac.width, ac.height);
+    acG.imageSmoothingQuality = 'high';
+    acG.drawImage(video, sx, sy, sw, sh, 12, 12, ac.width - 24, ac.height - 24);
+    return ac;
+  };
+  // ---- Code suchen (laeuft neben dem Takt her; immer nur eine Suche zugleich)
+  const suchen = async () => {
+    const q = imVideo(0);
+    if (!q) return;
+    lauf.sucht = true;
+    try {
+      let fund = null;
+      if (detektor) {
+        const k = Math.min(1, 960 / q.w);
+        ac.width = Math.round(q.w * k); ac.height = Math.round(q.h * k);
+        acG.drawImage(video, q.x, q.y, q.w, q.h, 0, 0, ac.width, ac.height);
+        const codes = await detektor.detect(ac).catch(() => { detektor = null; return []; });
+        const c = codes.find(x => x.rawValue && x.rawValue.length >= 4);
+        if (c) {
+          fund = { text: c.rawValue, format: codeFormatName(c.format), typ: /qr|aztec|data_matrix|pdf|maxi/.test(c.format) ? '2d' : '1d',
+            breite: (c.boundingBox?.width || 0) / ac.width };
+        }
+      } else {
+        const fl = findeCodeFlaechen(mess);
+        // Die kraeftigste Code-Flaeche: ist sie zu klein, heisst es "Naeher ran"
+        const staerkste = fl.reduce((a, b) => (!a || b.score > a.score ? b : a), null);
+        lauf.flaeche = staerkste && staerkste.score >= 120000 ? { typ: staerkste.typ, breite: staerkste.width / mess.width, zeit: performance.now() } : null;
+        const kandidaten = [...fl.filter(f => f.typ === '1d').slice(0, 2), ...fl.filter(f => f.typ === '2d').slice(0, 1)];
+        fassung = (fassung + 1) % 3;
+        const hinten = kandidaten.length ? await zxingWorker() : null;
+        if (!hinten && kandidaten.length && !window.ZXing) await zxingDetect(document.createElement('canvas')).catch(() => null);
+        for (const f of kandidaten) {
+          if (!lauf.an || lauf.fertig) break;
+          // Breite Strich-Flaeche = Strichcode; fast quadratisch kann auch ein Aztec-/QR-Code sein
+          const formate = f.typ === '2d' ? SCAN_2D : f.width > f.height * 1.6 ? SCAN_1D : null;
+          const v = FASSUNGEN[f.typ][fassung];
+          const c = codeAusVideo(f, q, v);
+          const r = hinten ? await hinten.lies(c, v.bin, formate) : zxingLies(c, v.bin, formate);
+          if (r && r.text && r.text.trim().length >= 4) {
+            const typ = /qr|aztec|matrix|pdf|maxi/.test(r.format || '') ? '2d' : '1d';
+            fund = { text: r.text.trim(), format: r.format || '', typ, breite: f.width / mess.width };
+            break;
+          }
+        }
+      }
+      const jetzt = performance.now();
+      if (fund) lauf.treffer.push({ ...fund, zeit: jetzt });
+      lauf.treffer = lauf.treffer.filter(x => jetzt - x.zeit < 2500);
+    } catch { /* naechster Takt versucht es wieder */ } finally { lauf.sucht = false; }
+  };
+  // ---- Entscheiden: Hinweis setzen und, wenn alles passt, selbst ausloesen
+  const entscheiden = () => {
+    const v = lauf.werte;
+    if (!v) return;
+    const jetzt = performance.now();
+    const t = lauf.treffer;
+    const letzter = t[t.length - 1];
+    const code = letzter && jetzt - letzter.zeit < 900 ? letzter : null;
+    const gleich = code ? t.filter(x => x.text === code.text).length : 0;
+    const minB = SCAN_MIN_BREITE[form][code ? code.typ : '1d'];
+    const u = lauf.unruhe.slice(-2);
+    const ruhig = u.length === 2 && u.every(x => x.weg <= 1 && x.rest <= SCAN_RUHIG);
+    const beste = Math.max(...lauf.schaerfen.map(x => x.s));
+    const scharf = v.schaerfe >= beste * 0.7;
+    if (code && code.breite >= minB) {
+      lauf.sucheSeit = 0;
+      if (gleich >= 2 && ruhig && scharf) {
+        if (!lauf.halteSeit) lauf.halteSeit = jetzt;
+        if (jetzt - lauf.halteSeit >= SCAN_HALTEN) { zustand('halten'); ausloesen('auto'); return; }
+      } else lauf.halteSeit = 0;
+      zustand('halten');
+      return;
+    }
+    lauf.halteSeit = 0;
+    // Code gelesen, aber zu klein — oder eine deutliche Code-Flaeche, die
+    // (noch) nicht lesbar und zu klein ist: das Papier ist zu weit weg
+    const fl = lauf.flaeche && jetzt - lauf.flaeche.zeit < 900 ? lauf.flaeche : null;
+    if (code || (fl && fl.breite < SCAN_NAEHER[form][fl.typ])) { zustand('naeher'); lauf.sucheSeit = 0; return; }
+    if (v.mittel < 42) { zustand('dunkel'); return; }
+    if (!lauf.sucheSeit) lauf.sucheSeit = jetzt;
+    zustand(jetzt - lauf.sucheSeit > 5000 ? 'ohneCode' : 'sucht');
+  };
+  const takt = () => {
+    clearTimeout(lauf.uhr);
+    if (!lauf.an || lauf.fertig || lauf.pausiert) return;
+    try {
+      if (messen()) {
+        if (!lauf.sucht) suchen();
+        entscheiden();
+      }
+    } catch { /* naechster Takt */ }
+    if (lauf.an && !lauf.fertig && !lauf.pausiert) lauf.uhr = setTimeout(takt, SCAN_TAKT);
+  };
+
+  // ---- Kamera
+  const kameraHolen = async () => {
+    const versuche = [
+      { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 }, resizeMode: { ideal: 'none' } },
+      { facingMode: { ideal: 'environment' } },
+      true,
+    ];
+    let letzter = null;
+    for (const v of versuche) {
+      try { return await navigator.mediaDevices.getUserMedia({ video: v, audio: false }); }
+      catch (e) {
+        letzter = e;
+        // Verboten bleibt verboten, da hilft kein zweiter Versuch
+        if (['NotAllowedError', 'SecurityError', 'PermissionDeniedError'].includes(e?.name)) break;
+      }
+    }
+    throw letzter || new Error('keine Kamera');
+  };
+  const kameraAus = () => {
+    clearTimeout(lauf.uhr);
+    try { lauf.strom?.getTracks().forEach(x => x.stop()); } catch { /* schon aus */ }
+    lauf.strom = null; lauf.spur = null; lauf.licht = false;
+    lichtKnopf.classList.remove('an');
+    try { video.pause(); video.srcObject = null; } catch { /* egal */ }
+    el.classList.remove('laeuft');
+  };
+  const kameraAn = async () => {
+    lauf.pausiert = false;
+    zustand('start');
+    if (!window.isSecureContext) return fehler('unsicher');
+    if (!navigator.mediaDevices?.getUserMedia) return fehler('keine');
+    let strom;
+    try { strom = await kameraHolen(); } catch (e) { if (lauf.an && !lauf.pausiert) fehler(e?.name || ''); return; }
+    // Inzwischen zu, im Hintergrund oder schon aufgenommen: gleich wieder aus
+    if (!lauf.an || lauf.pausiert || lauf.fertig) { strom.getTracks().forEach(x => x.stop()); return; }
+    lauf.strom = strom;
+    lauf.spur = strom.getVideoTracks()[0] || null;
+    // Kamera weg (andere App, Kabel): kein eingefrorenes Bild weiterlesen
+    if (lauf.spur) lauf.spur.onended = () => { if (lauf.an && !lauf.fertig && !lauf.pausiert && lauf.strom === strom) fehler('NotReadableError'); };
+    video.srcObject = strom;
+    try { await video.play(); } catch { /* autoplay: startet trotzdem */ }
+    for (let i = 0; i < 40 && lauf.an && lauf.strom === strom && !video.videoWidth; i++) await new Promise(r => setTimeout(r, 100));
+    if (!lauf.an || lauf.strom !== strom) return;
+    if (!video.videoWidth) { fehler('start'); return; }
+    let caps = {};
+    try { caps = lauf.spur?.getCapabilities?.() || {}; } catch { caps = {}; }
+    lichtKnopf.hidden = !caps.torch;
+    if (Array.isArray(caps.focusMode) && caps.focusMode.includes('continuous')) {
+      lauf.spur.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => { });
+    }
+    el.classList.add('laeuft');
+    lauf.start = performance.now();
+    lauf.treffer = []; lauf.schaerfen = []; lauf.unruhe = []; lauf.grau = null; lauf.halteSeit = 0; lauf.sucheSeit = 0;
+    anordnen();
+    zustand('sucht');
+    takt();
+  };
+  lichtKnopf.onclick = async () => {
+    if (!lauf.spur) return;
+    const an = !lauf.licht;
+    try { await lauf.spur.applyConstraints({ advanced: [{ torch: an }] }); lauf.licht = an; } catch { lauf.licht = false; }
+    lichtKnopf.classList.toggle('an', lauf.licht);
+    lichtKnopf.setAttribute('aria-pressed', String(lauf.licht));
+    lichtKnopf.setAttribute('aria-label', lauf.licht ? 'Licht ausschalten' : 'Licht einschalten');
+    if (lauf.zustand === 'dunkel') { lauf.zustand = ''; zustand('dunkel'); }
+    buzz(8);
+  };
+
+  // ---- Kamera geht nicht: kurz sagen warum, dann Bild hochladen (oder das
+  // Foto der System-Kamera, das geht auch ohne Kamera-Freigabe im Browser)
+  const fehler = grund => {
+    kameraAus();
+    const texte = {
+      unsicher: 'Die Kamera lässt sich nur über eine sichere Verbindung öffnen.',
+      keine: 'Dieser Browser kann die Kamera hier nicht direkt öffnen.',
+      NotAllowedError: 'Der Zugriff auf die Kamera ist nicht erlaubt. Du kannst ihn in den Einstellungen des Browsers freigeben.',
+      NotFoundError: 'Hier ist keine Kamera zu finden.',
+      NotReadableError: 'Die Kamera wird gerade von einer anderen App benutzt.',
+    };
+    texte.SecurityError = texte.PermissionDeniedError = texte.NotAllowedError;
+    texte.OverconstrainedError = texte.DevicesNotFoundError = texte.NotFoundError;
+    texte.TrackStartError = texte.AbortError = texte.NotReadableError;
+    const text = texte[grund] || 'Die Kamera ließ sich gerade nicht starten.';
+    el.classList.add('fehler');
+    lauf.zustand = 'fehler';
+    hinweisEl.textContent = '';
+    fehlerEl.hidden = false;
+    fehlerEl.innerHTML = `
+      <span class="sc-fehler-bild">${wIcon('kamera')}</span>
+      <h3>Kamera nicht verfügbar</h3>
+      <p>${esc(text)} Lade stattdessen ein Bild hoch${touch ? ' oder nimm ein Foto auf' : ''}.</p>
+      <div class="sc-fehler-knoepfe">
+        <label class="gd-los sc-fehler-los">${wIcon('bild')}<span>Bild hochladen</span>
+          <input type="file" accept="image/*"${mehrere ? ' multiple' : ''} hidden data-sc-bild></label>
+        ${touch ? `<label class="gd-los leise">${wIcon('kamera')}<span>Foto aufnehmen</span>
+          <input type="file" accept="image/*" capture="environment" hidden data-sc-bild></label>` : ''}
+      </div>`;
+    bildWahl(fehlerEl);
+  };
+  const bildWahl = host => host.querySelectorAll('[data-sc-bild]').forEach(inp => inp.onchange = e => {
+    const dateien = [...(e.target.files || [])].filter(f => f && (!f.type || f.type.startsWith('image/')));
+    e.target.value = '';
+    if (!dateien.length || !lauf.an) return;
+    zu('bild');
+    beimBild?.(dateien);
+  });
+  bildWahl(el.querySelector('.sc-fuss'));
+
+  // ---- Ausloesen: drei Bilder, das schaerfste gewinnt; ein Foto in voller
+  // Aufloesung nur, wenn es denselben Ausschnitt zeigt und nicht unschaerfer ist
+  const naechstesBild = () => new Promise(r => {
+    if (!video.requestVideoFrameCallback) { setTimeout(r, 60); return; }
+    let fertig = false;
+    const uhr = setTimeout(() => { fertig = true; r(); }, 150);
+    video.requestVideoFrameCallback(() => { if (!fertig) { fertig = true; clearTimeout(uhr); r(); } });
+  });
+  const ausschnitt = (quelle, q, k = 1) => {
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(q.w * k)); c.height = Math.max(1, Math.round(q.h * k));
+    const g = c.getContext('2d');
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(quelle, q.x * k, q.y * k, q.w * k, q.h * k, 0, 0, c.width, c.height);
+    return c;
+  };
+  const fotoVersuchen = async (q, bestes) => {
+    if (!('ImageCapture' in window) || !lauf.spur || lauf.spur.readyState !== 'live') return null;
+    const blob = await Promise.race([new ImageCapture(lauf.spur).takePhoto(), new Promise((_, nein) => setTimeout(() => nein(new Error('zu langsam')), 2500))]);
+    const bild = await createImageBitmap(blob);
+    try {
+      const k = bild.width / q.vw;
+      // Nur mehr Pixel mit genau demselben Seitenverhaeltnis (sonst zeigt das
+      // Foto einen anderen Ausschnitt als die Vorschau)
+      if (k < 1.25 || Math.abs(bild.width / bild.height - q.vw / q.vh) > 0.02) return null;
+      const c = ausschnitt(bild, q, k);
+      const m = scanSchaerfeVon(c);
+      if (m.s < bestes.m.s * 0.85 || scanAehnlich(m.g, bestes.m.g) < 0.75) return null;
+      return c;
+    } finally { try { bild.close(); } catch { /* alt */ } }
+  };
+  const ausloesen = async wie => {
+    if (lauf.fertig || !lauf.an) return;
+    const q = imVideo(0.05);
+    if (!q) return;
+    lauf.fertig = true;
+    clearTimeout(lauf.uhr);
+    const code = (() => {
+      const l = lauf.treffer[lauf.treffer.length - 1];
+      const n = l ? lauf.treffer.filter(x => x.text === l.text).length : 0;
+      return n >= 2 ? { text: l.text, format: l.format, n } : null;
+    })();
+    zustand('erfassen');
+    let bestes = null;
+    try {
+      for (let i = 0; i < (wie === 'auto' ? 3 : 2); i++) {
+        if (i) await naechstesBild();
+        if (!lauf.an || !lauf.strom) break;
+        const c = ausschnitt(video, q);
+        const m = scanSchaerfeVon(c);
+        if (!bestes || m.s > bestes.m.s) bestes = { c, m };
+      }
+    } catch { /* unten: bestes fehlt */ }
+    if (!lauf.an) return;
+    if (!bestes) { lauf.fertig = false; fehler('start'); return; }
+    let leinwand = bestes.c;
+    try { leinwand = (await fotoVersuchen(q, bestes)) || leinwand; } catch { /* Video-Bild reicht */ }
+    if (!lauf.an) return;
+    kameraAus();
+    // Das Bild steht still im Rahmen, kurz blitzt es: aufgenommen
+    leinwand.className = 'sc-standbild';
+    rahmen.prepend(leinwand);
+    el.classList.add('erfasst');
+    zustand('erfasst');
+    buzz(18);
+    if (!leise) neuStarten(rahmen, 'sc-klick');
+    const blob = await new Promise(r => { try { leinwand.toBlob(r, 'image/jpeg', 0.94); } catch { r(null); } });
+    if (!lauf.an) return;
+    if (!blob) { el.classList.remove('erfasst'); leinwand.remove(); lauf.fertig = false; fehler('start'); return; }
+    const datei = new File([blob], 'scan.jpg', { type: 'image/jpeg', lastModified: Date.now() });
+    setTimeout(() => {
+      if (!lauf.an) return;
+      zu('foto');
+      beimFoto?.(datei, { code, wie, breite: leinwand.width, hoehe: leinwand.height });
+    }, leise ? 150 : 480);
+  };
+
+  // ---- Schliessen: Kamera immer aus, keine Lampe bleibt an
+  const taste = e => { if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); zu('abbruch'); } };
+  const sicht = () => {
+    if (!lauf.an || lauf.fertig || el.classList.contains('fehler')) return;
+    if (document.visibilityState === 'hidden') { lauf.pausiert = true; kameraAus(); }
+    else if (lauf.pausiert) kameraAn();
+  };
+  const weg = () => zu('weg');
+  const neuLage = () => { if (lauf.an && !lauf.fertig) anordnen(); };
+  const zu = (grund = 'abbruch') => {
+    if (!lauf.an) return;
+    lauf.an = false;
+    kameraAus();
+    removeEventListener('keydown', taste, true);
+    document.removeEventListener('visibilitychange', sicht);
+    removeEventListener('pagehide', weg);
+    removeEventListener('resize', neuLage);
+    if (scannerAktiv === api) scannerAktiv = null;
+    if (leise || grund === 'weg') el.remove();
+    else {
+      el.classList.add('geht');
+      setTimeout(() => el.remove(), 260);
+    }
+    if (fokusVorher?.isConnected) fokusVorher.focus?.({ preventScroll: true });
+  };
+  const api = { zu, el };
+  scannerAktiv = api;
+  addEventListener('keydown', taste, true);
+  document.addEventListener('visibilitychange', sicht);
+  addEventListener('pagehide', weg);
+  addEventListener('resize', neuLage);
+  el.querySelector('.sc-zu').onclick = () => zu('abbruch');
+  el.querySelector('.sc-ausloeser').onclick = () => { if (lauf.strom && video.videoWidth) { buzz(10); ausloesen('hand'); } };
+  el.querySelectorAll('[data-sc-form]').forEach(b => b.onclick = () => {
+    if (b.dataset.scForm === form || lauf.fertig) return;
+    form = b.dataset.scForm;
+    lsSetzen('ra.scanForm', form);
+    el.querySelectorAll('[data-sc-form]').forEach(x => { x.classList.toggle('an', x === b); x.setAttribute('aria-checked', String(x === b)); });
+    anordnen();
+    lauf.treffer = []; lauf.halteSeit = 0; lauf.sucheSeit = 0;
+    buzz(6);
+    if (!leise) neuStarten(rahmen, 'sc-form-neu');
+  });
+  anordnen();
+  if (!leise) el.animate?.([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: 'ease-out' });
+  el.focus({ preventScroll: true });
+  kameraAn();
+  return api;
+}
+
 // Große, interaktive Shop-Auswahl beim Hinzufügen (erst 6, Rest hinter "Weitere")
 const VENDOR_GRID = ['REWE', 'Amazon', 'Wunschgutschein', 'Zalando', 'IKEA', 'Rossmann', 'Lidl', 'EDEKA', 'Netto', 'dm', 'Müller', 'MediaMarkt', 'H&M', 'Douglas', 'Nike', 'Anderer Gutschein'];
 // Rabattcodes: vor allem Lieferdienste und Online-Shops
@@ -7684,6 +8314,7 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
   const el = seite.el;
   const inhalt = el.querySelector('.wseite-inhalt');
   const q = sel => el.querySelector(sel);
+  el.classList.remove('wa-scanlauf', 'wa-kompakt');
 
   const art = isCard ? 'karten' : 'gutscheine';
   const platz = walletPlatz(art);
@@ -7693,6 +8324,8 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
   const modusVon = opts.von || addType;
   const shopListe = waShopListe(addType);
   const mehrere = addType === 'voucher';
+  // Gutscheine: Live-Scanner mit Rahmen statt "Foto aufnehmen"
+  const liveScan = addType === 'voucher';
   let maus = false;
   try { maus = matchMedia('(hover: hover) and (pointer: fine)').matches; } catch { /* alt */ }
   const einfuegen = /Mac|iPhone|iPad/.test(navigator.platform || '') ? '⌘+V' : 'Strg+V';
@@ -7709,10 +8342,10 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
     <div class="wa-form${opts.von && !opts.richtung ? ' wa-form-neu' : ''}">
       <div class="wa-vorschau" id="wa-vorschau" aria-hidden="true"></div>
 
-      <section class="gd-block wa-scan" id="wa-drop" aria-label="Foto oder Screenshot">
+      <section class="gd-block wa-scan" id="wa-drop" aria-label="${liveScan ? 'Scannen oder Screenshot' : 'Foto oder Screenshot'}">
         <div class="wa-scan-kopf">
           <span class="wa-scan-symbol">${wIcon('scan')}</span>
-          <span class="wa-scan-text"><b>Foto oder Screenshot</b>
+          <span class="wa-scan-text"><b>${liveScan ? 'Scannen oder Screenshot' : 'Foto oder Screenshot'}</b>
             <small>${isCard ? 'Barcode und Kartennummer liest kumulio selbst aus.'
               : isRabatt ? 'Code, Rabatt und Mindestbestellwert liest kumulio selbst aus.'
               : 'Code, PIN und Wert liest kumulio selbst aus.'}</small></span>
@@ -7728,8 +8361,9 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
         <div id="wa-result" class="wa-scan-ergebnis hidden"></div>
         <p id="wa-ai-msg" class="form-msg wa-scan-meldung" role="status"></p>
         <div class="wa-scan-knoepfe">
-          <label class="wa-scan-knopf">${wIcon('kamera')}<span data-mit-bild="Neues Foto">Foto aufnehmen</span>
-            <input id="wa-cam" type="file" accept="image/*" capture="environment" hidden></label>
+          ${liveScan ? `<button class="wa-scan-knopf wa-scan-live" id="wa-live" type="button">${wIcon('scan')}<span data-mit-bild="Neu scannen">Scannen</span></button>`
+          : `<label class="wa-scan-knopf">${wIcon('kamera')}<span data-mit-bild="Neues Foto">Foto aufnehmen</span>
+            <input id="wa-cam" type="file" accept="image/*" capture="environment" hidden></label>`}
           <label class="wa-scan-knopf">${wIcon('bild')}<span data-mit-bild="${mehrere ? 'Andere Bilder' : 'Anderes Bild'}">${mehrere ? 'Bilder' : 'Bild'} hochladen</span>
             <input id="wa-img" type="file" accept="image/*" ${mehrere ? 'multiple' : ''} hidden></label>
           <button class="wa-scan-knopf wa-scan-crop" id="wa-crop" type="button" aria-label="Bild zuschneiden" title="Zuschneiden">${wIcon('zuschnitt')}</button>
@@ -8071,10 +8705,15 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
     if (f) f.style.transform = `scaleX(${Math.max(0, Math.min(100, p)) / 100})`;
     if (t) t.textContent = Math.round(p) + ' %';
   };
-  const handleImageFile = async f => {
+  // scan: kommt das Bild aus dem Live-Scanner ({ code }), wartet das lange
+  // Formular, bis die Erkennung fertig ist — ist alles Noetige sicher gelesen,
+  // gibt es statt des Formulars eine kurze Bestaetigung (waKompakt)
+  const handleImageFile = async (f, scan = null) => {
     if (!f) return;
     const lauf = ++waScanLauf;
     const veraltet = () => lauf !== waScanLauf;
+    waKompaktAus(seite, { still: true });
+    if (scan && addType === 'voucher') { el.classList.add('wa-scanlauf'); inhalt.scrollTop = 0; }
     try {
       for (const [sel, wert] of Object.entries(waAutoWerte)) {
         if (sel === '__shop') { if (currentVendor() === wert) setzeShop(''); continue; }
@@ -8116,7 +8755,7 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
         if (veraltet()) return;
         scanProgress(20 + p * 0.78);
         scanMeldung('Lese den Text im Bild … (kann beim ersten Mal etwas dauern)');
-      });
+      }, scan?.code || null);
       // Inzwischen kam ein anderes Bild: dieses Ergebnis gehoert nicht mehr hierher
       if (veraltet()) return;
       // Ein Pfandbon? Der gehoert unter Pfand: das Formular wechselt und liest
@@ -8125,15 +8764,17 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
       // Kassenbons liest er besser.
       if (!addEditId && addType !== 'card') {
         let pfand = pfandVermutet(r) ? { vermutet: true } : null;
-        if (!pfand && !r.barcode && !r.amount && !r.pin) {
+        // Aus dem Scanner kommt fast immer ein Code mit: ohne Wert und PIN
+        // schaut der Pfand-Scan trotzdem nach (ein Gutschein ohne Wert ist selten)
+        if (!pfand && !r.amount && !r.pin && (!r.barcode || scan)) {
           scanMeldung('Lese weiter …');
-          const e = await pfandScannen(f, p => { if (!veraltet()) scanProgress(Math.max(60, p)); }, { drehen: false }).catch(() => null);
+          const e = await pfandScannen(f, p => { if (!veraltet()) scanProgress(Math.max(60, p)); }, { drehen: false, live: scan?.code || null }).catch(() => null);
           if (veraltet()) return;
           if (e && e.istPfand) pfand = { ergebnis: e };
         }
         if (pfand) {
           const ausSchlange = !!waApi?.ausSchlange;
-          openWalletAdd('pfand', '', '', { von: addType, richtung: 1, datei: f, ergebnis: pfand.ergebnis || null });
+          openWalletAdd('pfand', '', '', { von: addType, richtung: 1, datei: f, ergebnis: pfand.ergebnis || null, scan });
           if (waApi) {
             waApi.ausSchlange = ausSchlange;
             waApi.hinweis('fix', '<b>Das ist ein Pfandbon.</b> Er kommt unter Pfand, zusammen mit der Filiale, in der er gilt.');
@@ -8145,6 +8786,7 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
       const felder = ['#wa-code', '#wa-pin', '#wa-amount', '#wa-cnumber', '#wa-rcode', '#wa-rwert', '#wa-mbw'];
       const vorher = Object.fromEntries(felder.map(sel => [sel, $(sel)?.value || '']));
       const filled = [];
+      let shopSicher = false;
       if (addType === 'voucher') {
         if (r.barcode && !$('#wa-code').value) { $('#wa-code').value = r.barcode.slice(0, 40); filled.push('Code (aus QR/Barcode)'); }
         // PIN kommt aus dem Scanner (Volltext ODER gezielte Zweit-Suche im rechten Kasten)
@@ -8165,8 +8807,11 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
               setzeShop(hit.charAt(0).toUpperCase() + hit.slice(1));
               waAutoWerte.__shop = currentVendor();
               filled.push('Shop');
+              // Als ganzes Wort gelesen ("REWE", nicht "dm" in "Admin")
+              const wort = hit.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              shopSicher = hit.length >= 3 && new RegExp(`(^|[^a-z0-9äöüß])${wort}($|[^a-z0-9äöüß])`, 'i').test(r.text);
             }
-          }
+          } else shopSicher = true;   // selbst gewaehlt
         }
       } else if (addType === 'rabatt') {
         const text = r.text || '';
@@ -8242,11 +8887,28 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
       } else {
         scanMeldung('Nichts sicher erkannt, bitte die Felder ausfüllen. Gespeichert wird mit „Speichern“.');
       }
+      // Aus dem Scanner und alles Noetige sicher: Shop (als Wort gelesen oder
+      // selbst gewaehlt), Wert (OCR bei genau dieser Zahl sicher) und ein Code
+      // oder PIN. Dann die kurze Bestaetigung — gespeichert wird erst mit dem Tipp.
+      if (scan && addType === 'voucher') {
+        const code = ($('#wa-code')?.value || '').trim(), pin = ($('#wa-pin')?.value || '').trim();
+        const wert = zahlAus('#wa-amount');
+        const sicher = shopSicher && r.amountSicher && wert != null && wert > 0 && (r.barcode || r.pin) && !pruefen()
+          && !findDupe({ vendor: currentVendor(), code, pin, amount: wert });
+        if (sicher) {
+          waKompakt(seite, {
+            titel: `Erkannt: ${currentVendor()} · ${euroFmt(wert)}`,
+            zeilen: [code && ['Code', code], pin && ['PIN', pin]].filter(Boolean),
+            bild: addImg || addCodeImg,
+          });
+        } else waKompaktAus(seite);
+      }
     } catch {
       if (veraltet()) return;
       $('#wa-scanline')?.classList.add('hidden');
       $('#wa-progress')?.classList.add('hidden');
       scanMeldung('Bild konnte nicht gelesen werden.', 'error');
+      waKompaktAus(seite);
     }
   };
   // Aus dem Scan einen fertigen Gutschein bauen (für den Mehrfach-Upload)
@@ -8269,6 +8931,7 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
   // nur die neuen und vollständig erkannten wandern in die Wallet
   const handleImageBatch = async files => {
     waScanLauf++; // ein laufender Einzel-Scan traegt nichts mehr ein
+    waKompaktAus(seite, { still: true });
     seite.stapelLaeuft = true;                  // Zurueck fragt solange nach (siehe zurueckFrage)
     zeigeWeich($('#wa-result'), false);
     $('#wa-progress')?.classList.remove('done');
@@ -8438,9 +9101,16 @@ function openWalletAdd(type, prefillName, bearbeiteId, opts = {}) {
   };
   // Dieselbe Datei nochmal waehlen muss wieder ausloesen: danach leeren
   q('#wa-img').addEventListener('change', e => { pickFiles(e.target.files); e.target.value = ''; });
-  q('#wa-cam').addEventListener('change', e => { handleImageFile(e.target.files[0]); e.target.value = ''; });
+  q('#wa-cam')?.addEventListener('change', e => { handleImageFile(e.target.files[0]); e.target.value = ''; });
+  // Scannen: Kamera mit Rahmen; das fertige, zugeschnittene Bild laeuft durch
+  // dieselbe Erkennung wie ein Foto
+  q('#wa-live')?.addEventListener('click', () => oeffneScanner({
+    art: 'gutschein', mehrere,
+    beimFoto: (datei, info) => { if (waSeiteOben() === seite && !walletGesperrt()) handleImageFile(datei, info); },
+    beimBild: dateien => { if (waSeiteOben() === seite && !walletGesperrt()) pickFiles(dateien); },
+  }));
   // Strg+V: der globale Paste-Listener reicht das Bild hierher durch
-  waHandleImage = handleImageFile;
+  waHandleImage = f => handleImageFile(f);
   // Drag & Drop (Web): Bilder irgendwo aufs Formular ziehen (auch mehrere)
   const form = el.querySelector('.wa-form');
   const drop = q('#wa-drop');
@@ -9873,7 +10543,7 @@ function wseiteFedern(seite, p) {
 // Esc: erst das Aufgeklappte der obersten Seite, dann die Seite selbst
 addEventListener('keydown', e => {
   if (e.key !== 'Escape' || !wseiten().length) return;
-  if (document.querySelector('.overlay:not(.hidden), .karten-lupe, .bild-lupe, .vk-menue:not(.zu), .pack-buehne')) return;
+  if (document.querySelector('.overlay:not(.hidden), .karten-lupe, .bild-lupe, .scanner, .vk-menue:not(.zu), .pack-buehne')) return;
   if (document.body.classList.contains('blatt-ueber-seite')) return;   // das Blatt schliesst sich selbst
   e.stopPropagation();
   e.preventDefault();
@@ -11987,9 +12657,13 @@ function renderPfand(host) {
   const offen = alle.filter(v => !v.eingeloest).sort((a, b) => (b.added || 0) - (a.added || 0));
   const aus = alle.filter(v => v.eingeloest).sort((a, b) => (b.eingeloest || 0) - (a.eingeloest || 0));
   const summe = pfandSumme(offen);
+  // Zwei Wege: live scannen (Kamera mit Rahmen) oder ein Bild hochladen
   const kamera = `
-    <label class="gd-los pf-scannen">${wIcon('kamera')}<span>Pfandbon scannen</span>
-      <input type="file" accept="image/*" capture="environment" data-pf-kamera hidden></label>`;
+    <div class="pf-wege">
+      <button class="gd-los pf-scannen" type="button" data-pf-scan>${wIcon('scan')}<span>Scannen</span></button>
+      <label class="gd-los leise pf-hochladen">${wIcon('bild')}<span>Bild hochladen</span>
+        <input type="file" accept="image/*" data-pf-bild hidden></label>
+    </div>`;
   const aufraeumen = kontoInfo && kontoInfo.autoAufraeumen === false
     ? 'Eingelöste bleiben, bis du sie löschst.'
     : 'Eingelöste verschwinden 30 Tage nach dem Einlösen von selbst.';
@@ -11997,7 +12671,7 @@ function renderPfand(host) {
     <div class="pf-leer">
       <span class="pf-leer-bild" aria-hidden="true">${pfandBildSvg()}</span>
       <h2>Noch kein Pfand</h2>
-      <p>Fotografier den Bon vom Leergutautomaten. kumulio liest Betrag, Laden und Code und merkt sich, in welcher Filiale er gilt.</p>
+      <p>Scann den Bon vom Leergutautomaten. kumulio liest Betrag, Laden und Code und merkt sich, in welcher Filiale er gilt.</p>
       ${kamera}
       <button class="pf-leer-link" type="button" data-pf-neu>Ohne Foto eintragen</button>
     </div>` : `
@@ -12030,11 +12704,17 @@ function renderPfand(host) {
     el.onkeydown = e => { if (e.target === el && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); oeffnePfandSeite(el.dataset.pf); } };
   });
   host.querySelectorAll('[data-pf-neu]').forEach(b => b.onclick = () => openWalletAdd('pfand'));
-  host.querySelectorAll('[data-pf-kamera]').forEach(inp => inp.onchange = e => {
+  host.querySelectorAll('[data-pf-bild]').forEach(inp => inp.onchange = e => {
     const f = e.target.files && e.target.files[0];
     e.target.value = '';
     if (f) openWalletAdd('pfand', '', '', { datei: f });
   });
+  // Scannen: erst die Kamera, dann die Hinzufuegen-Seite mit dem fertigen Scan
+  host.querySelectorAll('[data-pf-scan]').forEach(b => b.onclick = () => oeffneScanner({
+    art: 'pfand',
+    beimFoto: (datei, info) => { if (!walletGesperrt()) openWalletAdd('pfand', '', '', { datei, scan: info }); },
+    beimBild: dateien => { if (!walletGesperrt() && dateien[0]) openWalletAdd('pfand', '', '', { datei: dateien[0] }); },
+  }));
   const fold = host.querySelector('.pf-aus-fold');
   if (fold) fold.ontoggle = () => { renderPfand.ausOffen = fold.open; };
 }
@@ -12277,6 +12957,9 @@ function openPfandAdd(prefillName = '', bearbeiteId = '', opts = {}) {
   const el = seite.el;
   const inhalt = el.querySelector('.wseite-inhalt');
   const q = sel => el.querySelector(sel);
+  // Kommt ein Scan mit: das lange Formular wartet, bis die Erkennung fertig ist
+  el.classList.remove('wa-kompakt');
+  el.classList.toggle('wa-scanlauf', !!(opts.datei && opts.scan));
   const platz = walletPlatz('gutscheine');
   const voll = !addEditId && platz.voll;
   const platzText = platz.voll ? walletVollText('gutscheine')
@@ -12296,10 +12979,10 @@ function openPfandAdd(prefillName = '', bearbeiteId = '', opts = {}) {
     <div class="wa-form${opts.von && !opts.richtung ? ' wa-form-neu' : ''}">
       <div class="wa-vorschau" id="wa-vorschau" aria-hidden="true"></div>
 
-      <section class="gd-block wa-scan" id="wa-drop" aria-label="Foto vom Pfandbon">
+      <section class="gd-block wa-scan" id="wa-drop" aria-label="Pfandbon scannen">
         <div class="wa-scan-kopf">
           <span class="wa-scan-symbol">${wIcon('scan')}</span>
-          <span class="wa-scan-text"><b>Foto vom Pfandbon</b>
+          <span class="wa-scan-text"><b>Pfandbon scannen</b>
             <small>Betrag, Code, Laden und Filiale liest kumulio selbst aus.</small></span>
         </div>
         <div class="wa-scan-bild hidden" id="wa-scan-frame">
@@ -12312,8 +12995,7 @@ function openPfandAdd(prefillName = '', bearbeiteId = '', opts = {}) {
         </div>
         <p id="wa-ai-msg" class="form-msg wa-scan-meldung" role="status"></p>
         <div class="wa-scan-knoepfe">
-          <label class="wa-scan-knopf">${wIcon('kamera')}<span data-mit-bild="Neues Foto">Foto aufnehmen</span>
-            <input id="wa-cam" type="file" accept="image/*" capture="environment" hidden></label>
+          <button class="wa-scan-knopf wa-scan-live" id="wa-live" type="button">${wIcon('scan')}<span data-mit-bild="Neu scannen">Scannen</span></button>
           <label class="wa-scan-knopf">${wIcon('bild')}<span data-mit-bild="Anderes Bild">Bild hochladen</span>
             <input id="wa-img" type="file" accept="image/*" hidden></label>
           <button class="wa-scan-knopf wa-scan-crop" id="wa-crop" type="button" aria-label="Bild zuschneiden" title="Zuschneiden">${wIcon('zuschnitt')}</button>
@@ -12654,10 +13336,15 @@ function openPfandAdd(prefillName = '', bearbeiteId = '', opts = {}) {
     });
   });
   let scanFormat = bearbeitet?.codeFormat || '', scanCode = bearbeitet?.code || '';
-  const handleImageFile = async (datei, fertig = null) => {
+  // scan: das Bild kommt aus dem Live-Scanner ({ code }). Dann wartet das
+  // lange Formular, bis die Erkennung fertig ist; ist alles Noetige sicher,
+  // kommt statt des Formulars die kurze Bestaetigung (waKompakt)
+  const handleImageFile = async (datei, fertig = null, scan = null) => {
     if (!datei) return;
     const lauf = ++waScanLauf;
     const veraltet = () => lauf !== waScanLauf || waSeiteOben() !== seite;
+    waKompaktAus(seite, { still: true });
+    if (scan) { el.classList.add('wa-scanlauf'); inhalt.scrollTop = 0; }
     try {
       // Was der letzte Scan eingetragen hat und niemand angefasst hat, geht wieder raus
       for (const [sel, w] of Object.entries(waAutoWerte)) {
@@ -12685,7 +13372,7 @@ function openPfandAdd(prefillName = '', bearbeiteId = '', opts = {}) {
         if (veraltet()) return;
         scanProgress(p);
         if (text) scanMeldung(text);
-      });
+      }, { live: scan?.code || null });
       if (veraltet()) return;
       if (r.codeImg) { addCodeImg = r.codeImg; bildZeigen(r.codeImg); }
       const erkannt = [], pruefenListe = [];
@@ -12727,15 +13414,50 @@ function openPfandAdd(prefillName = '', bearbeiteId = '', opts = {}) {
         scanMeldung(`Erkannt: ${liste(erkannt)}.${pruefenListe.length ? ` Gelb markiert heißt: bitte kurz prüfen (${liste(pruefenListe)}).` : ' Bitte kurz prüfen.'}`
           + (!q('#pf-strasse').value && !q('#pf-ort').value ? ' Die Filiale stand nicht lesbar auf dem Bon, bitte eintragen.' : ''), 'ok');
       } else scanMeldung('Nichts sicher erkannt, bitte die Felder ausfüllen.');
+      // Aus dem Scanner und das Noetige sicher gelesen: Laden und Betrag
+      // sicher, eine Filiale, der Code (sicher gelesen oder das Kassen-Bild
+      // nachweislich lesbar). Dann die kurze Bestaetigung; Unsicheres bleibt
+      // dort als "pruefen" markiert. Gespeichert wird erst mit dem Tipp.
+      if (scan) {
+        const t = sel => String(q(sel)?.value || '').trim();
+        const d = entwurf();
+        const filiale = t('#pf-strasse') || t('#pf-ort');
+        const sicher = r.istPfand && r.kette?.sicher && r.betrag?.sicher && gewaehlt && d.amount > 0 && filiale
+          && (r.code?.sicher || r.codeBildGeprueft) && !pruefen()
+          && !findDupe({ art: 'pfand', vendor: gewaehlt, code: t('#wa-code').replace(/\s+/g, '') });
+        if (sicher) {
+          const unsicher = key => !!PRUEF_ZIEL[key]?.()?.classList.contains('pruefen');
+          const ort = [t('#pf-plz'), t('#pf-ort')].filter(Boolean).join(' ');
+          const code = t('#wa-code');
+          waKompakt(seite, {
+            // Die Filiale steht darunter (und auf der Karte): die Zeile bleibt kurz
+            titel: `Erkannt: ${gewaehlt} · ${euroFmt(d.amount)}`,
+            zeilen: [
+              ['Filiale', [t('#pf-name'), t('#pf-strasse'), ort].filter(Boolean).join(', '), ['#pf-name', '#pf-strasse', '#pf-plz', '#pf-ort'].some(unsicher)],
+              code && ['Code', code.length > 22 ? code.slice(0, 10) + ' … ' + code.slice(-6) : code, unsicher('#wa-code')],
+              t('#pf-datum') && ['Datum', waTag(t('#pf-datum')), unsicher('#pf-datum')],
+              t('#pf-bon') && ['Bon-Nr.', t('#pf-bon'), unsicher('#pf-bon')],
+            ].filter(Boolean),
+            bild: addImg || addCodeImg,
+          });
+        } else waKompaktAus(seite);
+      }
     } catch {
       if (veraltet()) return;
       q('#wa-scanline')?.classList.add('hidden');
       q('#wa-progress')?.classList.add('hidden');
       scanMeldung('Bild konnte nicht gelesen werden.', 'error');
+      waKompaktAus(seite);
     }
   };
   q('#wa-img').addEventListener('change', e => { handleImageFile(e.target.files[0]); e.target.value = ''; });
-  q('#wa-cam').addEventListener('change', e => { handleImageFile(e.target.files[0]); e.target.value = ''; });
+  // Scannen: Kamera mit Rahmen (hochkant fuer den Bon); das zugeschnittene
+  // Bild laeuft durch dieselbe Erkennung wie ein Foto
+  q('#wa-live')?.addEventListener('click', () => oeffneScanner({
+    art: 'pfand',
+    beimFoto: (datei, info) => { if (waSeiteOben() === seite && !walletGesperrt()) handleImageFile(datei, null, info); },
+    beimBild: dateien => { if (waSeiteOben() === seite && !walletGesperrt()) handleImageFile(dateien[0]); },
+  }));
   waHandleImage = f => handleImageFile(f);
   const form = el.querySelector('.wa-form'), drop = q('#wa-drop');
   ['dragover', 'dragenter'].forEach(t => form.addEventListener(t, e => { e.preventDefault(); drop.classList.add('drag'); }));
@@ -12862,7 +13584,7 @@ function openPfandAdd(prefillName = '', bearbeiteId = '', opts = {}) {
   aktualisieren();
   // Kam ein Bild mit (Kamera im Pfand-Reiter, erkannt im Gutschein-Formular,
   // Warteschlange): gleich scannen — bzw. das fertige Ergebnis eintragen
-  if (opts.datei) handleImageFile(opts.datei, opts.ergebnis || null);
+  if (opts.datei) handleImageFile(opts.datei, opts.ergebnis || null, opts.scan || null);
 }
 
 // Umschalter oben auf der Hinzufuegen-Seite: Gutschein | Rabattcode | Pfandbon.
@@ -12915,6 +13637,74 @@ function waSchalterVerdrahten(seite, q, typ, opts, alterSchalter) {
     setTimeout(einmal, 260);
   });
 }
+// ---- Nach dem Scan: kurze Bestaetigung statt des langen Formulars. Nur, wenn
+// alles Noetige sicher gelesen wurde; gespeichert wird trotzdem erst mit
+// "Hinzufuegen" (derselbe Speichern-Knopf, dieselbe Pruefung wie sonst).
+// "Bearbeiten" zeigt das ganze, schon ausgefuellte Formular.
+// zeilen: [Bezeichnung, Wert, pruefen?]
+function waKompakt(seite, { titel, unter = '', zeilen = [], bild = '' }) {
+  const el = seite?.el;
+  const form = el?.querySelector('.wa-form');
+  const knopf = el?.querySelector('#wa-save');
+  const leiste = el?.querySelector('.wa-leiste');
+  if (!form || !knopf || !leiste) return;
+  el.querySelector('#wa-erkannt')?.remove();
+  const box = document.createElement('section');
+  box.className = 'gd-block wa-erkannt';
+  box.id = 'wa-erkannt';
+  box.setAttribute('aria-label', 'Erkannt');
+  const pruefen = zeilen.some(z => z[2]);
+  box.innerHTML = `
+    <div class="wa-erkannt-kopf">
+      <span class="wa-erkannt-haken">${icon('check', 'icon')}</span>
+      <span class="wa-erkannt-text"><b>${esc(titel)}</b>
+        <small>${esc(unter || (pruefen ? 'Das Wichtigste ist sicher gelesen. Markiertes bitte kurz ansehen.' : 'Alles sicher gelesen. Kurz ansehen, dann hinzufügen.'))}</small></span>
+    </div>
+    ${zeilen.length ? `<div class="wa-erkannt-zeilen">${zeilen.map(([k, v, p]) => `
+      <div class="wa-erkannt-zeile${p ? ' pruefen' : ''}"><span>${esc(k)}${p ? ' · prüfen' : ''}</span><b>${esc(v)}</b></div>`).join('')}</div>` : ''}
+    ${bild ? `<button class="wa-erkannt-bild" type="button" aria-label="Scan groß ansehen"><img src="${esc(bild)}" alt="Dein Scan"></button>` : ''}`;
+  form.querySelector('.wa-vorschau')?.after(box);
+  el.querySelector('#wa-kompakt-knoepfe')?.remove();
+  const zwei = document.createElement('div');
+  zwei.className = 'wa-leiste-zwei';
+  zwei.id = 'wa-kompakt-knoepfe';
+  zwei.innerHTML = '<button class="gd-los leise" id="wa-bearbeiten" type="button">Bearbeiten</button>';
+  leiste.appendChild(zwei);
+  zwei.appendChild(knopf);
+  if (!knopf.dataset.text) knopf.dataset.text = knopf.textContent;
+  knopf.textContent = 'Hinzufügen';
+  el.classList.remove('wa-scanlauf');
+  el.classList.add('wa-kompakt');
+  const img = box.querySelector('.wa-erkannt-bild img');
+  box.querySelector('.wa-erkannt-bild')?.addEventListener('click', () => zeigeBildGross({ vonEl: img, src: bild }));
+  zwei.querySelector('#wa-bearbeiten').onclick = () => { buzz(6); waKompaktAus(seite); };
+  const inhalt = el.querySelector('.wseite-inhalt');
+  if (inhalt) inhalt.scrollTop = 0;
+  if (weich()) {
+    box.animate?.([{ opacity: 0, transform: 'translate3d(0, 10px, 0)' }, { opacity: 1, transform: 'none' }], { duration: 300, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+  }
+  buzz([12, 40, 12]);
+}
+// Zurueck zum ganzen Formular (Bearbeiten, neues Bild, Scan ohne sicheres Ergebnis)
+function waKompaktAus(seite, { still = false } = {}) {
+  const el = seite?.el;
+  if (!el) return;
+  const war = el.classList.contains('wa-kompakt') || el.classList.contains('wa-scanlauf');
+  el.classList.remove('wa-kompakt', 'wa-scanlauf');
+  el.querySelector('#wa-erkannt')?.remove();
+  const zwei = el.querySelector('#wa-kompakt-knoepfe'), knopf = el.querySelector('#wa-save');
+  if (zwei && knopf) {
+    if (knopf.dataset.text) knopf.textContent = knopf.dataset.text;
+    delete knopf.dataset.text;
+    zwei.before(knopf);
+    zwei.remove();
+  }
+  if (war && !still && weich()) {
+    el.querySelector('.wa-form')?.animate?.([{ opacity: 0, transform: 'translate3d(0, 10px, 0)' }, { opacity: 1, transform: 'none' }],
+      { duration: 280, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+  }
+}
+
 // Die Hinzufuegen-Seite holen: liegt sie schon oben (Umschalter, naechstes
 // Bild), wird sie nur neu gefuellt — sonst gleitet eine neue herein
 function waSeiteHolen(titel, opts = {}) {
@@ -17090,6 +17880,8 @@ function schliesseWalletAnsichten() {
   if (inhalt) inhalt.innerHTML = '';
   document.querySelector('.karten-lupe .lupe-grund')?.click();
   if (bildOffen) bildOffen.querySelector('.bl-zu')?.click();
+  // Der Scanner zeigt, was vor der Kamera liegt (Codes): Kamera aus, sofort zu
+  scannerSchliessen();
   document.querySelectorAll('.gift-overlay').forEach(x => x.remove());
   document.querySelectorAll('.cc-big').forEach(x => (x.closest('.overlay') || x).remove());
   // Zuschneiden zeigt das ganze Gutscheinbild und liegt ueber der Sperre:

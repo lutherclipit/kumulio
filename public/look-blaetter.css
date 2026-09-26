@@ -1839,3 +1839,173 @@ a.bk-pdf-teilen { color: var(--akzent-text); }
 .pd-leer-filiale .icon { color: var(--muted); }
 /* "Aendern" leiser als "Eingeloest" — ebenso "Wieder offen" bei einem eingeloesten Bon */
 .gd-knopf:is(.pd-aendern, .pd-leise), :root[data-theme="dark"] .gd-knopf:is(.pd-aendern, .pd-leise) { background: var(--karte-2); color: var(--text); box-shadow: none; }
+
+/* ---- Hinzufuegen: "Scannen" ist der erste Weg (Kamera mit Rahmen) */
+.wa-scan-knopf.wa-scan-live { background: var(--akzent-weich); color: var(--akzent-text); }
+
+/* Nach dem Scan: das lange Formular wartet, bis die Erkennung fertig ist;
+   ist alles sicher gelesen, steht statt seiner eine kurze Bestaetigung */
+.wa.wa-scanlauf #wa-modus, .wa.wa-kompakt #wa-modus { display: none; }
+.wa.wa-scanlauf .wa-form > :not(.wa-vorschau):not(.wa-scan) { display: none; }
+.wa.wa-scanlauf :is(.wa-scan-knoepfe, .wa-scan-tipp) { display: none; }
+.wa.wa-kompakt .wa-form > :not(.wa-vorschau):not(.wa-erkannt) { display: none; }
+.wa-erkannt { margin-top: 12px; padding: 14px; }
+.wa-erkannt-kopf { display: flex; align-items: center; gap: 12px; }
+.wa-erkannt-haken {
+  flex: none; width: 40px; height: 40px; border-radius: 12px;
+  display: grid; place-items: center;
+  background: color-mix(in srgb, #1FA560 14%, var(--karte)); color: #16884E;
+}
+:root[data-theme="dark"] .wa-erkannt-haken { background: color-mix(in srgb, #1FA560 22%, var(--karte)); color: #62D99C; }
+.wa-erkannt-haken .icon { width: 21px; height: 21px; stroke-width: 2.3; }
+.wa-erkannt-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.wa-erkannt-text b { font-size: .95rem; font-weight: 800; line-height: 1.25; overflow-wrap: anywhere; }
+.wa-erkannt-text small { font-size: .78rem; line-height: 1.35; color: var(--muted); }
+/* Der Scan selbst, sauber auf den Rahmen zugeschnitten; antippen = gross */
+.wa-erkannt-bild {
+  display: block; width: 100%; margin-top: 12px; padding: 8px; border: 0; border-radius: 12px;
+  background: #fff; box-shadow: inset 0 0 0 1px var(--linie); cursor: zoom-in;
+  touch-action: manipulation; transition: transform .2s var(--spring);
+}
+.wa-erkannt-bild:active { transform: scale(.985); }
+.wa-erkannt-bild img { display: block; width: 100%; max-height: 220px; object-fit: contain; border-radius: 6px; }
+.wa-erkannt-zeilen { margin-top: 12px; padding: 0 12px; border-radius: 12px; background: var(--karte-2); }
+.wa-erkannt-zeile {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 14px;
+  padding: 11px 0; border-bottom: 1px solid var(--linie);
+}
+.wa-erkannt-zeile:last-child { border-bottom: 0; }
+.wa-erkannt-zeile span { flex: none; font-size: .8rem; font-weight: 650; color: var(--muted); }
+.wa-erkannt-zeile b {
+  min-width: 0; font-size: .9rem; font-weight: 750; text-align: right;
+  font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
+}
+.wa-erkannt-zeile.pruefen span { color: #9A5B00; font-weight: 750; }
+:root[data-theme="dark"] .wa-erkannt-zeile.pruefen span { color: #F5B75E; }
+
+/* =============================================================================
+   Live-Scanner: Kamera im Vollbild, Rahmen in der Mitte, aussen abgedunkelt.
+   Immer dunkel (es ist ein Kamerabild), auch im hellen Modus. Knoepfe wie
+   Glas, aber ohne backdrop-filter; Bewegung nur transform/opacity.
+   ========================================================================== */
+.scanner {
+  position: fixed; inset: 0; z-index: 91; overflow: hidden;
+  background: #07090C; color: #fff;
+  touch-action: none; overscroll-behavior: contain;
+  -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+  transition: opacity .24s ease;
+}
+.scanner.geht { opacity: 0; pointer-events: none; }
+.scanner:focus { outline: none; }
+.sc-video {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  opacity: 0; transition: opacity .3s ease; pointer-events: none;
+}
+.scanner.laeuft .sc-video { opacity: 1; }
+/* Der Rahmen: sein Schatten dunkelt alles ringsum ab, die Ecken sind Winkel */
+.sc-rahmen {
+  position: absolute; border-radius: 22px; pointer-events: none;
+  box-shadow: 0 0 0 200vmax rgba(5, 7, 10, .56);
+}
+.sc-rahmen::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit;
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, .2); transition: box-shadow .2s ease;
+}
+.sc-ecke { position: absolute; width: 36px; height: 36px; border: 0 solid #fff; transition: border-color .2s ease; }
+.sc-ecke:nth-of-type(1) { left: -3px; top: -3px; border-left-width: 4px; border-top-width: 4px; border-top-left-radius: 25px; }
+.sc-ecke:nth-of-type(2) { right: -3px; top: -3px; border-right-width: 4px; border-top-width: 4px; border-top-right-radius: 25px; }
+.sc-ecke:nth-of-type(3) { left: -3px; bottom: -3px; border-left-width: 4px; border-bottom-width: 4px; border-bottom-left-radius: 25px; }
+.sc-ecke:nth-of-type(4) { right: -3px; bottom: -3px; border-right-width: 4px; border-bottom-width: 4px; border-bottom-right-radius: 25px; }
+/* Code erkannt: die Ecken werden gruen, bis ausgeloest ist */
+.scanner:is([data-zustand="halten"], [data-zustand="erfassen"], [data-zustand="erfasst"]) .sc-ecke { border-color: #3DDC84; }
+.scanner:is([data-zustand="halten"], [data-zustand="erfassen"]) .sc-rahmen::after { box-shadow: inset 0 0 0 2px rgba(61, 220, 132, .5); }
+.sc-standbild { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+.sc-blitz { position: absolute; inset: 0; border-radius: inherit; background: #fff; opacity: 0; }
+.scanner.erfasst .sc-blitz { animation: scBlitz .5s ease-out; }
+@keyframes scBlitz { 0% { opacity: .85; } 100% { opacity: 0; } }
+.sc-rahmen.sc-klick { animation: scKlick .34s cubic-bezier(.3, 1.4, .5, 1); }
+@keyframes scKlick { 0% { transform: scale(1); } 35% { transform: scale(.965); } 100% { transform: scale(1); } }
+.sc-rahmen.sc-form-neu .sc-ecke { animation: scFormNeu .3s ease-out; }
+@keyframes scFormNeu { from { opacity: 0; } to { opacity: 1; } }
+.sc-hinweis {
+  position: absolute; left: 24px; right: 24px; margin: 0; text-align: center; pointer-events: none;
+  font-size: 1rem; font-weight: 750; line-height: 1.35; letter-spacing: -.005em;
+  color: #fff; text-shadow: 0 1px 10px rgba(0, 0, 0, .5);
+}
+.sc-hinweis.sc-neu { animation: scNeu .28s ease-out; }
+@keyframes scNeu { from { opacity: 0; transform: translate3d(0, 4px, 0); } to { opacity: 1; transform: none; } }
+
+.sc-kopf {
+  position: absolute; left: 0; right: 0; top: 0;
+  display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; gap: 8px;
+  padding: calc(env(safe-area-inset-top, 0px) + 12px) 14px 0;
+}
+.sc-titel {
+  grid-column: 2; margin: 0; text-align: center; color: #fff;
+  font-size: 1.02rem; font-weight: 800; letter-spacing: -.01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sc-kopf .sc-zu { grid-column: 1; grid-row: 1; }
+.sc-kopf .sc-licht { grid-column: 3; grid-row: 1; }
+.sc-knopf {
+  display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 14px;
+  background: rgba(255, 255, 255, .14); color: #fff; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12);
+  cursor: pointer; touch-action: manipulation; transition: transform .2s var(--spring), background-color .2s ease;
+}
+.sc-knopf:active { transform: scale(.92); }
+.sc-knopf .icon { width: 21px; height: 21px; stroke-width: 1.9; }
+.sc-licht.an { background: #fff; color: #111; }
+.sc-knopf[hidden] { display: none; }
+
+.sc-fuss {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 18px;
+  padding: 0 18px calc(env(safe-area-inset-bottom, 0px) + 24px);
+}
+.sc-leiste { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; width: 100%; max-width: 420px; }
+.sc-neben { display: flex; flex-direction: column; align-items: center; gap: 7px; cursor: pointer; }
+.sc-neben .sc-knopf { width: 50px; height: 50px; border-radius: 16px; }
+.sc-neben:active .sc-knopf { transform: scale(.92); }
+.sc-neben-text { font-size: .74rem; font-weight: 700; color: rgba(255, 255, 255, .85); white-space: nowrap; }
+.sc-ausloeser {
+  position: relative; width: 76px; height: 76px; padding: 0; border: 4px solid #fff; border-radius: 50%;
+  background: none; cursor: pointer; touch-action: manipulation;
+}
+.sc-ausloeser span { position: absolute; inset: 5px; border-radius: 50%; background: #fff; transition: transform .18s var(--spring); }
+.sc-ausloeser:active span { transform: scale(.88); }
+.scanner:not(.laeuft) .sc-ausloeser { opacity: .45; }
+/* Gutscheine: Rahmen fuer eine Karte (quer) oder Papier (hochkant) */
+.sc-form {
+  display: inline-grid; grid-template-columns: 1fr 1fr; padding: 3px; border-radius: 12px;
+  background: rgba(255, 255, 255, .12); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .1);
+}
+.sc-form-knopf {
+  min-width: 80px; height: 34px; padding: 0 14px; border: 0; border-radius: 9px;
+  background: none; color: rgba(255, 255, 255, .82); font: inherit; font-size: .84rem; font-weight: 750;
+  cursor: pointer; touch-action: manipulation; transition: background-color .2s ease, color .2s ease;
+}
+.sc-form-knopf.an { background: #fff; color: #111; }
+
+/* Kamera geht nicht: kurz warum, dann Bild hochladen */
+.scanner.fehler :is(.sc-rahmen, .sc-hinweis, .sc-fuss) { display: none; }
+.sc-fehler {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: min(340px, calc(100% - 40px));
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+}
+.sc-fehler[hidden] { display: none; }
+.sc-fehler-bild {
+  width: 64px; height: 64px; border-radius: 20px; display: grid; place-items: center;
+  background: rgba(255, 255, 255, .1); color: #fff;
+}
+.sc-fehler-bild .icon { width: 30px; height: 30px; stroke-width: 1.6; }
+.sc-fehler h3 { margin: 16px 0 0; font-size: 1.15rem; font-weight: 850; letter-spacing: -.01em; }
+.sc-fehler p { margin: 8px 0 0; font-size: .9rem; line-height: 1.5; color: rgba(255, 255, 255, .74); }
+.sc-fehler-knoepfe { display: grid; gap: 10px; width: 100%; margin-top: 22px; }
+.scanner .gd-los, :root[data-theme="dark"] .scanner .gd-los { margin-top: 0; background: #fff; color: #111; cursor: pointer; }
+.scanner .gd-los.leise, :root[data-theme="dark"] .scanner .gd-los.leise { background: rgba(255, 255, 255, .14); color: #fff; }
+.scanner .gd-los .icon { width: 20px; height: 20px; }
+@media (prefers-reduced-motion: reduce) {
+  .scanner, .sc-video { transition: none; }
+  .scanner.erfasst .sc-blitz, .sc-rahmen.sc-klick, .sc-rahmen.sc-form-neu .sc-ecke, .sc-hinweis.sc-neu { animation: none; }
+}

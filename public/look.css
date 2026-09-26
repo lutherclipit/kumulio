@@ -1227,3 +1227,15 @@ body:not(.wallet-farbe) #wallet-modes .wm-flaeche {
   margin-top: 6px; padding: 10px 12px; border: 0; background: none; cursor: pointer;
   color: var(--akzent-text); font: inherit; font-size: .88rem; font-weight: 750;
 }
+
+/* Zwei Wege zum Pfandbon: Scannen (Kamera mit Rahmen) oder ein Bild hochladen */
+/* "Bild hochladen" ist der laengere Text: seine Spalte richtet sich nach ihm,
+   "Scannen" nimmt den Rest — so passt beides auch auf 360 px ohne Kuerzen */
+.pf-wege { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; width: 100%; margin-top: 14px; }
+.pf-leer .pf-wege { margin-top: 18px; }
+.pf-wege .gd-los, .pf-leer .pf-wege .gd-los { margin-top: 0; padding: 0 16px; font-size: .95rem; white-space: nowrap; }
+@media (max-width: 380px) { .pf-wege .gd-los, .pf-leer .pf-wege .gd-los { gap: 7px; padding: 0 12px; font-size: .9rem; } }
+@media (max-width: 339px) { .pf-wege { grid-template-columns: minmax(0, 1fr); } }
+.pf-wege .gd-los span { overflow: hidden; text-overflow: ellipsis; }
+.pf-wege .icon { flex: none; width: 20px; height: 20px; }
+.pf-hochladen { cursor: pointer; }

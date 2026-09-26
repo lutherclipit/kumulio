@@ -1,5 +1,40 @@
 [
   {
+    "v": "2026-09-26.2",
+    "datum": "26. September 2026",
+    "titel": "Scannen statt Foto",
+    "punkte": [
+      {
+        "icon": "scan",
+        "titel": "Scannen statt Foto",
+        "text": "Gutscheine und Pfandbons scannst du jetzt direkt mit der Kamera: in den Rahmen halten, fertig. kumulio erkennt den Code, wartet, bis das Bild scharf und ruhig ist, und nimmt es selbst auf, sauber auf den Rahmen zugeschnitten.",
+        "bild": "/brand/neu/2026-09-26-scannen.webp",
+        "bildAlt": "Der Scanner: ein Pfandbon im Rahmen, darunter „Code erkannt, still halten“",
+        "bildGroesse": [
+          560,
+          840
+        ]
+      },
+      {
+        "icon": "check",
+        "titel": "Alles erkannt? Ein Tipp",
+        "text": "Ist alles Wichtige sicher gelesen, siehst du statt des langen Formulars nur, was erkannt wurde. Ein Tipp auf „Hinzufügen“ und er liegt in der Wallet. Mit „Bearbeiten“ änderst du vorher noch etwas.",
+        "bild": "/brand/neu/2026-09-26-erkannt-hell.webp",
+        "bildDunkel": "/brand/neu/2026-09-26-erkannt-dunkel.webp",
+        "bildAlt": "Ein gescannter REWE-Gutschein über 50 Euro mit Code und PIN, bereit zum Hinzufügen",
+        "bildGroesse": [
+          748,
+          562
+        ]
+      },
+      {
+        "icon": "bild",
+        "titel": "Oder wie gewohnt ein Bild",
+        "text": "Lieber ein Foto aus der Galerie oder einen Screenshot? „Bild hochladen“ steht gleich daneben und auch im Scanner selbst. Ohne Kamera-Freigabe geht es automatisch so weiter."
+      }
+    ]
+  },
+  {
     "v": "2026-09-26.1",
     "datum": "26. September 2026",
     "titel": "Pfand in der Wallet",
