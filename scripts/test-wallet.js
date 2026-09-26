@@ -193,6 +193,17 @@ const alt = datei => { const t = new Date(Date.now() - 5 * 86400e3); fs.utimesSy
   pruefe('Pfand: Unsinn wird leer statt uebernommen (Betrag, Datum, Format, PLZ, Standort)',
     p2.amount === null && p2.bonDatum === '' && p2.codeFormat === '' && p2.eingeloest === 0 && p2.filiale.plz === '' && p2.filiale.ort === '42'
     && !('lat' in p2.filiale) && !('lng' in p2.filiale));
+  // Falsche Typen und Riesen-Texte: Objekte/Listen werden leer statt "[object
+  // Object]", alles gekuerzt; HTML bleibt Text (die App gibt es nur escaped aus)
+  S.vereinigeWallet('nora', { vouchers: [{ id: 'pf3', art: 'pfand', vendor: '<img src=x onerror=alert(1)>' + 'X'.repeat(5000), amount: 5,
+    bonNr: { a: 1 }, notiz: ['x'], code: 'C'.repeat(10000), codeFormat: ['code_128'], filiale: 'Berlin', added: T, mt: T },
+  { id: 'pf4', art: 'pfand', vendor: 'Lidl', amount: 2, added: T, mt: T,
+    filiale: { name: { x: 1 }, strasse: 'S'.repeat(100000), plz: 34130, ort: ['Kassel'], lat: '52.5', lng: [13] } }], cards: [], deleted: [] });
+  const p3 = S.wallets.nora.vouchers.find(v => v.id === 'pf3'), p4 = S.wallets.nora.vouchers.find(v => v.id === 'pf4');
+  pruefe('Pfand: Objekte/Listen leer, Riesen-Texte gekuerzt, Filiale als Text wird leer',
+    p3.bonNr === '' && p3.notiz === '' && p3.codeFormat === '' && p3.vendor.length === 30 && p3.vendor.startsWith('<img') && p3.code.length === 80
+    && p3.filiale.ort === '' && p3.filiale.strasse === ''
+    && p4.filiale.name === '' && p4.filiale.strasse.length === 60 && p4.filiale.plz === '34130' && p4.filiale.ort === '' && !('lat' in p4.filiale));
   // Rang: nur Gutscheine zaehlen — 60 € Pfand machen niemanden zum Profi
   S.vereinigeWallet('pia', { vouchers: [{ id: 'g9', vendor: 'dm', amount: 5, balance: 5, tx: [], added: T },
     { id: 'pf9', art: 'pfand', vendor: 'Lidl', amount: 60, balance: 60, tx: [], added: T, filiale: {} }], cards: [], deleted: [] });

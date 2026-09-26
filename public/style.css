@@ -4819,7 +4819,8 @@ body.sparsam .wm-flaeche, body.sparsam .filter-pille {
 body.wallet-zu #wallet-mini { visibility: hidden; }
 /* Was die Sperre verdeckt, ist auch wirklich weg (sichtbar erst nach dem Entsperren) */
 body.wallet-zu #wallet-kopf, body.wallet-zu #wallet-content,
-body.wallet-zu #coupons-content, body.wallet-zu #wallet-gate { visibility: hidden; }
+body.wallet-zu #coupons-content, body.wallet-zu #pfand-content,
+body.wallet-zu #wallet-gate { visibility: hidden; }
 /* Rahmenlos ueber den ganzen Bildschirm: oben Logo und Begruessung, unten
    (wo der Daumen ist) die Ziffern */
 .ws-inhalt {

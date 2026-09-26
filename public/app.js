@@ -8704,12 +8704,13 @@ function sparkarteCode(c) {
   // Hoehere Balken fuellen das Code-Feld besser und sind leichter zu treffen
   return nummer ? ean13Svg(nummer, 140) : '';
 }
-// Kartennummer nur, wenn sie wie eine aussieht (Ziffern, 5 bis 30). Ein
+// Kartennummer nur, wenn sie wie eine aussieht (Ziffern, 5 bis 40 — Pfandbon-
+// Codes haben bis zu 33 Stellen). Ein
 // gescannter QR-Code liefert oft Text ("DTP#privileges:loyalty-pro …") —
 // der ist fuer die Kasse im Bild da, aber keine Nummer zum Anzeigen.
 function kartennummerLesbar(n) {
   const t = String(n || '').replace(/[\s-]+/g, '');
-  return /^\d{5,30}$/.test(t) ? t.replace(/(.{4})/g, '$1 ').trim() : '';
+  return /^\d{5,40}$/.test(t) ? t.replace(/(.{4})/g, '$1 ').trim() : '';
 }
 // Auf der Karte steht nur die Marke (Wunsch des Nutzers); Nummer und Code
 // zeigt die grosse Ansicht. Leere Karte: nur der Hinweis.
@@ -11953,7 +11954,10 @@ function pfandKarteHtml(v, { vorschau = false } = {}) {
   const anschrift = pfandAnschrift(v, { kurz: true });
   const f = pfandFiliale(v);
   const zweite = anschrift || (pfandHatStandort(f) ? 'Standort gespeichert' : '');
-  const fuss = v.bonDatum ? `Bon vom ${waTag(v.bonDatum)}` : v.added ? `hinzugefügt ${pfandTag(v.added)}` : '';
+  // Eingeloest: das Einloese-Datum unten rechts (wie "Bon vom"), links bleibt
+  // "Pfandbon" — oben neben dem Betrag brach "eingeloest am …" in zwei Zeilen
+  const fuss = aus ? `eingelöst am ${pfandTag(v.eingeloest)}`
+    : v.bonDatum ? `Bon vom ${waTag(v.bonDatum)}` : v.added ? `hinzugefügt ${pfandTag(v.added)}` : '';
   // Eingeloest ohne Filiale: kein "fehlt" mehr — da gibt es nichts zu ergaenzen
   const filiale = leer ? '' : zweite || f.name
     ? `<b>Nur bei ${esc(pfandFilialName(v))}</b>${zweite ? `<span>${esc(zweite)}</span>` : ''}`
@@ -11966,7 +11970,7 @@ function pfandKarteHtml(v, { vorschau = false } = {}) {
       <span class="vk-logo">${leer ? waLeerChip() : brandChipHtml(v.vendor)}</span>
       <div class="vk-text">
         <b class="wallet-card-name${leer ? ' wa-platzhalter' : ''}">${esc(v.vendor || 'Laden')}</b>
-        <span class="vk-art">${aus ? `eingelöst am ${pfandTag(v.eingeloest)}` : 'Pfandbon'}</span>
+        <span class="vk-art">Pfandbon</span>
       </div>
       <div class="vk-rechts"><span class="wallet-card-balance${v.amount == null ? ' wa-platzhalter' : ''}">${euroFmt(v.amount ?? 0)}</span></div>
       <div class="vk-fuss">${fuss ? `<span>${esc(fuss)}</span>` : ''}</div>
@@ -12139,7 +12143,7 @@ function pdLeisteHtml(v) {
   return `
     <div class="wseite-leiste gd-leiste">
       <div class="gd-knoepfe">
-        <button class="gd-knopf gd-auf" type="button" data-pd="eingeloest">${v.eingeloest ? wIcon('rueck') : icon('check')}<span>${v.eingeloest ? 'Wieder offen' : 'Eingelöst'}</span></button>
+        <button class="gd-knopf ${v.eingeloest ? 'pd-leise' : 'gd-auf'}" type="button" data-pd="eingeloest">${v.eingeloest ? wIcon('rueck') : icon('check')}<span>${v.eingeloest ? 'Wieder offen' : 'Eingelöst'}</span></button>
         <button class="gd-knopf pd-aendern" type="button" data-pd="aendern">${wIcon('stift')}<span>Ändern</span></button>
       </div>
       <button class="gd-mehr" type="button" aria-expanded="false" aria-controls="gd-optionen">

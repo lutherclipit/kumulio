@@ -878,10 +878,11 @@ function rabattFelderSaeubern(v) {
 // Alles, was vom Geraet kommt, wird hier in Form gebracht: Typen, Laengen,
 // Wertebereiche. Unbekannte Filial-Felder fallen weg.
 function pfandFelderSaeubern(v) {
-  const text = (x, n) => String(x == null ? '' : x).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n);
+  // Nur Text und Zahlen — ein Objekt oder eine Liste wird leer statt "[object Object]"
+  const text = (x, n) => (typeof x === 'string' || typeof x === 'number' ? String(x) : '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n);
   const zahl = (x, min, max) => {
     const n = Number(x);
-    return x == null || x === '' || !Number.isFinite(n) || n < min || n > max ? null : n;
+    return (typeof x !== 'number' && typeof x !== 'string') || String(x).trim() === '' || !Number.isFinite(n) || n < min || n > max ? null : n;
   };
   const betrag = zahl(v.amount, 0.01, 1000);
   v.art = 'pfand';
@@ -892,9 +893,9 @@ function pfandFelderSaeubern(v) {
   v.end = '';
   v.tx = [];
   v.code = text(v.code, 80);
-  v.codeFormat = /^[a-z0-9_]{1,20}$/.test(String(v.codeFormat || '')) ? v.codeFormat : '';
+  v.codeFormat = typeof v.codeFormat === 'string' && /^[a-z0-9_]{1,20}$/.test(v.codeFormat) ? v.codeFormat : '';
   v.bonNr = text(v.bonNr, 12);
-  v.bonDatum = /^\d{4}-\d{2}-\d{2}$/.test(String(v.bonDatum || '')) ? v.bonDatum : '';
+  v.bonDatum = typeof v.bonDatum === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v.bonDatum) ? v.bonDatum : '';
   v.notiz = text(v.notiz, 80);
   const e = Number(v.eingeloest);
   v.eingeloest = Number.isFinite(e) && e > 0 ? Math.round(e) : 0;
@@ -1132,7 +1133,9 @@ function raeumeAufgebrauchteAuf() {
         if (!w || !Array.isArray(w.vouchers) || !users[user] || profileOf(user).autoAufraeumen === false) continue;
         const weg = w.vouchers.filter(v => v && v.id && aufgebrauchtWeg(v));
         if (!weg.length) continue;
-        archiviere(user, weg, `aufgebraucht, nach ${AUFGEBRAUCHT_TAGE} Tagen entfernt`);
+        // Im Papierkorb steht, warum: Gutscheine aufgebraucht, Pfandbons eingeloest
+        archiviere(user, weg.filter(v => v.art !== 'pfand'), `aufgebraucht, nach ${AUFGEBRAUCHT_TAGE} Tagen entfernt`);
+        archiviere(user, weg.filter(v => v.art === 'pfand'), `eingelöst, nach ${AUFGEBRAUCHT_TAGE} Tagen entfernt`);
         for (const v of weg) statistikMerken(w, v);
         const ids = new Set(weg.map(v => v.id));
         w.vouchers = w.vouchers.filter(v => v && !ids.has(v.id));
