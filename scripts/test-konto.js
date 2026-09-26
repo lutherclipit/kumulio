@@ -81,6 +81,17 @@ S.vereinigeWallet('tina', { vouchers: [{ id: 'alt', vendor: 'REWE', amount: 10, 
 const wieder = S.wallets.tina.vouchers.find(v => v && v.id === 'alt');
 pruefe('nach dem Aufraeumen aufgeladen -> wieder da (25 EUR)', !!wieder && wieder.balance === 25 && wieder.wiederbelebt > 0);
 pruefe('Index meldet ihn mit neuem Anlegedatum', S.walletIndex(S.wallets.tina).v.find(r => r[0] === 'alt')[4] >= n);
+// Pfandbons: eingeloeste nach 30 Tagen weg, im Papierkorb als "eingeloest"
+// (nicht "aufgebraucht"), offene bleiben
+S.users.pia = { hash: 'x', salt: 'y', email: 'pia@example.com', ts: n };
+S.wallets.pia = { vouchers: [
+  { id: 'pfalt', art: 'pfand', vendor: 'Lidl', amount: 6.25, balance: null, eingeloest: n - 40 * tag, added: n - 60 * tag, mt: n - 40 * tag, tx: [], filiale: {} },
+  { id: 'pfoffen', art: 'pfand', vendor: 'EDEKA', amount: 13.47, balance: null, eingeloest: 0, added: n - 400 * tag, mt: n - 400 * tag, tx: [], filiale: {} },
+], cards: [], deleted: [] };
+pruefe('eingeloester Pfandbon aufgeraeumt', S.raeumeAufgebrauchteAuf() === 1 && S.wallets.pia.vouchers.map(v => v.id).join() === 'pfoffen');
+S.archivFlush();
+const korbPia = fs.readdirSync(path.join(DIR, 'archiv')).map(f => fs.readFileSync(path.join(DIR, 'archiv', f), 'utf8')).join('');
+pruefe('Papierkorb: Pfandbon "eingelöst, nach 30 Tagen entfernt"', korbPia.includes('"pfalt"') && korbPia.includes('eingelöst, nach 30 Tagen entfernt'));
 Date.now = echtesJetzt;
 
 fs.rmSync(DIR, { recursive: true, force: true });

@@ -742,6 +742,7 @@ function waehleFassung(a, o) {
 // Fehlendes gilt nie als geloescht — geloescht wird nur per Loeschmarker.
 // Was dabei aus der Wallet faellt, kommt in den Papierkorb.
 function vereinigeWallet(user, inc) {
+  (inc.vouchers || []).forEach(v => { if (v && v.art === 'pfand') pfandFelderSaeubern(v); });
   (inc.vouchers || []).forEach(bilderAblegen);
   (inc.cards || []).forEach(bilderAblegen);
   // Geht die Uhr eines Handys weit vor, gewaenne es sonst jeden Konflikt
@@ -868,6 +869,54 @@ function rabattFelderSaeubern(v) {
   v.amount = null;
   v.balance = null;
   v.tx = [];
+  return v;
+}
+// ---- Pfandbons (art: 'pfand'): gelten nur in der Filiale, in der man sie
+// bekommen hat. Der Wert steht in amount, balance bleibt null — so zaehlt ein
+// Pfandbon nirgends zum Wallet-Guthaben oder Rang (auch nicht bei einem alten
+// Geraet, das "pfand" noch nicht kennt). Eingeloest ist ein Zeitstempel.
+// Alles, was vom Geraet kommt, wird hier in Form gebracht: Typen, Laengen,
+// Wertebereiche. Unbekannte Filial-Felder fallen weg.
+function pfandFelderSaeubern(v) {
+  // Nur Text und Zahlen — ein Objekt oder eine Liste wird leer statt "[object Object]"
+  const text = (x, n) => (typeof x === 'string' || typeof x === 'number' ? String(x) : '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n);
+  const zahl = (x, min, max) => {
+    const n = Number(x);
+    return (typeof x !== 'number' && typeof x !== 'string') || String(x).trim() === '' || !Number.isFinite(n) || n < min || n > max ? null : n;
+  };
+  const betrag = zahl(v.amount, 0.01, 1000);
+  v.art = 'pfand';
+  v.vendor = text(v.vendor, 30);
+  v.amount = betrag == null ? null : Math.round(betrag * 100) / 100;
+  v.balance = null;
+  v.pin = '';
+  v.end = '';
+  v.tx = [];
+  v.code = text(v.code, 80);
+  v.codeFormat = typeof v.codeFormat === 'string' && /^[a-z0-9_]{1,20}$/.test(v.codeFormat) ? v.codeFormat : '';
+  v.bonNr = text(v.bonNr, 12);
+  v.bonDatum = typeof v.bonDatum === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v.bonDatum) ? v.bonDatum : '';
+  v.notiz = text(v.notiz, 80);
+  const e = Number(v.eingeloest);
+  v.eingeloest = Number.isFinite(e) && e > 0 ? Math.round(e) : 0;
+  const f = v.filiale && typeof v.filiale === 'object' ? v.filiale : {};
+  const lat = zahl(f.lat, -90, 90), lng = zahl(f.lng, -180, 180);
+  const genau = zahl(f.genau, 0, 100000);
+  const filiale = {
+    name: text(f.name, 40),
+    strasse: text(f.strasse, 60),
+    plz: /^\d{5}$/.test(String(f.plz || '')) ? String(f.plz) : '',
+    ort: text(f.ort, 40),
+  };
+  // Standort nur als Paar, auf gut einen Meter gerundet
+  if (lat != null && lng != null) {
+    filiale.lat = Math.round(lat * 1e5) / 1e5;
+    filiale.lng = Math.round(lng * 1e5) / 1e5;
+    if (genau != null) filiale.genau = Math.round(genau);
+  }
+  v.filiale = filiale;
+  // Rabattcode-Felder gehoeren nicht an einen Pfandbon
+  delete v.rabatt; delete v.rabattArt; delete v.mbw;
   return v;
 }
 
@@ -1045,12 +1094,20 @@ function letzteBewegung(v) {
   return m;
 }
 function aufgebrauchtWeg(v, jetzt = Date.now()) {
+  // Eingeloeste Pfandbons sind wie aufgebrauchte Gutscheine: 30 Tage nach dem
+  // Einloesen (oder der letzten Aenderung) raeumt das Konto sie weg
+  if (v && v.art === 'pfand') {
+    return Number(v.eingeloest) > 0
+      && Math.max(Number(v.eingeloest) || 0, Number(v.mt) || 0, letzteBewegung(v), AUFRAEUMEN_AB) < jetzt - AUFGEBRAUCHT_TAGE * 86400e3;
+  }
   return !!v && v.balance != null && v.balance <= 0
     && Math.max(letzteBewegung(v), AUFRAEUMEN_AB) < jetzt - AUFGEBRAUCHT_TAGE * 86400e3;
 }
 // Was ein aufgeraeumter Gutschein zur Statistik beigetragen hat, bleibt als
 // Monatssumme erhalten (Analyse "Rein und raus")
 function statistikMerken(w, v) {
+  // Pfand und Rabattcodes sind kein Guthaben — sie gehoeren nicht in "Rein und raus"
+  if (v && (v.art === 'pfand' || v.art === 'rabatt')) return;
   const st = w.statistik || (w.statistik = {});
   const monat = ts => { const d = new Date(ts); return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0'); };
   const dazu = (ts, rein, raus) => {
@@ -1076,7 +1133,9 @@ function raeumeAufgebrauchteAuf() {
         if (!w || !Array.isArray(w.vouchers) || !users[user] || profileOf(user).autoAufraeumen === false) continue;
         const weg = w.vouchers.filter(v => v && v.id && aufgebrauchtWeg(v));
         if (!weg.length) continue;
-        archiviere(user, weg, `aufgebraucht, nach ${AUFGEBRAUCHT_TAGE} Tagen entfernt`);
+        // Im Papierkorb steht, warum: Gutscheine aufgebraucht, Pfandbons eingeloest
+        archiviere(user, weg.filter(v => v.art !== 'pfand'), `aufgebraucht, nach ${AUFGEBRAUCHT_TAGE} Tagen entfernt`);
+        archiviere(user, weg.filter(v => v.art === 'pfand'), `eingelöst, nach ${AUFGEBRAUCHT_TAGE} Tagen entfernt`);
         for (const v of weg) statistikMerken(w, v);
         const ids = new Set(weg.map(v => v.id));
         w.vouchers = w.vouchers.filter(v => v && !ids.has(v.id));
@@ -1235,13 +1294,13 @@ function namensfarbe(user) {
 
 // Rang-Stufe 1..7 nach dem Wallet-Guthaben — genau wie im Client (RANKS,
 // rankFor und rangGuthaben in app.js): Restguthaben aller Gutscheine ohne
-// Rabattcodes, auf den Cent gerundet; Stufe N beginnt beim N-ten Betrag (in
+// Rabattcodes und Pfandbons, auf den Cent gerundet; Stufe N beginnt beim N-ten Betrag (in
 // Cent: "ueber 10 €" heisst ab 10,01 €). Nach aussen geht nur diese Zahl
 // (Farbe fremder Profile), nie das Guthaben.
 const RANG_AB_CENT = [0, 1001, 5001, 15001, 30001, 60001, 100001];
 function rangStufe(user) {
   const vs = (wallets[user] && wallets[user].vouchers) || [];
-  const aktiv = vs.filter(v => v && v.art !== 'rabatt' && (v.balance == null || v.balance > 0));
+  const aktiv = vs.filter(v => v && v.art !== 'rabatt' && v.art !== 'pfand' && (v.balance == null || v.balance > 0));
   const total = Math.round(aktiv.reduce((s, v) => s + (Number(v.balance) || 0), 0) * 100) / 100;
   const cent = Math.round(total * 100);
   let stufe = 1;
@@ -4029,6 +4088,9 @@ const server = http.createServer(async (req, res) => {
       // die Fassung vom Geraet (waehleFassung veraendert keine der beiden)
       const kontoV = idx >= 0 ? w.vouchers[idx] : null;
       const kandidat = kontoV && vomGeraet ? waehleFassung(vomGeraet, kontoV) : (kontoV || vomGeraet);
+      // Pfandbons gelten nur in ihrer Filiale und liegen als Papier beim
+      // Besitzer — verschenken geht nicht
+      if (kontoV?.art === 'pfand' || vomGeraet?.art === 'pfand') return send(res, 400, { error: 'Pfandbons kann man nicht verschenken.' });
       // Rabattcode ist, was in einer der beiden Fassungen einer ist
       const rabatt = kontoV?.art === 'rabatt' || vomGeraet?.art === 'rabatt';
       if (rabatt) {
@@ -4969,7 +5031,7 @@ if (process.env.RA_TEST) {
     // fuer scripts/test-wallet.js
     bilderAufraeumen, bildDateien, bildAblegen, vereinigeWallet, archiviere, archivFlush, wallets, gifts, walletIndex, waehleFassung,
     totpCode, totpPruefen, base32, base32Lesen, ersatzcodeEinloesen, neueErsatzcodes, aufgebrauchtWeg, raeumeAufgebrauchteAuf, drossel,
-    zuVieleFehler, fehlerMerken, statistikMerken, AUFRAEUMEN_AB,
+    zuVieleFehler, fehlerMerken, statistikMerken, AUFRAEUMEN_AB, pfandFelderSaeubern, rangStufe,
     // Burger-King-PDF (scripts/test-wallet.js)
     bkSeiteLesen, bkDatumLesen, pdfSeitenBilder, bkPruefen, bkOeffentlich };
 } else {

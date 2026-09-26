@@ -169,6 +169,63 @@ const alt = datei => { const t = new Date(Date.now() - 5 * 86400e3); fs.utimesSy
   pruefe('Zweites Auspacken bucht nichts doppelt',
     a.status === 200 && a.j.claimed.length === 0 && S.wallets.otto.vouchers.filter(v => v.giftOrigId === 'rc1').length === 1);
 
+  // --- Pfandbons (art 'pfand'): kommen an, werden gesaeubert, zaehlen nicht
+  // zum Rang, lassen sich nicht verschenken, eingeloest nach 30 Tagen weg
+  const pf1 = {
+    id: 'pf1', art: 'pfand', vendor: 'EDEKA', amount: '13.47', balance: 13.47, pin: '1234', code: ' 2015593271335000975 ',
+    codeFormat: 'code_128', bonNr: '71335', bonDatum: '2023-07-08', tx: [{ id: 'x', amt: -1, ts: 1 }], added: T, mt: T,
+    rabatt: 5, notiz: 'n'.repeat(200), eingeloest: 0,
+    filiale: { name: 'Prandzioch', strasse: 'Harleshäuserstr. 64', plz: '34130', ort: 'Kassel', lat: 51.3312345678, lng: 9.4523456789, genau: 18.7, boese: '<script>' },
+  };
+  S.vereinigeWallet('nora', { vouchers: [pf1], cards: [], deleted: [] });
+  const p1 = () => S.wallets.nora.vouchers.find(v => v.id === 'pf1');
+  pruefe('Pfand: kommt an und bleibt Pfand', !!p1() && p1().art === 'pfand' && p1().vendor === 'EDEKA');
+  pruefe('Pfand: Wert in amount, nie Guthaben, keine PIN, keine Buchungen',
+    p1().amount === 13.47 && p1().balance === null && p1().pin === '' && Array.isArray(p1().tx) && p1().tx.length === 0 && !('rabatt' in p1()));
+  pruefe('Pfand: Filiale gesaeubert (Felder, Standort gerundet, nichts Fremdes)',
+    p1().filiale.plz === '34130' && p1().filiale.ort === 'Kassel' && p1().filiale.lat === 51.33123 && p1().filiale.lng === 9.45235
+    && p1().filiale.genau === 19 && !('boese' in p1().filiale));
+  pruefe('Pfand: Code ohne Rand, Format, Bon-Nr., Datum, Notiz gekuerzt',
+    p1().code === '2015593271335000975' && p1().codeFormat === 'code_128' && p1().bonNr === '71335' && p1().bonDatum === '2023-07-08' && p1().notiz.length === 80);
+  S.vereinigeWallet('nora', { vouchers: [{ ...pf1, id: 'pf2', amount: -5, bonDatum: '08.07.2023', codeFormat: 'Code 128!', eingeloest: 'x',
+    filiale: { plz: '3413', ort: 42, lat: 200, lng: 9 } }], cards: [], deleted: [] });
+  const p2 = S.wallets.nora.vouchers.find(v => v.id === 'pf2');
+  pruefe('Pfand: Unsinn wird leer statt uebernommen (Betrag, Datum, Format, PLZ, Standort)',
+    p2.amount === null && p2.bonDatum === '' && p2.codeFormat === '' && p2.eingeloest === 0 && p2.filiale.plz === '' && p2.filiale.ort === '42'
+    && !('lat' in p2.filiale) && !('lng' in p2.filiale));
+  // Falsche Typen und Riesen-Texte: Objekte/Listen werden leer statt "[object
+  // Object]", alles gekuerzt; HTML bleibt Text (die App gibt es nur escaped aus)
+  S.vereinigeWallet('nora', { vouchers: [{ id: 'pf3', art: 'pfand', vendor: '<img src=x onerror=alert(1)>' + 'X'.repeat(5000), amount: 5,
+    bonNr: { a: 1 }, notiz: ['x'], code: 'C'.repeat(10000), codeFormat: ['code_128'], filiale: 'Berlin', added: T, mt: T },
+  { id: 'pf4', art: 'pfand', vendor: 'Lidl', amount: 2, added: T, mt: T,
+    filiale: { name: { x: 1 }, strasse: 'S'.repeat(100000), plz: 34130, ort: ['Kassel'], lat: '52.5', lng: [13] } }], cards: [], deleted: [] });
+  const p3 = S.wallets.nora.vouchers.find(v => v.id === 'pf3'), p4 = S.wallets.nora.vouchers.find(v => v.id === 'pf4');
+  pruefe('Pfand: Objekte/Listen leer, Riesen-Texte gekuerzt, Filiale als Text wird leer',
+    p3.bonNr === '' && p3.notiz === '' && p3.codeFormat === '' && p3.vendor.length === 30 && p3.vendor.startsWith('<img') && p3.code.length === 80
+    && p3.filiale.ort === '' && p3.filiale.strasse === ''
+    && p4.filiale.name === '' && p4.filiale.strasse.length === 60 && p4.filiale.plz === '34130' && p4.filiale.ort === '' && !('lat' in p4.filiale));
+  // Rang: nur Gutscheine zaehlen — 60 € Pfand machen niemanden zum Profi
+  S.vereinigeWallet('pia', { vouchers: [{ id: 'g9', vendor: 'dm', amount: 5, balance: 5, tx: [], added: T },
+    { id: 'pf9', art: 'pfand', vendor: 'Lidl', amount: 60, balance: 60, tx: [], added: T, filiale: {} }], cards: [], deleted: [] });
+  pruefe('Pfand zaehlt nicht zum Rang', S.rangStufe('pia') === 1);
+  S.vereinigeWallet('pia', { vouchers: [{ id: 'g10', vendor: 'dm', amount: 20, balance: 20, tx: [], added: T }], cards: [], deleted: [] });
+  pruefe('Gutscheine zaehlen weiter zum Rang', S.rangStufe('pia') === 2);
+  // Verschenken: geht nicht, der Bon bleibt
+  a = await api('tokNora', '/api/gift/send', { to: 'otto', id: 'pf1', voucher: pf1 });
+  pruefe('Pfandbon verschenken wird abgelehnt und bleibt', a.status === 400 && !!p1());
+  // Eingeloest: 30 Tage nach dem Einloesen raeumt das Konto auf ("heute" liegt
+  // dafuer nach der Anlauf-Frist AUFRAEUMEN_AB), offene Bons nie; die
+  // Statistik ("Rein und raus") bleibt unberuehrt
+  const tag = 86400e3, heute = S.AUFRAEUMEN_AB + 90 * tag;
+  const pfAlt = { ...p1(), eingeloest: heute - 40 * tag, mt: heute - 40 * tag, added: heute - 60 * tag };
+  pruefe('Eingeloester Pfandbon nach 30 Tagen faellig', S.aufgebrauchtWeg(pfAlt, heute));
+  pruefe('Vor 5 Tagen eingeloest: bleibt', !S.aufgebrauchtWeg({ ...pfAlt, eingeloest: heute - 5 * tag }, heute));
+  pruefe('Offener Pfandbon wird nie aufgeraeumt', !S.aufgebrauchtWeg({ ...pfAlt, eingeloest: 0 }, heute));
+  pruefe('Wieder geaendert (mt jung): bleibt', !S.aufgebrauchtWeg({ ...pfAlt, mt: heute - 2 * tag }, heute));
+  const stW = {};
+  S.statistikMerken(stW, pfAlt);
+  pruefe('Pfandbon landet nicht in der Statistik', !stW.statistik || !Object.keys(stW.statistik).length);
+
   // --- Burger-King-PDF: Eintrag auf der Seite finden, Datum lesen, Vorschau bauen
   const seite = `<title>Burger King Gutscheine - gültig bis 6. November 2026</title>
     <span class="anchor" id="voucher-57712"></span><div class="voucher-title"><a data-voucher-url="184-57712">King des Monats</a></div>
